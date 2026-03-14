@@ -1,0 +1,740 @@
+'use client';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useUserPreferenceStore } from '@/stores/useUserPreferenceStore';
+import { useDepartmentStore } from '@/stores/useDepartmentStore';
+import { useFinancialProjectStore } from '@/stores/useFinancialProjectStore';
+import { useToast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectOption } from '@/components/ui/select';
+import { SubjectSearch } from './subject-search';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ColumnSettings } from './ColumnSettings';
+import { Plus, Trash2, Calculator, FileText, Save, Send, RotateCcw, CheckCircle, XCircle, Settings, Building, Building2, User } from 'lucide-react';
+import { smartPasteHandler } from '@/lib/paste-handler';
+// TODO: 安装 pinyin-pro 包实现拼音简码支持
+// import { pinyin } from 'pinyin-pro';
+
+interface VoucherEntry {
+  id: string;
+  voucherId: string;
+  date: string;
+  summary: string;
+  subjectCode: string;
+  subjectName: string;
+  deptCode?: string;
+  projectCode?: string;
+  debit: number;
+  credit: number;
+  auxiliary?: {
+    department?: string;
+    project?: string;
+    customer?: string;
+    supplier?: string;
+  };
+}
+
+interface Partner {
+  id: string;
+  code: string;
+  name: string;
+  isCustomer: boolean;
+  isSupplier: boolean;
+}
+
+// 模拟往来单位数据
+const MOCK_PARTNERS: Partner[] = [
+  { id: 'p1', code: 'CUST001', name: '上海科技有限公司', isCustomer: true, isSupplier: false },
+  { id: 'p2', code: 'CUST002', name: '北京商贸有限公司', isCustomer: true, isSupplier: true },
+  { id: 'p3', code: 'SUPP001', name: '深圳电子科技有限公司', isCustomer: false, isSupplier: true },
+  { id: 'p4', code: 'SUPP002', name: '广州建材有限公司', isCustomer: false, isSupplier: true },
+];
+
+export function VoucherEntryGrid() {
+  const {
+    currentEntries,
+    voucherDate,
+    voucherNo,
+    isBalanced,
+    totalDebit,
+    totalCredit,
+    addEntry,
+    updateEntry,
+    removeEntry,
+    updateVoucherDate,
+    saveVoucher,
+    clearVoucher,
+    pasteEntries
+  } = useVoucherStore();
+
+  const { getSmartMatch } = useUserPreferenceStore();
+  const { toast } = useToast();
+  const { departments, searchDepartments } = useDepartmentStore();
+  const { projects, searchProjects } = useFinancialProjectStore();
+
+  // 焦点单元格跟踪
+  const [focusedCell, setFocusedCell] = useState<{ entryId: string; field: string } | null>(null);
+
+  // 辅助函数：更新 entry 的嵌套 auxiliary 字段
+  const updateAuxiliaryField = (entryId: string, field: 'customer' | 'supplier', value: string) => {
+    const entry = currentEntries.find(e => e.id === entryId);
+    if (entry) {
+      updateEntry(entryId, 'auxiliary', {
+        ...(entry.auxiliary || {}),
+        [field]: value
+      });
+    }
+  };
+
+  // 科目搜索下拉显示状态
+  const [showSubjectDropdown, setShowSubjectDropdown] = useState<Record<string, boolean>>({});
+  const [filteredSubjects, setFilteredSubjects] = useState<any[]>([]);
+
+  // 科目输入框 ref，用于定位下拉框
+  const subjectInputRefs = useRef<Record<string, HTMLInputElement>>({});
+
+  // 计算差额
+  const balanceDifference = Math.abs(totalDebit - totalCredit);
+
+  // 准备部门选项
+  const departmentOptions: SelectOption[] = departments.map(d => ({
+    value: d.code,
+    label: d.name,
+    code: d.code
+  }));
+
+  // 准备项目选项
+  const projectOptions: SelectOption[] = projects.map(p => ({
+    value: p.code,
+    label: p.name,
+    code: p.code
+  }));
+
+  // 准备客户选项
+  const customerOptions: SelectOption[] = MOCK_PARTNERS.filter(p => p.isCustomer).map(p => ({
+    value: p.code,
+    label: p.name,
+    code: p.code
+  }));
+
+  // 准备供应商选项
+  const supplierOptions: SelectOption[] = MOCK_PARTNERS.filter(p => p.isSupplier).map(p => ({
+    value: p.code,
+    label: p.name,
+    code: p.code
+  }));
+
+  // 列可见性状态
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('voucher-column-settings');
+    return saved ? JSON.parse(saved) : {
+      summary: true,
+      subjectCode: true,
+      subjectName: true,
+      debit: true,
+      credit: true,
+      deptCode: true,
+      projectCode: true,
+      customerSupplier: true,
+      operation: true
+    };
+  });
+
+  // 切换列可见性
+  const toggleColumnVisibility = (columnId: string) => {
+    const newVisibility = { ...columnVisibility, [columnId]: !columnVisibility[columnId] };
+    setColumnVisibility(newVisibility);
+    // 保存到 localStorage
+    localStorage.setItem('voucher-column-settings', JSON.stringify(newVisibility));
+  };
+
+  // 计算可见列的数量和位置，用于合计行的 colSpan
+  const calculateTotalRowStructure = () => {
+    const visibleColumns = [];
+    let summarySpan = 0;
+    let totalFieldsSpan = 0;
+    let balanceColsBefore = 0;
+
+    // 计算摘要列的连续可见情况
+    if (columnVisibility.summary) summarySpan++;
+    if (columnVisibility.subjectCode) summarySpan++;
+    if (columnVisibility.subjectName) summarySpan++;
+
+    // 计算借贷列之间有多少个可见字段
+    if (columnVisibility.debit) totalFieldsSpan++;
+    if (columnVisibility.credit) totalFieldsSpan++;
+
+    // 计算借贷列之前的部门、项目列
+    if (columnVisibility.deptCode) balanceColsBefore++;
+    if (columnVisibility.projectCode) balanceColsBefore++;
+
+    return {
+      summarySpan,
+      totalFieldsSpan,
+      balanceColsBefore,
+      hasCustomerSupplier: columnVisibility.customerSupplier,
+      hasOperation: columnVisibility.operation
+    };
+  };
+
+  // 处理日期变更
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    updateVoucherDate(e.target.value);
+  };
+
+  // 处理摘要变更 - 触发AI匹配 + 摘要继承
+  const handleSummaryChange = (entryId: string, summary: string, index: number) => {
+    updateEntry(entryId, 'summary', summary);
+
+    // 摘要继承：如果不是第一行且当前摘要为空，预填上一行
+    if (index > 0 && summary === '') {
+      const prevEntry = currentEntries[index - 1];
+      if (prevEntry && prevEntry.summary) {
+        updateEntry(entryId, 'summary', prevEntry.summary);
+      }
+    }
+
+    // 如果摘要不为空，尝试智能匹配
+    if (summary.trim()) {
+      const match = getSmartMatch(summary);
+      if (match && !currentEntries.find(e => e.id === entryId)?.subjectCode) {
+        updateEntry(entryId, 'subjectCode', match.subject);
+        updateEntry(entryId, 'subjectName', match.subjectName);
+      }
+    }
+  };
+
+  // 处理科目编码输入
+  const handleSubjectCodeChange = (entryId: string, code: string) => {
+    updateEntry(entryId, 'subjectCode', code);
+
+    // TODO: 拼音简码支持 - 安装 pinyin-pro 包后实现
+    // if (code.trim() && code.length >= 2) {
+    //   const pinyinCode = code.toUpperCase();
+    //   // 实现拼音搜索
+    // }
+  };
+
+  // 处理科目选择
+  const handleSubjectSelect = (entryId: string, subject: { code: string; name: string }) => {
+    updateEntry(entryId, 'subjectCode', subject.code);
+    updateEntry(entryId, 'subjectName', subject.name);
+    setShowSubjectDropdown(prev => ({ ...prev, [entryId]: false }));
+  };
+
+  // 处理金额输入 - 支持 = 键自动平衡
+  const handleAmountChange = (
+    entryId: string,
+    field: 'debit' | 'credit',
+    value: string
+  ) => {
+    const numValue = parseFloat(value) || 0;
+    updateEntry(entryId, field, numValue);
+  };
+
+  // 处理键盘事件 - 支持 = 键自动平衡
+  const handleAmountKeyDown = (
+    entryId: string,
+    field: 'debit' | 'credit',
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    const inputValue = (e.target as HTMLInputElement).value;
+    const numValue = parseFloat(inputValue) || 0;
+
+    // 按 = 键自动平衡
+    if (e.key === '=' || e.key === 'Enter') {
+      e.preventDefault();
+      const otherField = field === 'debit' ? 'credit' : 'debit';
+      const currentOther = currentEntries.find(ent => ent.id === entryId)?.[otherField] || 0;
+      updateEntry(entryId, otherField, Math.abs(totalDebit - totalCredit + (field === 'debit' ? -numValue : numValue)));
+    }
+  };
+
+  // 处理 Tab 键 - 自动跳到下一个单元格
+  const handleKeyDown = (
+    entryId: string,
+    field: string,
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      // 计算下一个字段
+      const fields = ['summary', 'subjectCode', 'debit', 'credit', 'deptCode', 'projectCode', 'customerCode', 'supplierCode'];
+      const currentIndex = fields.indexOf(field);
+      if (currentIndex < fields.length - 1) {
+        const nextField = fields[currentIndex + 1];
+        const nextInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${nextField}"]`) as HTMLInputElement;
+        nextInput?.focus();
+        nextInput?.select?.();
+      }
+    }
+  };
+
+  // 处理粘贴事件
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    e.preventDefault();
+
+    try {
+      const clipboardData = e.clipboardData;
+      const result = await smartPasteHandler.handlePaste(clipboardData);
+
+      if (result.errors.length > 0) {
+        toast({
+          title: "粘贴失败",
+          description: result.errors.join('\n')
+        });
+        return;
+      }
+
+      if (result.entries.length > 0) {
+        pasteEntries(result.entries);
+        toast({
+          title: "粘贴成功",
+          description: `已添加 ${result.entries.length} 条分录`
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "粘贴失败",
+        description: error instanceof Error ? error.message : "未知错误"
+      });
+    }
+  };
+
+  // 保存凭证
+  const handleSave = () => {
+    try {
+      saveVoucher();
+      toast({
+        title: "操作成功",
+        description: "凭证保存成功"
+      });
+    } catch (error) {
+      toast({
+        title: "保存失败",
+        description: error instanceof Error ? error.message : "未知错误"
+      });
+    }
+  };
+
+  // 清空凭证
+  const handleClear = () => {
+    clearVoucher();
+    toast({
+      title: "操作成功",
+      description: "凭证已清空"
+    });
+  };
+
+  // 处理焦点变化
+  const handleFocus = (entryId: string, field: string) => {
+    setFocusedCell({ entryId, field });
+  };
+
+  const handleBlur = () => {
+    setFocusedCell(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* 分录表格 */}
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>分录明细</CardTitle>
+            <div className="flex gap-2 items-center">
+              {/* 平衡状态显示 */}
+              <Badge variant={isBalanced ? "default" : "destructive"} className="text-sm">
+                {isBalanced ? (
+                  <>
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    平衡
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-3 h-3 mr-1" />
+                    不平衡 (差 ¥{balanceDifference.toFixed(2)}) ⚠️
+                  </>
+                )}
+              </Badge>
+
+              {/* 列设置按钮 */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Settings className="w-4 h-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72" align="end">
+                  <div className="p-4">
+                    <h3 className="font-semibold text-sm mb-3">列显示设置</h3>
+                    <div className="space-y-2">
+                      {[
+                        { id: 'summary', label: '摘要' },
+                        { id: 'subjectCode', label: '科目编码' },
+                        { id: 'subjectName', label: '科目名称' },
+                        { id: 'debit', label: '借方' },
+                        { id: 'credit', label: '贷方' },
+                        { id: 'deptCode', label: '部门' },
+                        { id: 'projectCode', label: '项目' },
+                        { id: 'customerSupplier', label: '往来' },
+                        { id: 'operation', label: '操作' }
+                      ].map((column) => (
+                        <div key={column.id} className="flex items-center justify-between py-2">
+                          <span className="text-sm">{column.label}</span>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={columnVisibility[column.id]}
+                              onChange={() => toggleColumnVisibility(column.id)}
+                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => addEntry()}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                添加
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse voucher-table" onPaste={handlePaste}>
+              <thead>
+                <tr className="border-b bg-slate-50">
+                  {columnVisibility.summary && <th className="text-left p-2 text-sm font-medium">Summary</th>}
+                  {columnVisibility.subjectCode && <th className="text-left p-2 text-sm font-medium">Subject Code</th>}
+                  {columnVisibility.subjectName && <th className="text-left p-2 text-sm font-medium">Subject Name</th>}
+                  {columnVisibility.debit && <th className="text-right p-2 text-sm font-medium">Debit</th>}
+                  {columnVisibility.credit && <th className="text-right p-2 text-sm font-medium">Credit</th>}
+                  {columnVisibility.deptCode && <th className="text-left p-2 text-sm font-medium">Department</th>}
+                  {columnVisibility.projectCode && <th className="text-left p-2 text-sm font-medium">Project</th>}
+                  {columnVisibility.customerSupplier && <th className="text-left p-2 text-sm font-medium">Partner</th>}
+                  {columnVisibility.operation && <th className="text-center p-2 text-sm font-medium">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {currentEntries.map((entry, index) => {
+                  const isFocused = focusedCell?.entryId === entry.id;
+
+                  return (
+                    <tr
+                      key={entry.id}
+                      className={`border-b ${isFocused ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                    >
+                      {/* 摘要 */}
+                      {columnVisibility.summary && (
+                        <td className="p-2">
+                          <Input
+                            data-entry-id={entry.id}
+                            data-field="summary"
+                            value={entry.summary}
+                            onChange={(e) => handleSummaryChange(entry.id, e.target.value, index)}
+                            onFocus={() => handleFocus(entry.id, 'summary')}
+                            onBlur={handleBlur}
+                            onKeyDown={(e) => handleKeyDown(entry.id, 'summary', e)}
+                            placeholder="请输入摘要..."
+                            className={`w-full ${isFocused && focusedCell?.field === 'summary' ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                          />
+                        </td>
+                      )}
+
+                      {/* 科目编码 - 可编辑 */}
+                      {columnVisibility.subjectCode && (
+                        <td className="p-2 relative">
+                          <Input
+                            data-entry-id={entry.id}
+                            data-field="subjectCode"
+                            ref={(el) => { if (el) subjectInputRefs.current[entry.id] = el; }}
+                            value={entry.subjectCode}
+                            onChange={(e) => handleSubjectCodeChange(entry.id, e.target.value)}
+                            onFocus={() => {
+                              handleFocus(entry.id, 'subjectCode');
+                              setShowSubjectDropdown(prev => ({ ...prev, [entry.id]: true }));
+                            }}
+                            onBlur={() => {
+                              setTimeout(() => {
+                                setShowSubjectDropdown(prev => ({ ...prev, [entry.id]: false }));
+                              }, 200);
+                              handleBlur();
+                            }}
+                            onKeyDown={(e) => handleKeyDown(entry.id, 'subjectCode', e)}
+                            placeholder="科目代码"
+                            className={`w-full ${isFocused && focusedCell?.field === 'subjectCode' ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                          />
+
+                          {/* 科目搜索下拉 - 使用 portal 或 absolute 定位避免遮挡 */}
+                          {showSubjectDropdown[entry.id] && (
+                            <div className="absolute left-0 right-0 top-full z-50 mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                              <div className="p-2 border-b">
+                                <input
+                                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md"
+                                  placeholder="搜索科目（支持拼音简码）..."
+                                  autoFocus
+                                />
+                              </div>
+                              <SubjectSearch
+                                value={entry.subjectCode}
+                                onChange={(code, name) => {
+                                  updateEntry(entry.id, 'subjectCode', code);
+                                  updateEntry(entry.id, 'subjectName', name);
+                                }}
+                                onSelect={(code, name) => {
+                                  updateEntry(entry.id, 'subjectCode', code);
+                                  updateEntry(entry.id, 'subjectName', name);
+                                  setShowSubjectDropdown(prev => ({ ...prev, [entry.id]: false }));
+                                }}
+                                placeholder="输入科目代码、名称或拼音简码"
+                              />
+                            </div>
+                          )}
+                        </td>
+                      )}
+
+                      {/* 科目名称 - 只读 */}
+                      {columnVisibility.subjectName && (
+                        <td className="p-2">
+                          <Input
+                            data-entry-id={entry.id}
+                            data-field="subjectName"
+                            value={entry.subjectName}
+                            readOnly
+                            className={`w-full bg-slate-50 ${isFocused && focusedCell?.field === 'subjectName' ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                            placeholder="通过科目编码自动填充"
+                          />
+                        </td>
+                      )}
+
+                      {/* 借方 - 等宽字体右对齐 */}
+                      {columnVisibility.debit && (
+                        <td className="p-2">
+                          <Input
+                            data-entry-id={entry.id}
+                            data-field="debit"
+                            type="number"
+                            value={entry.debit || ''}
+                            onChange={(e) => handleAmountChange(entry.id, 'debit', e.target.value)}
+                            onKeyDown={(e) => handleAmountKeyDown(entry.id, 'debit', e)}
+                            onFocus={() => handleFocus(entry.id, 'debit')}
+                            onBlur={handleBlur}
+                            placeholder="0.00"
+                            className={`w-full text-right font-mono ${isFocused && focusedCell?.field === 'debit' ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                          />
+                        </td>
+                      )}
+
+                      {/* 贷方 - 等宽字体右对齐 */}
+                      {columnVisibility.credit && (
+                        <td className="p-2">
+                          <Input
+                            data-entry-id={entry.id}
+                            data-field="credit"
+                            type="number"
+                            value={entry.credit || ''}
+                          onChange={(e) => handleAmountChange(entry.id, 'credit', e.target.value)}
+                          onKeyDown={(e) => handleAmountKeyDown(entry.id, 'credit', e)}
+                          onFocus={() => handleFocus(entry.id, 'credit')}
+                          onBlur={handleBlur}
+                          placeholder="0.00"
+                          className={
+                            `w-full text-right font-mono ${
+                              isFocused && focusedCell?.field === 'credit'
+                                ? 'border-blue-500 ring-1 ring-blue-500'
+                                : ''
+                            }`
+                          }
+                        />
+                      )}
+
+                      {columnVisibility.deptCode && (
+                        <td className="p-2">
+                          <Select
+                            data-entry-id={entry.id}
+                            data-field="deptCode"
+                            options={departmentOptions}
+                            placeholder="选择部门"
+                            value={entry.deptCode}
+                            onChange={(value) => updateEntry(entry.id, 'deptCode', value)}
+                            className={`w-full ${isFocused && focusedCell?.field === 'deptCode' ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                          />
+                        </td>
+                      )}
+
+                      {/* Project dropdown */}
+                      {columnVisibility.projectCode && (
+                        <td className="p-2">
+                          <Select
+                            data-entry-id={entry.id}
+                            data-field="projectCode"
+                            options={projectOptions}
+                            placeholder="选择项目"
+                            value={entry.projectCode}
+                            onChange={(value) => updateEntry(entry.id, 'projectCode', value)}
+                            className={`w-full ${isFocused && focusedCell?.field === 'projectCode' ? 'border-blue-500 ring-1 ring-blue-500' : ''}`}
+                          />
+                        </td>
+                      )}
+
+                      {columnVisibility.customerSupplier && (
+                        <td className="p-2">
+                          <div className="flex gap-1">
+                            <Select
+                              data-entry-id={entry.id}
+                              data-field="customerCode"
+                              options={customerOptions}
+                              placeholder="客户"
+                              value={entry.auxiliary?.customer}
+                              onChange={(value) => updateAuxiliaryField(entry.id, 'customer', value)}
+                              className="flex-1"
+                            />
+                            <Select
+                              data-entry-id={entry.id}
+                              data-field="supplierCode"
+                              options={supplierOptions}
+                              placeholder="供应商"
+                              value={entry.auxiliary?.supplier}
+                              onChange={(value) => updateAuxiliaryField(entry.id, 'supplier', value)}
+                              className="flex-1"
+                            />
+                          </div>
+                        </td>
+                      )}
+
+                      {columnVisibility.operation && (
+                        <td className="p-2 text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeEntry(entry.id)}
+                            className="text-slate-400 hover:text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+
+                {/* 合计行 - 浅色背景区分 */}
+                <tr className="bg-slate-100 font-semibold">
+                  {/* 摘要等文字列 - 合并 */}
+                  {columnVisibility.summary && columnVisibility.subjectCode && columnVisibility.subjectName ? (
+                    <td colSpan={3} className="p-2 text-left">
+                      Total
+                    </td>
+                  ) : columnVisibility.summary && columnVisibility.subjectCode ? (
+                    <td colSpan={2} className="p-2 text-left">
+                      Total
+                    </td>
+                  ) : columnVisibility.summary ? (
+                    <td colSpan={1} className="p-2 text-left">
+                      Total
+                    </td>
+                  ) : null}
+
+                  {/* 借方金额 */}
+                  {columnVisibility.debit && (
+                    <td className="p-2 text-right font-mono">
+                      {totalDebit.toFixed(2)}
+                    </td>
+                  )}
+
+                  {/* 贷方金额 */}
+                  {columnVisibility.credit && (
+                    <td className="p-2 text-right font-mono">
+                      {totalCredit.toFixed(2)}
+                    </td>
+                  )}
+
+                  {/* 部门、项目列（如果有） */}
+                  {columnVisibility.deptCode && columnVisibility.projectCode ? (
+                    <>
+                      <td className="p-2"></td>
+                      <td className="p-2"></td>
+                    </>
+                  ) : columnVisibility.deptCode ? (
+                    <td className="p-2"></td>
+                  ) : columnVisibility.projectCode ? (
+                    <td className="p-2"></td>
+                  ) : null}
+
+                  {/* 往来列（如果有） */}
+                  {columnVisibility.customerSupplier && (
+                    <td className="p-2"></td>
+                  )}
+
+                  {/* 状态信息 */}
+                  <td
+                    colSpan={
+                      columnVisibility.customerSupplier ? 2 :
+                      columnVisibility.operation ? 1 : 0
+                    }
+                    className="p-2 text-center text-slate-500"
+                  >
+                    {isBalanced ? '✓ Balanced' : `✗ Difference: ¥${balanceDifference.toFixed(2)}`}
+                  </td>
+
+                  {/* 操作列（如果有） */}
+                  {columnVisibility.operation && (
+                    <td className="p-2"></td>
+                  )}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 操作按钮 */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex justify-between items-center">
+            <Button
+              variant="outline"
+              onClick={handleClear}
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              清空
+            </Button>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleSave}
+                disabled={!isBalanced}
+              >
+                <Save className="w-4 h-4 mr-2" />
+                保存草稿
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={!isBalanced}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                提交审核
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

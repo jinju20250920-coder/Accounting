@@ -1,0 +1,46 @@
+[
+  {
+    "id": "tpl001",
+    "name": "房租凭证",
+    "type": "fixed",
+    "description": "每月固定房租",
+    "entries": [
+      {
+        "summary": "付房租",
+        "subjectCode": "1122",
+        "debit": 3000,
+        "credit": 0
+      },
+      {
+        "summary": "付房租",
+        "subjectCode": "1002",
+        "debit": 0,
+        "credit": 3000
+      }
+    ]
+  },
+  {
+    "id": "tpl002",
+    "name": "工资凭证",
+    "type": "ratio",
+    "description": "按部门比例分摊工资",
+    "entries": [
+      {
+        "summary": "计提工资",
+        "subjectCode": "660201",
+        "debit": 10000,
+        "credit": 0,
+        "deptCode": "DEPT01",
+        "ratio": 0.5
+      },
+      {
+        "summary": "计提工资",
+        "subjectCode": "660201",
+        "debit": 10000,
+        "credit": 0,
+        "deptCode": "DEPT02",
+        "ratio": 0.5
+      }
+    ]
+  }
+]

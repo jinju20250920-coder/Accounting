@@ -1,0 +1,285 @@
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import {
+  Save,
+  Copy,
+  PlusCircle,
+  ArrowRight,
+  Monitor,
+  CheckCircle,
+  XCircle,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  Trash2
+} from 'lucide-react'
+import { useVoucherStore } from '@/stores/useVoucherStore'
+import { useToast } from '@/hooks/use-toast'
+import { calculateVoucherStatus } from '@/lib/accounting'
+
+export function VoucherHeader({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
+  const {
+    currentVoucher,
+    saveVoucher,
+    copyVoucher,
+    createVoucher,
+    deleteVoucher,
+    vouchers,
+    setActiveVoucher,
+    updateVoucherDate
+  } = useVoucherStore()
+
+  const { toast } = useToast()
+  const [isSaving, setIsSaving] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Check if voucher is balanced
+  const isBalanced = currentVoucher && currentVoucher.entries.reduce((balance, entry) => {
+    return balance + (entry.debit || 0) - (entry.credit || 0)
+  }, 0) === 0
+
+  // Handle Save & Next
+  const handleSaveAndNext = async () => {
+    if (!currentVoucher) return
+
+    setIsSaving(true)
+    try {
+      await saveVoucher()
+
+      // Create new voucher
+      createVoucher()
+
+      toast({
+        title: "操作成功",
+        description: "凭证已保存并新建下一个",
+      })
+    } catch (error) {
+      toast({
+        title: "保存失败",
+        description: error instanceof Error ? error.message : "未知错误",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Handle Smart Paste
+  const handleSmartPaste = () => {
+    const pasteArea = document.getElementById('voucher-main-content')
+    if (pasteArea) {
+      // Trigger paste event that will be handled by layout
+      const pasteEvent = new Event('paste', { bubbles: true })
+      pasteArea.dispatchEvent(pasteEvent)
+
+      toast({
+        title: "智能粘贴",
+        description: "请在表格中粘贴Excel数据",
+      })
+    }
+  }
+
+  // Handle Delete
+  const handleDelete = async () => {
+    if (!currentVoucher) return
+
+    try {
+      deleteVoucher(currentVoucher.id)
+
+      toast({
+        title: "操作成功",
+        description: "凭证已删除",
+      })
+
+      // 如果还有其他凭证，激活第一个
+      if (vouchers.length > 1) {
+        const otherVouchers = vouchers.filter(v => v.id !== currentVoucher.id)
+        setActiveVoucher(otherVouchers[0].id)
+      } else {
+        // 如果没有其他凭证，创建一个新的
+        createVoucher()
+      }
+    } catch (error) {
+      toast({
+        title: "删除失败",
+        description: error instanceof Error ? error.message : "未知错误",
+      })
+    } finally {
+      setShowDeleteConfirm(false)
+    }
+  }
+
+  // Handle Fullscreen
+  const handleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen()
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
+  // Status display
+  if (!currentVoucher) {
+    return (
+      <Card className="m-6">
+        <CardHeader>
+          <CardTitle className="text-slate-500">请选择或创建凭证</CardTitle>
+        </CardHeader>
+      </Card>
+    )
+  }
+
+  const StatusIcon = currentVoucher.status === 'draft' ? FileText :
+                     currentVoucher.status === 'review' ? CheckCircle :
+                     currentVoucher.status === 'posted' ? CheckCircle :
+                     XCircle
+
+  const statusColor = currentVoucher.status === 'draft' ? 'bg-slate-100 text-slate-700' :
+                      currentVoucher.status === 'review' ? 'bg-yellow-100 text-yellow-700' :
+                      currentVoucher.status === 'posted' ? 'bg-green-100 text-green-700' :
+                      'bg-red-100 text-red-700'
+
+  return (
+    <div className="border-b border-slate-200 bg-white">
+      {/* Breadcrumb */}
+      <div className="px-6 py-3 text-sm text-slate-500">
+        记账凭证 / {currentVoucher.voucherNo}
+      </div>
+
+      {/* Main Header Content */}
+      <div className="px-6 py-4">
+        <div className="flex items-center justify-between">
+          {/* Voucher Info */}
+          <div className="flex-1">
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">
+                  {currentVoucher.voucherNo}
+                </h1>
+                <div className="text-sm text-slate-600 mt-1">
+                  <input
+                    type="date"
+                    value={currentVoucher.date}
+                    onChange={(e) => updateVoucherDate(e.target.value)}
+                    className="bg-transparent border-b border-slate-300 hover:border-slate-500 focus:outline-none focus:border-blue-500 text-sm"
+                    disabled={currentVoucher.status !== 'draft'}
+                  />
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <Badge variant="secondary" className={statusColor}>
+                <StatusIcon className="w-4 h-4 mr-1" />
+                {currentVoucher.status === 'draft' ? '草稿' :
+                 currentVoucher.status === 'review' ? '审核中' :
+                 currentVoucher.status === 'posted' ? '已记账' :
+                 '已冲销'}
+              </Badge>
+
+              {/* Balance Status */}
+              <div className="flex items-center gap-2">
+                {isBalanced ? (
+                  <div className="flex items-center text-green-600">
+                    <CheckCircle className="w-4 h-4 mr-1" />
+                    已平衡
+                  </div>
+                ) : (
+                  <div className="flex items-center text-red-600">
+                    <XCircle className="w-4 h-4 mr-1" />
+                    未平衡
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            {/* Sidebar Toggle */}
+            {onToggleSidebar && (
+              <Button
+                variant="ghost"
+                onClick={onToggleSidebar}
+                size="sm"
+              >
+                <Menu className="w-4 h-4" />
+              </Button>
+            )}
+
+            {/* Smart Paste */}
+            <Button
+              variant="outline"
+              onClick={handleSmartPaste}
+              disabled={currentVoucher.status !== 'draft'}
+              size="sm"
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              智能粘贴
+            </Button>
+
+            {/* Save & Next */}
+            <Button
+              onClick={handleSaveAndNext}
+              disabled={!isBalanced || currentVoucher.status !== 'draft' || isSaving}
+              size="sm"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {isSaving ? '保存中...' : '保存并新建'}
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+
+            {/* Copy Voucher */}
+            <Button
+              variant="outline"
+              onClick={() => copyVoucher(currentVoucher.id)}
+              disabled={currentVoucher.status === 'posted'}
+              size="sm"
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              复制
+            </Button>
+
+            {/* Delete Voucher */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (confirm('确定要删除此凭证吗？')) {
+                  handleDelete()
+                }
+              }}
+              disabled={currentVoucher.status === 'posted'}
+              size="sm"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              删除
+            </Button>
+
+            {/* Fullscreen */}
+            <Button
+              variant="ghost"
+              onClick={handleFullscreen}
+              size="sm"
+            >
+              <Monitor className="w-4 h-4" />
+            </Button>
+
+            {/* New Voucher */}
+            <Button
+              onClick={() => createVoucher()}
+              variant="outline"
+              size="sm"
+            >
+              <PlusCircle className="w-4 h-4 mr-2" />
+              新建
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

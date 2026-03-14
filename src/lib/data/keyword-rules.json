@@ -1,0 +1,121 @@
+[
+  {
+    "id": "rule_001",
+    "keyword": "房租",
+    "subject": "6603",
+    "direction": "debit",
+    "priority": 9
+  },
+  {
+    "id": "rule_002",
+    "keyword": "电费",
+    "subject": "6603",
+    "direction": "debit",
+    "priority": 10
+  },
+  {
+    "id": "rule_003",
+    "keyword": "水费",
+    "subject": "6603",
+    "direction": "debit",
+    "priority": 10
+  },
+  {
+    "id": "rule_004",
+    "keyword": "燃气费",
+    "subject": "6603",
+    "direction": "debit",
+    "priority": 10
+  },
+  {
+    "id": "rule_005",
+    "keyword": "电话费",
+    "subject": "6603",
+    "direction": "debit",
+    "priority": 10
+  },
+  {
+    "id": "rule_006",
+    "keyword": "工资",
+    "subject": "660201",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_007",
+    "keyword": "薪金",
+    "subject": "660201",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_008",
+    "keyword": "薪金",
+    "subject": "660201",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_009",
+    "keyword": "劳务派遣费",
+    "subject": "660201",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_010",
+    "keyword": "利息",
+    "subject": "6603",
+    "direction": "debit",
+    "priority": 8
+  },
+  {
+    "id": "rule_011",
+    "keyword": "增值税",
+    "subject": "222101",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_012",
+    "keyword": "销项税",
+    "subject": "222101",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_013",
+    "keyword": "进项税",
+    "subject": "222101",
+    "direction": "credit",
+    "priority": 10
+  },
+  {
+    "id": "rule_014",
+    "keyword": "手续费",
+    "subject": "660301",
+    "direction": "debit",
+    "priority": 10
+  },
+  {
+    "id": "rule_015",
+    "keyword": "银行手续费",
+    "subject": "660301",
+    "direction": "debit",
+    "priority": 10
+  },
+  {
+    "id": "rule_016",
+    "keyword": "公司A",
+    "subject": "1122",
+    "direction": "debit",
+    "priority": 9
+  },
+  {
+    "id": "rule_017",
+    "keyword": "公司B",
+    "subject": "1122",
+    "direction": "debit",
+    "priority": 9
+  }
+]

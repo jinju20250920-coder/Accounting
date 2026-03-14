@@ -1,0 +1,27 @@
+[
+  {
+    "code": "DEPT001",
+    "name": "销售部",
+    "parentId": null
+  },
+  {
+    "code": "DEPT002",
+    "name": "市场部",
+    "parentId": null
+  },
+  {
+    "code": "DEPT003",
+    "name": "技术部",
+    "parentId": null
+  },
+  {
+    "code": "DEPT004",
+    "name": "财务部",
+    "parentId": null
+  },
+  {
+    "code": "DEPT005",
+    "name": "人力资源部",
+    "parentId": null
+  }
+]
