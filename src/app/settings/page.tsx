@@ -38,10 +38,7 @@ export default function SettingsPage() {
       count: projects.length,
       description: '管理财务项目档案，支持收入、成本、其他类型',
       color: 'bg-purple-500'
-    }
-  ];
-
-  const advancedSettings = [
+    },
     {
       label: '常用摘要库',
       value: 'summaries',
@@ -70,46 +67,8 @@ export default function SettingsPage() {
       {/* 功能卡片 */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">基础档案管理</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
           {stats.map((item) => (
-            <Link
-              key={item.value}
-              href={`/settings/${item.value}`}
-              className="group"
-            >
-              <Card className="h-full transition-all hover:shadow-lg hover:-translate-y-1">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-4">
-                    <div className={`p-3 rounded-lg text-white ${item.color}`}>
-                      {item.icon}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-900 mb-2">
-                        {item.label}
-                      </h3>
-                      <p className="text-sm text-slate-600 mb-4">
-                        {item.description}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">
-                          {item.count} 项
-                        </Badge>
-                        <span className="text-sm text-slate-500">管理</span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* 高级设置 */}
-      <div>
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">高级设置</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {advancedSettings.map((item) => (
             <Link
               key={item.value}
               href={`/settings/${item.value}`}
@@ -147,7 +106,7 @@ export default function SettingsPage() {
       <Card>
         <CardContent className="pt-6">
           <h3 className="text-lg font-semibold mb-4">数据概览</h3>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-6">
             <div className="text-center">
               <p className="text-3xl font-bold text-blue-600">{subjects.length}</p>
               <p className="text-sm text-slate-600">会计科目</p>
@@ -159,6 +118,14 @@ export default function SettingsPage() {
             <div className="text-center">
               <p className="text-3xl font-bold text-purple-600">{projects.length}</p>
               <p className="text-sm text-slate-600">财务项目</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-orange-600">{commonSummaries.length}</p>
+              <p className="text-sm text-slate-600">常用摘要</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-cyan-600">{templates.length}</p>
+              <p className="text-sm text-slate-600">凭证模版</p>
             </div>
           </div>
         </CardContent>

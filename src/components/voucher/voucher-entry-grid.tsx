@@ -601,7 +601,8 @@ export function VoucherEntryGrid() {
   // 入账操作
   const handlePostToLedger = () => {
     try {
-      addToLedger();
+      // 传入 useSubjectStore 的科目数据，确保验证时使用统一数据源
+      addToLedger(subjects);
       toast({
         title: "操作成功",
         description: "凭证已成功入账到记账表"
@@ -1271,69 +1272,131 @@ export function VoucherEntryGrid() {
                 <FileSpreadsheet className="w-4 h-4 mr-2" />
                 入账
               </Button>
-              <Dialog open={showLedgerDialog} onOpenChange={setShowLedgerDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline">
-                    <Database className="w-4 h-4 mr-2" />
-                    查看记账表
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-5xl max-h-[80vh] overflow-hidden flex flex-col">
-                  <DialogHeader>
-                    <DialogTitle>已入账记录</DialogTitle>
-                  </DialogHeader>
-                  <div className="flex-1 overflow-auto">
-                    {ledgerEntries.length === 0 ? (
-                      <div className="text-center py-8 text-slate-500">
-                        暂无已入账记录
-                      </div>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 sticky top-0">
-                          <tr>
-                            <th className="text-left p-2 border-b">凭证号</th>
-                            <th className="text-left p-2 border-b">入账日期</th>
-                            <th className="text-left p-2 border-b">摘要</th>
-                            <th className="text-left p-2 border-b">科目代码</th>
-                            <th className="text-left p-2 border-b">科目名称</th>
-                            <th className="text-right p-2 border-b">借方金额</th>
-                            <th className="text-right p-2 border-b">贷方金额</th>
-                            <th className="text-left p-2 border-b">部门</th>
-                            <th className="text-left p-2 border-b">项目</th>
-                            <th className="text-left p-2 border-b">入账时间</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ledgerEntries.map((entry) => (
-                            <tr key={entry.id} className="hover:bg-slate-50">
-                              <td className="p-2 border-b">{entry.voucherNo}</td>
-                              <td className="p-2 border-b">{entry.entryDate}</td>
-                              <td className="p-2 border-b">{entry.summary}</td>
-                              <td className="p-2 border-b font-mono">{entry.subjectCode}</td>
-                              <td className="p-2 border-b">{entry.subjectName}</td>
-                              <td className="p-2 border-b text-right">
-                                {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
-                              </td>
-                              <td className="p-2 border-b text-right">
-                                {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
-                              </td>
-                              <td className="p-2 border-b">{entry.deptCode || ''}</td>
-                              <td className="p-2 border-b">{entry.projectCode || ''}</td>
-                              <td className="p-2 border-b text-slate-500 text-xs">
-                                {new Date(entry.entryTime).toLocaleString('zh-CN')}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* 记账表查看区域 */}
+      <Card className="mt-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">记账表</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex justify-between items-center mb-4">
+            <p className="text-sm text-slate-500">
+              已入账记录：<span className="font-semibold text-slate-700">{ledgerEntries.length}</span> 条
+            </p>
+            <Button
+              variant="default"
+              onClick={() => setShowLedgerDialog(true)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Database className="w-4 h-4 mr-2" />
+              查看全部
+            </Button>
+          </div>
+
+          {/* 简要显示最近几条记录 */}
+          {ledgerEntries.length > 0 ? (
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="text-left p-2 border-b">凭证号</th>
+                    <th className="text-left p-2 border-b">摘要</th>
+                    <th className="text-left p-2 border-b">科目</th>
+                    <th className="text-right p-2 border-b">借方</th>
+                    <th className="text-right p-2 border-b">贷方</th>
+                    <th className="text-left p-2 border-b">入账时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerEntries.slice(-5).reverse().map((entry) => (
+                    <tr key={entry.id} className="hover:bg-slate-50">
+                      <td className="p-2 border-b">{entry.voucherNo}</td>
+                      <td className="p-2 border-b truncate max-w-[200px]">{entry.summary}</td>
+                      <td className="p-2 border-b">
+                        <span className="font-mono text-xs">{entry.subjectCode}</span> {entry.subjectName}
+                      </td>
+                      <td className="p-2 border-b text-right">
+                        {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
+                      </td>
+                      <td className="p-2 border-b text-right">
+                        {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
+                      </td>
+                      <td className="p-2 border-b text-slate-500 text-xs">
+                        {new Date(entry.entryTime).toLocaleDateString('zh-CN')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
+              <Database className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+              <p className="text-base">暂无已入账记录</p>
+              <p className="text-sm mt-1">完成凭证录入后，点击"入账"按钮添加记录</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 查看全部记账表的 Dialog */}
+      <Dialog open={showLedgerDialog} onOpenChange={setShowLedgerDialog}>
+        <DialogContent className="max-w-5xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>已入账记录（共 {ledgerEntries.length} 条）</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            {ledgerEntries.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                暂无已入账记录
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="text-left p-2 border-b">凭证号</th>
+                    <th className="text-left p-2 border-b">入账日期</th>
+                    <th className="text-left p-2 border-b">摘要</th>
+                    <th className="text-left p-2 border-b">科目代码</th>
+                    <th className="text-left p-2 border-b">科目名称</th>
+                    <th className="text-right p-2 border-b">借方金额</th>
+                    <th className="text-right p-2 border-b">贷方金额</th>
+                    <th className="text-left p-2 border-b">部门</th>
+                    <th className="text-left p-2 border-b">项目</th>
+                    <th className="text-left p-2 border-b">入账时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerEntries.slice().reverse().map((entry) => (
+                    <tr key={entry.id} className="hover:bg-slate-50">
+                      <td className="p-2 border-b">{entry.voucherNo}</td>
+                      <td className="p-2 border-b">{entry.entryDate}</td>
+                      <td className="p-2 border-b">{entry.summary}</td>
+                      <td className="p-2 border-b font-mono">{entry.subjectCode}</td>
+                      <td className="p-2 border-b">{entry.subjectName}</td>
+                      <td className="p-2 border-b text-right">
+                        {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
+                      </td>
+                      <td className="p-2 border-b text-right">
+                        {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
+                      </td>
+                      <td className="p-2 border-b">{entry.deptCode || ''}</td>
+                      <td className="p-2 border-b">{entry.projectCode || ''}</td>
+                      <td className="p-2 border-b text-slate-500 text-xs">
+                        {new Date(entry.entryTime).toLocaleString('zh-CN')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

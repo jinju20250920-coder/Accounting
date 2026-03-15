@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
+  Home,
   FileText,
   Calculator,
   FileSpreadsheet,
@@ -16,12 +17,17 @@ import {
   ChevronDown,
   ChevronRight,
   FolderKanban,
+  List,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
 const menuItems = [
-  { icon: FileText, label: '记账凭证', path: '/voucher-entry-page' },
+  { icon: Home, label: '首页', path: '/' },
+  { icon: FolderKanban, label: '凭证', path: '/voucher-entry-page', children: [
+    { label: '新增凭证', path: '/voucher-entry-page' },
+    { label: '查看凭证', path: '/voucher-list' },
+  ]},
   { icon: Calculator, label: '科目余额', path: '/balance' },
   { icon: FileSpreadsheet, label: '报表查询', path: '/reports', children: [
     { label: '资产负债表', path: '/reports/assets' },
@@ -41,6 +47,8 @@ const menuItems = [
     { label: '项目管理', path: '/settings/projects' },
     { label: '往来单位管理', path: '/settings/auxiliary' },
     { label: '币别管理', path: '/settings/currencies' },
+    { label: '常用摘要库', path: '/settings/summaries' },
+    { label: '凭证模版', path: '/settings/templates' },
   ]},
 ];
 

@@ -99,7 +99,15 @@
       "Bash(python:*)",
       "Bash(tasklist:*)",
       "Bash(taskkill:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(git commit:*)",
+      "Bash(find src:*)",
+      "Bash(grep:*)",
+      "Bash(node:*)",
+      "Bash(git checkout:*)",
+      "Bash(netstat:*)",
+      "Bash(powershell -Command \"Stop-Process -Id 135444 -Force\")",
+      "Bash(xargs -r taskkill //F //PID)"
     ]
   }
 }

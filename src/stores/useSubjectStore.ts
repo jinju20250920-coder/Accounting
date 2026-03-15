@@ -130,8 +130,10 @@ export const useSubjectStore = create<SubjectStore>()(
           // 继承父科目的部分属性
           enableDept: parentSubject?.enableDept || false,
           enableProject: parentSubject?.enableProject || false,
-          isAR: parentSubject?.isAR || false,
-          isAP: parentSubject?.isAP || false,
+          isCustomer: (subject as any).isCustomer || parentSubject?.isCustomer || false,
+          isSupplier: (subject as any).isSupplier || parentSubject?.isSupplier || false,
+          isEmployee: (subject as any).isEmployee || false,
+          enableCashFlow: (subject as any).enableCashFlow || false,
         };
 
         console.log('准备添加的新科目:', newSubject);
@@ -383,7 +385,11 @@ export const useSubjectStore = create<SubjectStore>()(
             block: false, // 初始化为未冻结
             enableForeign: subject.enableForeign || false,
             foreignCurrency: subject.foreignCurrency || '',
-            subjectType: subject.subjectType || subjectType
+            subjectType: subject.subjectType || subjectType,
+            isCustomer: subject.isCustomer || (subject.code.startsWith('1122') || subject.code.startsWith('1121')), // 应收账款相关科目
+            isSupplier: subject.isSupplier || (subject.code.startsWith('2202') || subject.code.startsWith('2201')), // 应付账款相关科目
+            isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
+            enableCashFlow: subject.enableCashFlow || false,
           };
         });
         set({
@@ -461,7 +467,11 @@ export const useSubjectStore = create<SubjectStore>()(
             block: false, // 初始化为未冻结
             enableForeign: subject.enableForeign || false,
             foreignCurrency: subject.foreignCurrency || '',
-            subjectType: subject.subjectType || subjectType
+            subjectType: subject.subjectType || subjectType,
+            isCustomer: subject.isCustomer || (subject.code.startsWith('1122') || subject.code.startsWith('1121')), // 应收账款相关科目
+            isSupplier: subject.isSupplier || (subject.code.startsWith('2202') || subject.code.startsWith('2201')), // 应付账款相关科目
+            isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
+            enableCashFlow: subject.enableCashFlow || false,
           };
         });
 

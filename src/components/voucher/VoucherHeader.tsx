@@ -31,7 +31,8 @@ export function VoucherHeader() {
     deleteVoucher,
     vouchers,
     setActiveVoucher,
-    updateVoucherDate
+    updateVoucherDate,
+    currentEntries
   } = useVoucherStore()
 
   const { addTemplate } = useVoucherTemplateStore()
@@ -48,11 +49,27 @@ export function VoucherHeader() {
     if (!currentVoucher) return
 
     try {
+      // 只保存有实际数据的分录（科目代码不为空或金额不为0的分录）
+      const validEntries = currentEntries.filter(entry =>
+        entry.subjectCode ||
+        entry.subjectName ||
+        entry.debit !== 0 ||
+        entry.credit !== 0
+      )
+
+      if (validEntries.length === 0) {
+        toast({
+          title: "保存失败",
+          description: "没有有效的分录数据，无法保存为模版"
+        })
+        return
+      }
+
       addTemplate({
         name: templateName.trim() || `模版_${currentVoucher.voucherNo}`,
         description: templateDescription.trim(),
         voucherType: currentVoucher.voucherType,
-        entries: currentVoucher.entries.map(entry => ({
+        entries: validEntries.map(entry => ({
           id: entry.id,
           summary: entry.summary,
           subjectCode: entry.subjectCode,
@@ -60,7 +77,12 @@ export function VoucherHeader() {
           deptCode: entry.deptCode,
           projectCode: entry.projectCode,
           debit: entry.debit || 0,
-          credit: entry.credit || 0
+          credit: entry.credit || 0,
+          currencyCode: (entry as any).currencyCode || '',
+          currencyName: (entry as any).currencyName || '',
+          cashFlowItem: (entry as any).cashFlowItem || '',
+          customerName: (entry as any).customerName || '',
+          supplierName: (entry as any).supplierName || ''
         }))
       })
 

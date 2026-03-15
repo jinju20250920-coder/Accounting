@@ -27,8 +27,10 @@ export interface Subject {
   enableProject: boolean;
   enableForeign: boolean;
   foreignCurrency?: string;
-  isAR: boolean;
-  isAP: boolean;
+  isCustomer: boolean; // 客户核算（原应收）
+  isSupplier: boolean; // 供应商核算（原应付）
+  isEmployee: boolean; // 雇员核算
+  enableCashFlow: boolean; // 现金流量核算
   disabled: boolean;
   block: boolean; // 冻结状态
   subjectType?: 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss'; // 科目类型
@@ -59,6 +61,11 @@ export interface VoucherEntry {
   projectCode?: string;
   debit: number;
   credit: number;
+  currencyCode?: string; // 币别代码
+  currencyName?: string; // 币别名称
+  cashFlowItem?: string; // 现金流量项目
+  customerName?: string; // 客户名称
+  supplierName?: string; // 供应商名称
 }
 
 // 科目余额
@@ -376,4 +383,9 @@ export interface VoucherTemplateEntry {
   projectCode?: string;
   debit: number;
   credit: number;
+  currencyCode?: string; // 币别代码
+  currencyName?: string; // 币别名称
+  cashFlowItem?: string; // 现金流量项目
+  customerName?: string; // 客户名称
+  supplierName?: string; // 供应商名称
 }

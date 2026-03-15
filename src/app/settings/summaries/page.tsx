@@ -2,25 +2,32 @@
 
 import { useState } from 'react';
 import { useSummaryStore } from '@/stores';
-import { Plus, Trash2, Edit2, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Edit2, GripVertical, Download, Upload, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
 
 export default function SummariesSettingsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingSummary, setEditingSummary] = useState<string | null>(null);
   const [newSummaryText, setNewSummaryText] = useState('');
   const [editingText, setEditingText] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const {
     commonSummaries,
     addCommonSummary,
     updateCommonSummary,
     deleteCommonSummary,
-    clearRecentSummaries
+    clearRecentSummaries,
+    importSummariesFromExcel,
+    exportSummariesToExcel
   } = useSummaryStore();
 
   const handleAddSummary = () => {
@@ -47,6 +54,61 @@ export default function SummariesSettingsPage() {
   const handleCancelEdit = () => {
     setEditingSummary(null);
     setEditingText('');
+  };
+
+  // 导出常用摘要
+  const handleExport = () => {
+    const data = exportSummariesToExcel();
+    if (data.length === 0) {
+      return;
+    }
+    exportToExcel(
+      data,
+      '常用摘要库',
+      [
+        { key: '摘要内容', label: '摘要内容' },
+        { key: '排序', label: '排序' }
+      ]
+    );
+  };
+
+  // 下载导入模板
+  const handleDownloadTemplate = () => {
+    const templateData = [{
+      摘要内容: '报销差旅费',
+      排序: 1
+    }];
+    exportToExcel(templateData, '常用摘要导入模板');
+  };
+
+  // 处理文件选择
+  const handleImportFile = (file: File | null) => {
+    setImportFile(file);
+    setImportResult(null);
+  };
+
+  // 执行导入
+  const handleImport = async () => {
+    if (!importFile) return;
+
+    setIsImporting(true);
+    try {
+      const headers = [
+        { key: '摘要内容', label: '摘要内容', required: true }
+      ] as const;
+
+      const data = await importFromExcel<{ 摘要内容: string }>(importFile, headers as any);
+      const result = importSummariesFromExcel(data);
+      setImportResult(result);
+    } catch (error) {
+      setImportResult({
+        success: 0,
+        failed: 1,
+        errors: [error instanceof Error ? error.message : '导入失败，请检查文件格式']
+      });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -89,6 +151,91 @@ export default function SummariesSettingsPage() {
                 </Button>
                 <Button onClick={handleAddSummary} disabled={!newSummaryText.trim()}>
                   确定
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Button variant="outline" onClick={handleExport} disabled={commonSummaries.length === 0}>
+          <Download className="w-4 h-4 mr-2" />
+          导出所有
+        </Button>
+
+        <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline">
+              <Upload className="w-4 h-4 mr-2" />
+              导入Excel
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>导入常用摘要</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="summaryFile" className="text-sm font-medium text-slate-700">
+                  选择Excel文件
+                </label>
+                <Input
+                  id="summaryFile"
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={(e) => handleImportFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+                {importFile && (
+                  <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <FileText className="w-4 h-4" />
+                    {importFile.name}
+                  </div>
+                )}
+              </div>
+
+              <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+                <Download className="w-4 h-4 mr-2" />
+                下载导入模板
+              </Button>
+
+              {importResult && (
+                <div className={`p-4 rounded-lg ${importResult.success > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className={`w-4 h-4 ${importResult.success > 0 ? 'text-green-600' : 'text-red-600'}`} />
+                    <span className={`font-medium ${importResult.success > 0 ? 'text-green-800' : 'text-red-800'}`}>
+                      导入结果
+                    </span>
+                  </div>
+                  <div className="text-sm space-y-1">
+                    <p>成功：{importResult.success} 条</p>
+                    <p>失败：{importResult.failed} 条</p>
+                    {importResult.errors.length > 0 && (
+                      <div className="mt-2">
+                        <p className="font-medium">错误详情：</p>
+                        <ul className="list-disc list-inside text-xs space-y-1">
+                          {importResult.errors.slice(0, 5).map((error, i) => (
+                            <li key={i}>{error}</li>
+                          ))}
+                          {importResult.errors.length > 5 && (
+                            <li>...还有 {importResult.errors.length - 5} 条错误</li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => {
+                  setIsImportDialogOpen(false);
+                  setImportFile(null);
+                  setImportResult(null);
+                }}>
+                  关闭
+                </Button>
+                <Button onClick={handleImport} disabled={!importFile || isImporting}>
+                  {isImporting ? '导入中...' : '导入'}
                 </Button>
               </div>
             </div>

@@ -19,8 +19,11 @@ interface Subject {
   enableDept: boolean;
   enableProject: boolean;
   enableForeign: boolean;
-  isAR: boolean;
-  isAP: boolean;
+  isCustomer: boolean; // 客户核算（原应收）
+  isSupplier: boolean; // 供应商核算（原应付）
+  isEmployee: boolean; // 雇员核算
+  enableCashFlow: boolean; // 现金流量核算
+  cashFlowItem?: string; // 现金流量项目
   disabled: boolean;
   children?: Subject[];
 }
@@ -240,6 +243,19 @@ export function SmartSubjectSelector({
         } else if (filteredSubjects.length === 1) {
           // 如果只有一个匹配结果，直接选中
           handleSelect(filteredSubjects[0]);
+        } else if (searchText.trim()) {
+          // 检查输入的科目代码是否存在于科目列表中
+          const matchedSubject = subjects.find(s => s.code === searchText.trim());
+          if (matchedSubject) {
+            handleSelect(matchedSubject);
+          } else {
+            // 如果科目不存在，直接使用搜索文本作为科目代码
+            onSelect(searchText.trim(), '', undefined);
+            setOpen(false);
+            setActiveIndex(-1);
+            setIsEditing(false);
+            setSearchText('');
+          }
         }
         break;
       case 'Escape':
@@ -248,7 +264,7 @@ export function SmartSubjectSelector({
         setActiveIndex(-1);
         break;
     }
-  }, [filteredSubjects, activeIndex, handleSelect]);
+  }, [filteredSubjects, activeIndex, handleSelect, searchText, onSelect, subjects]);
 
   // 科目列表内容
   const subjectList = (
@@ -375,8 +391,19 @@ export function SmartSubjectSelector({
           handleKeyDown(e);
         }}
         onBlur={() => {
-          // 失去焦点时，如果没有选中值，退出编辑模式
-          // 不立即清除，让用户有时间点击下拉项
+          // 失去焦点时，如果有搜索文本但没有选中科目，尝试直接使用搜索文本
+          if (searchText.trim()) {
+            const matchedSubject = subjects.find(s => s.code === searchText.trim());
+            if (matchedSubject) {
+              handleSelect(matchedSubject);
+            } else if (!filteredSubjects.some(s => s.code === searchText.trim())) {
+              onSelect(searchText.trim(), '', undefined);
+              setIsEditing(false);
+              setSearchText('');
+            }
+          }
+          setOpen(false);
+          setActiveIndex(-1);
         }}
         className="w-full pr-16 pt-3"
         style={{ height: '56px', borderRadius: 0 }}

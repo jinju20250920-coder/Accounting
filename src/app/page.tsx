@@ -1,504 +1,526 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import React, { useState, useEffect } from 'react';
 import {
-  Plus, Save, FileText, Upload, Search, Download, Printer,
-  Calculator, TrendingUp, Users, Building2, RefreshCw, Settings,
-  Plus as PlusIcon,
-  Minus as MinusIcon,
-  CheckCircle,
-  Lightbulb,
-  Database
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Legend
+} from 'recharts';
+import {
+  Zap,
+  AlertTriangle,
+  Clock,
+  Activity,
+  Target,
+  TrendingUp,
+  Building2,
+  FileText,
+  Home,
+  Plus,
+  List,
+  Search,
+  Printer,
+  Download,
+  Calendar,
+  Eye
 } from 'lucide-react';
-import { SubjectSearch } from '@/components/voucher/subject-search';
-import { VoucherEntryGrid } from '@/components/voucher/voucher-entry-grid';
-import { useUserPreferenceStore } from '@/stores';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectOption as SelectOptionType } from '@/components/ui/select';
 import { useVoucherStore } from '@/stores/useVoucherStore';
-import { aiLearningEngine } from '@/lib/ai-learning';
-import { generateVoucherNo, getSubjects } from '@/lib/accounting';
 
-// 获取科目数据
-function getSubjectsData() {
-  return getSubjects();
-}
+// 模拟数据生成器
+const generateMockData = () => {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+  const actualRevenue = [85, 92, 88, 95, 102, 110];
+  const actualExpenses = [65, 70, 68, 75, 80, 85];
+  const forecastRevenue = [115, 120, 125, 130, 135, 140];
+  const forecastExpenses = [90, 92, 95, 98, 100, 102];
 
-export default function VoucherPage() {
-  const { getLedgerEntries, ledgerEntries } = useVoucherStore();
-  const [showLedgerDialog, setShowLedgerDialog] = useState(false);
-  const [voucherDate, setVoucherDate] = useState(new Date().toISOString().split('T')[0]);
-  const [voucherNo, setVoucherNo] = useState('记-001');
-  const [summary, setSummary] = useState('');
-  const [entries, setEntries] = useState([
-    {
-      id: '1',
-      subjectCode: '',
-      subjectName: '',
-      debit: 0,
-      credit: 0,
-      aiRecommendation: null as null | {
-        subject: string;
-        subjectName: string;
-        confidence: number;
-        source: string;
-      }
-    },
-    {
-      id: '2',
-      subjectCode: '',
-      subjectName: '',
-      debit: 0,
-      credit: 0,
-      aiRecommendation: null
-    },
-  ]);
+  return months.map((month, i) => ({
+    month,
+    revenue: actualRevenue[i],
+    expenses: actualExpenses[i],
+    forecastRevenue: forecastRevenue[i],
+    forecastExpenses: forecastExpenses[i]
+  }));
+};
 
-  // AI学习相关
-  const [isLearningEnabled, setIsLearningEnabled] = useState(true);
-  const store = useUserPreferenceStore();
-  const preferences = store.preferences;
-  const subjects = getSubjectsData();
+export default function Dashboard() {
+  const [data, setData] = useState<any[]>([]);
+  const { ledgerEntries, vouchers } = useVoucherStore();
+  const [showVoucherDialog, setShowVoucherDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
-  // 当摘要改变时，自动填充后续行的摘要
   useEffect(() => {
-    if (summary && entries.length > 0) {
-      setEntries(prev => prev.map((entry, index) => {
-        if (index === 0) return entry; // 第一行保持用户输入
-        return { ...entry, summary };
-      }));
+    // 模拟从 IndexedDB 获取数据
+    const mockData = generateMockData();
+    setData(mockData);
+  }, []);
+
+  // 计算关键指标
+  const cashOnHand = 1240500;
+  const revenue = 89400;
+  const netPosition = 450200; // AR - AP
+  const burnRate = 0.65; // 本月支出进度
+
+  // 智能通知
+  const notifications = [
+    {
+      id: 1,
+      title: 'Anomalies Detected',
+      description: '3 vouchers need review',
+      severity: 'high' as const,
+      action: 'Review Now'
+    },
+    {
+      id: 2,
+      title: 'Auto-Mapping Learned',
+      description: 'New matching rules created',
+      severity: 'medium' as const,
+      action: 'View Rules'
+    },
+    {
+      id: 3,
+      title: 'Upcoming Payment',
+      description: 'Vendor A due tomorrow',
+      severity: 'low' as const,
+      action: 'Process'
     }
-  }, [summary]);
+  ];
 
-  const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
-  const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+  // 账龄分析数据
+  const agingData = [
+    { category: '0-30d', current: 85, overdue: 15 },
+    { category: '31-60d', current: 75, overdue: 25 },
+    { category: '61-90d', current: 60, overdue: 40 },
+    { category: '>90d', current: 40, overdue: 60 }
+  ];
 
-  const addEntry = () => {
-    setEntries([...entries, {
-      id: Date.now().toString(),
-      subjectCode: '',
-      subjectName: '',
-      debit: 0,
-      credit: 0,
-      aiRecommendation: null,
-    }]);
-  };
-
-  const removeEntry = (id: string) => {
-    if (entries.length > 1) {
-      setEntries(entries.filter(e => e.id !== id));
-    }
-  };
-
-  const updateEntry = (id: string, field: string, value: any) => {
-    setEntries(entries.map(e => {
-      const updatedEntry = { ...e, [field]: value };
-
-      // 如果更新了科目代码，检查是否需要记录AI学习
-      if (field === 'subjectCode' && isLearningEnabled) {
-        const entryIndex = entries.findIndex(entry => entry.id === id);
-        if (entryIndex === 0) { // 只记录第一行的选择
-          // 获取AI推荐
-          const aiRecommendation = aiLearningEngine.getSmartRecommendation({
-            partnerName: '',
-            summary: summary || '摘要',
-            amount: updatedEntry.debit || updatedEntry.credit || 0
-          });
-
-          // 如果用户选择了不同的科目，记录学习
-          if (aiRecommendation && updatedEntry.subjectCode !== aiRecommendation.subject) {
-            aiLearningEngine.recordAction(
-              {
-                partnerName: '',
-                summary: summary || '摘要',
-                amount: updatedEntry.debit || updatedEntry.credit || 0
-              },
-              {
-                subject: updatedEntry.subjectCode
-              },
-              {
-                userBehavior: 'modify',
-                inputMethod: 'manual',
-                originalSubject: aiRecommendation.subject
-              }
-            );
-          }
-        }
-      }
-
-      return updatedEntry;
-    }));
-  };
-
-  const autoBalanceCredit = () => {
-    const diff = totalDebit - totalCredit;
-    setEntries(entries.map((e, index) => {
-      if (index === entries.length - 1) {
-        return { ...e, credit: diff > 0 ? diff : 0 };
-      }
-      return e;
-    }));
-  };
-
-  // AI设置对话框
-  const AILearningSettings = () => (
-    <Dialog>
-      <DialogTrigger>
-        <Button variant="outline" size="sm">
-          <Settings className="h-4 w-4 mr-1" />
-          AI设置
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>AI学习设置</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">启用科目学习</p>
-              <p className="text-sm text-slate-500">记录您的科目选择习惯</p>
-            </div>
-            <Button
-              variant={isLearningEnabled ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setIsLearningEnabled(!isLearningEnabled)}
-            >
-              {isLearningEnabled ? '已启用' : '已禁用'}
-            </Button>
-          </div>
-
-          <div className="border-t pt-4">
-            <h4 className="font-medium mb-2">学习统计</h4>
-            <div className="text-sm text-slate-600 space-y-1">
-              <p>已记录偏好: {preferences.length} 条</p>
-              <p>推荐准确率: {Math.round((preferences.filter(p => p.matchedCount > 0).length / Math.max(1, preferences.length)) * 100)}%</p>
-            </div>
-          </div>
-
-          <div className="border-t pt-4">
-            <h4 className="font-medium mb-2">最近学习记录</h4>
-            <div className="max-h-40 overflow-y-auto space-y-1">
-              {preferences.slice(0, 5).map((pref, index) => (
-                <div key={index} className="text-xs p-2 bg-slate-50 rounded">
-                  <span className="font-medium">{pref.subject}</span> - {pref.summary}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+  // 过滤凭证列表
+  const filteredVouchers = vouchers.filter(v => {
+    const matchesSearch = !searchQuery ||
+      v.voucherNo.includes(searchQuery) ||
+      v.summary.includes(searchQuery);
+    const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* AI状态栏 */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs">
-            AI学习 {isLearningEnabled ? '✓' : '✗'}
-          </Badge>
-          <Badge variant="outline" className="text-xs">
-            已学习: {preferences.length} 条
-          </Badge>
-        </div>
-        <AILearningSettings />
-      </div>
-      {/* 标题栏 */}
-      <div className="mb-6 flex items-center justify-between">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* 页面标题 */}
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">记账凭证</h1>
-          <p className="text-slate-600 mt-1">录入会计凭证</p>
+          <h1 className="text-2xl font-bold text-slate-900">AI Powered Dashboard</h1>
+          <p className="text-slate-500 mt-1">Real-time financial intelligence</p>
         </div>
-        <div className="flex items-center gap-4">
-          <Badge variant="outline">2026年3月</Badge>
-          <Badge variant={isBalanced ? 'default' : 'destructive'}>
-            {isBalanced ? '平衡 ✓' : '不平衡 ⚠️'}
-          </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="px-3 py-1">MTD</Badge>
+          <Badge variant="outline" className="px-3 py-1">Mar 2026</Badge>
         </div>
       </div>
 
-      {/* 凭证信息 */}
-      <Card className="mb-6">
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <CardTitle>凭证信息</CardTitle>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm">
-                <FileText className="h-4 w-4 mr-1" />
-                保存模板
-              </Button>
-              <Button size="sm">
-                <Save className="h-4 w-4 mr-1" />
-                保存凭证
-              </Button>
+      {/* 顶层核心卡片 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* 现金余额 */}
+        <Card className="border-slate-200 hover:border-blue-300 transition-colors">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-500">CASH ON HAND</p>
+                <h3 className="text-2xl font-bold text-slate-900 mt-2">
+                  ${cashOnHand.toLocaleString()}
+                </h3>
+                <p className="text-sm text-green-600 mt-1">+12%</p>
+              </div>
+              <div className="p-3 bg-blue-50 rounded-full">
+                <FileText className="w-6 h-6 text-blue-600" />
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-12 gap-4">
-            <div className="col-span-4">
-              <label className="text-sm font-medium text-slate-700">凭证日期</label>
-              <Input
-                value={voucherDate}
-                onChange={(e) => setVoucherDate(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div className="col-span-4">
-              <label className="text-sm font-medium text-slate-700">凭证字号</label>
-              <Input
-                value={voucherNo}
-                onChange={(e) => setVoucherNo(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div className="col-span-4">
-              <label className="text-sm font-medium text-slate-700">摘要</label>
-              <Input
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                placeholder="输入凭证摘要"
-                className="mt-1"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* 凭证分录网格 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>凭证分录</CardTitle>
-          <CardDescription>录入凭证分录，Tab键快速导航</CardDescription>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-600">
-              共 {entries.length} 行分录
+        {/* 净头寸 */}
+        <Card className="border-slate-200 hover:border-purple-300 transition-colors">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-500">NET POSITION (AR-AP)</p>
+                <h3 className="text-2xl font-bold text-slate-900 mt-2">
+                  ${netPosition.toLocaleString()}
+                </h3>
+                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                  <div
+                    className="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full"
+                    style={{ width: `${Math.min(100, netPosition / 5000)}%` }}
+                  ></div>
+                </div>
+              </div>
+              <div className="p-3 bg-purple-50 rounded-full">
+                <Activity className="w-6 h-6 text-purple-600" />
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={addEntry}>
-                <PlusIcon className="h-4 w-4 mr-1" />
-                新增行
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border-b">
-                    摘要
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border-b">
-                    科目代码
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border-b">
-                    科目名称
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border-b">
-                    借方金额
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border-b">
-                    贷方金额
-                  </th>
-                  <th className="px-4 py-2 text-center text-sm font-medium text-slate-700 border-b">
-                    操作
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry, index) => (
-                  <tr key={entry.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2 border-b">
-                      <Input
-                        value={summary || ''}
-                        onChange={(e) => {}}
-                        placeholder="摘要"
-                        className="w-full text-xs"
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b">
-                      <div className="relative">
-                        <div className="h-8 text-xs">
-                          <SubjectSearch
-                            value={entry.subjectCode}
-                            onSelect={(code, name) => {
-                              updateEntry(entry.id, 'subjectCode', code);
-                              updateEntry(entry.id, 'subjectName', name);
-                            }}
-                            placeholder="输入科目代码或名称"
-                          />
-                        </div>
-                        {entry.aiRecommendation && (
-                          <div className="absolute top-full left-0 right-0 mt-1 p-1 bg-green-50 rounded border border-green-200 text-xs">
-                            <div className="flex items-center gap-1 text-green-700">
-                              <Lightbulb className="h-3 w-3" />
-                              <span>AI推荐: {entry.aiRecommendation.subjectName}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {Math.round(entry.aiRecommendation.confidence * 100)}%
-                              </Badge>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2 border-b">
-                      <span className="text-xs text-slate-600">
-                        {entry.subjectName || '请输入科目代码'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 border-b">
-                      <Input
-                        type="number"
-                        value={entry.debit}
-                        onChange={(e) => updateEntry(entry.id, 'debit', parseFloat(e.target.value) || 0)}
-                        placeholder="0.00"
-                        className="w-full text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b">
-                      <Input
-                        type="number"
-                        value={entry.credit}
-                        onChange={(e) => updateEntry(entry.id, 'credit', parseFloat(e.target.value) || 0)}
-                        placeholder="0.00"
-                        className="w-full text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b text-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 p-0 text-red-500 hover:bg-red-50"
-                        onClick={() => removeEntry(entry.id)}
-                      >
-                        <MinusIcon className="h-3 w-3" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-100">
-                  <td colSpan={3} className="px-4 py-2 text-sm font-medium text-slate-700">
-                    合计
-                  </td>
-                  <td className="px-4 py-2 text-sm font-medium text-slate-700 text-right">
-                    {totalDebit.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
-                  </td>
-                  <td className="px-4 py-2 text-sm font-medium text-slate-700 text-right">
-                    {totalCredit.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {Math.abs(totalDebit - totalCredit).toLocaleString('zh-CN', {
-                      style: 'currency',
-                      currency: 'CNY',
-                      minimumFractionDigits: 2
-                    })}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* 快捷操作 */}
-          <div className="mt-4 flex items-center justify-between">
-            <div className="flex gap-2">
-              {isBalanced ? null : (
+        {/* 本月收入 */}
+        <Card className="border-slate-200 hover:border-green-300 transition-colors">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-500">MTD REVENUE</p>
+                <h3 className="text-2xl font-bold text-slate-900 mt-2">
+                  ${revenue.toLocaleString()}
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">Compared to $89,400</p>
+              </div>
+              <div className="p-3 bg-green-50 rounded-full">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 燃烧率 */}
+        <Card className="border-slate-200 hover:border-orange-300 transition-colors">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-500">BURN RATE</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  Showing of current month's spending pace
+                </p>
+                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                  <div
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 h-2 rounded-full"
+                    style={{ width: `${burnRate * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+              <div className="p-3 bg-orange-50 rounded-full">
+                <Clock className="w-6 h-6 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 中间智能对撞区 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 现金流预测 */}
+        <Card className="lg:col-span-2 border-slate-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-slate-900">
+              Cash Flow Forecast
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data}>
+                  <defs>
+                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorForecastRevenue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorForecastExpenses" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="month" stroke="#64748b" />
+                  <YAxis stroke="#64748b" tickFormatter={(value) => `$${value}K`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0' }}
+                    labelStyle={{ color: '#64748b' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorRevenue)"
+                    name="Revenue"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="expenses"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorExpenses)"
+                    name="Expenses"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="forecastRevenue"
+                    stroke="#6366f1"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    fillOpacity={1}
+                    fill="url(#colorForecastRevenue)"
+                    name="AI Prediction (Revenue)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="forecastExpenses"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    fillOpacity={1}
+                    fill="url(#colorForecastExpenses)"
+                    name="AI Prediction (Expenses)"
+                  />
+                  <Legend />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 智能通知 */}
+        <Card className="bg-slate-900 text-white border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-white">
+              Intelligence Feed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {notifications.map((notification) => (
+              <div key={notification.id} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">{notification.title}</h4>
+                  <Badge
+                    variant={
+                      notification.severity === 'high' ? 'destructive' :
+                      notification.severity === 'medium' ? 'secondary' : 'default'
+                    }
+                    className="text-xs"
+                  >
+                    {notification.severity}
+                  </Badge>
+                </div>
+                <p className="text-sm text-slate-300">{notification.description}</p>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  onClick={autoBalanceCredit}
+                  className="text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
                 >
-                  <Search className="h-4 w-4 mr-1" />
-                  自动平衡
+                  {notification.action}
                 </Button>
-              )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 底部深度分析与入口 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 账龄分析 */}
+        <Card className="lg:col-span-2 border-slate-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-slate-900">
+              AR Aging Analysis
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={agingData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="category" stroke="#64748b" />
+                  <YAxis stroke="#64748b" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0' }}
+                    labelStyle={{ color: '#64748b' }}
+                  />
+                  <Legend />
+                  <Bar dataKey="current" name="Current" fill="#3b82f6" />
+                  <Bar dataKey="overdue" name="Overdue" fill="#ef4444" />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-            <div className="flex gap-2">
+          </CardContent>
+        </Card>
+
+        {/* 快速操作 */}
+        <Card className="border-slate-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-slate-900">
+              Quick Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              className="w-full bg-blue-600 hover:bg-blue-700"
+              onClick={() => window.location.href = '/voucher-entry-page'}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Smart Entry
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setShowVoucherDialog(true)}
+            >
+              <List className="w-4 h-4 mr-2" />
+              View Vouchers
+            </Button>
+            <Button variant="outline" className="w-full">
+              <Building2 className="w-4 h-4 mr-2" />
+              Aging Analysis
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 查看凭证对话框 */}
+      <Dialog open={showVoucherDialog} onOpenChange={setShowVoucherDialog}>
+        <DialogContent className="max-w-5xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>查看凭证</DialogTitle>
+          </DialogHeader>
+
+          {/* 筛选栏 */}
+          <div className="flex flex-wrap gap-4 p-4 border-b">
+            <div className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="搜索凭证号或摘要"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-64"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={selectedStatus}
+                onChange={setSelectedStatus}
+                options={[
+                  { value: 'all', label: '全部状态' },
+                  { value: 'draft', label: '草稿' },
+                  { value: 'review', label: '审核中' },
+                  { value: 'posted', label: '已记账' },
+                  { value: 'reversed', label: '已冲销' }
+                ]}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-slate-400" />
+              <Input
+                type="date"
+                placeholder="开始日期"
+                value={dateRange.start}
+                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              />
+              <span className="text-slate-400">至</span>
+              <Input
+                type="date"
+                placeholder="结束日期"
+                value={dateRange.end}
+                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              />
+            </div>
+            <div className="ml-auto flex gap-2">
               <Button variant="outline" size="sm">
-                <Upload className="h-4 w-4 mr-1" />
-                导入流水
+                <Printer className="w-4 h-4 mr-2" />
+                打印
               </Button>
               <Button variant="outline" size="sm">
-                <FileText className="h-4 w-4 mr-1" />
-                凭证模板
+                <Download className="w-4 h-4 mr-2" />
+                导出
               </Button>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4" />
-                导出Excel
-              </Button>
-              <Dialog open={showLedgerDialog} onOpenChange={setShowLedgerDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Database className="h-4 w-4 mr-1" />
-                    查看记账表
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-5xl max-h-[80vh] overflow-hidden flex flex-col">
-                  <DialogHeader>
-                    <DialogTitle>已入账记录</DialogTitle>
-                  </DialogHeader>
-                  <div className="flex-1 overflow-auto">
-                    {ledgerEntries.length === 0 ? (
-                      <div className="text-center py-8 text-slate-500">
-                        暂无已入账记录
-                      </div>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 sticky top-0">
-                          <tr>
-                            <th className="text-left p-2 border-b">凭证号</th>
-                            <th className="text-left p-2 border-b">入账日期</th>
-                            <th className="text-left p-2 border-b">摘要</th>
-                            <th className="text-left p-2 border-b">科目代码</th>
-                            <th className="text-left p-2 border-b">科目名称</th>
-                            <th className="text-right p-2 border-b">借方金额</th>
-                            <th className="text-right p-2 border-b">贷方金额</th>
-                            <th className="text-left p-2 border-b">部门</th>
-                            <th className="text-left p-2 border-b">项目</th>
-                            <th className="text-left p-2 border-b">入账时间</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ledgerEntries.map((entry) => (
-                            <tr key={entry.id} className="hover:bg-slate-50">
-                              <td className="p-2 border-b">{entry.voucherNo}</td>
-                              <td className="p-2 border-b">{entry.entryDate}</td>
-                              <td className="p-2 border-b">{entry.summary}</td>
-                              <td className="p-2 border-b font-mono">{entry.subjectCode}</td>
-                              <td className="p-2 border-b">{entry.subjectName}</td>
-                              <td className="p-2 border-b text-right">
-                                {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
-                              </td>
-                              <td className="p-2 border-b text-right">
-                                {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
-                              </td>
-                              <td className="p-2 border-b">{entry.deptCode || ''}</td>
-                              <td className="p-2 border-b">{entry.projectCode || ''}</td>
-                              <td className="p-2 border-b text-slate-500 text-xs">
-                                {new Date(entry.entryTime).toLocaleString('zh-CN')}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* 凭证列表 */}
+          <div className="flex-1 overflow-auto">
+            {filteredVouchers.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <List className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                <p className="text-base">暂无凭证记录</p>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="text-left p-3 border-b">凭证号</th>
+                    <th className="text-left p-3 border-b">日期</th>
+                    <th className="text-left p-3 border-b">摘要</th>
+                    <th className="text-left p-3 border-b">状态</th>
+                    <th className="text-right p-3 border-b">借方合计</th>
+                    <th className="text-right p-3 border-b">贷方合计</th>
+                    <th className="text-center p-3 border-b">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredVouchers.slice().reverse().map((voucher) => {
+                    const debitTotal = voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
+                    const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+
+                    const statusColors = {
+                      draft: 'bg-slate-100 text-slate-700',
+                      review: 'bg-yellow-100 text-yellow-700',
+                      posted: 'bg-green-100 text-green-700',
+                      reversed: 'bg-red-100 text-red-700'
+                    };
+
+                    const statusLabels = {
+                      draft: '草稿',
+                      review: '审核中',
+                      posted: '已记账',
+                      reversed: '已冲销'
+                    };
+
+                    return (
+                      <tr key={voucher.id} className="hover:bg-slate-50">
+                        <td className="p-3 border-b font-mono">{voucher.voucherNo}</td>
+                        <td className="p-3 border-b">{voucher.date}</td>
+                        <td className="p-3 border-b truncate max-w-xs">{voucher.summary}</td>
+                        <td className="p-3 border-b">
+                          <Badge className={statusColors[voucher.status as keyof typeof statusColors]}>
+                            {statusLabels[voucher.status as keyof typeof statusLabels]}
+                          </Badge>
+                        </td>
+                        <td className="p-3 border-b text-right font-mono">{debitTotal.toFixed(2)}</td>
+                        <td className="p-3 border-b text-right font-mono">{creditTotal.toFixed(2)}</td>
+                        <td className="p-3 border-b text-center">
+                          <Button variant="ghost" size="sm">
+                            <Eye className="w-4 h-4 mr-1" />
+                            查看
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

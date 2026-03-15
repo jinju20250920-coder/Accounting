@@ -21,6 +21,10 @@ interface VoucherTemplateStore {
   exportTemplates: () => string;
   importTemplates: (data: string) => boolean;
   exportTemplateToJSON: (id: string) => string;
+
+  // Excel 导入导出
+  importTemplatesFromExcel: (data: any[]) => { success: number; failed: number; errors: string[] };
+  exportTemplatesToExcel: () => any[];
 }
 
 export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
@@ -123,6 +127,126 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
         exportTime: new Date().toISOString(),
         template
       }, null, 2);
+    },
+
+    // Excel 导入凭证模版
+    importTemplatesFromExcel: (data: any[]) => {
+      const errors: string[] = [];
+      let success = 0;
+      let failed = 0;
+
+      const newTemplates: VoucherFullTemplate[] = [];
+
+      // 按模版分组处理
+      const templateMap = new Map<string, any[]>();
+      data.forEach((row, index) => {
+        const templateName = row['模版名称'];
+        if (!templateName) {
+          failed++;
+          errors.push(`第${index + 2}行：模版名称不能为空`);
+          return;
+        }
+
+        if (!templateMap.has(templateName)) {
+          templateMap.set(templateName, []);
+        }
+        templateMap.get(templateName)?.push({ row, index });
+      });
+
+      // 处理每个模版
+      templateMap.forEach((templateRows, templateName) => {
+        const templateDescription = templateRows[0].row['模版描述'];
+        const voucherType = templateRows[0].row['凭证类型'];
+
+        const entries: VoucherTemplateEntry[] = [];
+        let hasValidEntries = false;
+
+        templateRows.forEach(({ row, index }) => {
+          const subjectCode = row['科目代码'];
+          const subjectName = row['科目名称'];
+          const debit = Number(row['借方']);
+          const credit = Number(row['贷方']);
+
+          if (subjectCode || subjectName) {
+            const entry: VoucherTemplateEntry = {
+              id: `entry_${Date.now()}_${index}`,
+              subjectCode: subjectCode || '',
+              subjectName: subjectName || '',
+              debit: !isNaN(debit) ? debit : 0,
+              credit: !isNaN(credit) ? credit : 0,
+              deptCode: row['部门代码'] || '',
+              projectCode: row['项目代码'] || '',
+              summary: row['摘要'] || '',
+              currencyCode: row['币别代码'] || '',
+              currencyName: row['币别名称'] || '',
+              cashFlowItem: row['现金流量项目'] || '',
+              customerName: row['客户名称'] || '',
+              supplierName: row['供应商名称'] || ''
+            };
+
+            entries.push(entry);
+            hasValidEntries = true;
+          }
+        });
+
+        if (hasValidEntries) {
+          const newTemplate: VoucherFullTemplate = {
+            id: Date.now().toString() + '_' + templateName,
+            name: templateName,
+            description: templateDescription || '',
+            voucherType: voucherType || 'general',
+            entries,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+
+          newTemplates.push(newTemplate);
+          success++;
+        } else {
+          failed++;
+          errors.push(`模版"${templateName}"没有有效的分录`);
+        }
+      });
+
+      if (newTemplates.length > 0) {
+        set((state) => ({
+          templates: [...state.templates, ...newTemplates]
+        }));
+      }
+
+      return { success, failed, errors };
+    },
+
+    // Excel 导出凭证模版
+    exportTemplatesToExcel: () => {
+      const state = get();
+      const exportData: any[] = [];
+
+      state.templates.forEach(template => {
+        template.entries.forEach(entry => {
+          exportData.push({
+            '模版名称': template.name,
+            '模版描述': template.description,
+            '凭证类型': template.voucherType,
+            '摘要': entry.summary,
+            '科目代码': entry.subjectCode,
+            '科目名称': entry.subjectName,
+            '借方': entry.debit,
+            '贷方': entry.credit,
+            '部门代码': entry.deptCode,
+            '部门名称': '',
+            '项目代码': entry.projectCode,
+            '项目名称': '',
+            '币别代码': entry.currencyCode,
+            '币别名称': entry.currencyName,
+            '现金流量项目': entry.cashFlowItem,
+            '客户名称': entry.customerName,
+            '供应商名称': entry.supplierName
+          });
+        });
+      });
+
+      return exportData;
     }
   }), {
     name: 'finance-voucher-templates'

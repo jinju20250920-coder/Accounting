@@ -14,8 +14,11 @@ interface Subject {
   enableProject: boolean;
   enableForeign: boolean;
   foreignCurrency?: string;
-  isAR: boolean;
-  isAP: boolean;
+  isCustomer: boolean; // 客户核算（原应收）
+  isSupplier: boolean; // 供应商核算（原应付）
+  isEmployee: boolean; // 雇员核算
+  enableCashFlow: boolean; // 现金流量核算
+  cashFlowItem?: string; // 现金流量项目
   disabled: boolean;
 }
 
@@ -31,6 +34,11 @@ interface VoucherEntry {
   projectCode?: string;
   debit: number;
   credit: number;
+  currencyCode?: string;
+  currencyName?: string;
+  cashFlowItem?: string;
+  customerName?: string;
+  supplierName?: string;
   auxiliary?: {
     department?: string;
     project?: string;
@@ -114,7 +122,7 @@ interface VoucherStore {
   ledgerEntries: LedgerEntry[];
 
   // 记账表操作
-  addToLedger: () => void;
+  addToLedger: (subjects: Array<{ code: string; name: string }>) => void;
   getLedgerEntries: () => LedgerEntry[];
   getLedgerEntriesByDateRange: (startDate: string, endDate: string) => LedgerEntry[];
   getLedgerEntriesBySubject: (subjectCode: string) => LedgerEntry[];
@@ -162,7 +170,12 @@ const createDefaultEntry = (voucherId: string, index?: number): VoucherEntry => 
   subjectCode: '',
   subjectName: '',
   debit: 0,
-  credit: 0
+  credit: 0,
+  currencyCode: '',
+  currencyName: '',
+  cashFlowItem: '',
+  customerName: '',
+  supplierName: ''
 });
 
 // 辅助函数：生成凭证字号
@@ -668,7 +681,7 @@ const useVoucherStoreBase = create<VoucherStore>()(
       },
 
       // 记账表操作
-      addToLedger: () => {
+      addToLedger: (subjects: Array<{ code: string; name: string }>) => {
         const state = get();
         if (!state.currentVoucher) return;
 
@@ -688,16 +701,8 @@ const useVoucherStoreBase = create<VoucherStore>()(
           throw new Error('没有有效的凭证分录，无法入账');
         }
 
-        // 获取所有科目列表
-        let allSubjects = [];
-        try {
-          allSubjects = require('../lib/data/subjects.json').map((subject: any) => ({
-            code: subject.code,
-            name: subject.name
-          }));
-        } catch (error) {
-          console.error('Failed to load subjects:', error);
-        }
+        // 直接使用传入的科目列表
+        const allSubjects = subjects || [];
 
         // 验证科目是否存在
         for (const entry of validEntries) {
@@ -720,6 +725,7 @@ const useVoucherStoreBase = create<VoucherStore>()(
               { code: '660101', name: '运输费' },
               { code: '660102', name: '广告费' },
               { code: '6602', name: '管理费用' },
+              { code: '660201', name: '管理费用-工资' },
               { code: '6603', name: '财务费用' }
             ];
 

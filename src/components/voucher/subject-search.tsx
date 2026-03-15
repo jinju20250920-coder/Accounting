@@ -17,8 +17,11 @@ interface Subject {
   enableDept: boolean;
   enableProject: boolean;
   enableForeign: boolean;
-  isAR: boolean;
-  isAP: boolean;
+  isCustomer: boolean; // 客户核算（原应收）
+  isSupplier: boolean; // 供应商核算（原应付）
+  isEmployee: boolean; // 雇员核算
+  enableCashFlow: boolean; // 现金流量核算
+  cashFlowItem?: string; // 现金流量项目
   disabled: boolean;
   children?: Subject[];
 }

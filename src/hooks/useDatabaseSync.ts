@@ -80,7 +80,16 @@ export function useDatabaseSync() {
 
         const loadedSubjects = await database.getAllSubjects();
         if (loadedSubjects.length > 0 && subjectStore.subjects.length === 0) {
-          subjectStore.subjects = loadedSubjects;
+          // 迁移数据：为旧数据添加新字段
+          const migratedSubjects = loadedSubjects.map((s: any) => ({
+            ...s,
+            isCustomer: s.isCustomer ?? s.isAR ?? false,
+            isSupplier: s.isSupplier ?? s.isAP ?? false,
+            isEmployee: s.isEmployee ?? false,
+            enableCashFlow: s.enableCashFlow ?? false,
+            cashFlowItem: s.cashFlowItem ?? ''
+          }));
+          subjectStore.subjects = migratedSubjects as any;
         }
 
         const loadedDepartments = await database.getAllDepartments();

@@ -23,6 +23,10 @@ interface SummaryStore {
 
   // 获取摘要列表
   getSummaryList: () => { common: CommonSummary[]; recent: RecentSummary[] };
+
+  // Excel 导入导出
+  importSummariesFromExcel: (data: Array<{ 摘要内容: string }>) => { success: number; failed: number; errors: string[] };
+  exportSummariesToExcel: () => Array<{ 摘要内容: string; 排序: number }>;
 }
 
 // 默认常用摘要
@@ -162,6 +166,60 @@ export const useSummaryStore = create<SummaryStore>()(
         common: [...state.commonSummaries].sort((a, b) => a.sortOrder - b.sortOrder),
         recent: [...state.recentSummaries]
       };
+    },
+
+    // Excel 导入摘要
+    importSummariesFromExcel: (data: Array<{ 摘要内容: string }>) => {
+      const state = get();
+      const errors: string[] = [];
+      let success = 0;
+      let failed = 0;
+
+      const newSummaries: CommonSummary[] = [];
+
+      data.forEach((row, index) => {
+        const text = row['摘要内容'];
+        if (!text || String(text).trim() === '') {
+          failed++;
+          errors.push(`第${index + 2}行：摘要内容不能为空`);
+          return;
+        }
+
+        // 检查是否已存在
+        const exists = state.commonSummaries.some(s => s.text === String(text).trim());
+        if (exists) {
+          failed++;
+          errors.push(`第${index + 2}行：摘要已存在，跳过`);
+          return;
+        }
+
+        newSummaries.push({
+          id: Date.now().toString() + '_' + index,
+          text: String(text).trim(),
+          sortOrder: state.commonSummaries.length + success + 1,
+          createdAt: new Date().toISOString()
+        });
+        success++;
+      });
+
+      if (newSummaries.length > 0) {
+        set((state) => ({
+          commonSummaries: [...state.commonSummaries, ...newSummaries].sort((a, b) => a.sortOrder - b.sortOrder)
+        }));
+      }
+
+      return { success, failed, errors };
+    },
+
+    // Excel 导出摘要
+    exportSummariesToExcel: () => {
+      const state = get();
+      return state.commonSummaries
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((summary) => ({
+          摘要内容: summary.text,
+          排序: summary.sortOrder
+        }));
     }
   }), {
     name: 'finance-summaries'

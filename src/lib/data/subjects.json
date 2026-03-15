@@ -7,9 +7,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": true
   },
   {
     "code": "1002",
@@ -19,9 +21,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": true
   },
   {
     "code": "1122",
@@ -31,9 +35,11 @@
     "direction": "debit",
     "enableDept": true,
     "enableProject": true,
-    "isAR": true,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": true,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "1211",
@@ -43,9 +49,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "1243",
@@ -55,9 +63,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "1501",
@@ -67,9 +77,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "1502",
@@ -79,9 +91,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "2101",
@@ -91,9 +105,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "2202",
@@ -103,9 +119,11 @@
     "direction": "credit",
     "enableDept": true,
     "enableProject": true,
-    "isAR": false,
-    "isAP": true,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": true,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "2151",
@@ -115,9 +133,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": true,
+    "enableCashFlow": false
   },
   {
     "code": "2221",
@@ -127,9 +147,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "222101",
@@ -139,9 +161,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "3101",
@@ -151,9 +175,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "3111",
@@ -163,9 +189,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "3131",
@@ -175,9 +203,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "3141",
@@ -187,9 +217,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "4101",
@@ -199,9 +231,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "4105",
@@ -211,9 +245,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5101",
@@ -223,9 +259,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5102",
@@ -235,9 +273,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5401",
@@ -247,9 +287,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5405",
@@ -259,9 +301,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5501",
@@ -271,9 +315,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5502",
@@ -283,9 +329,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5503",
@@ -295,9 +343,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "550301",
@@ -307,9 +357,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "550302",
@@ -319,9 +371,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5301",
@@ -331,9 +385,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5601",
@@ -343,9 +399,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5701",
@@ -355,9 +413,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "5801",
@@ -367,9 +427,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "6001",
@@ -379,9 +441,11 @@
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "6401",
@@ -391,9 +455,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "6601",
@@ -403,9 +469,11 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   },
   {
     "code": "6602",
@@ -415,9 +483,25 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
+  },
+  {
+    "code": "660201",
+    "name": "管理费用-工资",
+    "parentId": "6602",
+    "level": 2,
+    "direction": "debit",
+    "enableDept": false,
+    "enableProject": false,
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": true,
+    "enableCashFlow": false
   },
   {
     "code": "6603",
@@ -427,8 +511,10 @@
     "direction": "debit",
     "enableDept": false,
     "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
+    "disabled": false,
+    "isCustomer": false,
+    "isSupplier": false,
+    "isEmployee": false,
+    "enableCashFlow": false
   }
 ]

@@ -25,6 +25,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useSubjectStore } from '@/stores';
+import { useCurrencyStore } from '@/stores';
 import { Subject } from '@/types';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
@@ -119,12 +120,12 @@ export default function SubjectsPage() {
     if (editingId) {
       // 编辑模式
       console.log('更新科目:', editingId, formData);
-      updateSubject(editingId, formData as Subject);
+      updateSubject(editingId, formData as Partial<Subject>);
       showToast('success', '科目更新成功');
     } else {
       // 新增模式
       console.log('新增科目:', formData);
-      addSubject(formData as Omit<Subject, 'id'>);
+      addSubject(formData as any);
       showToast('success', '科目添加成功');
     }
 
@@ -191,8 +192,10 @@ export default function SubjectsPage() {
     enableProject: false,
     enableForeign: false,
     foreignCurrency: '',
-    isAR: false,
-    isAP: false,
+    isCustomer: false,
+    isSupplier: false,
+    isEmployee: false,
+    enableCashFlow: false,
     block: false,
     subjectType: ''
   });
@@ -209,8 +212,10 @@ export default function SubjectsPage() {
       enableProject: false,
       enableForeign: false,
       foreignCurrency: '',
-      isAR: false,
-      isAP: false,
+      isCustomer: false,
+      isSupplier: false,
+      isEmployee: false,
+      enableCashFlow: false,
       block: false,
       subjectType: ''
     });
@@ -238,8 +243,10 @@ export default function SubjectsPage() {
       enableProject: subject.enableProject,
       enableForeign: subject.enableForeign,
       foreignCurrency: subject.foreignCurrency || '',
-      isAR: subject.isAR,
-      isAP: subject.isAP,
+      isCustomer: (subject as any).isCustomer || false,
+      isSupplier: (subject as any).isSupplier || false,
+      isEmployee: (subject as any).isEmployee || false,
+      enableCashFlow: (subject as any).enableCashFlow || false,
       block: subject.block,
       subjectType: subject.subjectType || ''
     });
@@ -268,8 +275,10 @@ export default function SubjectsPage() {
       '项目核算': subject.enableProject ? '是' : '否',
       '外币核算': subject.enableForeign ? '是' : '否',
       '外币': subject.foreignCurrency || '',
-      '应收': subject.isAR ? '是' : '否',
-      '应付': subject.isAP ? '是' : '否',
+      '客户': (subject as any).isCustomer ? '是' : '否',
+      '供应商': (subject as any).isSupplier ? '是' : '否',
+      '雇员': (subject as any).isEmployee ? '是' : '否',
+      '现金流量': (subject as any).enableCashFlow ? '是' : '否',
       '状态': subject.block ? '停用' : (subject.disabled ? '禁用' : '正常')
     }));
 
@@ -287,8 +296,10 @@ export default function SubjectsPage() {
       '项目核算': '否',
       '外币核算': '否',
       '外币': '',
-      '应收': '否',
-      '应付': '否',
+      '客户': '否',
+      '供应商': '否',
+      '雇员': '否',
+      '现金流量': '否',
       '状态': '正常'
     };
     exportTemplate('科目数据', sampleData, [
@@ -301,8 +312,10 @@ export default function SubjectsPage() {
       { key: 'enableProject' as any, label: '项目核算', placeholder: '是/否' },
       { key: 'enableForeign' as any, label: '外币核算', placeholder: '是/否' },
       { key: 'foreignCurrency' as any, label: '外币', placeholder: '如：USD、CNY' },
-      { key: 'isAR' as any, label: '应收', placeholder: '是/否' },
-      { key: 'isAP' as any, label: '应付', placeholder: '是/否' },
+      { key: 'isCustomer' as any, label: '客户', placeholder: '是/否' },
+      { key: 'isSupplier' as any, label: '供应商', placeholder: '是/否' },
+      { key: 'isEmployee' as any, label: '雇员', placeholder: '是/否' },
+      { key: 'enableCashFlow' as any, label: '现金流量', placeholder: '是/否' },
       { key: 'disabled' as any, label: '状态', placeholder: '正常/禁用/停用' }
     ]);
   };
@@ -325,8 +338,10 @@ export default function SubjectsPage() {
         { key: 'enableProject' as any, label: '项目核算', required: false },
         { key: 'enableForeign' as any, label: '外币核算', required: false },
         { key: 'foreignCurrency' as any, label: '外币', required: false },
-        { key: 'isAR' as any, label: '应收', required: false },
-        { key: 'isAP' as any, label: '应付', required: false },
+        { key: 'isCustomer' as any, label: '客户', required: false },
+        { key: 'isSupplier' as any, label: '供应商', required: false },
+        { key: 'isEmployee' as any, label: '雇员', required: false },
+        { key: 'enableCashFlow' as any, label: '现金流量', required: false },
         { key: 'disabled' as any, label: '状态', required: false }
       ];
 
@@ -355,8 +370,10 @@ export default function SubjectsPage() {
           enableProject: subject.enableProject || false,
           enableForeign: subject.enableForeign || false,
           foreignCurrency: subject.foreignCurrency || '',
-          isAR: subject.isAR || false,
-          isAP: subject.isAP || false,
+          isCustomer: subject.isCustomer || false,
+          isSupplier: subject.isSupplier || false,
+          isEmployee: subject.isEmployee || false,
+          enableCashFlow: subject.enableCashFlow || false,
           disabled: subject.disabled || false,
           block: false
         });
@@ -536,19 +553,35 @@ export default function SubjectsPage() {
             {formData.enableForeign && (
               <div className="space-y-2">
                 <Label>外币币种</Label>
-                <Input placeholder="如 USD、EUR" value={formData.foreignCurrency} onChange={e => setFormData(prev => ({ ...prev, foreignCurrency: e.target.value }))} />
+                <CurrencySelector
+                  value={formData.foreignCurrency}
+                  onChange={(value) => setFormData(prev => ({ ...prev, foreignCurrency: value }))}
+                />
               </div>
             )}
             <div className="space-y-2">
               <Label>往来科目</Label>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-wrap items-center gap-6">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={formData.isAR} onChange={e => setFormData(prev => ({ ...prev, isAR: e.target.checked }))} className="h-4 w-4" />
-                  <span>应收科目</span>
+                  <input type="checkbox" checked={formData.isCustomer} onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))} className="h-4 w-4" />
+                  <span>客户</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={formData.isAP} onChange={e => setFormData(prev => ({ ...prev, isAP: e.target.checked }))} className="h-4 w-4" />
-                  <span>应付科目</span>
+                  <input type="checkbox" checked={formData.isSupplier} onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))} className="h-4 w-4" />
+                  <span>供应商</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={formData.isEmployee} onChange={e => setFormData(prev => ({ ...prev, isEmployee: e.target.checked }))} className="h-4 w-4" />
+                  <span>雇员</span>
+                </label>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>现金流量</Label>
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={formData.enableCashFlow} onChange={e => setFormData(prev => ({ ...prev, enableCashFlow: e.target.checked }))} className="h-4 w-4" />
+                  <span>启用现金流量核算</span>
                 </label>
               </div>
             </div>
@@ -650,9 +683,18 @@ export default function SubjectsPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-slate-700">往来科目</label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <Badge variant={(selectedSubject as any).isCustomer ? 'default' : 'outline'}>客户</Badge>
+                  <Badge variant={(selectedSubject as any).isSupplier ? 'default' : 'outline'}>供应商</Badge>
+                  <Badge variant={(selectedSubject as any).isEmployee ? 'default' : 'outline'}>雇员</Badge>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">现金流量</label>
                 <div className="flex gap-2 mt-1">
-                  <Badge variant={selectedSubject.isAR ? 'default' : 'outline'}>应收</Badge>
-                  <Badge variant={selectedSubject.isAP ? 'default' : 'outline'}>应付</Badge>
+                  <Badge variant={(selectedSubject as any).enableCashFlow ? 'default' : 'outline'}>
+                    {(selectedSubject as any).enableCashFlow ? '已启用' : '未启用'}
+                  </Badge>
                 </div>
               </div>
               <div>
@@ -682,6 +724,26 @@ export default function SubjectsPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+// 币别选择组件
+function CurrencySelector({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { currencies } = useCurrencyStore();
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2 border rounded-md"
+    >
+      <option value="">请选择币种</option>
+      {currencies.map((currency) => (
+        <option key={currency.code} value={currency.code}>
+          {currency.code} - {currency.name} ({currency.symbol})
+        </option>
+      ))}
+    </select>
   );
 }
 
