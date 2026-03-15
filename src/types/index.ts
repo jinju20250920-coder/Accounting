@@ -322,3 +322,58 @@ export interface InitialRate {
   rate: number;
   effectiveDate: string;
 }
+
+// 币别管理
+export interface Currency {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string;
+  precision: number;
+  exchangeRate: number;
+  rateStartDate: string;
+  gainLossSubjectCode: string;
+  gainLossSubjectName: string;
+  isBase: boolean;
+  disabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 常用摘要
+export interface CommonSummary {
+  id: string;
+  text: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+// 最近使用摘要
+export interface RecentSummary {
+  id: string;
+  text: string;
+  usedAt: string;
+}
+
+// 凭证模版（完整的凭证保存为模版）
+export interface VoucherFullTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  voucherType: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
+  entries: VoucherTemplateEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 凭证模版分录
+export interface VoucherTemplateEntry {
+  id: string;
+  summary: string;
+  subjectCode: string;
+  subjectName: string;
+  deptCode?: string;
+  projectCode?: string;
+  debit: number;
+  credit: number;
+}

@@ -712,8 +712,6 @@ const useVoucherStoreBase = create<VoucherStore>()(
             const quickSubjects = [
               { code: '1001', name: '库存现金' },
               { code: '1002', name: '银行存款' },
-              { code: '100201', name: '工商银行' },
-              { code: '100202', name: '建设银行' },
               { code: '2001', name: '短期借款' },
               { code: '4001', name: '实收资本' },
               { code: '5001', name: '生产成本' },

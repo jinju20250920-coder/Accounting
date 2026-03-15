@@ -24,30 +24,6 @@
     "disabled": false
   },
   {
-    "code": "100201",
-    "name": "工商银行",
-    "parentId": "1002",
-    "level": 2,
-    "direction": "debit",
-    "enableDept": false,
-    "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
-  },
-  {
-    "code": "100202",
-    "name": "建设银行",
-    "parentId": "1002",
-    "level": 2,
-    "direction": "debit",
-    "enableDept": false,
-    "enableProject": false,
-    "isAR": false,
-    "isAP": false,
-    "disabled": false
-  },
-  {
     "code": "1122",
     "name": "应收账款",
     "parentId": null,

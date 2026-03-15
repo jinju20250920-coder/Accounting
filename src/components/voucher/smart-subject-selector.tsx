@@ -68,8 +68,6 @@ const PINYIN_MAP: Record<string, string> = {
   '营业外支出': 'yywzc',
   '所得税费用': 'sdsfy',
   '以前年度损益调整': 'yqndsy',
-  '工商银行': 'gsyh',
-  '建设银行': 'jsyh',
   '农业银行': 'nyyh',
   '中国银行': 'zgyh',
   '招商银行': 'zsyy',

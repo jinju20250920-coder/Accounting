@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Plus,
   Search,
@@ -15,6 +14,7 @@ import {
   Download,
   Users,
   Building2,
+  User,
   Edit,
   Trash2,
   Save,
@@ -29,7 +29,6 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
-import { useCodeRules, CodeRuleManager, generateCode } from '@/lib/code-generator';
 
 // 往来单位接口 - 统一模型
 interface Partner {
@@ -38,6 +37,7 @@ interface Partner {
   name: string;
   isCustomer: boolean; // 客户勾选
   isSupplier: boolean; // 供应商勾选
+  isEmployee: boolean; // 雇员勾选
   contact?: string;
   phone?: string;
   email?: string;
@@ -52,17 +52,6 @@ interface Partner {
   parentId?: string; // 关联的集团ID（用于合并到集团）
 }
 
-// 核算项目接口
-interface AuxiliaryItem {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-  description?: string;
-  frozen: boolean;
-  createdAt: string;
-}
-
 // 模拟数据
 const mockPartners: Partner[] = [
   {
@@ -71,6 +60,7 @@ const mockPartners: Partner[] = [
     name: '上海科技有限公司',
     isCustomer: true,
     isSupplier: false,
+    isEmployee: false,
     contact: '张三',
     phone: '021-12345678',
     email: 'zhangsan@example.com',
@@ -87,6 +77,7 @@ const mockPartners: Partner[] = [
     name: '北京商贸有限公司',
     isCustomer: true,
     isSupplier: true,
+    isEmployee: false,
     contact: '李四',
     phone: '010-87654321',
     email: 'lisi@example.com',
@@ -103,6 +94,7 @@ const mockPartners: Partner[] = [
     name: '广州电子科技有限公司',
     isCustomer: false,
     isSupplier: true,
+    isEmployee: false,
     contact: '王五',
     phone: '020-87654321',
     email: 'wangwu@example.com',
@@ -112,6 +104,23 @@ const mockPartners: Partner[] = [
     bankName: '中国农业银行',
     frozen: false,
     createdAt: '2024-01-15'
+  },
+  {
+    id: 'e1',
+    code: 'EMP001',
+    name: '赵六',
+    isCustomer: false,
+    isSupplier: false,
+    isEmployee: true,
+    contact: '赵六',
+    phone: '13800138000',
+    email: 'zhaoliu@example.com',
+    address: '上海市黄浦区南京东路100号',
+    taxNumber: '',
+    bankAccount: '622848XXXXXXXXXXX',
+    bankName: '中国银行',
+    frozen: false,
+    createdAt: '2024-03-01'
   }
 ];
 
@@ -121,63 +130,15 @@ const historicalDuplicates = new Map([
   ['上海科技有限公司', ['p1', 'p1-customer', 'p1-supplier']]
 ]);
 
-// 模拟核算项目数据
-const mockAuxiliaryItems: AuxiliaryItem[] = [
-  {
-    id: 'aux1',
-    code: 'AUX-001',
-    name: '办公费',
-    type: '费用类',
-    description: '办公相关费用支出',
-    frozen: false,
-    createdAt: '2024-01-01'
-  },
-  {
-    id: 'aux2',
-    code: 'AUX-002',
-    name: '差旅费',
-    type: '费用类',
-    description: '出差相关费用',
-    frozen: false,
-    createdAt: '2024-01-02'
-  },
-  {
-    id: 'aux3',
-    code: 'AUX-003',
-    name: '销售部门',
-    type: '部门类',
-    description: '销售部门核算项目',
-    frozen: false,
-    createdAt: '2024-01-03'
-  }
-];
-
 export default function AuxiliaryDataPage() {
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'partners' | 'auxiliary'>('partners');
   const [partners, setPartners] = useState<Partner[]>(mockPartners);
-  const [auxiliaryItems, setAuxiliaryItems] = useState<AuxiliaryItem[]>([]);
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
 
   // Excel导入相关状态
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { rules, updateRule } = useCodeRules();
-
-  // 获取核算项目编码规则
-  const getAuxiliaryRule = () => {
-    return rules.find(rule => rule.id === 'auxiliary_rule_1') || {
-      id: 'auxiliary_rule_1',
-      name: '核算项目编码',
-      prefix: 'AUX',
-      suffix: '',
-      padding: 3,
-      separator: '-',
-      autoIncrement: true,
-      lastNumber: 0
-    };
-  };
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -194,8 +155,7 @@ export default function AuxiliaryDataPage() {
     name: '',
     isCustomer: false,
     isSupplier: false,
-    type: '费用类', // 添加类型字段
-    description: '', // 添加描述字段
+    isEmployee: false,
     contact: '',
     phone: '',
     email: '',
@@ -216,28 +176,25 @@ export default function AuxiliaryDataPage() {
            partner.name.toLowerCase().includes(query);
   });
 
-  // 过滤后的核算项目数据
-  const filteredAuxiliaryItems = auxiliaryItems.filter(item => {
-    if (!searchQuery.trim()) {
-      return true;
-    }
-    const query = searchQuery.toLowerCase();
-    return item.code.toLowerCase().includes(query) ||
-           item.name.toLowerCase().includes(query) ||
-           item.type.toLowerCase().includes(query);
-  });
-
-  // 根据活动标签过滤
-  const getFilteredByTab = () => {
-    if (activeTab === 'partners') return filteredPartners;
-    return filteredAuxiliaryItems;
+  const getPartnerTypes = (partner: Partner) => {
+    const types: Array<{ label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = [];
+    if (partner.isCustomer) types.push({ label: '客户', variant: 'default' });
+    if (partner.isSupplier) types.push({ label: '供应商', variant: 'secondary' });
+    if (partner.isEmployee) types.push({ label: '雇员', variant: 'outline' });
+    return types;
   };
 
-  const getPartnerTypes = (partner: Partner) => {
-    const types = [];
-    if (partner.isCustomer) types.push('客户');
-    if (partner.isSupplier) types.push('供应商');
-    return types;
+  const getTypeBadgeClass = (label: string) => {
+    switch (label) {
+      case '客户':
+        return 'bg-green-100 text-green-800 hover:bg-green-200';
+      case '供应商':
+        return 'bg-orange-100 text-orange-800 hover:bg-orange-200';
+      case '雇员':
+        return 'bg-purple-100 text-purple-800 hover:bg-purple-200';
+      default:
+        return '';
+    }
   };
 
   const handleAddPartner = () => {
@@ -254,8 +211,8 @@ export default function AuxiliaryDataPage() {
     }
 
     // 检查必须至少选择一种身份
-    if (!formData.isCustomer && !formData.isSupplier) {
-      showToast('error', '请至少勾选一种身份：客户或供应商');
+    if (!formData.isCustomer && !formData.isSupplier && !formData.isEmployee) {
+      showToast('error', '请至少勾选一种身份：客户、供应商或雇员');
       return;
     }
 
@@ -264,6 +221,7 @@ export default function AuxiliaryDataPage() {
       id: editingId || `partner_${Date.now()}`,
       isCustomer: formData.isCustomer,
       isSupplier: formData.isSupplier,
+      isEmployee: formData.isEmployee,
       frozen: formData.frozen,
       createdAt: new Date().toISOString().split('T')[0]
     };
@@ -280,40 +238,6 @@ export default function AuxiliaryDataPage() {
     setEditingId(null);
   };
 
-  // 处理核算项目添加
-  const handleAddAuxiliaryItem = () => {
-    if (!formData.code || !formData.name) {
-      showToast('error', '请填写必填字段：核算项目代码、名称');
-      return;
-    }
-
-    // 检查代码是否重复
-    const existingItem = auxiliaryItems.find(item => item.code === formData.code);
-    if (existingItem && (!editingId || existingItem.id !== editingId)) {
-      showToast('error', `核算项目代码 ${formData.code} 已存在，请使用其他代码`);
-      return;
-    }
-
-    const newAuxiliaryItem: AuxiliaryItem = {
-      ...formData,
-      id: editingId || `aux_${Date.now()}`,
-      type: formData.type || '费用类',
-      frozen: formData.frozen,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-
-    if (editingId) {
-      setAuxiliaryItems(auxiliaryItems.map(item => item.id === editingId ? { ...newAuxiliaryItem, id: editingId } : item));
-      showToast('success', '核算项目更新成功');
-    } else {
-      setAuxiliaryItems([...auxiliaryItems, newAuxiliaryItem]);
-      showToast('success', '核算项目添加成功');
-    }
-    setShowDialog(false);
-    resetFormData();
-    setEditingId(null);
-  };
-
   const handleEdit = (partner: Partner) => {
     setEditingId(partner.id);
     setFormData({
@@ -321,8 +245,7 @@ export default function AuxiliaryDataPage() {
       name: partner.name,
       isCustomer: partner.isCustomer,
       isSupplier: partner.isSupplier,
-      type: '',
-      description: '',
+      isEmployee: partner.isEmployee,
       contact: partner.contact || '',
       phone: partner.phone || '',
       email: partner.email || '',
@@ -331,27 +254,6 @@ export default function AuxiliaryDataPage() {
       bankAccount: partner.bankAccount || '',
       bankName: partner.bankName || '',
       frozen: partner.frozen
-    });
-    setShowDialog(true);
-  };
-
-  const handleEditAuxiliary = (item: AuxiliaryItem) => {
-    setEditingId(item.id);
-    setFormData({
-      code: item.code,
-      name: item.name,
-      isCustomer: false,
-      isSupplier: false,
-      type: item.type || '费用类',
-      description: item.description || '',
-      contact: '',
-      phone: '',
-      email: '',
-      address: '',
-      taxNumber: '',
-      bankAccount: '',
-      bankName: '',
-      frozen: item.frozen
     });
     setShowDialog(true);
   };
@@ -388,60 +290,37 @@ export default function AuxiliaryDataPage() {
       try {
         const file = fileInputRef.current.files[0];
 
-        if (activeTab === 'partners') {
-          // 导入往来单位数据
-          const headers = [
-            { key: 'code' as keyof Partner, label: '单位代码', required: true },
-            { key: 'name' as keyof Partner, label: '单位名称', required: true },
-            { key: 'isCustomer' as keyof Partner, label: '是否客户' },
-            { key: 'isSupplier' as keyof Partner, label: '是否供应商' },
-            { key: 'contact' as keyof Partner, label: '联系人' },
-            { key: 'phone' as keyof Partner, label: '联系电话' },
-            { key: 'email' as keyof Partner, label: '电子邮箱' },
-            { key: 'address' as keyof Partner, label: '地址' },
-            { key: 'taxNumber' as keyof Partner, label: '税号' },
-            { key: 'bankAccount' as keyof Partner, label: '银行账号' },
-            { key: 'bankName' as keyof Partner, label: '开户银行' }
-          ];
+        // 导入往来单位数据
+        const headers = [
+          { key: 'code' as keyof Partner, label: '单位代码', required: true },
+          { key: 'name' as keyof Partner, label: '单位名称', required: true },
+          { key: 'isCustomer' as keyof Partner, label: '是否客户' },
+          { key: 'isSupplier' as keyof Partner, label: '是否供应商' },
+          { key: 'isEmployee' as keyof Partner, label: '是否雇员' },
+          { key: 'contact' as keyof Partner, label: '联系人' },
+          { key: 'phone' as keyof Partner, label: '联系电话' },
+          { key: 'email' as keyof Partner, label: '电子邮箱' },
+          { key: 'address' as keyof Partner, label: '地址' },
+          { key: 'taxNumber' as keyof Partner, label: '税号' },
+          { key: 'bankAccount' as keyof Partner, label: '银行账号' },
+          { key: 'bankName' as keyof Partner, label: '开户银行' }
+        ];
 
-          const importedData = await importFromExcel<Partner>(file, headers);
+        const importedData = await importFromExcel<Partner>(file, headers);
 
-          // 生成代码（如果为空）
-          const rule = getAuxiliaryRule();
-          const newItems = importedData.map(item => ({
-            ...item,
-            id: `partner_${Date.now()}_${Math.random()}`,
-            code: item.code || generateCode(rule, partners.map(p => p.code)),
-            frozen: item.frozen || false,
-            createdAt: new Date().toISOString().split('T')[0]
-          }));
+        const newItems = importedData.map(item => ({
+          ...item,
+          id: `partner_${Date.now()}_${Math.random()}`,
+          code: item.code || '',
+          frozen: item.frozen || false,
+          isCustomer: item.isCustomer || false,
+          isSupplier: item.isSupplier || false,
+          isEmployee: item.isEmployee || false,
+          createdAt: new Date().toISOString().split('T')[0]
+        }));
 
-          setPartners([...partners, ...newItems]);
-          showToast('success', `成功导入 ${newItems.length} 条往来单位数据`);
-        } else {
-          // 导入核算项目数据
-          const headers = [
-            { key: 'code' as keyof AuxiliaryItem, label: '核算项目代码', required: true },
-            { key: 'name' as keyof AuxiliaryItem, label: '核算项目名称', required: true },
-            { key: 'type' as keyof AuxiliaryItem, label: '项目类型' },
-            { key: 'description' as keyof AuxiliaryItem, label: '描述说明' }
-          ];
-
-          const importedData = await importFromExcel<AuxiliaryItem>(file, headers);
-
-          // 生成代码（如果为空）
-          const rule = getAuxiliaryRule();
-          const newItems = importedData.map(item => ({
-            ...item,
-            id: `aux_${Date.now()}_${Math.random()}`,
-            code: item.code || generateCode(rule, auxiliaryItems.map(a => a.code)),
-            frozen: item.frozen || false,
-            createdAt: new Date().toISOString().split('T')[0]
-          }));
-
-          setAuxiliaryItems([...auxiliaryItems, ...newItems]);
-          showToast('success', `成功导入 ${newItems.length} 条核算项目数据`);
-        }
+        setPartners([...partners, ...newItems]);
+        showToast('success', `成功导入 ${newItems.length} 条往来单位数据`);
 
         fileInputRef.current.value = '';
       } catch (error) {
@@ -454,101 +333,69 @@ export default function AuxiliaryDataPage() {
   };
 
   const handleExport = () => {
-    const dataToExport = getFilteredByTab();
+    const dataToExport = filteredPartners;
     if (dataToExport.length === 0) {
       showToast('warning', '没有可导出的数据');
       return;
     }
 
-    if (activeTab === 'partners') {
-      // 导出往来单位数据
-      const exportData = dataToExport.map(partner => ({
-        '单位代码': partner.code,
-        '单位名称': partner.name,
-        '是否客户': partner.isCustomer ? '是' : '否',
-        '是否供应商': partner.isSupplier ? '是' : '否',
-        '联系人': partner.contact || '',
-        '联系电话': partner.phone || '',
-        '电子邮箱': partner.email || '',
-        '地址': partner.address || '',
-        '税号': partner.taxNumber || '',
-        '银行账号': partner.bankAccount || '',
-        '开户银行': partner.bankName || '',
-        '冻结状态': partner.frozen ? '是' : '否',
-        '创建时间': partner.createdAt
-      }));
+    // 导出往来单位数据
+    const exportData = dataToExport.map(partner => ({
+      '单位代码': partner.code,
+      '单位名称': partner.name,
+      '是否客户': partner.isCustomer ? '是' : '否',
+      '是否供应商': partner.isSupplier ? '是' : '否',
+      '是否雇员': partner.isEmployee ? '是' : '否',
+      '联系人': partner.contact || '',
+      '联系电话': partner.phone || '',
+      '电子邮箱': partner.email || '',
+      '地址': partner.address || '',
+      '税号': partner.taxNumber || '',
+      '银行账号': partner.bankAccount || '',
+      '开户银行': partner.bankName || '',
+      '冻结状态': partner.frozen ? '是' : '否',
+      '创建时间': partner.createdAt
+    }));
 
-      exportToExcel(exportData, '往来单位数据');
-      showToast('success', '往来单位数据导出成功');
-    } else {
-      // 导出核算项目数据
-      const exportData = dataToExport.map(item => ({
-        '核算项目代码': item.code,
-        '核算项目名称': item.name,
-        '项目类型': item.type,
-        '描述说明': item.description || '',
-        '冻结状态': item.frozen ? '是' : '否',
-        '创建时间': item.createdAt
-      }));
-
-      exportToExcel(exportData, '核算项目数据');
-      showToast('success', '核算项目数据导出成功');
-    }
+    exportToExcel(exportData, '往来单位数据');
+    showToast('success', '往来单位数据导出成功');
   };
 
   // 导出模板
   const handleExportTemplate = () => {
-    if (activeTab === 'partners') {
-      const sampleData = {
-        '单位代码': 'AUX001',
-        '单位名称': '示例往来单位',
-        '是否客户': '是',
-        '是否供应商': '否',
-        '联系人': '张三',
-        '联系电话': '021-12345678',
-        '电子邮箱': 'example@email.com',
-        '地址': '上海市浦东新区',
-        '税号': '310115XXXXXXXX',
-        '银行账号': '622588XXXXXXXXXXX',
-        '开户银行': '中国工商银行'
-      };
+    const sampleData = {
+      '单位代码': 'AUX001',
+      '单位名称': '示例往来单位',
+      '是否客户': '是',
+      '是否供应商': '否',
+      '是否雇员': '否',
+      '联系人': '张三',
+      '联系电话': '021-12345678',
+      '电子邮箱': 'example@email.com',
+      '地址': '上海市浦东新区',
+      '税号': '310115XXXXXXXX',
+      '银行账号': '622588XXXXXXXXXXX',
+      '开户银行': '中国工商银行'
+    };
 
-      const headers = [
-        { key: 'code' as any, label: '单位代码' },
-        { key: 'name' as any, label: '单位名称' },
-        { key: 'isCustomer' as any, label: '是否客户', placeholder: '是/否' },
-        { key: 'isSupplier' as any, label: '是否供应商', placeholder: '是/否' },
-        { key: 'contact' as any, label: '联系人' },
-        { key: 'phone' as any, label: '联系电话' },
-        { key: 'email' as any, label: '电子邮箱' },
-        { key: 'address' as any, label: '地址' },
-        { key: 'taxNumber' as any, label: '税号' },
-        { key: 'bankAccount' as any, label: '银行账号' },
-        { key: 'bankName' as any, label: '开户银行' }
-      ];
+    const headers = [
+      { key: 'code' as any, label: '单位代码' },
+      { key: 'name' as any, label: '单位名称' },
+      { key: 'isCustomer' as any, label: '是否客户', placeholder: '是/否' },
+      { key: 'isSupplier' as any, label: '是否供应商', placeholder: '是/否' },
+      { key: 'isEmployee' as any, label: '是否雇员', placeholder: '是/否' },
+      { key: 'contact' as any, label: '联系人' },
+      { key: 'phone' as any, label: '联系电话' },
+      { key: 'email' as any, label: '电子邮箱' },
+      { key: 'address' as any, label: '地址' },
+      { key: 'taxNumber' as any, label: '税号' },
+      { key: 'bankAccount' as any, label: '银行账号' },
+      { key: 'bankName' as any, label: '开户银行' }
+    ];
 
-      // @ts-ignore
-      exportTemplate('往来单位', sampleData, headers);
-      showToast('success', '往来单位模板导出成功');
-    } else {
-      const sampleData = {
-        '核算项目代码': 'AUX-001',
-        '核算项目名称': '示例核算项目',
-        '项目类型': '费用类',
-        '描述说明': '示例描述'
-      };
-
-      const headers = [
-        { key: 'code' as any, label: '核算项目代码' },
-        { key: 'name' as any, label: '核算项目名称' },
-        { key: 'type' as any, label: '项目类型' },
-        { key: 'description' as any, label: '描述说明' }
-      ];
-
-      // @ts-ignore
-      exportTemplate('核算项目', sampleData, headers);
-      showToast('success', '核算项目模板导出成功');
-    }
+    // @ts-ignore
+    exportTemplate('往来单位', sampleData, headers);
+    showToast('success', '往来单位模板导出成功');
   };
 
   const showMergeDialogFor = (companyName: string) => {
@@ -563,8 +410,7 @@ export default function AuxiliaryDataPage() {
       name: '',
       isCustomer: false,
       isSupplier: false,
-      type: '费用类',
-      description: '',
+      isEmployee: false,
       contact: '',
       phone: '',
       email: '',
@@ -576,129 +422,63 @@ export default function AuxiliaryDataPage() {
     });
   };
 
-
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* 标题栏 */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">辅助核算基础数据</h1>
-          <p className="text-slate-600 mt-1">管理往来单位、核算项目档案</p>
+          <h1 className="text-3xl font-bold text-slate-900">往来单位管理</h1>
+          <p className="text-slate-600 mt-1">管理客户、供应商、雇员档案</p>
         </div>
       </div>
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        {activeTab === 'partners' ? (
-          <>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">往来单位总数</p>
-                    <p className="text-3xl font-bold text-slate-900">{partners.length}</p>
-                  </div>
-                  <Users className="h-8 w-8 text-slate-300" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">客户数量</p>
-                    <p className="text-3xl font-bold text-green-600">{partners.filter(p => p.isCustomer).length}</p>
-                  </div>
-                  <Users className="h-8 w-8 text-green-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">供应商数量</p>
-                    <p className="text-3xl font-bold text-orange-600">{partners.filter(p => p.isSupplier).length}</p>
-                  </div>
-                  <Building2 className="h-8 w-8 text-orange-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">双重身份</p>
-                    <p className="text-3xl font-bold text-blue-600">{partners.filter(p => p.isCustomer && p.isSupplier).length}</p>
-                  </div>
-                  <Link className="h-8 w-8 text-blue-500" />
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        ) : (
-          <>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">核算项目总数</p>
-                    <p className="text-3xl font-bold text-slate-900">{auxiliaryItems.length}</p>
-                  </div>
-                  <Users className="h-8 w-8 text-slate-300" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">费用类项目</p>
-                    <p className="text-3xl font-bold text-orange-600">{auxiliaryItems.filter(i => i.type === '费用类').length}</p>
-                  </div>
-                  <Users className="h-8 w-8 text-orange-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">部门类项目</p>
-                    <p className="text-3xl font-bold text-blue-600">{auxiliaryItems.filter(i => i.type === '部门类').length}</p>
-                  </div>
-                  <Building2 className="h-8 w-8 text-blue-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">项目类</p>
-                    <p className="text-3xl font-bold text-green-600">{auxiliaryItems.filter(i => i.type === '项目类').length}</p>
-                  </div>
-                  <Link className="h-8 w-8 text-green-500" />
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        )}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">往来单位总数</p>
+                <p className="text-3xl font-bold text-slate-900">{partners.length}</p>
+              </div>
+              <Users className="h-8 w-8 text-slate-300" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">客户数量</p>
+                <p className="text-3xl font-bold text-green-600">{partners.filter(p => p.isCustomer).length}</p>
+              </div>
+              <Users className="h-8 w-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">供应商数量</p>
+                <p className="text-3xl font-bold text-orange-600">{partners.filter(p => p.isSupplier).length}</p>
+              </div>
+              <Building2 className="h-8 w-8 text-orange-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">雇员数量</p>
+                <p className="text-3xl font-bold text-purple-600">{partners.filter(p => p.isEmployee).length}</p>
+              </div>
+              <User className="h-8 w-8 text-purple-500" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
-
-      {/* 选项卡 */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'partners' | 'auxiliary')} className="mb-6">
-        <TabsList>
-          <TabsTrigger value="partners">
-            <Users className="h-4 w-4 mr-2" />
-            往来单位
-          </TabsTrigger>
-          <TabsTrigger value="auxiliary">
-            <Building2 className="h-4 w-4 mr-2" />
-            核算项目
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
 
       {/* 操作栏 */}
       <Card className="mb-6">
@@ -708,44 +488,25 @@ export default function AuxiliaryDataPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
-                  placeholder={activeTab === 'partners' ? '搜索单位代码或名称...' : '搜索核算项目代码或名称...'}
+                  placeholder="搜索单位代码或名称..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
                 />
               </div>
             </div>
-            {activeTab === 'partners' ? (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditingId(null);
-                    resetFormData();
-                    setShowDialog(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  新增往来单位
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditingId(null);
-                    resetFormData();
-                    setShowDialog(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  新增核算项目
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingId(null);
+                resetFormData();
+                setShowDialog(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              新增往来单位
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -762,16 +523,14 @@ export default function AuxiliaryDataPage() {
               <Download className="h-4 w-4 mr-2" />
               导出
             </Button>
-            {activeTab === 'auxiliary' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportTemplate}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                导出模板
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportTemplate}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              导出模板
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -788,17 +547,13 @@ export default function AuxiliaryDataPage() {
       {/* 往来单位列表 */}
       <Card>
         <CardHeader>
-          <CardTitle>
-            {activeTab === 'partners' ? '往来单位列表' : '核算项目列表'}
-          </CardTitle>
+          <CardTitle>往来单位列表</CardTitle>
         </CardHeader>
         <CardContent>
-          {getFilteredByTab().length === 0 ? (
+          {filteredPartners.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <Users className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-              <p>
-                {activeTab === 'partners' ? '暂无往来单位数据' : '暂无核算项目数据'}
-              </p>
+              <p>暂无往来单位数据</p>
               <Button
                 variant="outline"
                 className="mt-4"
@@ -809,7 +564,7 @@ export default function AuxiliaryDataPage() {
                 }}
               >
                 <Plus className="h-4 w-4 mr-2" />
-                添加第一个{activeTab === 'partners' ? '往来单位' : '核算项目'}
+                添加第一个往来单位
               </Button>
             </div>
           ) : (
@@ -841,7 +596,7 @@ export default function AuxiliaryDataPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {getFilteredByTab().map((partner) => {
+                  {filteredPartners.map((partner) => {
                     const types = getPartnerTypes(partner);
                     return (
                       <tr key={partner.id} className="hover:bg-slate-50 border-b">
@@ -851,9 +606,9 @@ export default function AuxiliaryDataPage() {
                         <td className="px-4 py-3 font-medium">{partner.name}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1">
-                            {types.map(type => (
-                              <Badge key={type} variant={type === '客户' ? 'default' : 'secondary'}>
-                                {type}
+                            {types.map((type) => (
+                              <Badge key={type.label} className={getTypeBadgeClass(type.label)}>
+                                {type.label}
                               </Badge>
                             ))}
                           </div>
@@ -882,7 +637,7 @@ export default function AuxiliaryDataPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 justify-center">
                             <Button
                               variant="ghost"
                               size="icon"
@@ -934,199 +689,140 @@ export default function AuxiliaryDataPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingId
-                ? (activeTab === 'partners' ? '编辑往来单位' : '编辑核算项目')
-                : (activeTab === 'partners' ? '新增往来单位' : '新增核算项目')
-              }
+              {editingId ? '编辑往来单位' : '新增往来单位'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
-              {activeTab === 'partners' ? (
-                <>
-                  <div className="space-y-2">
-                    <Label required>单位代码</Label>
-                    <Input
-                      placeholder="如：CUS001、SUP001"
-                      value={formData.code}
-                      onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
+              <div className="space-y-2">
+                <Label required>单位代码</Label>
+                <Input
+                  placeholder="如：CUS001、SUP001、EMP001"
+                  value={formData.code}
+                  onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
+                />
+                <p className="text-xs text-slate-500">输入唯一的单位代码</p>
+              </div>
+              <div className="space-y-2">
+                <Label required>单位名称</Label>
+                <Input
+                  placeholder="输入单位名称"
+                  value={formData.name}
+                  onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                />
+              </div>
+              {/* 身份选择 */}
+              <div className="space-y-3 col-span-2 pt-2 border-t">
+                <p className="text-sm font-medium text-slate-700">选择身份（至少勾选一项）</p>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isCustomer}
+                      onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))}
+                      className="rounded"
                     />
-                    <p className="text-xs text-slate-500">输入唯一的单位代码</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label required>单位名称</Label>
-                    <Input
-                      placeholder="输入单位名称"
-                      value={formData.name}
-                      onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    <span className="text-sm">客户</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isSupplier}
+                      onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))}
+                      className="rounded"
                     />
-                  </div>
-                  {/* 身份选择 */}
-                  <div className="space-y-3 col-span-2 pt-2 border-t">
-                    <p className="text-sm font-medium text-slate-700">选择身份（至少勾选一项）</p>
-                    <div className="flex gap-6">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.isCustomer}
-                          onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))}
-                          className="rounded"
-                        />
-                        <span className="text-sm">客户</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.isSupplier}
-                          onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))}
-                          className="rounded"
-                        />
-                        <span className="text-sm">供应商</span>
-                      </label>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label required>核算项目代码</Label>
-                    <Input
-                      placeholder="如：AUX-001"
-                      value={formData.code}
-                      onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
+                    <span className="text-sm">供应商</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isEmployee}
+                      onChange={e => setFormData(prev => ({ ...prev, isEmployee: e.target.checked }))}
+                      className="rounded"
                     />
-                    <p className="text-xs text-slate-500">
-                      {editingId ? '当前代码：' + formData.code : '自动生成代码'}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label required>核算项目名称</Label>
-                    <Input
-                      placeholder="输入核算项目名称"
-                      value={formData.name}
-                      onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2 col-span-2">
-                    <Label>项目类型</Label>
-                    <select
-                      value={formData.type}
-                      onChange={e => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="费用类">费用类</option>
-                      <option value="部门类">部门类</option>
-                      <option value="项目类">项目类</option>
-                    </select>
-                  </div>
-                </>
-              )}
+                    <span className="text-sm">雇员</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
-            {activeTab === 'partners' ? (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>联系人</Label>
-                    <Input
-                      placeholder="输入联系人姓名"
-                      value={formData.contact}
-                      onChange={e => setFormData(prev => ({ ...prev, contact: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>联系电话</Label>
-                    <Input
-                      placeholder="输入联系电话"
-                      value={formData.phone}
-                      onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>电子邮箱</Label>
-                    <Input
-                      type="email"
-                      placeholder="输入电子邮箱"
-                      value={formData.email}
-                      onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>税号</Label>
-                    <Input
-                      placeholder="输入纳税人识别号"
-                      value={formData.taxNumber}
-                      onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2 col-span-2">
-                    <Label>地址</Label>
-                    <Input
-                      placeholder="输入单位地址"
-                      value={formData.address}
-                      onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>开户银行</Label>
-                    <Input
-                      placeholder="输入开户银行"
-                      value={formData.bankName}
-                      onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2 col-span-2">
-                    <Label>银行账号</Label>
-                    <Input
-                      placeholder="输入银行账号"
-                      value={formData.bankAccount}
-                      onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 pt-2 border-t">
-                  <input
-                    type="checkbox"
-                    id="frozen"
-                    checked={formData.frozen}
-                    onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))}
-                    className="rounded"
-                  />
-                  <Label htmlFor="frozen" className="cursor-pointer">冻结往来单位</Label>
-                  <p className="text-xs text-slate-500 ml-2">冻结后无法删除，建议在需要停止业务往来时使用</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-2 pt-2 border-t">
-                  <Label>描述说明</Label>
-                  <textarea
-                    placeholder="输入核算项目的详细描述"
-                    value={formData.description}
-                    onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-4">
-                  <input
-                    type="checkbox"
-                    id="frozen"
-                    checked={formData.frozen}
-                    onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))}
-                    className="rounded"
-                  />
-                  <Label htmlFor="frozen" className="cursor-pointer">冻结核算项目</Label>
-                  <p className="text-xs text-slate-500 ml-2">冻结后无法删除</p>
-                </div>
-              </>
-            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>联系人</Label>
+                <Input
+                  placeholder="输入联系人姓名"
+                  value={formData.contact}
+                  onChange={e => setFormData(prev => ({ ...prev, contact: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>联系电话</Label>
+                <Input
+                  placeholder="输入联系电话"
+                  value={formData.phone}
+                  onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>电子邮箱</Label>
+                <Input
+                  type="email"
+                  placeholder="输入电子邮箱"
+                  value={formData.email}
+                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>税号</Label>
+                <Input
+                  placeholder="输入纳税人识别号"
+                  value={formData.taxNumber}
+                  onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>地址</Label>
+                <Input
+                  placeholder="输入单位地址"
+                  value={formData.address}
+                  onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>开户银行</Label>
+                <Input
+                  placeholder="输入开户银行"
+                  value={formData.bankName}
+                  onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>银行账号</Label>
+                <Input
+                  placeholder="输入银行账号"
+                  value={formData.bankAccount}
+                  onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-2 border-t">
+              <input
+                type="checkbox"
+                id="frozen"
+                checked={formData.frozen}
+                onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))}
+                className="rounded"
+              />
+              <Label htmlFor="frozen" className="cursor-pointer">冻结往来单位</Label>
+              <p className="text-xs text-slate-500 ml-2">冻结后无法删除，建议在需要停止业务往来时使用</p>
+            </div>
           </div>
           <DialogFooter>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>
                 取消
               </Button>
-              <Button onClick={activeTab === 'partners' ? handleAddPartner : handleAddAuxiliaryItem}>
+              <Button onClick={handleAddPartner}>
                 <Save className="h-4 w-4 mr-2" />
                 保存
               </Button>

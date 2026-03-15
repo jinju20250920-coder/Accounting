@@ -76,7 +76,15 @@ export function Popover({
 
   return (
     <div className="relative" ref={triggerRef}>
-      <div onClick={() => handleOpenChange(!open)} className="w-full h-full">
+      <div
+        onClick={() => {
+          // 只有在非受控模式下才响应点击
+          if (controlledOpen === undefined) {
+            handleOpenChange(!open);
+          }
+        }}
+        className="w-full h-full"
+      >
         {children}
       </div>
 

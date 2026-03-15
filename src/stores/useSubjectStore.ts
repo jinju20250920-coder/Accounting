@@ -13,6 +13,7 @@ interface SubjectTreeNode extends Subject {
 interface SubjectStore {
   // 状态
   subjects: Subject[];
+  dataVersion: number; // 数据版本，用于检测默认科目更新
   loading: boolean;
   error: string | null;
   searchQuery: string;
@@ -80,11 +81,15 @@ const canDisableSubject = (subjectCode: string, allSubjects: Subject[]): { canDi
   return { canDisable: true };
 };
 
+// 默认科目数据版本（每次更新默认科目时递增此版本号）
+const DEFAULT_SUBJECTS_VERSION = 2;
+
 export const useSubjectStore = create<SubjectStore>()(
   persist(
     (set, get) => ({
       // 初始状态
       subjects: [],
+      dataVersion: 0,
       loading: false,
       error: null,
       searchQuery: '',
@@ -374,7 +379,7 @@ export const useSubjectStore = create<SubjectStore>()(
 
           return {
             ...subject,
-            id: `default_${index}`, // 使用索引作为 ID
+            id: subject.code, // 使用科目代码作为 ID，确保 parentId 能正确匹配
             block: false, // 初始化为未冻结
             enableForeign: subject.enableForeign || false,
             foreignCurrency: subject.foreignCurrency || '',
@@ -414,6 +419,8 @@ export const useSubjectStore = create<SubjectStore>()(
         console.log('初始化检查 - 科目数量:', state.subjects.length);
         console.log('初始化检查 - 科目类型:', typeof state.subjects);
         console.log('初始化检查 - 是否为数组:', Array.isArray(state.subjects));
+        console.log('初始化检查 - 当前数据版本:', state.dataVersion);
+        console.log('初始化检查 - 默认科目版本:', DEFAULT_SUBJECTS_VERSION);
 
         // 检查是否有有效的科目数据
         const hasValidSubjects = Array.isArray(state.subjects) &&
@@ -422,9 +429,9 @@ export const useSubjectStore = create<SubjectStore>()(
 
         console.log('初始化检查 - 是否有有效科目:', hasValidSubjects);
 
-        // 如果已经有有效数据，不重复初始化
-        if (hasValidSubjects) {
-          console.log('科目数据已存在，跳过初始化');
+        // 如果数据版本不一致，无论是否已有数据都需要更新
+        if (state.dataVersion === DEFAULT_SUBJECTS_VERSION && hasValidSubjects) {
+          console.log('科目数据已存在且版本一致，跳过初始化');
           return;
         }
 
@@ -450,7 +457,7 @@ export const useSubjectStore = create<SubjectStore>()(
 
           return {
             ...subject,
-            id: `default_${index}`, // 使用索引作为 ID
+            id: subject.code, // 使用科目代码作为 ID，确保 parentId 能正确匹配
             block: false, // 初始化为未冻结
             enableForeign: subject.enableForeign || false,
             foreignCurrency: subject.foreignCurrency || '',
@@ -462,9 +469,17 @@ export const useSubjectStore = create<SubjectStore>()(
 
         set((state) => {
           console.log('设置前的科目列表:', state.subjects);
+
+          // 合并数据：保留用户自定义科目（不是来自默认科目的），更新默认科目
+          const userSubjects = state.subjects.filter(s =>
+            !defaultSubjects.some(ds => ds.code === s.code)
+          );
+
           const newState = {
-            subjects: initializedSubjects
+            subjects: [...initializedSubjects, ...userSubjects],
+            dataVersion: DEFAULT_SUBJECTS_VERSION
           };
+
           console.log('设置后的科目列表:', newState.subjects);
           return newState;
         });
@@ -478,7 +493,8 @@ export const useSubjectStore = create<SubjectStore>()(
       partialize: (state) => {
         console.log('Persist - 保存科目数据:', state.subjects);
         return {
-          subjects: state.subjects
+          subjects: state.subjects,
+          dataVersion: state.dataVersion
         };
       }
     }

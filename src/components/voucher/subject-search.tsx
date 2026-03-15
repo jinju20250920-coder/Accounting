@@ -5,8 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, ChevronRight, Building2, FolderTree, Hash } from 'lucide-react';
+import { useSubjectStore } from '@/stores';
 
 interface Subject {
+  id: string;
   code: string;
   name: string;
   parentId: string | null;
@@ -29,188 +31,6 @@ interface SubjectSearchProps {
   showType?: boolean;
 }
 
-// 默认科目数据
-const DEFAULT_SUBJECTS: Subject[] = [
-  // 资产类
-  {
-    code: '1001',
-    name: '库存现金',
-    parentId: null,
-    level: 1,
-    direction: 'debit',
-    enableDept: true,
-    enableProject: false,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  },
-  {
-    code: '1002',
-    name: '银行存款',
-    parentId: null,
-    level: 1,
-    direction: 'debit',
-    enableDept: true,
-    enableProject: false,
-    enableForeign: true,
-    isAR: false,
-    isAP: false,
-    disabled: false,
-    children: [
-      {
-        code: '100201',
-        name: '工商银行',
-        parentId: '1002',
-        level: 2,
-        direction: 'debit',
-        enableDept: true,
-        enableProject: false,
-        enableForeign: true,
-        isAR: false,
-        isAP: false,
-        disabled: false
-      },
-      {
-        code: '100202',
-        name: '建设银行',
-        parentId: '1002',
-        level: 2,
-        direction: 'debit',
-        enableDept: true,
-        enableProject: false,
-        enableForeign: true,
-        isAR: false,
-        isAP: false,
-        disabled: false
-      }
-    ]
-  },
-  // 负债类
-  {
-    code: '2001',
-    name: '短期借款',
-    parentId: null,
-    level: 1,
-    direction: 'credit',
-    enableDept: true,
-    enableProject: false,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  },
-  // 所有者权益类
-  {
-    code: '4001',
-    name: '实收资本',
-    parentId: null,
-    level: 1,
-    direction: 'credit',
-    enableDept: false,
-    enableProject: false,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  },
-  // 成本类
-  {
-    code: '5001',
-    name: '生产成本',
-    parentId: null,
-    level: 1,
-    direction: 'debit',
-    enableDept: true,
-    enableProject: true,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  },
-  // 损益类
-  {
-    code: '6001',
-    name: '主营业务收入',
-    parentId: null,
-    level: 1,
-    direction: 'credit',
-    enableDept: false,
-    enableProject: true,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  },
-  {
-    code: '6601',
-    name: '销售费用',
-    parentId: null,
-    level: 1,
-    direction: 'debit',
-    enableDept: true,
-    enableProject: true,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false,
-    children: [
-      {
-        code: '660101',
-        name: '运输费',
-        parentId: '6601',
-        level: 2,
-        direction: 'debit',
-        enableDept: true,
-        enableProject: true,
-        enableForeign: false,
-        isAR: false,
-        isAP: false,
-        disabled: false
-      },
-      {
-        code: '660102',
-        name: '广告费',
-        parentId: '6601',
-        level: 2,
-        direction: 'debit',
-        enableDept: true,
-        enableProject: true,
-        enableForeign: false,
-        isAR: false,
-        isAP: false,
-        disabled: false
-      }
-    ]
-  },
-  {
-    code: '6602',
-    name: '管理费用',
-    parentId: null,
-    level: 1,
-    direction: 'debit',
-    enableDept: true,
-    enableProject: true,
-    enableForeign: false,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  },
-  {
-    code: '6603',
-    name: '财务费用',
-    parentId: null,
-    level: 1,
-    direction: 'debit',
-    enableDept: false,
-    enableProject: true,
-    enableForeign: true,
-    isAR: false,
-    isAP: false,
-    disabled: false
-  }
-];
-
 export function SubjectSearch({
   value,
   onSelect,
@@ -221,10 +41,41 @@ export function SubjectSearch({
   const [searchText, setSearchText] = useState(value || '');
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set(['1002', '6601']));
 
+  const { subjects } = useSubjectStore();
+
   // 当外部 value 变化时更新搜索文本
   useEffect(() => {
     setSearchText(value || '');
   }, [value]);
+
+  // 构建科目树结构（从扁平数据到树形数据）
+  const subjectTree = useMemo(() => {
+    const map = new Map<string, Subject & { children: Subject[] }>();
+
+    // 初始化所有科目节点
+    subjects.forEach(subject => {
+      map.set(subject.id, { ...subject, children: [] });
+    });
+
+    const roots: (Subject & { children: Subject[] })[] = [];
+
+    // 构建树
+    subjects.forEach(subject => {
+      const node = map.get(subject.id)!;
+      if (subject.parentId) {
+        const parent = map.get(subject.parentId);
+        if (parent) {
+          parent.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      } else {
+        roots.push(node);
+      }
+    });
+
+    return roots;
+  }, [subjects]);
 
   // 将科目展开为扁平列表
   const flatSubjects = useMemo(() => {
@@ -240,13 +91,13 @@ export function SubjectSearch({
       }
       return result;
     };
-    return flatten(DEFAULT_SUBJECTS);
-  }, []);
+    return flatten(subjectTree);
+  }, [subjectTree]);
 
   // 过滤科目
   const filteredSubjects = useMemo(() => {
     if (!searchText.trim()) {
-      return DEFAULT_SUBJECTS;
+      return subjectTree;
     }
 
     const searchLower = searchText.toLowerCase();
@@ -254,17 +105,17 @@ export function SubjectSearch({
       subject.code.toLowerCase().includes(searchLower) ||
       subject.name.toLowerCase().includes(searchLower)
     );
-  }, [searchText, flatSubjects]);
+  }, [searchText, flatSubjects, subjectTree]);
 
   // 切换展开/收起
-  const toggleExpand = useCallback((code: string, e: React.MouseEvent) => {
+  const toggleExpand = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedSubjects(prev => {
       const next = new Set(prev);
-      if (next.has(code)) {
-        next.delete(code);
+      if (next.has(id)) {
+        next.delete(id);
       } else {
-        next.add(code);
+        next.add(id);
       }
       return next;
     });
@@ -273,11 +124,11 @@ export function SubjectSearch({
   // 递归渲染科目树
   const renderSubjectTree = (subjects: Subject[], depth: number = 0): React.JSX.Element[] => {
     return subjects.map(subject => {
-      const isExpanded = expandedSubjects.has(subject.code);
+      const isExpanded = expandedSubjects.has(subject.id);
       const hasChildren = subject.children && subject.children.length > 0;
 
       return (
-        <div key={subject.code} className="select-none">
+        <div key={subject.id} className="select-none">
           <div
             className={`
               flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-gray-100
@@ -290,7 +141,7 @@ export function SubjectSearch({
             {hasChildren ? (
               <ChevronRight
                 className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                onClick={(e) => toggleExpand(subject.code, e)}
+                onClick={(e) => toggleExpand(subject.id, e)}
               />
             ) : (
               <Hash className="w-4 h-4 text-gray-400" />
@@ -366,7 +217,7 @@ export function SubjectSearch({
           <div>
             {filteredSubjects.map(subject => (
               <div
-                key={subject.code}
+                key={subject.id}
                 className="flex items-center gap-2 p-3 border-b cursor-pointer hover:bg-blue-50"
                 onClick={() => onSelect(subject.code, subject.name)}
               >
@@ -382,7 +233,7 @@ export function SubjectSearch({
           </div>
         ) : (
           // 树形显示
-          <div>{renderSubjectTree(DEFAULT_SUBJECTS)}</div>
+          <div>{renderSubjectTree(subjectTree)}</div>
         )}
       </div>
     </div>

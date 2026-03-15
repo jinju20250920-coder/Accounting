@@ -1,21 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useSubjectStore } from '@/stores';
-import { useDepartmentStore } from '@/stores';
-import { useFinancialProjectStore } from '@/stores';
-import { FolderOpen, Users, Package } from 'lucide-react';
+import { FolderOpen, Users, Package, FileText, Type } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useSubjectStore, useDepartmentStore, useFinancialProjectStore, useSummaryStore, useVoucherTemplateStore } from '@/stores';
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('subjects');
-
   const { subjects } = useSubjectStore();
   const { departments } = useDepartmentStore();
   const { projects } = useFinancialProjectStore();
+  const { commonSummaries } = useSummaryStore();
+  const { templates } = useVoucherTemplateStore();
 
   const stats = [
     {
@@ -44,6 +41,25 @@ export default function SettingsPage() {
     }
   ];
 
+  const advancedSettings = [
+    {
+      label: '常用摘要库',
+      value: 'summaries',
+      icon: <Type className="h-5 w-5" />,
+      count: commonSummaries.length,
+      description: '管理常用摘要，快速录入凭证摘要',
+      color: 'bg-orange-500'
+    },
+    {
+      label: '凭证模版',
+      value: 'templates',
+      icon: <FileText className="h-5 w-5" />,
+      count: templates.length,
+      description: '管理凭证模版，支持Excel导入导出',
+      color: 'bg-cyan-500'
+    }
+  ];
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
@@ -52,38 +68,79 @@ export default function SettingsPage() {
       </div>
 
       {/* 功能卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        {stats.map((item) => (
-          <Link
-            key={item.value}
-            href={`/settings/${item.value}`}
-            className="group"
-          >
-            <Card className="h-full transition-all hover:shadow-lg hover:-translate-y-1">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-4">
-                  <div className={`p-3 rounded-lg text-white ${item.color}`}>
-                    {item.icon}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-slate-900 mb-2">
-                      {item.label}
-                    </h3>
-                    <p className="text-sm text-slate-600 mb-4">
-                      {item.description}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">
-                        {item.count} 项
-                      </Badge>
-                      <span className="text-sm text-slate-500">管理</span>
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">基础档案管理</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {stats.map((item) => (
+            <Link
+              key={item.value}
+              href={`/settings/${item.value}`}
+              className="group"
+            >
+              <Card className="h-full transition-all hover:shadow-lg hover:-translate-y-1">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <div className={`p-3 rounded-lg text-white ${item.color}`}>
+                      {item.icon}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                        {item.label}
+                      </h3>
+                      <p className="text-sm text-slate-600 mb-4">
+                        {item.description}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">
+                          {item.count} 项
+                        </Badge>
+                        <span className="text-sm text-slate-500">管理</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* 高级设置 */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">高级设置</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {advancedSettings.map((item) => (
+            <Link
+              key={item.value}
+              href={`/settings/${item.value}`}
+              className="group"
+            >
+              <Card className="h-full transition-all hover:shadow-lg hover:-translate-y-1">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <div className={`p-3 rounded-lg text-white ${item.color}`}>
+                      {item.icon}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                        {item.label}
+                      </h3>
+                      <p className="text-sm text-slate-600 mb-4">
+                        {item.description}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">
+                          {item.count} 项
+                        </Badge>
+                        <span className="text-sm text-slate-500">管理</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* 快速统计 */}

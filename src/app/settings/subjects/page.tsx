@@ -42,7 +42,23 @@ export default function SubjectsPage() {
       initializeSubjects();
     }
   }, []);
+
+  // 默认展开有子科目的科目
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
+
+  // 监听科目数据变化，更新默认展开状态
+  useEffect(() => {
+    const newExpanded = new Set<string>();
+    const parentsWithChildren = new Set<string>();
+    subjects.forEach(s => {
+      if (s.parentId) {
+        parentsWithChildren.add(s.parentId);
+      }
+    });
+    parentsWithChildren.forEach(id => newExpanded.add(id));
+    setExpandedSubjects(newExpanded);
+  }, [subjects.length]);
+
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 

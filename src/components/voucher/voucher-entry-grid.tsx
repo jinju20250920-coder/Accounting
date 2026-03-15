@@ -19,7 +19,9 @@ import { SubjectSearch } from './subject-search';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ColumnSettings } from './ColumnSettings';
 import { SmartSubjectSelector, AmountInputWithPreview } from './smart-subject-selector';
+import { SummaryPicker } from './summary-picker';
 import { useAccountStore } from '@/stores/useAccountStore';
+import { useSummaryStore } from '@/stores';
 
 interface ColumnItem {
   id: string;
@@ -28,7 +30,7 @@ interface ColumnItem {
 }
 import { Plus, Trash2, Calculator, FileText, Save, Send, RotateCcw, CheckCircle, XCircle, Settings, Building, Building2, User, X, ChevronDown, Database, FileSpreadsheet } from 'lucide-react';
 import { smartPasteHandler } from '@/lib/paste-handler';
-import { validateSubjectExists, getSubjects } from '@/lib/accounting';
+import { validateSubjectExists } from '@/lib/accounting';
 import { ColumnSort } from './ColumnSort';
 import { DatabaseManager } from '@/components/DatabaseManager';
 import { useSubjectStore } from '@/stores';
@@ -78,6 +80,7 @@ export function VoucherEntryGrid() {
   // 初始化数据库同步
   useDatabaseSync();
   const { initializeSubjects, subjects } = useSubjectStore();
+  const { addRecentSummary } = useSummaryStore();
 
   // 初始化科目数据
   useEffect(() => {
@@ -331,11 +334,25 @@ export function VoucherEntryGrid() {
 
     // 如果摘要不为空，尝试智能匹配
     if (summary.trim()) {
-      const match = getSmartMatch(summary);
+      const match = getSmartMatch(summary, subjects);
       if (match && !entries.find(e => e.id === entryId)?.subjectCode) {
         updateEntry(entryId, 'subjectCode', match.subject);
         updateEntry(entryId, 'subjectName', match.subjectName);
       }
+    }
+  };
+
+  const handleSummarySelect = (entryId: string, text: string, index: number) => {
+    handleSummaryChange(entryId, text, index);
+    addRecentSummary(text.trim());
+  };
+
+  const handleSummaryTextChange = (entryId: string, text: string, index: number) => {
+    handleSummaryChange(entryId, text, index);
+
+    // 当用户输入新摘要时，自动添加到"最近使用"列表中
+    if (text.trim()) {
+      addRecentSummary(text.trim());
     }
   };
 
@@ -356,26 +373,9 @@ export function VoucherEntryGrid() {
       }
     }
 
-    // 尝试从默认科目列表中匹配科目名称
+    // 尝试从科目数据中匹配科目名称
     if (code.trim()) {
-      // 简单的默认科目列表（用于快速匹配）
-      const quickSubjects = [
-        { code: '1001', name: '库存现金' },
-        { code: '1002', name: '银行存款' },
-        { code: '100201', name: '工商银行' },
-        { code: '100202', name: '建设银行' },
-        { code: '2001', name: '短期借款' },
-        { code: '4001', name: '实收资本' },
-        { code: '5001', name: '生产成本' },
-        { code: '6001', name: '主营业务收入' },
-        { code: '6601', name: '销售费用' },
-        { code: '660101', name: '运输费' },
-        { code: '660102', name: '广告费' },
-        { code: '6602', name: '管理费用' },
-        { code: '6603', name: '财务费用' }
-      ];
-
-      const matchedSubject = quickSubjects.find(s => s.code === code.trim());
+      const matchedSubject = subjects.find(s => s.code === code.trim());
       if (matchedSubject) {
         updateEntry(entryId, 'subjectName', matchedSubject.name);
       }
@@ -391,7 +391,7 @@ export function VoucherEntryGrid() {
     // 按下回车键时进行科目验证
     if (e.key === 'Enter') {
       // 验证科目是否存在
-      const validation = validateSubjectExists(code, getSubjects());
+      const validation = validateSubjectExists(code, subjects);
       if (!validation.valid && validation.message) {
         toast({
           title: "科目验证失败",
@@ -950,24 +950,34 @@ export function VoucherEntryGrid() {
                       case 'summary':
                         return (
                           <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
-                            <Textarea
-                              variant="excel"
-                              data-entry-id={entry.id}
-                              data-field="summary"
+                            <SummaryPicker
                               value={entry.summary}
-                              onChange={(e) => handleSummaryChange(entry.id, e.target.value, index)}
-                              onFocus={() => handleFocus(entry.id, 'summary')}
-                              onBlur={handleBlur}
-                              onKeyDown={(e) => handleKeyDown(entry.id, 'summary', index, e)}
-                              placeholder=""
-                              className={`w-full ${
-                                isCellFocused
-                                  ? 'border-2 border-blue-500 z-10 relative'
-                                  : ''
-                              }`}
-                              style={{ minHeight: ROW_HEIGHT, borderRadius: 0, lineHeight: '1.4', paddingTop: '14px', paddingBottom: '14px' }}
-                              rows={2}
-                            />
+                              onSelect={(text) => handleSummarySelect(entry.id, text, index)}
+                            >
+                              <Textarea
+                                variant="excel"
+                                data-entry-id={entry.id}
+                                data-field="summary"
+                                value={entry.summary}
+                                onChange={(e) => {
+                                  const text = e.target.value;
+                                  handleSummaryTextChange(entry.id, text, index);
+                                }}
+                                onFocus={() => {
+                                  handleFocus(entry.id, 'summary');
+                                }}
+                                onBlur={handleBlur}
+                                onKeyDown={(e) => handleKeyDown(entry.id, 'summary', index, e)}
+                                placeholder=""
+                                className={`w-full ${
+                                  isCellFocused
+                                    ? 'border-2 border-blue-500 z-10 relative'
+                                    : ''
+                                }`}
+                                style={{ minHeight: ROW_HEIGHT, borderRadius: 0, lineHeight: '1.4', paddingTop: '14px', paddingBottom: '14px' }}
+                                rows={2}
+                              />
+                            </SummaryPicker>
                           </td>
                         );
                       case 'subject':
@@ -1246,14 +1256,6 @@ export function VoucherEntryGrid() {
             </Button>
 
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={handleSave}
-                disabled={!isBalanced}
-              >
-                <Save className="w-4 h-4 mr-2" />
-                保存草稿
-              </Button>
               <Button
                 onClick={handleSave}
                 disabled={!isBalanced}

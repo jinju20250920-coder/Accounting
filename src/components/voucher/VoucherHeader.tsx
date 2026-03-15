@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Save,
   Copy,
@@ -13,20 +16,17 @@ import {
   CheckCircle,
   XCircle,
   FileText,
-  ChevronLeft,
-  ChevronRight,
-  Menu,
   Trash2
 } from 'lucide-react'
 import { useVoucherStore } from '@/stores/useVoucherStore'
+import { useVoucherTemplateStore } from '@/stores/useVoucherTemplateStore'
 import { useToast } from '@/hooks/use-toast'
 import { calculateVoucherStatus } from '@/lib/accounting'
 
-export function VoucherHeader({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
+export function VoucherHeader() {
   const {
     currentVoucher,
     saveVoucher,
-    copyVoucher,
     createVoucher,
     deleteVoucher,
     vouchers,
@@ -34,9 +34,51 @@ export function VoucherHeader({ onToggleSidebar }: { onToggleSidebar?: () => voi
     updateVoucherDate
   } = useVoucherStore()
 
+  const { addTemplate } = useVoucherTemplateStore()
+
   const { toast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showSaveAsTemplateDialog, setShowSaveAsTemplateDialog] = useState(false)
+  const [templateName, setTemplateName] = useState('')
+  const [templateDescription, setTemplateDescription] = useState('')
+
+  // 保存为凭证模版
+  const handleSaveAsTemplate = async () => {
+    if (!currentVoucher) return
+
+    try {
+      addTemplate({
+        name: templateName.trim() || `模版_${currentVoucher.voucherNo}`,
+        description: templateDescription.trim(),
+        voucherType: currentVoucher.voucherType,
+        entries: currentVoucher.entries.map(entry => ({
+          id: entry.id,
+          summary: entry.summary,
+          subjectCode: entry.subjectCode,
+          subjectName: entry.subjectName,
+          deptCode: entry.deptCode,
+          projectCode: entry.projectCode,
+          debit: entry.debit || 0,
+          credit: entry.credit || 0
+        }))
+      })
+
+      toast({
+        title: "保存成功",
+        description: "凭证已保存为模版"
+      })
+
+      setShowSaveAsTemplateDialog(false)
+      setTemplateName('')
+      setTemplateDescription('')
+    } catch (error) {
+      toast({
+        title: "保存失败",
+        description: error instanceof Error ? error.message : "保存模版失败"
+      })
+    }
+  }
 
   // Check if voucher is balanced
   const isBalanced = currentVoucher && currentVoucher.entries.reduce((balance, entry) => {
@@ -199,16 +241,17 @@ export function VoucherHeader({ onToggleSidebar }: { onToggleSidebar?: () => voi
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            {/* Sidebar Toggle */}
-            {onToggleSidebar && (
-              <Button
-                variant="ghost"
-                onClick={onToggleSidebar}
-                size="sm"
-              >
-                <Menu className="w-4 h-4" />
-              </Button>
-            )}
+
+            {/* Save as Template */}
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveAsTemplateDialog(true)}
+              disabled={currentVoucher.status !== 'draft' || currentVoucher.entries.length === 0}
+              size="sm"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              保存为模版
+            </Button>
 
             {/* Smart Paste */}
             <Button
@@ -232,16 +275,6 @@ export function VoucherHeader({ onToggleSidebar }: { onToggleSidebar?: () => voi
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
 
-            {/* Copy Voucher */}
-            <Button
-              variant="outline"
-              onClick={() => copyVoucher(currentVoucher.id)}
-              disabled={currentVoucher.status === 'posted'}
-              size="sm"
-            >
-              <Copy className="w-4 h-4 mr-2" />
-              复制
-            </Button>
 
             {/* Delete Voucher */}
             <Button
@@ -280,6 +313,45 @@ export function VoucherHeader({ onToggleSidebar }: { onToggleSidebar?: () => voi
           </div>
         </div>
       </div>
+
+      {/* 保存为模版对话框 */}
+      <Dialog open={showSaveAsTemplateDialog} onOpenChange={setShowSaveAsTemplateDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>保存为凭证模版</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="templateName">模版名称</Label>
+              <Input
+                id="templateName"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="请输入模版名称"
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="templateDescription">模版描述（可选）</Label>
+              <Input
+                id="templateDescription"
+                value={templateDescription}
+                onChange={(e) => setTemplateDescription(e.target.value)}
+                placeholder="请输入模版描述"
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setShowSaveAsTemplateDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSaveAsTemplate}>
+              保存
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

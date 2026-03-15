@@ -26,7 +26,7 @@ interface PreferenceStore {
 
   // Actions
   savePreference: (summary: string, subject: string, subjectName?: string) => void;
-  getSmartMatch: (summary: string) => SmartMatchResult | null;
+  getSmartMatch: (summary: string, subjects?: Array<{ code: string; name: string }>) => SmartMatchResult | null;
   getPreferencesBySubject: (subject: string) => Preference[];
   updatePreferenceSuccess: (id: string, success: boolean) => void;
   clearPreferences: () => void;
@@ -113,7 +113,7 @@ export const useUserPreferenceStore = create<PreferenceStore>()((set, get) => ({
   },
 
   // 获取智能匹配结果
-  getSmartMatch: (summary) => {
+  getSmartMatch: (summary, subjects = []) => {
     const state = get();
 
     // 1. 尝试 L2：在用户偏好中寻找匹配
@@ -149,9 +149,13 @@ export const useUserPreferenceStore = create<PreferenceStore>()((set, get) => ({
       );
 
       if (l1Match) {
+        // 从科目数据中查找科目名称，而不是只从用户偏好中查找
+        const subjectName = subjects.find(s => s.code === l1Match.subject)?.name ||
+                          state.preferences.find(p => p.subject === l1Match.subject)?.subjectName;
+
         return {
           subject: l1Match.subject,
-          subjectName: state.preferences.find(p => p.subject === l1Match.subject)?.subjectName,
+          subjectName,
           source: 'rule' as const,
           confidence: 0.6
         };

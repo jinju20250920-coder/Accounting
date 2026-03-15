@@ -173,7 +173,8 @@ export const STORAGE_KEYS = {
   SETTINGS: 'finance-settings',
   SUBJECTS: 'finance-subjects',
   DEPARTMENTS: 'finance-departments',
-  PROJECTS: 'finance-projects'
+  PROJECTS: 'finance-projects',
+  CURRENCIES: 'finance-currencies'
 } as const;
 
 // SSR-safe persist configuration

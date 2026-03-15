@@ -39,7 +39,8 @@ const menuItems = [
     { label: '科目管理', path: '/settings/subjects' },
     { label: '部门管理', path: '/settings/departments' },
     { label: '项目管理', path: '/settings/projects' },
-    { label: '辅助核算基础数据', path: '/settings/auxiliary' },
+    { label: '往来单位管理', path: '/settings/auxiliary' },
+    { label: '币别管理', path: '/settings/currencies' },
   ]},
 ];
 
