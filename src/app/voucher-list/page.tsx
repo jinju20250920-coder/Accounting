@@ -19,7 +19,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  ArrowUpDown
+  ArrowUpDown,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -213,6 +215,161 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse }: 
   );
 }
 
+// 将数字转换为中文大写金额
+function convertToChineseAmount(num: number): string {
+  const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
+  const units = ['', '拾', '佰', '仟'];
+  const bigUnits = ['', '万', '亿'];
+
+  if (num === 0) return '零元整';
+
+  let result = '';
+  const intPart = Math.floor(num);
+  const decimalPart = Math.round((num - intPart) * 100);
+
+  // 处理整数部分
+  if (intPart > 0) {
+    const intStr = intPart.toString();
+    const len = intStr.length;
+    let zeroFlag = false;
+
+    for (let i = 0; i < len; i++) {
+      const digit = parseInt(intStr[i]);
+      const pos = len - 1 - i;
+      const unitIndex = pos % 4;
+      const bigUnitIndex = Math.floor(pos / 4);
+
+      if (digit === 0) {
+        zeroFlag = true;
+        if (unitIndex === 0 && bigUnitIndex > 0) {
+          result += bigUnits[bigUnitIndex];
+        }
+      } else {
+        if (zeroFlag) {
+          result += '零';
+          zeroFlag = false;
+        }
+        result += digits[digit] + units[unitIndex];
+        if (unitIndex === 0 && bigUnitIndex > 0) {
+          result += bigUnits[bigUnitIndex];
+        }
+      }
+    }
+    result += '元';
+  }
+
+  // 处理小数部分
+  if (decimalPart > 0) {
+    const jiao = Math.floor(decimalPart / 10);
+    const fen = decimalPart % 10;
+
+    if (jiao > 0) {
+      result += digits[jiao] + '角';
+    } else if (intPart > 0) {
+      result += '零';
+    }
+
+    if (fen > 0) {
+      result += digits[fen] + '分';
+    }
+  } else if (intPart > 0) {
+    result += '整';
+  }
+
+  return result || '零元整';
+}
+
+// 打印用的凭证组件 - 使用简单类型
+function PrintableVoucher({ voucher }: { voucher: VoucherType }) {
+  const debitTotal = voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
+  const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+  const chineseAmount = convertToChineseAmount(debitTotal);
+  const [year, month, day] = voucher.date.split('-');
+
+  // 过滤有效分录
+  const validEntries = voucher.entries.filter(e => e.subjectCode || e.debit > 0 || e.credit > 0);
+
+  // 创建打印用的简单数组
+  const printEntries: Array<{ id: string; summary: string; subjectCode: string; subjectName: string; debit: number; credit: number }> = [];
+
+  // 添加有效分录
+  validEntries.forEach(e => {
+    printEntries.push({
+      id: e.id,
+      summary: e.summary || '',
+      subjectCode: e.subjectCode || '',
+      subjectName: e.subjectName || '',
+      debit: e.debit || 0,
+      credit: e.credit || 0
+    });
+  });
+
+  // 填充到6行
+  while (printEntries.length < 6) {
+    printEntries.push({
+      id: `empty-${printEntries.length}`,
+      summary: '',
+      subjectCode: '',
+      subjectName: '',
+      debit: 0,
+      credit: 0
+    });
+  }
+
+  return (
+    <div className="voucher-print">
+      <div className="text-center mb-4">
+        <h1 className="text-2xl font-bold">记账凭证</h1>
+        <div className="flex justify-between mt-2 text-sm">
+          <span>单位：{year}</span>
+          <span>日期：{year}年{parseInt(month)}月{parseInt(day)}日</span>
+          <span>凭证号：{voucher.voucherNo}</span>
+        </div>
+      </div>
+
+      <table className="w-full border-collapse border border-black">
+        <thead>
+          <tr>
+            <th className="border border-black p-2 w-1/4">摘要</th>
+            <th className="border border-black p-2 w-1/4">科目</th>
+            <th className="border border-black p-2 w-1/5">借方金额</th>
+            <th className="border border-black p-2 w-1/5">贷方金额</th>
+          </tr>
+        </thead>
+        <tbody>
+          {printEntries.slice(0, 6).map((entry) => (
+            <tr key={entry.id}>
+              <td className="border border-black p-2 h-12">{entry.summary || ''}</td>
+              <td className="border border-black p-2 h-12">
+                {entry.subjectCode ? `${entry.subjectCode} ${entry.subjectName}` : ''}
+              </td>
+              <td className="border border-black p-2 h-12 text-right">
+                {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
+              </td>
+              <td className="border border-black p-2 h-12 text-right">
+                {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td className="border border-black p-2" colSpan={2}>合计：{chineseAmount}</td>
+            <td className="border border-black p-2 text-right">{debitTotal.toFixed(2)}</td>
+            <td className="border border-black p-2 text-right">{creditTotal.toFixed(2)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="flex justify-between mt-4 text-sm">
+        <span>主管：</span>
+        <span>记账：</span>
+        <span>审核：</span>
+        <span>出纳：</span>
+        <span>制单：{voucher.createdBy || '会计002'}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function VoucherListPage() {
   const router = useRouter();
   const { vouchers, loadVoucher, copyVoucher, deleteVoucher } = useVoucherStore();
@@ -224,6 +381,10 @@ export default function VoucherListPage() {
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 格式：YYYY-MM
   const [sortField, setSortField] = useState<'date' | 'voucherNo'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // 批量选择
+  const [selectedVoucherIds, setSelectedVoucherIds] = useState<Set<string>>(new Set());
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -270,6 +431,29 @@ export default function VoucherListPage() {
     posted: vouchers.filter(v => v.status === 'posted').length
   };
 
+  // 批量选择处理
+  const toggleSelectAll = () => {
+    if (selectedVoucherIds.size === paginatedVouchers.length) {
+      setSelectedVoucherIds(new Set());
+    } else {
+      setSelectedVoucherIds(new Set(paginatedVouchers.map(v => v.id)));
+    }
+  };
+
+  const toggleSelectVoucher = (id: string) => {
+    const newSelected = new Set(selectedVoucherIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedVoucherIds(newSelected);
+  };
+
+  const handleBatchPrint = () => {
+    setShowPrintDialog(true);
+  };
+
   // 操作处理
   const handleView = (voucher: VoucherType) => {
     setSelectedVoucher(voucher);
@@ -312,7 +496,6 @@ export default function VoucherListPage() {
     alert('冲销功能需要调用完整的会计引擎');
   };
 
-
   const handleExport = () => {
     // 导出为CSV
     const headers = ['凭证号', '日期', '摘要', '状态', '类型', '借方合计', '贷方合计'];
@@ -353,25 +536,49 @@ export default function VoucherListPage() {
     }
   };
 
+  // 获取要打印的凭证
+  const vouchersToPrint = filteredVouchers.filter(v => selectedVoucherIds.has(v.id));
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* 打印样式 */}
+      <style jsx global>{`
+        @media print {
+          .no-print { display: none !important; }
+          .voucher-print { page-break-after: always; }
+          .voucher-print:last-child { page-break-after: auto; }
+        }
+        .voucher-print { font-family: SimSun, serif; }
+      `}</style>
+
       {/* 页面标题 */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center no-print">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">凭证管理</h1>
           <p className="text-slate-500 mt-1">查看和管理所有凭证记录</p>
         </div>
-        <Button
-          className="bg-blue-600 hover:bg-blue-700"
-          onClick={() => router.push('/voucher-entry-page')}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          新增凭证
-        </Button>
+        <div className="flex gap-2">
+          {selectedVoucherIds.size > 0 && (
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={handleBatchPrint}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              批量打印 ({selectedVoucherIds.size})
+            </Button>
+          )}
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => router.push('/voucher-entry-page')}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            新增凭证
+          </Button>
+        </div>
       </div>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 no-print">
         <StatsCard
           title="全部凭证"
           value={stats.total}
@@ -399,7 +606,7 @@ export default function VoucherListPage() {
       </div>
 
       {/* 筛选栏 */}
-      <Card className="border-slate-200">
+      <Card className="border-slate-200 no-print">
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-4 items-end">
             <div className="flex-1 min-w-[200px]">
@@ -475,6 +682,18 @@ export default function VoucherListPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
+                      <th className="text-left p-3 border-b w-12 no-print">
+                        <button
+                          onClick={toggleSelectAll}
+                          className="hover:text-blue-600"
+                        >
+                          {selectedVoucherIds.size === paginatedVouchers.length && paginatedVouchers.length > 0 ? (
+                            <CheckSquare className="w-4 h-4" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </th>
                       <th className="text-left p-3 border-b">
                         <button
                           className="flex items-center gap-1 hover:text-blue-600"
@@ -498,7 +717,7 @@ export default function VoucherListPage() {
                       <th className="text-left p-3 border-b">状态</th>
                       <th className="text-right p-3 border-b">借方合计</th>
                       <th className="text-right p-3 border-b">贷方合计</th>
-                      <th className="text-center p-3 border-b">操作</th>
+                      <th className="text-center p-3 border-b no-print">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -510,6 +729,18 @@ export default function VoucherListPage() {
                         <>
                           {/* 凭证信息行 */}
                           <tr key={voucher.id} className="bg-slate-50 font-medium">
+                            <td className="p-3 border-b no-print">
+                              <button
+                                onClick={() => toggleSelectVoucher(voucher.id)}
+                                className="hover:text-blue-600"
+                              >
+                                {selectedVoucherIds.has(voucher.id) ? (
+                                  <CheckSquare className="w-4 h-4" />
+                                ) : (
+                                  <Square className="w-4 h-4" />
+                                )}
+                              </button>
+                            </td>
                             <td className="p-3 border-b font-mono text-blue-600">
                               <button
                                 className="hover:underline"
@@ -534,7 +765,7 @@ export default function VoucherListPage() {
                             <td className="p-3 border-b text-right font-mono">
                               {creditTotal.toFixed(2)}
                             </td>
-                            <td className="p-3 border-b text-center">
+                            <td className="p-3 border-b text-center no-print">
                               <div className="flex justify-center gap-1">
                                 <Button
                                   variant="ghost"
@@ -581,18 +812,18 @@ export default function VoucherListPage() {
                             .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
                             .map((entry) => (
                               <tr key={`${voucher.id}_${entry.id}`} className="hover:bg-slate-100">
-                                <td className="p-3 border-b pl-6">{entry.summary || '-'}</td>
+                                <td className="p-3 border-b no-print"></td>
+                                <td className="p-3 border-b pl-6" colSpan={2}>{entry.summary || '-'}</td>
                                 <td className="p-3 border-b font-mono">{entry.subjectCode || '-'}</td>
                                 <td className="p-3 border-b">{entry.subjectName || '-'}</td>
-                                <td className="p-3 border-b"></td> {/* 凭证类型列 */}
-                                <td className="p-3 border-b"></td> {/* 状态列 */}
+                                <td className="p-3 border-b"></td>
                                 <td className="p-3 border-b text-right font-mono">
                                   {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
                                 </td>
                                 <td className="p-3 border-b text-right font-mono">
                                   {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
                                 </td>
-                                <td className="p-3 border-b"></td> {/* 操作列 */}
+                                <td className="p-3 border-b no-print"></td>
                               </tr>
                             ))}
                         </>
@@ -604,7 +835,7 @@ export default function VoucherListPage() {
 
               {/* 分页 */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between p-4 border-t">
+                <div className="flex items-center justify-between p-4 border-t no-print">
                   <div className="text-sm text-slate-500">
                     共 {filteredVouchers.length} 条记录，第 {currentPage} / {totalPages} 页
                   </div>
@@ -695,6 +926,31 @@ export default function VoucherListPage() {
               <Trash2 className="w-4 h-4 mr-2" />
               删除
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量打印对话框 */}
+      <Dialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              打印预览 ({vouchersToPrint.length} 张凭证)
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex justify-between items-center mb-4 no-print">
+            <p className="text-sm text-slate-500">
+              共选择 {vouchersToPrint.length} 张凭证，每张凭证将单独分页打印
+            </p>
+            <Button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700">
+              <Printer className="w-4 h-4 mr-2" />
+              打印
+            </Button>
+          </div>
+          <div className="flex-1 overflow-auto pr-2">
+            {vouchersToPrint.map((voucher) => (
+              <PrintableVoucher key={voucher.id} voucher={voucher} />
+            ))}
           </div>
         </DialogContent>
       </Dialog>
