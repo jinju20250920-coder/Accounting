@@ -1,8 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { useVoucherTemplateStore } from '@/stores';
-import { Plus, Trash2, Download, Upload, FileText, AlertCircle, Edit2, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import {
+  useVoucherTemplateStore,
+  useSubjectStore,
+  useDepartmentStore,
+  useFinancialProjectStore,
+  useCurrencyStore
+} from '@/stores';
+import {
+  Trash2,
+  Download,
+  Upload,
+  FileText,
+  AlertCircle,
+  Edit2,
+  Search,
+  CheckCircle2,
+  XCircle
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -14,16 +30,29 @@ import { Textarea } from '@/components/ui/textarea';
 
 export default function TemplatesSettingsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateDescription, setNewTemplateDescription] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{
+    success: number;
+    failed: number;
+    errors: string[];
+  } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(''); // 新增搜索状态
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
 
-  const { templates, deleteTemplate, importTemplates, exportTemplates, importTemplatesFromExcel, exportTemplatesToExcel, updateTemplate } = useVoucherTemplateStore();
+  const {
+    templates,
+    deleteTemplate,
+    importTemplatesFromExcel,
+    exportTemplatesToExcel,
+    updateTemplate
+  } = useVoucherTemplateStore();
+
+  const { subjects } = useSubjectStore();
+  const { departments } = useDepartmentStore();
+  const { projects } = useFinancialProjectStore();
+  const { currencies } = useCurrencyStore();
 
   // 导出所有模板
   const handleExportAll = () => {
@@ -58,31 +87,34 @@ export default function TemplatesSettingsPage() {
 
   // 下载导入模板
   const handleDownloadTemplate = () => {
-    const templateData = [{
-      模版名称: '报销差旅费',
-      模版描述: '用于报销差旅费用的凭证模板',
-      凭证类型: 'payment',
-      摘要: '报销差旅费',
-      科目代码: '6602',
-      科目名称: '管理费用',
-      借方: 1000,
-      贷方: 0,
-      部门代码: '01',
-      部门名称: '销售部',
-      项目代码: '',
-      项目名称: '',
-      币别代码: 'CNY',
-      币别名称: '人民币',
-      现金流量项目: '',
-      客户名称: '',
-      供应商名称: ''
-    }, {
-      模版名称: '报销差旅费',
-      科目代码: '1002',
-      科目名称: '银行存款',
-      借方: 0,
-      贷方: 1000
-    }];
+    const templateData = [
+      {
+        模版名称: '报销差旅费',
+        模版描述: '用于报销差旅费用的凭证模板',
+        凭证类型: 'payment',
+        摘要: '报销差旅费',
+        科目代码: '6602',
+        科目名称: '管理费用',
+        借方: 1000,
+        贷方: 0,
+        部门代码: 'DEPT001',
+        部门名称: '销售部',
+        项目代码: '',
+        项目名称: '',
+        币别代码: 'CNY',
+        币别名称: '人民币',
+        现金流量项目: '',
+        客户名称: '',
+        供应商名称: ''
+      },
+      {
+        模版名称: '报销差旅费',
+        科目代码: '1002',
+        科目名称: '银行存款',
+        借方: 0,
+        贷方: 1000
+      }
+    ];
     exportToExcel(templateData, '凭证模板导入模板');
   };
 
@@ -117,7 +149,12 @@ export default function TemplatesSettingsPage() {
       ];
 
       const data = await importFromExcel<any>(importFile, headers);
-      const result = importTemplatesFromExcel(data);
+      const result = importTemplatesFromExcel(data, {
+        subjects: subjects || [],
+        departments: departments || [],
+        projects: projects || [],
+        currencies: currencies || []
+      });
       setImportResult(result);
     } catch (error) {
       setImportResult({
@@ -131,7 +168,7 @@ export default function TemplatesSettingsPage() {
   };
 
   // 搜索过滤模板
-  const filteredTemplates = templates.filter(template => {
+  const filteredTemplates = templates.filter((template) => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -152,14 +189,12 @@ export default function TemplatesSettingsPage() {
   };
 
   const startEditingTemplate = (template: any) => {
-    console.log('开始编辑模版:', template);
     setEditingTemplate(template.id);
-    // 使用深拷贝避免直接修改原数据
     setEditForm(JSON.parse(JSON.stringify(template)));
   };
 
   const updateEntryField = (index: number, field: string, value: any) => {
-    setEditForm(prev => {
+    setEditForm((prev) => {
       const newEntries = [...prev.entries];
       newEntries[index] = {
         ...newEntries[index],
@@ -174,12 +209,9 @@ export default function TemplatesSettingsPage() {
 
   const saveEditingTemplate = () => {
     if (editingTemplate) {
-      console.log('保存模版, ID:', editingTemplate);
-      console.log('保存数据:', editForm);
       updateTemplate(editingTemplate, editForm);
       setEditingTemplate(null);
       setEditForm({});
-      console.log('当前模版列表:', templates);
     }
   };
 
@@ -187,9 +219,6 @@ export default function TemplatesSettingsPage() {
     setEditingTemplate(null);
     setEditForm({});
   };
-
-  console.log('当前模版列表长度:', templates.length);
-  console.log('当前模版列表:', templates);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -215,14 +244,9 @@ export default function TemplatesSettingsPage() {
           </div>
         </div>
 
-        <Button onClick={handleExportAll} disabled={filteredTemplates.length === 0}>
-          <Download className="w-4 h-4 mr-2" />
-          导出所有模版
-        </Button>
-
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline">
+            <Button className="bg-green-600 hover:bg-green-700">
               <Upload className="w-4 h-4 mr-2" />
               导入模版
             </Button>
@@ -257,39 +281,90 @@ export default function TemplatesSettingsPage() {
               </Button>
 
               {importResult && (
-                <div className={`p-4 rounded-lg ${importResult.success > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className={`w-4 h-4 ${importResult.success > 0 ? 'text-green-600' : 'text-red-600'}`} />
-                    <span className={`font-medium ${importResult.success > 0 ? 'text-green-800' : 'text-red-800'}`}>
-                      导入结果
+                <div
+                  className={`p-4 rounded-lg border ${
+                    importResult.failed === 0
+                      ? 'bg-green-50 border-green-200'
+                      : importResult.success > 0
+                      ? 'bg-yellow-50 border-yellow-200'
+                      : 'bg-red-50 border-red-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    {importResult.failed === 0 ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    ) : importResult.success > 0 ? (
+                      <AlertCircle className="w-5 h-5 text-yellow-600" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-red-600" />
+                    )}
+                    <span
+                      className={`font-semibold text-lg ${
+                        importResult.failed === 0
+                          ? 'text-green-800'
+                          : importResult.success > 0
+                          ? 'text-yellow-800'
+                          : 'text-red-800'
+                      }`}
+                    >
+                      导入完成
                     </span>
                   </div>
-                  <div className="text-sm space-y-1">
-                    <p>成功：{importResult.success} 个模版</p>
-                    <p>失败：{importResult.failed} 个</p>
-                    {importResult.errors.length > 0 && (
-                      <div className="mt-2">
-                        <p className="font-medium">错误详情：</p>
-                        <ul className="list-disc list-inside text-xs space-y-1">
-                          {importResult.errors.slice(0, 5).map((error, i) => (
-                            <li key={i}>{error}</li>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="flex items-center gap-2 p-3 bg-white rounded-lg border">
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <div>
+                        <p className="text-xs text-slate-500">成功导入</p>
+                        <p className="text-xl font-bold text-green-700">
+                          {importResult.success}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 bg-white rounded-lg border">
+                      <XCircle className="w-5 h-5 text-red-600" />
+                      <div>
+                        <p className="text-xs text-slate-500">导入失败</p>
+                        <p className="text-xl font-bold text-red-700">
+                          {importResult.failed}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {importResult.errors.length > 0 && (
+                    <div>
+                      <p className="font-medium text-sm mb-2 flex items-center gap-1">
+                        <AlertCircle className="w-4 h-4" />
+                        错误详情：
+                      </p>
+                      <div className="bg-white rounded-lg border max-h-48 overflow-y-auto">
+                        <ul className="divide-y divide-slate-100">
+                          {importResult.errors.map((error, i) => (
+                            <li
+                              key={i}
+                              className="px-3 py-2 text-xs text-slate-700 flex items-start gap-2"
+                            >
+                              <span className="text-red-500 mt-0.5">•</span>
+                              {error}
+                            </li>
                           ))}
-                          {importResult.errors.length > 5 && (
-                            <li>...还有 {importResult.errors.length - 5} 条错误</li>
-                          )}
                         </ul>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => {
-                  setIsDialogOpen(false);
-                  setImportFile(null);
-                  setImportResult(null);
-                }}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsDialogOpen(false);
+                    setImportFile(null);
+                    setImportResult(null);
+                  }}
+                >
                   关闭
                 </Button>
                 <Button onClick={handleImport} disabled={!importFile || isImporting}>
@@ -299,6 +374,11 @@ export default function TemplatesSettingsPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <Button onClick={handleExportAll} disabled={filteredTemplates.length === 0}>
+          <Download className="w-4 h-4 mr-2" />
+          导出所有模版
+        </Button>
       </div>
 
       {/* 模版列表 */}
@@ -308,16 +388,22 @@ export default function TemplatesSettingsPage() {
             {filteredTemplates.length === 0 ? (
               <div className="text-center py-12 text-slate-500">
                 <p className="text-lg font-medium">暂无凭证模版</p>
-                <p className="text-sm mt-2">可以通过导入Excel文件或在凭证录入页面保存为模版</p>
+                <p className="text-sm mt-2">
+                  可以通过导入Excel文件或在凭证录入页面保存为模版
+                </p>
               </div>
             ) : (
               filteredTemplates
-                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                .sort(
+                  (a, b) =>
+                    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                )
                 .map((template) => (
-                  <div key={template.id} className="border rounded-lg overflow-hidden">
-                    <div
-                      className="flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors"
-                    >
+                  <div
+                    key={template.id}
+                    className="border rounded-lg overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors">
                       <div className="flex items-center gap-3 flex-1">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
@@ -351,16 +437,6 @@ export default function TemplatesSettingsPage() {
                         </Button>
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            // TODO: 实现导出单个模版
-                            console.log('Exporting template:', template.id);
-                          }}
-                        >
-                          <Download className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
                           variant="ghost"
                           onClick={() => deleteTemplate(template.id)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -379,7 +455,9 @@ export default function TemplatesSettingsPage() {
                               <Label>模版名称</Label>
                               <Input
                                 value={editForm.name || ''}
-                                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, name: e.target.value })
+                                }
                               />
                             </div>
                             <div className="space-y-2">
@@ -387,7 +465,9 @@ export default function TemplatesSettingsPage() {
                               <select
                                 className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 value={editForm.voucherType || 'general'}
-                                onChange={(e) => setEditForm({ ...editForm, voucherType: e.target.value })}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, voucherType: e.target.value })
+                                }
                               >
                                 <option value="general">通用凭证</option>
                                 <option value="receipt">收款凭证</option>
@@ -401,42 +481,57 @@ export default function TemplatesSettingsPage() {
                             <Label>模版描述</Label>
                             <Textarea
                               value={editForm.description || ''}
-                              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                              onChange={(e) =>
+                                setEditForm({ ...editForm, description: e.target.value })
+                              }
                               rows={3}
                             />
                           </div>
 
                           <div className="space-y-4">
-                            <h4 className="font-semibold text-sm text-slate-900">凭证分录</h4>
+                            <h4 className="font-semibold text-sm text-slate-900">
+                              凭证分录
+                            </h4>
                             <div className="space-y-3">
                               {editForm.entries?.map((entry: any, index: number) => (
-                                <div key={entry.id} className="grid grid-cols-1 md:grid-cols-6 gap-3 p-3 border rounded">
+                                <div
+                                  key={entry.id}
+                                  className="grid grid-cols-1 md:grid-cols-6 gap-3 p-3 border rounded"
+                                >
                                   <div className="space-y-1">
                                     <Label className="text-xs">摘要</Label>
                                     <Input
                                       value={entry.summary || ''}
-                                      onChange={(e) => updateEntryField(index, 'summary', e.target.value)}
+                                      onChange={(e) =>
+                                        updateEntryField(index, 'summary', e.target.value)
+                                      }
                                     />
                                   </div>
                                   <div className="space-y-1">
                                     <Label className="text-xs">科目代码</Label>
                                     <Input
                                       value={entry.subjectCode || ''}
-                                      onChange={(e) => updateEntryField(index, 'subjectCode', e.target.value)}
+                                      onChange={(e) =>
+                                        updateEntryField(index, 'subjectCode', e.target.value)
+                                      }
                                     />
                                   </div>
                                   <div className="space-y-1">
                                     <Label className="text-xs">科目名称</Label>
                                     <Input
                                       value={entry.subjectName || ''}
-                                      onChange={(e) => updateEntryField(index, 'subjectName', e.target.value)}
+                                      onChange={(e) =>
+                                        updateEntryField(index, 'subjectName', e.target.value)
+                                      }
                                     />
                                   </div>
                                   <div className="space-y-1">
                                     <Label className="text-xs">币别</Label>
                                     <Input
                                       value={entry.currencyName || entry.currencyCode || ''}
-                                      onChange={(e) => updateEntryField(index, 'currencyName', e.target.value)}
+                                      onChange={(e) =>
+                                        updateEntryField(index, 'currencyName', e.target.value)
+                                      }
                                       placeholder="如：人民币"
                                     />
                                   </div>
@@ -444,7 +539,9 @@ export default function TemplatesSettingsPage() {
                                     <Label className="text-xs">现金流量</Label>
                                     <Input
                                       value={entry.cashFlowItem || ''}
-                                      onChange={(e) => updateEntryField(index, 'cashFlowItem', e.target.value)}
+                                      onChange={(e) =>
+                                        updateEntryField(index, 'cashFlowItem', e.target.value)
+                                      }
                                       placeholder="如：支付的其他与经营活动有关的现金"
                                     />
                                   </div>
@@ -454,7 +551,13 @@ export default function TemplatesSettingsPage() {
                                       <Input
                                         type="number"
                                         value={entry.debit || 0}
-                                        onChange={(e) => updateEntryField(index, 'debit', parseFloat(e.target.value) || 0)}
+                                        onChange={(e) =>
+                                          updateEntryField(
+                                            index,
+                                            'debit',
+                                            parseFloat(e.target.value) || 0
+                                          )
+                                        }
                                       />
                                     </div>
                                     <div className="space-y-1">
@@ -462,7 +565,13 @@ export default function TemplatesSettingsPage() {
                                       <Input
                                         type="number"
                                         value={entry.credit || 0}
-                                        onChange={(e) => updateEntryField(index, 'credit', parseFloat(e.target.value) || 0)}
+                                        onChange={(e) =>
+                                          updateEntryField(
+                                            index,
+                                            'credit',
+                                            parseFloat(e.target.value) || 0
+                                          )
+                                        }
                                       />
                                     </div>
                                   </div>
@@ -475,9 +584,7 @@ export default function TemplatesSettingsPage() {
                             <Button variant="outline" onClick={cancelEditingTemplate}>
                               取消
                             </Button>
-                            <Button onClick={saveEditingTemplate}>
-                              保存
-                            </Button>
+                            <Button onClick={saveEditingTemplate}>保存</Button>
                           </div>
                         </div>
                       ) : (
@@ -497,14 +604,25 @@ export default function TemplatesSettingsPage() {
                               </thead>
                               <tbody>
                                 {template.entries.map((entry: any) => (
-                                  <tr key={entry.id} className="border-b hover:bg-slate-50">
+                                  <tr
+                                    key={entry.id}
+                                    className="border-b hover:bg-slate-50"
+                                  >
                                     <td className="py-2 px-3">{entry.summary}</td>
                                     <td className="py-2 px-3">{entry.subjectCode}</td>
                                     <td className="py-2 px-3">{entry.subjectName}</td>
-                                    <td className="py-2 px-3">{entry.currencyName || entry.currencyCode || '-'}</td>
-                                    <td className="py-2 px-3">{entry.cashFlowItem || '-'}</td>
-                                    <td className="text-right py-2 px-3">{entry.debit.toFixed(2)}</td>
-                                    <td className="text-right py-2 px-3">{entry.credit.toFixed(2)}</td>
+                                    <td className="py-2 px-3">
+                                      {entry.currencyName || entry.currencyCode || '-'}
+                                    </td>
+                                    <td className="py-2 px-3">
+                                      {entry.cashFlowItem || '-'}
+                                    </td>
+                                    <td className="text-right py-2 px-3">
+                                      {entry.debit.toFixed(2)}
+                                    </td>
+                                    <td className="text-right py-2 px-3">
+                                      {entry.credit.toFixed(2)}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -513,10 +631,16 @@ export default function TemplatesSettingsPage() {
 
                           <div className="flex justify-end gap-2 pt-4 border-t">
                             <div className="text-sm font-medium text-slate-700">
-                              借方合计：{template.entries.reduce((sum: number, entry: any) => sum + entry.debit, 0).toFixed(2)}
+                              借方合计：
+                              {template.entries
+                                .reduce((sum: number, entry: any) => sum + entry.debit, 0)
+                                .toFixed(2)}
                             </div>
                             <div className="text-sm font-medium text-slate-700 ml-4">
-                              贷方合计：{template.entries.reduce((sum: number, entry: any) => sum + entry.credit, 0).toFixed(2)}
+                              贷方合计：
+                              {template.entries
+                                .reduce((sum: number, entry: any) => sum + entry.credit, 0)
+                                .toFixed(2)}
                             </div>
                           </div>
                         </div>
@@ -536,9 +660,10 @@ export default function TemplatesSettingsPage() {
           <div className="space-y-2 text-sm text-slate-600">
             <p>• 在凭证录入页面点击"保存为模版"按钮，可将当前凭证保存为模版</p>
             <p>• 支持Excel格式的模版导入导出</p>
+            <p>• 导入时会自动校验科目、部门、项目、币别代码是否存在</p>
             <p>• 模版包括完整的凭证信息，包括摘要、科目、借方、贷方等</p>
             <p>• 可快速应用模版创建新凭证</p>
-            <p>• 点击模版标题可展开查看详细内容，点击编辑按钮可修改模版信息</p>
+            <p>• 点击编辑按钮可修改模版信息</p>
           </div>
         </CardContent>
       </Card>

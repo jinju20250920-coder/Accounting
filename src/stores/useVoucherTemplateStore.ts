@@ -3,6 +3,14 @@ import { persist } from 'zustand/middleware';
 
 import { VoucherFullTemplate, VoucherTemplateEntry } from '@/types';
 
+// 校验数据类型
+interface TemplateValidationData {
+  subjects: { code: string }[];
+  departments: { code: string }[];
+  projects: { code: string }[];
+  currencies: { code: string }[];
+}
+
 // 凭证模版存储
 interface VoucherTemplateStore {
   templates: VoucherFullTemplate[];
@@ -23,7 +31,7 @@ interface VoucherTemplateStore {
   exportTemplateToJSON: (id: string) => string;
 
   // Excel 导入导出
-  importTemplatesFromExcel: (data: any[]) => { success: number; failed: number; errors: string[] };
+  importTemplatesFromExcel: (data: any[], validationData?: TemplateValidationData) => { success: number; failed: number; errors: string[] };
   exportTemplatesToExcel: () => any[];
 }
 
@@ -130,7 +138,12 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
     },
 
     // Excel 导入凭证模版
-    importTemplatesFromExcel: (data: any[]) => {
+    importTemplatesFromExcel: (data: any[], validationData?: {
+      subjects: { code: string }[];
+      departments: { code: string }[];
+      projects: { code: string }[];
+      currencies: { code: string }[];
+    }) => {
       const errors: string[] = [];
       let success = 0;
       let failed = 0;
@@ -153,6 +166,12 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
         templateMap.get(templateName)?.push({ row, index });
       });
 
+      // 提取校验数据 - 如果没有传递 validationData，则不进行校验
+      const subjectCodes = validationData?.subjects ? new Set(validationData.subjects.map(s => s.code)) : new Set<string>();
+      const departmentCodes = validationData?.departments ? new Set(validationData.departments.map(d => d.code)) : new Set<string>();
+      const projectCodes = validationData?.projects ? new Set(validationData.projects.map(p => p.code)) : new Set<string>();
+      const currencyCodes = validationData?.currencies ? new Set(validationData.currencies.map(c => c.code)) : new Set<string>();
+
       // 处理每个模版
       templateMap.forEach((templateRows, templateName) => {
         const templateDescription = templateRows[0].row['模版描述'];
@@ -160,12 +179,48 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
 
         const entries: VoucherTemplateEntry[] = [];
         let hasValidEntries = false;
+        let templateValid = true;
 
         templateRows.forEach(({ row, index }) => {
           const subjectCode = row['科目代码'];
           const subjectName = row['科目名称'];
           const debit = Number(row['借方']);
           const credit = Number(row['贷方']);
+          const deptCode = row['部门代码'];
+          const projectCode = row['项目代码'];
+          const currencyCode = row['币别代码'];
+
+          // 校验科目代码（仅在 validationData 存在时）
+          if (validationData && subjectCode && subjectCode.trim()) {
+            if (!subjectCodes.has(subjectCode.trim())) {
+              templateValid = false;
+              errors.push(`模版"${templateName}"第${index + 2}行：科目代码"${subjectCode}"不存在`);
+            }
+          }
+
+          // 校验部门代码（仅在 validationData 存在时）
+          if (validationData && deptCode && deptCode.trim()) {
+            if (!departmentCodes.has(deptCode.trim())) {
+              templateValid = false;
+              errors.push(`模版"${templateName}"第${index + 2}行：部门代码"${deptCode}"不存在`);
+            }
+          }
+
+          // 校验项目代码（仅在 validationData 存在时）
+          if (validationData && projectCode && projectCode.trim()) {
+            if (!projectCodes.has(projectCode.trim())) {
+              templateValid = false;
+              errors.push(`模版"${templateName}"第${index + 2}行：项目代码"${projectCode}"不存在`);
+            }
+          }
+
+          // 校验币别代码（仅在 validationData 存在时）
+          if (validationData && currencyCode && currencyCode.trim()) {
+            if (!currencyCodes.has(currencyCode.trim())) {
+              templateValid = false;
+              errors.push(`模版"${templateName}"第${index + 2}行：币别代码"${currencyCode}"不存在`);
+            }
+          }
 
           if (subjectCode || subjectName) {
             const entry: VoucherTemplateEntry = {
@@ -189,7 +244,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
           }
         });
 
-        if (hasValidEntries) {
+        if (templateValid && hasValidEntries) {
           const newTemplate: VoucherFullTemplate = {
             id: Date.now().toString() + '_' + templateName,
             name: templateName,
@@ -204,7 +259,11 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
           success++;
         } else {
           failed++;
-          errors.push(`模版"${templateName}"没有有效的分录`);
+          if (!templateValid) {
+            errors.push(`模版"${templateName}"导入失败：存在无效的科目、部门、项目或币别代码`);
+          } else if (!hasValidEntries) {
+            errors.push(`模版"${templateName}"没有有效的分录`);
+          }
         }
       });
 
