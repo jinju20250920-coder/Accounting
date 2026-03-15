@@ -97,6 +97,11 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse }: 
   const canPost = voucher.status === 'review';
   const canReverse = voucher.status === 'posted';
 
+  // 打印凭证功能
+  const handlePrintVoucher = () => {
+    window.print();
+  };
+
   return (
     <div className="space-y-6">
       {/* 凭证头部信息 */}
@@ -174,6 +179,10 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse }: 
 
       {/* 操作按钮 */}
       <div className="flex justify-end gap-2 pt-4 border-t">
+        <Button variant="outline" onClick={handlePrintVoucher}>
+          <Printer className="w-4 h-4 mr-2" />
+          打印凭证
+        </Button>
         {canEdit && (
           <Button variant="outline" onClick={onEdit}>
             <Edit className="w-4 h-4 mr-2" />
@@ -212,7 +221,7 @@ export default function VoucherListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 格式：YYYY-MM
   const [sortField, setSortField] = useState<'date' | 'voucherNo'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -233,10 +242,10 @@ export default function VoucherListPage() {
         (v.summary && v.summary.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
       const matchesType = selectedType === 'all' || v.voucherType === selectedType;
-      const matchesStartDate = !dateRange.start || v.date >= dateRange.start;
-      const matchesEndDate = !dateRange.end || v.date <= dateRange.end;
+      // 月份筛选：YYYY-MM 格式匹配
+      const matchesMonth = !selectedMonth || v.date.slice(0, 7) === selectedMonth;
 
-      return matchesSearch && matchesStatus && matchesType && matchesStartDate && matchesEndDate;
+      return matchesSearch && matchesStatus && matchesType && matchesMonth;
     })
     .sort((a, b) => {
       const aVal = sortField === 'date' ? a.date : a.voucherNo;
@@ -303,9 +312,6 @@ export default function VoucherListPage() {
     alert('冲销功能需要调用完整的会计引擎');
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
 
   const handleExport = () => {
     // 导出为CSV
@@ -437,26 +443,14 @@ export default function VoucherListPage() {
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-400" />
               <Input
-                type="date"
-                placeholder="开始日期"
-                value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-36"
-              />
-              <span className="text-slate-400">至</span>
-              <Input
-                type="date"
-                placeholder="结束日期"
-                value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                type="month"
+                placeholder="选择月份"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
                 className="w-36"
               />
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handlePrint}>
-                <Printer className="w-4 h-4 mr-2" />
-                打印
-              </Button>
               <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="w-4 h-4 mr-2" />
                 导出
@@ -513,72 +507,95 @@ export default function VoucherListPage() {
                       const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
 
                       return (
-                        <tr key={voucher.id} className="hover:bg-slate-50">
-                          <td className="p-3 border-b font-mono text-blue-600">
-                            <button
-                              className="hover:underline"
-                              onClick={() => handleView(voucher)}
-                            >
-                              {voucher.voucherNo}
-                            </button>
-                          </td>
-                          <td className="p-3 border-b">{voucher.date}</td>
-                          <td className="p-3 border-b truncate max-w-xs">{voucher.summary || '-'}</td>
-                          <td className="p-3 border-b">
-                            {typeConfig[voucher.voucherType as keyof typeof typeConfig]}
-                          </td>
-                          <td className="p-3 border-b">
-                            <Badge className={statusConfig[voucher.status as keyof typeof statusConfig].color}>
-                              {statusConfig[voucher.status as keyof typeof statusConfig].label}
-                            </Badge>
-                          </td>
-                          <td className="p-3 border-b text-right font-mono">
-                            {debitTotal.toFixed(2)}
-                          </td>
-                          <td className="p-3 border-b text-right font-mono">
-                            {creditTotal.toFixed(2)}
-                          </td>
-                          <td className="p-3 border-b text-center">
-                            <div className="flex justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
+                        <>
+                          {/* 凭证信息行 */}
+                          <tr key={voucher.id} className="bg-slate-50 font-medium">
+                            <td className="p-3 border-b font-mono text-blue-600">
+                              <button
+                                className="hover:underline"
                                 onClick={() => handleView(voucher)}
-                                title="查看"
                               >
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                              {(voucher.status === 'draft' || voucher.status === 'review') && (
+                                {voucher.voucherNo}
+                              </button>
+                            </td>
+                            <td className="p-3 border-b">{voucher.date}</td>
+                            <td className="p-3 border-b truncate max-w-xs">{voucher.summary || '-'}</td>
+                            <td className="p-3 border-b">
+                              {typeConfig[voucher.voucherType as keyof typeof typeConfig]}
+                            </td>
+                            <td className="p-3 border-b">
+                              <Badge className={statusConfig[voucher.status as keyof typeof statusConfig].color}>
+                                {statusConfig[voucher.status as keyof typeof statusConfig].label}
+                              </Badge>
+                            </td>
+                            <td className="p-3 border-b text-right font-mono">
+                              {debitTotal.toFixed(2)}
+                            </td>
+                            <td className="p-3 border-b text-right font-mono">
+                              {creditTotal.toFixed(2)}
+                            </td>
+                            <td className="p-3 border-b text-center">
+                              <div className="flex justify-center gap-1">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => handleEdit(voucher)}
-                                  title="编辑"
+                                  onClick={() => handleView(voucher)}
+                                  title="查看"
                                 >
-                                  <Edit className="w-4 h-4" />
+                                  <Eye className="w-4 h-4" />
                                 </Button>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleCopy(voucher)}
-                                title="复制"
-                              >
-                                <Copy className="w-4 h-4" />
-                              </Button>
-                              {(voucher.status === 'draft' || voucher.status === 'review') && (
+                                {(voucher.status === 'draft' || voucher.status === 'review') && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEdit(voucher)}
+                                    title="编辑"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => handleDelete(voucher)}
-                                  title="删除"
+                                  onClick={() => handleCopy(voucher)}
+                                  title="复制"
                                 >
-                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                  <Copy className="w-4 h-4" />
                                 </Button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+                                {(voucher.status === 'draft' || voucher.status === 'review') && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDelete(voucher)}
+                                    title="删除"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* 凭证明细行 */}
+                          {voucher.entries
+                            .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
+                            .map((entry) => (
+                              <tr key={`${voucher.id}_${entry.id}`} className="hover:bg-slate-100">
+                                <td className="p-3 border-b pl-6">{entry.summary || '-'}</td>
+                                <td className="p-3 border-b font-mono">{entry.subjectCode || '-'}</td>
+                                <td className="p-3 border-b">{entry.subjectName || '-'}</td>
+                                <td className="p-3 border-b"></td> {/* 凭证类型列 */}
+                                <td className="p-3 border-b"></td> {/* 状态列 */}
+                                <td className="p-3 border-b text-right font-mono">
+                                  {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
+                                </td>
+                                <td className="p-3 border-b text-right font-mono">
+                                  {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
+                                </td>
+                                <td className="p-3 border-b"></td> {/* 操作列 */}
+                              </tr>
+                            ))}
+                        </>
                       );
                     })}
                   </tbody>
