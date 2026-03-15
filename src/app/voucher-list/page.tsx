@@ -321,7 +321,7 @@ function PrintableVoucher({ voucher }: { voucher: VoucherType }) {
       <div className="text-center mb-4">
         <h1 className="text-2xl font-bold">记账凭证</h1>
         <div className="flex justify-between mt-2 text-sm">
-          <span>单位：{year}</span>
+          <span>单位：上海乐茜信息技术有限公司</span>
           <span>日期：{year}年{parseInt(month)}月{parseInt(day)}日</span>
           <span>凭证号：{voucher.voucherNo}</span>
         </div>
@@ -547,6 +547,11 @@ export default function VoucherListPage() {
           .no-print { display: none !important; }
           .voucher-print { page-break-after: always; }
           .voucher-print:last-child { page-break-after: auto; }
+          body { background: white !important; }
+          .voucher-print { margin: 0 !important; padding: 0 !important; }
+          /* 隐藏浏览器默认的页头页脚 */
+          @page { margin: 1cm; }
+          header, footer, nav { display: none !important; }
         }
         .voucher-print { font-family: SimSun, serif; }
       `}</style>
@@ -933,9 +938,9 @@ export default function VoucherListPage() {
       {/* 批量打印对话框 */}
       <Dialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
+          <DialogHeader className="no-print">
             <DialogTitle>
-              打印预览 ({vouchersToPrint.length} 张凭证)
+              打印预览
             </DialogTitle>
           </DialogHeader>
           <div className="flex justify-between items-center mb-4 no-print">
@@ -947,7 +952,7 @@ export default function VoucherListPage() {
               打印
             </Button>
           </div>
-          <div className="flex-1 overflow-auto pr-2">
+          <div className="flex-1 overflow-hidden">
             {vouchersToPrint.map((voucher) => (
               <PrintableVoucher key={voucher.id} voucher={voucher} />
             ))}
