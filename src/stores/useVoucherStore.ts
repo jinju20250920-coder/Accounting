@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createVersionStorage } from './persistence-config';
 
 // 会计科目数据
 interface Subject {

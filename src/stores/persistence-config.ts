@@ -1,6 +1,7 @@
 import { persist } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
 import { database } from '@/lib/database';
+import { useAccountSetStore } from './useAccountSetStore';
 
 // 数据版本定义
 export const DATA_VERSIONS = {
@@ -186,4 +187,95 @@ export function safePersist<T>(config: any) {
 
   // 客户端使用完整的persist配置
   return config;
+}
+
+// ========== 多账套数据隔离支持 ==========
+
+// 获取账套隔离的存储键
+export function getAccountSetScopedKey(baseKey: string, accountSetId: string | null): string {
+  if (!accountSetId) {
+    return `${baseKey}:default`;
+  }
+  return `${baseKey}:${accountSetId}`;
+}
+
+// 创建支持多账套隔离的 StateStorage
+export function createAccountSetStorage(baseKey: string): StateStorage {
+  const isClient = typeof window !== 'undefined';
+
+  // 获取当前账套ID
+  const getAccountSetId = (): string | null => {
+    if (!isClient) return null;
+    try {
+      const store = useAccountSetStore.getState();
+      return store.currentAccountSetId;
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    getItem: async (name: string) => {
+      if (!isClient) return null;
+
+      const accountSetId = getAccountSetId();
+      const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
+
+      try {
+        await database.init();
+        const data = await database.get(scopedKey);
+        if (data) {
+          return JSON.stringify(data);
+        }
+      } catch (e) {
+        console.warn('IndexedDB read failed, falling back to localStorage:', e);
+      }
+
+      const item = localStorage.getItem(scopedKey);
+      if (!item) return null;
+
+      return item;
+    },
+
+    setItem: async (name: string, value: string) => {
+      if (!isClient) return;
+
+      const accountSetId = getAccountSetId();
+      const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
+
+      try {
+        await database.init();
+        await database.set(scopedKey, JSON.parse(value));
+        localStorage.setItem(scopedKey, value);
+      } catch (e) {
+        console.warn('IndexedDB write failed, using localStorage only:', e);
+        localStorage.setItem(scopedKey, value);
+      }
+    },
+
+    removeItem: async (name: string) => {
+      if (!isClient) return;
+
+      const accountSetId = getAccountSetId();
+      const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
+
+      try {
+        await database.init();
+        await database.delete(scopedKey);
+      } catch (e) {
+        console.warn('IndexedDB delete failed:', e);
+      }
+      localStorage.removeItem(scopedKey);
+    }
+  };
+}
+
+// 创建支持多账套的 persist 配置
+export function createAccountSetPersistConfig(baseKey: string) {
+  const storage = createAccountSetStorage(baseKey);
+  return {
+    name: baseKey, // 基础键名，实际存储时会添加账套前缀
+    storage,
+    partialize: (state: any) => state
+  };
 }

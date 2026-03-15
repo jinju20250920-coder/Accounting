@@ -317,7 +317,7 @@ function PrintableVoucher({ voucher }: { voucher: VoucherType }) {
   }
 
   return (
-    <div className="voucher-print">
+    <div className="voucher-print bg-white p-6">
       <div className="text-center mb-4">
         <h1 className="text-2xl font-bold">记账凭证</h1>
         <div className="flex justify-between mt-2 text-sm">
@@ -327,7 +327,7 @@ function PrintableVoucher({ voucher }: { voucher: VoucherType }) {
         </div>
       </div>
 
-      <table className="w-full border-collapse border border-black">
+      <table className="w-full border-collapse">
         <thead>
           <tr>
             <th className="border border-black p-2 w-1/4">摘要</th>
@@ -552,8 +552,16 @@ export default function VoucherListPage() {
           /* 隐藏浏览器默认的页头页脚 */
           @page { margin: 1cm; }
           header, footer, nav { display: none !important; }
+          /* 确保打印时没有滚动条 */
+          html, body { overflow: visible !important; }
+          .print-preview-container { overflow: visible !important; }
         }
         .voucher-print { font-family: SimSun, serif; }
+        /* 预览时的样式 */
+        .print-preview-container {
+          overflow-y: auto;
+          overflow-x: hidden;
+        }
       `}</style>
 
       {/* 页面标题 */}
@@ -937,13 +945,13 @@ export default function VoucherListPage() {
 
       {/* 批量打印对话框 */}
       <Dialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader className="no-print">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="no-print px-6 py-4 border-b">
             <DialogTitle>
               打印预览
             </DialogTitle>
           </DialogHeader>
-          <div className="flex justify-between items-center mb-4 no-print">
+          <div className="flex justify-between items-center px-6 py-3 mb-0 no-print border-b bg-slate-50">
             <p className="text-sm text-slate-500">
               共选择 {vouchersToPrint.length} 张凭证，每张凭证将单独分页打印
             </p>
@@ -952,10 +960,14 @@ export default function VoucherListPage() {
               打印
             </Button>
           </div>
-          <div className="flex-1 overflow-hidden">
-            {vouchersToPrint.map((voucher) => (
-              <PrintableVoucher key={voucher.id} voucher={voucher} />
-            ))}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden print-preview-container bg-slate-100">
+            <div className="max-w-3xl mx-auto py-6 space-y-6">
+              {vouchersToPrint.map((voucher) => (
+                <div key={voucher.id} className="bg-white shadow-sm">
+                  <PrintableVoucher voucher={voucher} />
+                </div>
+              ))}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
