@@ -19,36 +19,23 @@ export function useDatabaseSync() {
         await database.init();
 
         // 检查是否有需要迁移的 localStorage 数据
-        const localStorageVouchers = localStorage.getItem('finance-vouchers');
-        if (localStorageVouchers) {
+        const hasVoucherData = localStorage.getItem('finance-vouchers');
+        if (hasVoucherData) {
+          console.log('Found localStorage data, checking if migration is needed...');
           try {
-            const parsedVouchers = JSON.parse(localStorageVouchers);
-
-            // 如果数据存在但还没有保存到 IndexedDB，则进行迁移
-            if (parsedVouchers && !await database.get('finance-vouchers-migrated')) {
+            const migratedFlag = await database.get('finance-vouchers-migrated');
+            if (!migratedFlag) {
               console.log('Migrating data from localStorage to IndexedDB...');
 
-              // 迁移凭证数据
-              if (parsedVouchers.state?.vouchers) {
-                for (const voucher of parsedVouchers.state.vouchers) {
-                  await database.saveVoucher(voucher);
+              // 从各存储中恢复数据并保存到 IndexedDB
+              await database.syncAllData([
+                {
+                  vouchers: voucherStore.vouchers,
+                  subjects: subjectStore.subjects,
+                  departments: departmentStore.departments,
+                  projects: projectStore.projects
                 }
-              }
-
-              // 迁移科目数据
-              if (parsedVouchers.state?.subjects) {
-                await database.saveSubjects(parsedVouchers.state.subjects);
-              }
-
-              // 迁移部门数据
-              if (parsedVouchers.state?.departments) {
-                await database.saveDepartments(parsedVouchers.state.departments);
-              }
-
-              // 迁移项目数据
-              if (parsedVouchers.state?.projects) {
-                await database.saveProjects(parsedVouchers.state.projects);
-              }
+              ]);
 
               // 标记为已迁移
               await database.set('finance-vouchers-migrated', true);
@@ -58,12 +45,9 @@ export function useDatabaseSync() {
                 description: "您的数据已从本地存储成功迁移到数据库",
                 type: "success",
               });
-
-              // 清理旧的 localStorage 数据
-              localStorage.removeItem('finance-vouchers');
             }
-          } catch (error) {
-            console.error('Migration error:', error);
+          } catch (migrationError) {
+            console.error('Migration error:', migrationError);
             toast({
               title: "数据迁移失败",
               description: "部分数据未能成功迁移，但应用仍可正常使用",
@@ -72,16 +56,18 @@ export function useDatabaseSync() {
           }
         }
 
-        // 初始化时从数据库加载数据
-        const loadedVouchers = await database.getAllVouchers();
-        if (loadedVouchers.length > 0 && voucherStore.vouchers.length === 0) {
-          voucherStore.vouchers = loadedVouchers;
+        // 从 IndexedDB 恢复数据
+        console.log('Restoring data from IndexedDB...');
+        const restoredData = await database.restoreAllData();
+
+        // 更新各存储
+        if (restoredData.vouchers.length > 0 && voucherStore.vouchers.length === 0) {
+          voucherStore.vouchers = restoredData.vouchers;
         }
 
-        const loadedSubjects = await database.getAllSubjects();
-        if (loadedSubjects.length > 0 && subjectStore.subjects.length === 0) {
+        if (restoredData.subjects.length > 0 && subjectStore.subjects.length === 0) {
           // 迁移数据：为旧数据添加新字段
-          const migratedSubjects = loadedSubjects.map((s: any) => ({
+          const migratedSubjects = restoredData.subjects.map((s: any) => ({
             ...s,
             isCustomer: s.isCustomer ?? s.isAR ?? false,
             isSupplier: s.isSupplier ?? s.isAP ?? false,
@@ -92,15 +78,17 @@ export function useDatabaseSync() {
           subjectStore.subjects = migratedSubjects as any;
         }
 
-        const loadedDepartments = await database.getAllDepartments();
-        if (loadedDepartments.length > 0 && departmentStore.departments.length === 0) {
-          departmentStore.departments = loadedDepartments;
+        if (restoredData.departments.length > 0 && departmentStore.departments.length === 0) {
+          departmentStore.departments = restoredData.departments;
         }
 
-        const loadedProjects = await database.getAllProjects();
-        if (loadedProjects.length > 0 && projectStore.projects.length === 0) {
-          projectStore.projects = loadedProjects;
+        if (restoredData.projects.length > 0 && projectStore.projects.length === 0) {
+          projectStore.projects = restoredData.projects;
         }
+
+        // 检查数据完整性
+        const integrity = await database.checkDataIntegrity();
+        console.log('Data integrity check:', integrity);
 
       } catch (error) {
         console.error('Database sync error:', error);
@@ -140,6 +128,7 @@ export function useDatabaseSync() {
         if (projectStore.projects.length > 0) {
           await database.saveProjects(projectStore.projects);
         }
+
       } catch (error) {
         console.error('Auto-save error:', error);
       }

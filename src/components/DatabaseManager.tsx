@@ -1,15 +1,19 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { useDatabaseSync } from '@/hooks/useDatabaseSync';
-import { database } from '@/lib/database';
+import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useDepartmentStore } from '@/stores/useDepartmentStore';
+import { useFinancialProjectStore } from '@/stores/useFinancialProjectStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
+import { useVoucherTemplateStore } from '@/stores/useVoucherTemplateStore';
+import { useSummaryStore } from '@/stores/useSummaryStore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Select, SelectOption } from '@/components/ui/select';
 import {
   Download,
   Upload,
@@ -32,7 +36,14 @@ interface DatabaseStats {
 }
 
 export function DatabaseManager() {
-  const { exportData, importData } = useDatabaseSync();
+  const voucherStore = useVoucherStore();
+  const subjectStore = useSubjectStore();
+  const departmentStore = useDepartmentStore();
+  const projectStore = useFinancialProjectStore();
+  const currencyStore = useCurrencyStore();
+  const templateStore = useVoucherTemplateStore();
+  const summaryStore = useSummaryStore();
+
   const [stats, setStats] = useState<DatabaseStats>({
     voucherCount: 0,
     subjectCount: 0,
@@ -42,38 +53,61 @@ export function DatabaseManager() {
     lastSync: null
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const loadStats = async () => {
-    try {
-      await database.init();
-
-      const vouchers = await database.getAllVouchers();
-      const subjects = await database.getAllSubjects();
-      const departments = await database.getAllDepartments();
-      const projects = await database.getAllProjects();
-      const auditLogs = await database.getAuditLogs(1000);
-
-      setStats({
-        voucherCount: vouchers.length,
-        subjectCount: subjects.length,
-        departmentCount: departments.length,
-        projectCount: projects.length,
-        auditLogCount: auditLogs.length,
-        lastSync: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Failed to load stats:', error);
-    }
+  const loadStats = () => {
+    setStats({
+      voucherCount: voucherStore.vouchers.length,
+      subjectCount: subjectStore.subjects.length,
+      departmentCount: departmentStore.departments.length,
+      projectCount: projectStore.projects.length,
+      auditLogCount: 0, // 审计日志目前不在store中
+      lastSync: new Date().toISOString()
+    });
   };
 
+  React.useEffect(() => {
+    loadStats();
+  }, [voucherStore.vouchers.length, subjectStore.subjects.length, departmentStore.departments.length, projectStore.projects.length]);
+
+  // 导出数据为 JSON 文件
   const handleExport = async () => {
     try {
       setIsLoading(true);
-      await exportData();
+
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        version: '1.0',
+        vouchers: voucherStore.vouchers,
+        subjects: subjectStore.subjects,
+        departments: departmentStore.departments,
+        projects: projectStore.projects,
+        currencies: currencyStore.currencies,
+        templates: templateStore.templates,
+        commonSummaries: summaryStore.commonSummaries,
+        recentSummaries: summaryStore.recentSummaries
+      };
+
+      // 创建下载链接
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `finance-data-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
       await loadStats();
+
+      toast({
+        title: "导出成功",
+        description: `成功导出 ${voucherStore.vouchers.length} 张凭证`,
+        type: "success",
+      });
     } catch (error) {
       toast({
         title: "导出失败",
@@ -85,20 +119,45 @@ export function DatabaseManager() {
     }
   };
 
+  // 从 JSON 文件导入数据
   const handleImport = async (file: File) => {
     try {
       setIsLoading(true);
-      await importData(file);
-      setImportDialogOpen(false);
-      await loadStats();
+
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // 验证数据格式
+      if (!data.vouchers || !data.subjects) {
+        throw new Error('数据格式不正确');
+      }
+
+      // 更新各个 store
+      if (data.vouchers) voucherStore.vouchers = data.vouchers;
+      if (data.subjects) subjectStore.subjects = data.subjects;
+      if (data.departments) departmentStore.departments = data.departments;
+      if (data.projects) projectStore.projects = data.projects;
+      if (data.currencies) currencyStore.currencies = data.currencies;
+      if (data.templates) templateStore.templates = data.templates;
+      if (data.commonSummaries) summaryStore.commonSummaries = data.commonSummaries;
+      if (data.recentSummaries) summaryStore.recentSummaries = data.recentSummaries;
+
+      setDialogOpen(false);
+      loadStats();
 
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+
+      toast({
+        title: "导入成功",
+        description: `成功导入 ${data.vouchers?.length || 0} 张凭证`,
+        type: "success",
+      });
     } catch (error) {
       toast({
         title: "导入失败",
-        description: "无法导入文件",
+        description: "无法导入文件，请确保文件格式正确",
         type: "error",
       });
     } finally {
@@ -113,7 +172,24 @@ export function DatabaseManager() {
 
     try {
       setIsLoading(true);
-      await database.clearAllData();
+
+      // 清空各个 store
+      voucherStore.vouchers = [];
+      subjectStore.subjects = [];
+      departmentStore.departments = [];
+      projectStore.projects = [];
+      currencyStore.currencies = [];
+      templateStore.templates = [];
+      summaryStore.commonSummaries = [];
+      summaryStore.recentSummaries = [];
+
+      // 清除 localStorage 中的数据
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('finance-')) {
+          localStorage.removeItem(key);
+        }
+      });
 
       // 重置本地状态
       window.location.reload();
@@ -135,7 +211,7 @@ export function DatabaseManager() {
   };
 
   return (
-    <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger>
         <Button variant="outline" size="sm">
           <Database className="w-4 h-4 mr-2" />

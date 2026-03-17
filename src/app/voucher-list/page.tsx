@@ -36,6 +36,7 @@ import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { Voucher as VoucherType, VoucherEntry as VoucherEntryType } from '@/types';
 import { toChineseAmount } from '@/lib/chinese-number';
+import { DatabaseManager } from '@/components/DatabaseManager';
 
 // 状态配置
 const statusConfig = {
@@ -234,9 +235,25 @@ export default function VoucherListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
-  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 格式：YYYY-MM
+  const [startMonth, setStartMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
+  const [endMonth, setEndMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 结束月份：YYYY-MM
   const [sortField, setSortField] = useState<'date' | 'voucherNo'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // 确保开始月份不晚于结束月份
+  const handleStartMonthChange = (value: string) => {
+    setStartMonth(value);
+    if (value && endMonth && value > endMonth) {
+      setEndMonth(value);
+    }
+  };
+
+  const handleEndMonthChange = (value: string) => {
+    setEndMonth(value);
+    if (value && startMonth && value < startMonth) {
+      setStartMonth(value);
+    }
+  };
 
   // 批量选择
   const [selectedVoucherIds, setSelectedVoucherIds] = useState<Set<string>>(new Set());
@@ -258,10 +275,12 @@ export default function VoucherListPage() {
         (v.summary && v.summary.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
       const matchesType = selectedType === 'all' || v.voucherType === selectedType;
-      // 月份筛选：YYYY-MM 格式匹配
-      const matchesMonth = !selectedMonth || v.date.slice(0, 7) === selectedMonth;
+      // 月份区间筛选：凭证日期在开始月份和结束月份之间（包含两端）
+      const voucherMonth = v.date.slice(0, 7);
+      const matchesMonthRange = (!startMonth || !endMonth) ||
+        (voucherMonth >= startMonth && voucherMonth <= endMonth);
 
-      return matchesSearch && matchesStatus && matchesType && matchesMonth;
+      return matchesSearch && matchesStatus && matchesType && matchesMonthRange;
     })
     .sort((a, b) => {
       const aVal = sortField === 'date' ? a.date : a.voucherNo;
@@ -409,20 +428,13 @@ export default function VoucherListPage() {
         </div>
         <div className="flex gap-2">
           {selectedVoucherIds.size > 0 && (
-            <Button
-              style={{ backgroundColor: '#1967D2' }}
-              className="hover:bg-[#1557B0]"
-              onClick={handleBatchPrint}
-            >
+            <Button onClick={handleBatchPrint}>
               <Printer className="w-4 h-4 mr-2" />
               批量打印 ({selectedVoucherIds.size})
             </Button>
           )}
-          <Button
-            style={{ backgroundColor: '#1967D2' }}
-            className="hover:bg-[#1557B0]"
-            onClick={() => router.push('/voucher-entry-page')}
-          >
+          <DatabaseManager />
+          <Button onClick={() => router.push('/voucher-entry-page')}>
             <Plus className="w-4 h-4 mr-2" />
             新增凭证
           </Button>
@@ -503,9 +515,17 @@ export default function VoucherListPage() {
               <Calendar className="w-4 h-4 text-slate-400" />
               <Input
                 type="month"
-                placeholder="选择月份"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
+                placeholder="开始月份"
+                value={startMonth}
+                onChange={(e) => handleStartMonthChange(e.target.value)}
+                className="w-36"
+              />
+              <span className="text-slate-400">至</span>
+              <Input
+                type="month"
+                placeholder="结束月份"
+                value={endMonth}
+                onChange={(e) => handleEndMonthChange(e.target.value)}
                 className="w-36"
               />
             </div>

@@ -10,6 +10,10 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* 现代专业普鲁士蓝 - 全局按钮主色 */
+  --color-primary: #2563EB;
+  --color-primary-foreground: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {

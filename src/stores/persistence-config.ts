@@ -15,157 +15,6 @@ export const DATA_VERSIONS = {
 // 数据迁移函数类型
 export type MigrationFunction = (state: any, version: number) => any;
 
-// 创建简单的存储配置（不带版本控制）
-export function createVersionStorage<T>(name: string): any {
-  // 检查是否在客户端环境
-  const isClient = typeof window !== 'undefined';
-
-  const storage: StateStorage = {
-    getItem: async (name: string) => {
-      // 服务器端返回 null
-      if (!isClient) {
-        return null;
-      }
-
-      try {
-        await database.init();
-        const data = await database.get(name);
-        if (data) {
-          return JSON.stringify(data);
-        }
-      } catch (e) {
-        console.warn('IndexedDB read failed, falling back to localStorage:', e);
-      }
-
-      const item = localStorage.getItem(name);
-      if (!item) return null;
-
-      return item;
-    },
-
-    setItem: async (name: string, value: string) => {
-      if (!isClient) {
-        return;
-      }
-
-      try {
-        await database.init();
-        await database.set(name, JSON.parse(value));
-        localStorage.setItem(name, value);
-      } catch (e) {
-        console.warn('IndexedDB write failed, using localStorage only:', e);
-        localStorage.setItem(name, value);
-      }
-    },
-
-    removeItem: async (name: string) => {
-      if (!isClient) {
-        return;
-      }
-
-      try {
-        await database.init();
-        await database.delete(name);
-      } catch (e) {
-        console.warn('IndexedDB delete failed:', e);
-      }
-      localStorage.removeItem(name);
-    }
-  };
-
-  return {
-    name,
-    storage,
-    partialize: (state: any) => state
-  };
-}
-
-// 创建带版本控制的存储配置
-export function createVersionedStorage<T>(name: string, migrations: Record<number, MigrationFunction>): any {
-  // 检查是否在客户端环境
-  const isClient = typeof window !== 'undefined';
-
-  const storage: StateStorage = {
-    getItem: async (name: string) => {
-      // 服务器端返回 null
-      if (!isClient) {
-        return null;
-      }
-
-      // 优先从 IndexedDB 获取
-      try {
-        await database.init();
-        const data = await database.get(name);
-        if (data) {
-          return JSON.stringify(data);
-        }
-      } catch (e) {
-        console.warn('IndexedDB read failed, falling back to localStorage:', e);
-      }
-
-      // 回退到 localStorage
-      const item = localStorage.getItem(name);
-      if (!item) return null;
-
-      try {
-        const parsed = JSON.parse(item);
-
-        // 如果没有版本信息，默认为V1
-        if (!parsed.version) {
-          return JSON.stringify({
-            state: parsed,
-            version: DATA_VERSIONS.V1
-          });
-        }
-
-        return JSON.stringify(parsed);
-      } catch {
-        return null;
-      }
-    },
-
-    setItem: async (name: string, value: string) => {
-      // 服务器端不执行存储操作
-      if (!isClient) {
-        return;
-      }
-
-      try {
-        // 同时保存到 IndexedDB 和 localStorage
-        await database.init();
-        await database.set(name, JSON.parse(value));
-        localStorage.setItem(name, value);
-      } catch (e) {
-        console.warn('IndexedDB write failed, using localStorage only:', e);
-        localStorage.setItem(name, value);
-      }
-    },
-
-    removeItem: async (name: string) => {
-      // 服务器端不执行删除操作
-      if (!isClient) {
-        return;
-      }
-
-      try {
-        await database.init();
-        await database.delete(name);
-      } catch (e) {
-        console.warn('IndexedDB delete failed:', e);
-      }
-      localStorage.removeItem(name);
-    }
-  };
-
-  // 返回持久化中间件，不包含迁移功能
-  // 返回一个简单的持久化配置
-  return {
-    name,
-    storage,
-    partialize: (state: any) => state
-  };
-}
-
 // 存储键名配置
 export const STORAGE_KEYS = {
   VOUCHERS: 'finance-vouchers',
@@ -178,15 +27,66 @@ export const STORAGE_KEYS = {
   CURRENCIES: 'finance-currencies'
 } as const;
 
-// SSR-safe persist configuration
-export function safePersist<T>(config: any) {
-  // 如果不是客户端环境，返回一个不持久化的配置
-  if (typeof window === 'undefined') {
-    return config;
-  }
+// ========== IndexedDB 存储实现 ==========
 
-  // 客户端使用完整的persist配置
-  return config;
+// 创建 IndexedDB 存储
+export function createIndexedDBStorage(baseKey: string): StateStorage {
+  const isClient = typeof window !== 'undefined';
+
+  return {
+    getItem: async (name: string): Promise<string | null> => {
+      if (!isClient) return null;
+
+      try {
+        await database.init();
+        const data = await database.get(name);
+        if (data) {
+          return JSON.stringify(data);
+        }
+      } catch (e) {
+        console.warn('IndexedDB read failed, falling back to localStorage:', e);
+      }
+
+      // 回退到 localStorage
+      const item = localStorage.getItem(name);
+      if (item) {
+        // 同步到 IndexedDB
+        try {
+          const parsed = JSON.parse(item);
+          await database.init();
+          await database.set(name, parsed);
+        } catch {
+          // 忽略同步错误
+        }
+      }
+      return item;
+    },
+
+    setItem: async (name: string, value: string): Promise<void> => {
+      if (!isClient) return;
+
+      try {
+        await database.init();
+        await database.set(name, JSON.parse(value));
+        localStorage.setItem(name, value);
+      } catch (e) {
+        console.warn('IndexedDB write failed, using localStorage only:', e);
+        localStorage.setItem(name, value);
+      }
+    },
+
+    removeItem: async (name: string): Promise<void> => {
+      if (!isClient) return;
+
+      try {
+        await database.init();
+        await database.delete(name);
+      } catch (e) {
+        console.warn('IndexedDB delete failed:', e);
+      }
+      localStorage.removeItem(name);
+    }
+  };
 }
 
 // ========== 多账套数据隔离支持 ==========
@@ -214,6 +114,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
     }
   };
 
+  const indexedDBStorage = createIndexedDBStorage(baseKey);
+
   return {
     getItem: async (name: string): Promise<string | null> => {
       if (!isClient) return null;
@@ -221,20 +123,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       const accountSetId = getAccountSetId();
       const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
 
-      try {
-        await database.init();
-        const data = await database.get(scopedKey);
-        if (data) {
-          return JSON.stringify(data);
-        }
-      } catch (e) {
-        console.warn('IndexedDB read failed, falling back to localStorage:', e);
-      }
-
-      const item = localStorage.getItem(scopedKey);
-      if (!item) return null;
-
-      return item;
+      // 使用带账套前缀的键调用 IndexedDB 存储
+      return indexedDBStorage.getItem(scopedKey);
     },
 
     setItem: async (name: string, value: string): Promise<void> => {
@@ -243,14 +133,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       const accountSetId = getAccountSetId();
       const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
 
-      try {
-        await database.init();
-        await database.set(scopedKey, JSON.parse(value));
-        localStorage.setItem(scopedKey, value);
-      } catch (e) {
-        console.warn('IndexedDB write failed, using localStorage only:', e);
-        localStorage.setItem(scopedKey, value);
-      }
+      // 使用带账套前缀的键调用 IndexedDB 存储
+      await indexedDBStorage.setItem(scopedKey, value);
     },
 
     removeItem: async (name: string): Promise<void> => {
@@ -259,13 +143,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       const accountSetId = getAccountSetId();
       const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
 
-      try {
-        await database.init();
-        await database.delete(scopedKey);
-      } catch (e) {
-        console.warn('IndexedDB delete failed:', e);
-      }
-      localStorage.removeItem(scopedKey);
+      // 使用带账套前缀的键调用 IndexedDB 存储
+      await indexedDBStorage.removeItem(scopedKey);
     }
   };
 }
@@ -277,5 +156,98 @@ export function createAccountSetPersistConfig(baseKey: string): any {
     name: baseKey, // 基础键名，实际存储时会添加账套前缀
     storage,
     partialize: (state: any) => state
+  };
+}
+
+// SSR-safe persist configuration
+export function safePersist<T>(config: any) {
+  // 如果不是客户端环境，返回一个不持久化的配置
+  if (typeof window === 'undefined') {
+    return config;
+  }
+
+  // 客户端使用完整的persist配置
+  return config;
+}
+
+// ========== 数据迁移工具 ==========
+
+// 从 localStorage 迁移数据到 IndexedDB
+export async function migrateFromLocalStorageToIndexedDB(): Promise<boolean> {
+  const isClient = typeof window !== 'undefined';
+  if (!isClient) return false;
+
+  try {
+    await database.init();
+
+    const keys = Object.keys(localStorage);
+    let migratedCount = 0;
+
+    for (const key of keys) {
+      if (key.startsWith('finance-')) {
+        const item = localStorage.getItem(key);
+        if (item) {
+          try {
+            const parsed = JSON.parse(item);
+            await database.set(key, parsed);
+            migratedCount++;
+          } catch {
+            // 跳过无法解析的项
+          }
+        }
+      }
+    }
+
+    console.log(`Migrated ${migratedCount} items from localStorage to IndexedDB`);
+    return true;
+  } catch (error) {
+    console.error('Migration failed:', error);
+    return false;
+  }
+}
+
+// ========== 存储健康检查 ==========
+
+export async function checkStorageHealth(): Promise<{
+  indexedDB: boolean;
+  localStorage: boolean;
+  dataIntegrity: any;
+}> {
+  const isClient = typeof window !== 'undefined';
+  if (!isClient) {
+    return { indexedDB: false, localStorage: false, dataIntegrity: null };
+  }
+
+  let indexedDBHealth = false;
+  let localStorageHealth = false;
+  let dataIntegrity = null;
+
+  // 检查 IndexedDB
+  try {
+    await database.init();
+    await database.set('health-check', 'ok');
+    const result = await database.get('health-check');
+    indexedDBHealth = result === 'ok';
+    await database.delete('health-check');
+
+    // 检查数据完整性
+    dataIntegrity = await database.checkDataIntegrity();
+  } catch (e) {
+    console.error('IndexedDB health check failed:', e);
+  }
+
+  // 检查 localStorage
+  try {
+    localStorage.setItem('health-check', 'ok');
+    localStorageHealth = localStorage.getItem('health-check') === 'ok';
+    localStorage.removeItem('health-check');
+  } catch (e) {
+    console.error('localStorage health check failed:', e);
+  }
+
+  return {
+    indexedDB: indexedDBHealth,
+    localStorage: localStorageHealth,
+    dataIntegrity
   };
 }

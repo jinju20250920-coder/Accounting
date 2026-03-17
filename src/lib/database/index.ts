@@ -509,6 +509,96 @@ class DatabaseService {
     await this.init();
     await this.db!.delete('keyValues', `key-${key}`);
   }
+
+  // 数据同步方法
+  async syncAllData(stores: any[]) {
+    await this.init();
+
+    for (const store of stores) {
+      if (store.vouchers) {
+        for (const voucher of store.vouchers) {
+          await this.saveVoucher(voucher);
+        }
+      }
+
+      if (store.subjects) {
+        await this.saveSubjects(store.subjects);
+      }
+
+      if (store.departments) {
+        await this.saveDepartments(store.departments);
+      }
+
+      if (store.projects) {
+        await this.saveProjects(store.projects);
+      }
+
+      if (store.currencies) {
+        // 保存货币数据（新增）
+        await this.set('currencies', store.currencies);
+      }
+
+      if (store.templates) {
+        // 保存模板数据（新增）
+        await this.set('templates', store.templates);
+      }
+
+      if (store.commonSummaries) {
+        // 保存常用摘要（新增）
+        await this.set('commonSummaries', store.commonSummaries);
+      }
+
+      if (store.recentSummaries) {
+        // 保存最近使用的摘要（新增）
+        await this.set('recentSummaries', store.recentSummaries);
+      }
+    }
+
+    console.log('All data synchronized to IndexedDB');
+  }
+
+  // 数据恢复方法
+  async restoreAllData() {
+    await this.init();
+
+    const data: any = {};
+
+    // 恢复凭证数据
+    data.vouchers = await this.getAllVouchers();
+
+    // 恢复科目数据
+    data.subjects = await this.getAllSubjects();
+
+    // 恢复部门数据
+    data.departments = await this.getAllDepartments();
+
+    // 恢复项目数据
+    data.projects = await this.getAllProjects();
+
+    // 恢复其他数据
+    data.currencies = await this.get('currencies') || [];
+    data.templates = await this.get('templates') || [];
+    data.commonSummaries = await this.get('commonSummaries') || [];
+    data.recentSummaries = await this.get('recentSummaries') || [];
+
+    return data;
+  }
+
+  // 检查数据完整性
+  async checkDataIntegrity() {
+    await this.init();
+
+    const counts: any = {};
+    counts.vouchers = (await this.db!.getAll('vouchers')).length;
+    counts.entries = (await this.db!.getAll('entries')).length;
+    counts.subjects = (await this.db!.getAll('subjects')).length;
+    counts.departments = (await this.db!.getAll('departments')).length;
+    counts.projects = (await this.db!.getAll('projects')).length;
+    counts.keyValues = (await this.db!.getAll('keyValues')).length;
+
+    console.log('Data integrity check:', counts);
+    return counts;
+  }
 }
 
 // 导出单例实例

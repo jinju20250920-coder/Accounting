@@ -35,45 +35,68 @@ export default function BalancePage() {
   const { subjects, getSubjectByCode } = useSubjectStore();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPeriod, setSelectedPeriod] = useState('2026-03');
+  const [startMonth, setStartMonth] = useState<string>('2026-03'); // 开始月份：YYYY-MM
+  const [endMonth, setEndMonth] = useState<string>('2026-03'); // 结束月份：YYYY-MM
+
+  // 确保开始月份不晚于结束月份
+  const handleStartMonthChange = (value: string) => {
+    setStartMonth(value);
+    if (value && endMonth && value > endMonth) {
+      setEndMonth(value);
+    }
+  };
+
+  const handleEndMonthChange = (value: string) => {
+    setEndMonth(value);
+    if (value && startMonth && value < startMonth) {
+      setStartMonth(value);
+    }
+  };
 
   // 计算科目余额
   const subjectBalances = useMemo(() => {
     // 按科目汇总借贷发生额
     const balanceMap = new Map<string, SubjectBalanceRow>();
 
-    // 遍历所有已记账的凭证
+    // 遍历所有已记账的凭证，并过滤月份范围
     vouchers.forEach(voucher => {
       if (voucher.status === 'posted') {
-        voucher.entries.forEach(entry => {
-          const subject = getSubjectByCode(entry.subjectCode);
-          if (!subject) return;
+        // 月份范围过滤
+        const voucherMonth = voucher.date.slice(0, 7);
+        const matchesMonthRange = (!startMonth || !endMonth) ||
+          (voucherMonth >= startMonth && voucherMonth <= endMonth);
 
-          const existing = balanceMap.get(entry.subjectCode);
-          const debitAmount = entry.debit || 0;
-          const creditAmount = entry.credit || 0;
+        if (matchesMonthRange) {
+          voucher.entries.forEach(entry => {
+            const subject = getSubjectByCode(entry.subjectCode);
+            if (!subject) return;
 
-          if (existing) {
-            existing.debitTotal += debitAmount;
-            existing.creditTotal += creditAmount;
-          } else {
-            // 初始化期初余额（当前系统暂未录入期初余额，默认为0）
-            const openingDebit = 0;
-            const openingCredit = 0;
+            const existing = balanceMap.get(entry.subjectCode);
+            const debitAmount = entry.debit || 0;
+            const creditAmount = entry.credit || 0;
 
-            balanceMap.set(entry.subjectCode, {
-              subjectCode: entry.subjectCode,
-              subjectName: entry.subjectName,
-              direction: subject.direction,
-              openingDebit,
-              openingCredit,
-              debitTotal: debitAmount,
-              creditTotal: creditAmount,
-              closingDebit: 0,
-              closingCredit: 0
-            });
-          }
-        });
+            if (existing) {
+              existing.debitTotal += debitAmount;
+              existing.creditTotal += creditAmount;
+            } else {
+              // 初始化期初余额（当前系统暂未录入期初余额，默认为0）
+              const openingDebit = 0;
+              const openingCredit = 0;
+
+              balanceMap.set(entry.subjectCode, {
+                subjectCode: entry.subjectCode,
+                subjectName: entry.subjectName,
+                direction: subject.direction,
+                openingDebit,
+                openingCredit,
+                debitTotal: debitAmount,
+                creditTotal: creditAmount,
+                closingDebit: 0,
+                closingCredit: 0
+              });
+            }
+          });
+        }
       }
     });
 
@@ -154,12 +177,19 @@ export default function BalancePage() {
           <h1 className="text-3xl font-bold text-slate-900">科目余额表</h1>
           <p className="text-slate-600 mt-1">查询各科目的期初余额、本期发生额和期末余额</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Input
             type="month"
-            value={selectedPeriod}
-            onChange={(e) => setSelectedPeriod(e.target.value)}
-            className="w-40"
+            value={startMonth}
+            onChange={(e) => handleStartMonthChange(e.target.value)}
+            className="w-36"
+          />
+          <span className="text-slate-400">至</span>
+          <Input
+            type="month"
+            value={endMonth}
+            onChange={(e) => handleEndMonthChange(e.target.value)}
+            className="w-36"
           />
           <Button variant="outline" size="sm">
             <Download className="h-4 w-4 mr-2" />
