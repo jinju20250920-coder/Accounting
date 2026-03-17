@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Currency } from '@/types';
-import { STORAGE_KEYS } from './persistence-config';
+import { STORAGE_KEYS, createAccountSetPersistConfig } from './persistence-config';
 
 interface CurrencyStore {
   // 状态
@@ -374,11 +374,6 @@ export const useCurrencyStore = create<CurrencyStore>()(
         set({ currencies: initializedCurrencies, error: null });
       }
     }),
-    {
-      name: STORAGE_KEYS.CURRENCIES,
-      partialize: (state) => ({
-        currencies: state.currencies
-      })
-    }
+    createAccountSetPersistConfig(STORAGE_KEYS.CURRENCIES)
   )
 );

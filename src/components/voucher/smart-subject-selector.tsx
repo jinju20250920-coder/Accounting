@@ -8,6 +8,7 @@ import { Search, Sparkles, Wallet, Landmark, TrendingUp, Hash, ChevronRight } fr
 import { toChineseAmount } from '@/lib/chinese-number';
 import { useSubjectStore } from '@/stores';
 import { useAccountStore } from '@/stores/useAccountStore';
+import { useToast } from '@/components/ui/toast';
 
 // 科目类型（使用与 store 相同的类型）
 interface Subject {
@@ -107,6 +108,7 @@ export function SmartSubjectSelector({
   // 使用 store 中的科目数据
   const { subjects, searchSubjects, getSubjectsWithChildren, initializeSubjects } = useSubjectStore();
   const { getBalance } = useAccountStore();
+  const { showToast } = useToast();
 
   // 初始化科目数据
   useEffect(() => {
@@ -249,11 +251,10 @@ export function SmartSubjectSelector({
           if (matchedSubject) {
             handleSelect(matchedSubject);
           } else {
-            // 如果科目不存在，直接使用搜索文本作为科目代码
-            onSelect(searchText.trim(), '', undefined);
-            setOpen(false);
-            setActiveIndex(-1);
-            setIsEditing(false);
+            // 如果科目不存在，显示错误提示，不允许入账
+            console.error('科目不存在:', searchText.trim());
+            showToast('error', `科目代码 ${searchText.trim()} 不存在，请重新输入`);
+            // 清空搜索文本，保持编辑状态
             setSearchText('');
           }
         }
@@ -397,9 +398,9 @@ export function SmartSubjectSelector({
             if (matchedSubject) {
               handleSelect(matchedSubject);
             } else if (!filteredSubjects.some(s => s.code === searchText.trim())) {
-              onSelect(searchText.trim(), '', undefined);
-              setIsEditing(false);
+              // 如果科目不存在，清空搜索文本，保持当前值不变
               setSearchText('');
+              setIsEditing(false);
             }
           }
           setOpen(false);

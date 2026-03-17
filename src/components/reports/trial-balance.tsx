@@ -16,6 +16,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useSubjectStore } from '@/stores/useSubjectStore';
 
 interface TrialBalanceItem {
   code: string;
@@ -36,220 +37,66 @@ interface TrialBalanceItem {
 export function TrialBalance() {
   const store = useVoucherStore();
   const { vouchers, calculateSubjectBalances } = store;
+  const { subjects } = useSubjectStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [showOnlyUnbalanced, setShowOnlyUnbalanced] = useState(false);
 
-  // 模拟科目数据 - 实际应从科目配置中获取
-  const subjects: TrialBalanceItem[] = useMemo(() => {
-    return [
-      {
-        code: '1',
-        name: '资产',
-        level: 1,
-        isLeaf: false,
-        beginningDebit: 1000000,
-        beginningCredit: 0,
-        currentDebit: 500000,
-        currentCredit: 0,
-        endingDebit: 1500000,
-        endingCredit: 0,
-        isBalanced: true
-      },
-      {
-        code: '1001',
-        name: '库存现金',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 50000,
-        beginningCredit: 0,
-        currentDebit: 10000,
-        currentCredit: 0,
-        endingDebit: 60000,
-        endingCredit: 0,
-        isBalanced: true,
-        parentCode: '1'
-      },
-      {
-        code: '1002',
-        name: '银行存款',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 200000,
-        beginningCredit: 0,
-        currentDebit: 100000,
-        currentCredit: 50000,
-        endingDebit: 250000,
-        endingCredit: 50000,
-        isBalanced: true,
-        parentCode: '1'
-      },
-      {
-        code: '1122',
-        name: '应收账款',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 300000,
-        beginningCredit: 0,
-        currentDebit: 150000,
-        currentCredit: 0,
-        endingDebit: 450000,
-        endingCredit: 0,
-        isBalanced: true,
-        parentCode: '1'
-      },
-      {
-        code: '2',
-        name: '负债',
-        level: 1,
-        isLeaf: false,
-        beginningDebit: 0,
-        beginningCredit: 800000,
+  // 从真实数据计算科目余额
+  const subjectBalances = useMemo(() => {
+    const balances = new Map<string, { opening: number; currentDebit: number; currentCredit: number }>();
+
+    // 初始化所有科目的期初余额为0
+    subjects.forEach(subject => {
+      balances.set(subject.code, {
+        opening: 0,
         currentDebit: 0,
-        currentCredit: 300000,
-        endingDebit: 0,
-        endingCredit: 1100000,
-        isBalanced: true
-      },
-      {
-        code: '2202',
-        name: '应付账款',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 200000,
-        currentDebit: 0,
-        currentCredit: 100000,
-        endingDebit: 0,
-        endingCredit: 300000,
-        isBalanced: true,
-        parentCode: '2'
-      },
-      {
-        code: '2211',
-        name: '应付职工薪酬',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 100000,
-        currentDebit: 0,
-        currentCredit: 50000,
-        endingDebit: 0,
-        endingCredit: 150000,
-        isBalanced: true,
-        parentCode: '2'
-      },
-      {
-        code: '3',
-        name: '所有者权益',
-        level: 1,
-        isLeaf: false,
-        beginningDebit: 0,
-        beginningCredit: 500000,
-        currentDebit: 0,
-        currentCredit: 200000,
-        endingDebit: 0,
-        endingCredit: 700000,
-        isBalanced: true
-      },
-      {
-        code: '3001',
-        name: '实收资本',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 400000,
-        currentDebit: 0,
-        currentCredit: 0,
-        endingDebit: 0,
-        endingCredit: 400000,
-        isBalanced: true,
-        parentCode: '3'
-      },
-      {
-        code: '3002',
-        name: '未分配利润',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 100000,
-        currentDebit: 0,
-        currentCredit: 200000,
-        endingDebit: 0,
-        endingCredit: 300000,
-        isBalanced: true,
-        parentCode: '3'
-      },
-      {
-        code: '4',
-        name: '成本',
-        level: 1,
-        isLeaf: false,
-        beginningDebit: 0,
-        beginningCredit: 0,
-        currentDebit: 400000,
-        currentCredit: 400000,
-        endingDebit: 0,
-        endingCredit: 0,
-        isBalanced: true
-      },
-      {
-        code: '4001',
-        name: '生产成本',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 0,
-        currentDebit: 300000,
-        currentCredit: 300000,
-        endingDebit: 0,
-        endingCredit: 0,
-        isBalanced: true,
-        parentCode: '4'
-      },
-      {
-        code: '5',
-        name: '损益',
-        level: 1,
-        isLeaf: false,
-        beginningDebit: 0,
-        beginningCredit: 0,
-        currentDebit: 350000,
-        currentCredit: 350000,
-        endingDebit: 0,
-        endingCredit: 0,
-        isBalanced: true
-      },
-      {
-        code: '6001',
-        name: '主营业务收入',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 0,
-        currentDebit: 0,
-        currentCredit: 300000,
-        endingDebit: 0,
-        endingCredit: 300000,
-        isBalanced: true,
-        parentCode: '5'
-      },
-      {
-        code: '6401',
-        name: '主营业务成本',
-        level: 2,
-        isLeaf: true,
-        beginningDebit: 0,
-        beginningCredit: 0,
-        currentDebit: 250000,
-        currentCredit: 0,
-        endingDebit: 250000,
-        endingCredit: 0,
-        isBalanced: true,
-        parentCode: '5'
+        currentCredit: 0
+      });
+    });
+
+    // 计算本期发生额
+    vouchers.forEach(voucher => {
+      if (voucher.status === 'posted' || voucher.status === 'reversed') {
+        const multiplier = voucher.status === 'reversed' ? -1 : 1;
+        voucher.entries.forEach(entry => {
+          const balance = balances.get(entry.subjectCode);
+          if (balance) {
+            balance.currentDebit += (entry.debit || 0) * multiplier;
+            balance.currentCredit += (entry.credit || 0) * multiplier;
+          }
+        });
       }
-    ];
-  }, []);
+    });
+
+    // 构建试算平衡表数据
+    const trialBalanceData: TrialBalanceItem[] = subjects.map(subject => {
+      const balance = balances.get(subject.code)!;
+      // 根据科目方向计算期末余额
+      const endingDebit = subject.direction === 'debit'
+        ? balance.opening + balance.currentDebit - balance.currentCredit
+        : 0;
+      const endingCredit = subject.direction === 'credit'
+        ? balance.opening + balance.currentCredit - balance.currentDebit
+        : 0;
+
+      return {
+        code: subject.code,
+        name: subject.name,
+        level: subject.level,
+        isLeaf: true, // 简化处理，实际应根据是否有子科目判断
+        beginningDebit: subject.direction === 'debit' ? balance.opening : 0,
+        beginningCredit: subject.direction === 'credit' ? balance.opening : 0,
+        currentDebit: balance.currentDebit,
+        currentCredit: balance.currentCredit,
+        endingDebit: Math.max(0, endingDebit),
+        endingCredit: Math.max(0, endingCredit),
+        isBalanced: Math.abs(endingDebit - endingCredit) < 0.01
+      };
+    });
+
+    return trialBalanceData;
+  }, [vouchers, subjects]);
 
   // 构建树形结构
   const buildTree = (items: TrialBalanceItem[]): TrialBalanceItem[] => {
@@ -274,7 +121,7 @@ export function TrialBalance() {
     return roots;
   };
 
-  const subjectTree = useMemo(() => buildTree(subjects), [subjects]);
+  const subjectTree = useMemo(() => buildTree(subjectBalances), [subjectBalances]);
 
   // 计算汇总数据
   const calculateTotals = (items: TrialBalanceItem[]) => {
@@ -311,7 +158,7 @@ export function TrialBalance() {
 
   // 过滤和搜索
   const filteredSubjects = useMemo(() => {
-    let filtered = [...subjects];
+    let filtered = [...subjectBalances];
 
     // 搜索过滤
     if (searchTerm) {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { createAccountSetPersistConfig } from './persistence-config';
 
 // 会计科目数据
 interface Subject {
@@ -132,7 +133,7 @@ interface VoucherStore {
   removeEntry: (id: string) => void;
   updateVoucherDate: (date: string) => void;
   updateVoucherSummary: (summary: string) => void;
-  saveVoucher: (status?: VoucherStatus) => void;
+  saveVoucher: (status?: VoucherStatus, subjects?: Array<{ code: string; name: string }>) => void;
   deleteVoucher: (id: string) => void;
   clearVoucher: () => void;
   autoBalanceCredit: () => void;
@@ -254,7 +255,7 @@ const useVoucherStoreBase = create<VoucherStore>()(
         currentVoucher: state.currentVoucher ? { ...state.currentVoucher, summary } : null
       })),
 
-      saveVoucher: (status: VoucherStatus = 'draft') => {
+      saveVoucher: (status: VoucherStatus = 'draft', subjects?: Array<{ code: string; name: string }>) => {
         const state = get();
         const voucher = state.currentVoucher;
 
@@ -264,6 +265,26 @@ const useVoucherStoreBase = create<VoucherStore>()(
         const isBalanced = Math.abs(state.totalDebit - state.totalCredit) < 0.01;
         if (!isBalanced) {
           throw new Error('借贷不平衡，请检查金额！');
+        }
+
+        // 验证科目是否存在（如果提供了科目列表）
+        if (subjects && subjects.length > 0) {
+          // 过滤掉空行（没有科目且没有金额的行）
+          const validEntries = state.currentEntries.filter(entry => {
+            const hasSubject = entry.subjectCode && entry.subjectCode.trim() !== '';
+            const hasAmount = (entry.debit && entry.debit > 0) || (entry.credit && entry.credit > 0);
+            return hasSubject || hasAmount;
+          });
+
+          for (const entry of validEntries) {
+            if (!entry.subjectCode || entry.subjectCode.trim() === '') {
+              throw new Error('科目信息不完整，无法保存');
+            }
+            const subjectFound = subjects.find(s => s.code === entry.subjectCode);
+            if (!subjectFound) {
+              throw new Error(`科目编号 "${entry.subjectCode}" 不存在，无法保存`);
+            }
+          }
         }
 
         const now = new Date().toISOString();
@@ -700,7 +721,7 @@ const useVoucherStoreBase = create<VoucherStore>()(
           throw new Error('没有有效的凭证分录，无法入账');
         }
 
-        // 直接使用传入的科目列表
+        // 直接使用传入的科目列表，严格验证科目是否存在
         const allSubjects = subjects || [];
 
         // 验证科目是否存在
@@ -709,29 +730,10 @@ const useVoucherStoreBase = create<VoucherStore>()(
             throw new Error('科目信息不完整，无法入账');
           }
 
-          // 检查科目是否存在，不存在则尝试从默认科目列表匹配
+          // 严格检查科目是否存在，不使用任何回退逻辑
           const subjectFound = allSubjects.find((s: any) => s.code === entry.subjectCode);
           if (!subjectFound) {
-            // 简单的默认科目列表（用于快速匹配）
-            const quickSubjects = [
-              { code: '1001', name: '库存现金' },
-              { code: '1002', name: '银行存款' },
-              { code: '2001', name: '短期借款' },
-              { code: '4001', name: '实收资本' },
-              { code: '5001', name: '生产成本' },
-              { code: '6001', name: '主营业务收入' },
-              { code: '6601', name: '销售费用' },
-              { code: '660101', name: '运输费' },
-              { code: '660102', name: '广告费' },
-              { code: '6602', name: '管理费用' },
-              { code: '660201', name: '管理费用-工资' },
-              { code: '6603', name: '财务费用' }
-            ];
-
-            const matchedSubject = quickSubjects.find(s => s.code === entry.subjectCode);
-            if (!matchedSubject) {
-              throw new Error(`科目编号 "${entry.subjectCode}" 不存在，无法入账`);
-            }
+            throw new Error(`科目编号 "${entry.subjectCode}" 不存在，无法入账`);
           }
         }
 
@@ -787,15 +789,7 @@ const useVoucherStoreBase = create<VoucherStore>()(
         );
       }
     }),
-    {
-      name: 'finance-vouchers',
-      partialize: (state) => ({
-        vouchers: state.vouchers,
-        settings: state.settings,
-        subjectBalances: state.subjectBalances,
-        ledgerEntries: state.ledgerEntries
-      })
-    }
+    createAccountSetPersistConfig('finance-vouchers')
   )
 );
 

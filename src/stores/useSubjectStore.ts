@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Subject } from '@/types';
-import { STORAGE_KEYS, DATA_VERSIONS } from './persistence-config';
+import { STORAGE_KEYS, DATA_VERSIONS, createAccountSetPersistConfig } from './persistence-config';
 import defaultSubjects from '@/lib/data/subjects.json';
 
 // 科目树节点
@@ -497,16 +497,6 @@ export const useSubjectStore = create<SubjectStore>()(
         console.log('科目数据初始化完成');
       }
     }),
-    {
-      name: STORAGE_KEYS.SUBJECTS,
-      version: DATA_VERSIONS.CURRENT,
-      partialize: (state) => {
-        console.log('Persist - 保存科目数据:', state.subjects);
-        return {
-          subjects: state.subjects,
-          dataVersion: state.dataVersion
-        };
-      }
-    }
+    createAccountSetPersistConfig(STORAGE_KEYS.SUBJECTS)
   )
 );

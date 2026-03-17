@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Search,
@@ -31,8 +31,11 @@ import { Select, SelectOption as SelectOptionType } from '@/components/ui/select
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { useToast } from '@/components/ui/toast';
 import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { Voucher as VoucherType, VoucherEntry as VoucherEntryType } from '@/types';
+import { toChineseAmount } from '@/lib/chinese-number';
 
 // 状态配置
 const statusConfig = {
@@ -85,13 +88,14 @@ function StatsCard({ title, value, icon: Icon, color = 'blue', trend }: any) {
 }
 
 // 凭证明细组件
-function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse }: {
+function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, currentAccountSet }: {
   voucher: VoucherType;
   onClose: () => void;
   onEdit: () => void;
   onCopy: () => void;
   onPost: () => void;
   onReverse: () => void;
+  currentAccountSet: any;
 }) {
   const debitTotal = voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
   const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
@@ -101,7 +105,10 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse }: 
 
   // 打印凭证功能
   const handlePrintVoucher = () => {
-    window.print();
+    import('@/lib/print-utils').then(({ generateVoucherPrintHtml, executePrint }) => {
+      const printHtml = generateVoucherPrintHtml(voucher, currentAccountSet?.name || '未知单位');
+      executePrint(printHtml, `凭证打印 - ${voucher.voucherNo}`);
+    });
   };
 
   return (
@@ -216,163 +223,12 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse }: 
 }
 
 // 将数字转换为中文大写金额
-function convertToChineseAmount(num: number): string {
-  const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
-  const units = ['', '拾', '佰', '仟'];
-  const bigUnits = ['', '万', '亿'];
-
-  if (num === 0) return '零元整';
-
-  let result = '';
-  const intPart = Math.floor(num);
-  const decimalPart = Math.round((num - intPart) * 100);
-
-  // 处理整数部分
-  if (intPart > 0) {
-    const intStr = intPart.toString();
-    const len = intStr.length;
-    let zeroFlag = false;
-
-    for (let i = 0; i < len; i++) {
-      const digit = parseInt(intStr[i]);
-      const pos = len - 1 - i;
-      const unitIndex = pos % 4;
-      const bigUnitIndex = Math.floor(pos / 4);
-
-      if (digit === 0) {
-        zeroFlag = true;
-        if (unitIndex === 0 && bigUnitIndex > 0) {
-          result += bigUnits[bigUnitIndex];
-        }
-      } else {
-        if (zeroFlag) {
-          result += '零';
-          zeroFlag = false;
-        }
-        result += digits[digit] + units[unitIndex];
-        if (unitIndex === 0 && bigUnitIndex > 0) {
-          result += bigUnits[bigUnitIndex];
-        }
-      }
-    }
-    result += '元';
-  }
-
-  // 处理小数部分
-  if (decimalPart > 0) {
-    const jiao = Math.floor(decimalPart / 10);
-    const fen = decimalPart % 10;
-
-    if (jiao > 0) {
-      result += digits[jiao] + '角';
-    } else if (intPart > 0) {
-      result += '零';
-    }
-
-    if (fen > 0) {
-      result += digits[fen] + '分';
-    }
-  } else if (intPart > 0) {
-    result += '整';
-  }
-
-  return result || '零元整';
-}
-
-// 打印用的凭证组件 - 使用简单类型
-function PrintableVoucher({ voucher }: { voucher: VoucherType }) {
-  const debitTotal = voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
-  const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
-  const chineseAmount = convertToChineseAmount(debitTotal);
-  const [year, month, day] = voucher.date.split('-');
-
-  // 过滤有效分录
-  const validEntries = voucher.entries.filter(e => e.subjectCode || e.debit > 0 || e.credit > 0);
-
-  // 创建打印用的简单数组
-  const printEntries: Array<{ id: string; summary: string; subjectCode: string; subjectName: string; debit: number; credit: number }> = [];
-
-  // 添加有效分录
-  validEntries.forEach(e => {
-    printEntries.push({
-      id: e.id,
-      summary: e.summary || '',
-      subjectCode: e.subjectCode || '',
-      subjectName: e.subjectName || '',
-      debit: e.debit || 0,
-      credit: e.credit || 0
-    });
-  });
-
-  // 填充到6行
-  while (printEntries.length < 6) {
-    printEntries.push({
-      id: `empty-${printEntries.length}`,
-      summary: '',
-      subjectCode: '',
-      subjectName: '',
-      debit: 0,
-      credit: 0
-    });
-  }
-
-  return (
-    <div className="voucher-print bg-white p-6">
-      <div className="text-center mb-4">
-        <h1 className="text-2xl font-bold">记账凭证</h1>
-        <div className="flex justify-between mt-2 text-sm">
-          <span>单位：上海乐茜信息技术有限公司</span>
-          <span>日期：{year}年{parseInt(month)}月{parseInt(day)}日</span>
-          <span>凭证号：{voucher.voucherNo}</span>
-        </div>
-      </div>
-
-      <table className="w-full border-collapse">
-        <thead>
-          <tr>
-            <th className="border border-black p-2 w-1/4">摘要</th>
-            <th className="border border-black p-2 w-1/4">科目</th>
-            <th className="border border-black p-2 w-1/5">借方金额</th>
-            <th className="border border-black p-2 w-1/5">贷方金额</th>
-          </tr>
-        </thead>
-        <tbody>
-          {printEntries.slice(0, 6).map((entry) => (
-            <tr key={entry.id}>
-              <td className="border border-black p-2 h-12">{entry.summary || ''}</td>
-              <td className="border border-black p-2 h-12">
-                {entry.subjectCode ? `${entry.subjectCode} ${entry.subjectName}` : ''}
-              </td>
-              <td className="border border-black p-2 h-12 text-right">
-                {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
-              </td>
-              <td className="border border-black p-2 h-12 text-right">
-                {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td className="border border-black p-2" colSpan={2}>合计：{chineseAmount}</td>
-            <td className="border border-black p-2 text-right">{debitTotal.toFixed(2)}</td>
-            <td className="border border-black p-2 text-right">{creditTotal.toFixed(2)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div className="flex justify-between mt-4 text-sm">
-        <span>主管：</span>
-        <span>记账：</span>
-        <span>审核：</span>
-        <span>出纳：</span>
-        <span>制单：{voucher.createdBy || '会计002'}</span>
-      </div>
-    </div>
-  );
-}
-
 export default function VoucherListPage() {
   const router = useRouter();
   const { vouchers, loadVoucher, copyVoucher, deleteVoucher } = useVoucherStore();
+  const { getCurrentAccountSet } = useAccountSetStore();
+  const { showToast } = useToast();
+  const currentAccountSet = getCurrentAccountSet();
 
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
@@ -384,7 +240,6 @@ export default function VoucherListPage() {
 
   // 批量选择
   const [selectedVoucherIds, setSelectedVoucherIds] = useState<Set<string>>(new Set());
-  const [showPrintDialog, setShowPrintDialog] = useState(false);
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -415,6 +270,9 @@ export default function VoucherListPage() {
         ? aVal.localeCompare(bVal)
         : bVal.localeCompare(aVal);
     });
+
+  // 获取要打印的凭证
+  const vouchersToPrint = filteredVouchers.filter(v => selectedVoucherIds.has(v.id));
 
   // 分页数据
   const totalPages = Math.ceil(filteredVouchers.length / pageSize);
@@ -451,7 +309,11 @@ export default function VoucherListPage() {
   };
 
   const handleBatchPrint = () => {
-    setShowPrintDialog(true);
+    import('@/lib/print-utils').then(({ generateBatchPrintHtml, executePrint }) => {
+      const vouchersToPrintFinal = vouchersToPrint.length > 0 ? vouchersToPrint : paginatedVouchers;
+      const printHtml = generateBatchPrintHtml(vouchersToPrintFinal, currentAccountSet?.name || '未知单位');
+      executePrint(printHtml, '批量凭证打印');
+    });
   };
 
   // 操作处理
@@ -473,7 +335,7 @@ export default function VoucherListPage() {
 
   const handleDelete = (voucher: VoucherType) => {
     if (voucher.status === 'posted' || voucher.status === 'reversed') {
-      alert('已记账或已冲销的凭证不能删除');
+      showToast('warning', '已记账或已冲销的凭证不能删除');
       return;
     }
     setShowDeleteDialog(voucher);
@@ -488,12 +350,12 @@ export default function VoucherListPage() {
 
   const handlePost = (voucher: VoucherType) => {
     // 记账逻辑
-    alert('记账功能需要调用完整的会计引擎');
+    showToast('info', '记账功能需要调用完整的会计引擎');
   };
 
   const handleReverse = (voucher: VoucherType) => {
     // 冲销逻辑
-    alert('冲销功能需要调用完整的会计引擎');
+    showToast('info', '冲销功能需要调用完整的会计引擎');
   };
 
   const handleExport = () => {
@@ -536,33 +398,8 @@ export default function VoucherListPage() {
     }
   };
 
-  // 获取要打印的凭证
-  const vouchersToPrint = filteredVouchers.filter(v => selectedVoucherIds.has(v.id));
-
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* 打印样式 */}
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          .voucher-print { page-break-after: always; }
-          .voucher-print:last-child { page-break-after: auto; }
-          body { background: white !important; }
-          .voucher-print { margin: 0 !important; padding: 0 !important; }
-          /* 隐藏浏览器默认的页头页脚 */
-          @page { margin: 1cm; }
-          header, footer, nav { display: none !important; }
-          /* 确保打印时没有滚动条 */
-          html, body { overflow: visible !important; }
-          .print-preview-container { overflow: visible !important; }
-        }
-        .voucher-print { font-family: SimSun, serif; }
-        /* 预览时的样式 */
-        .print-preview-container {
-          overflow-y: auto;
-          overflow-x: hidden;
-        }
-      `}</style>
 
       {/* 页面标题 */}
       <div className="flex justify-between items-center no-print">
@@ -573,7 +410,8 @@ export default function VoucherListPage() {
         <div className="flex gap-2">
           {selectedVoucherIds.size > 0 && (
             <Button
-              className="bg-blue-600 hover:bg-blue-700"
+              style={{ backgroundColor: '#1967D2' }}
+              className="hover:bg-[#1557B0]"
               onClick={handleBatchPrint}
             >
               <Printer className="w-4 h-4 mr-2" />
@@ -581,7 +419,8 @@ export default function VoucherListPage() {
             </Button>
           )}
           <Button
-            className="bg-blue-600 hover:bg-blue-700"
+            style={{ backgroundColor: '#1967D2' }}
+            className="hover:bg-[#1557B0]"
             onClick={() => router.push('/voucher-entry-page')}
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -739,9 +578,9 @@ export default function VoucherListPage() {
                       const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
 
                       return (
-                        <>
+                        <React.Fragment key={voucher.id}>
                           {/* 凭证信息行 */}
-                          <tr key={voucher.id} className="bg-slate-50 font-medium">
+                          <tr className="bg-slate-50 font-medium">
                             <td className="p-3 border-b no-print">
                               <button
                                 onClick={() => toggleSelectVoucher(voucher.id)}
@@ -839,7 +678,7 @@ export default function VoucherListPage() {
                                 <td className="p-3 border-b no-print"></td>
                               </tr>
                             ))}
-                        </>
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -915,6 +754,7 @@ export default function VoucherListPage() {
                 onCopy={() => handleCopy(selectedVoucher)}
                 onPost={() => handlePost(selectedVoucher)}
                 onReverse={() => handleReverse(selectedVoucher)}
+                currentAccountSet={currentAccountSet}
               />
             )}
           </div>
@@ -943,34 +783,7 @@ export default function VoucherListPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 批量打印对话框 */}
-      <Dialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="no-print px-6 py-4 border-b">
-            <DialogTitle>
-              打印预览
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex justify-between items-center px-6 py-3 mb-0 no-print border-b bg-slate-50">
-            <p className="text-sm text-slate-500">
-              共选择 {vouchersToPrint.length} 张凭证，每张凭证将单独分页打印
-            </p>
-            <Button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700">
-              <Printer className="w-4 h-4 mr-2" />
-              打印
-            </Button>
-          </div>
-          <div className="flex-1 overflow-y-auto overflow-x-hidden print-preview-container bg-slate-100">
-            <div className="max-w-3xl mx-auto py-6 space-y-6">
-              {vouchersToPrint.map((voucher) => (
-                <div key={voucher.id} className="bg-white shadow-sm">
-                  <PrintableVoucher voucher={voucher} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+
     </div>
   );
 }

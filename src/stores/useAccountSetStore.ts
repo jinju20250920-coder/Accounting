@@ -65,6 +65,9 @@ export interface PricingPlan {
   isPopular?: boolean; // 是否推荐套餐
 }
 
+// 配置开关：是否启用账套数量限制
+const ENABLE_ACCOUNT_SET_LIMIT = false; // 设为 true 启用限制
+
 // Store 接口
 interface AccountSetStore {
   // 账套列表
@@ -231,7 +234,7 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
       // 支付套餐信息
       pricingPlans: defaultPricingPlans,
 
-      currentPricingPlanId: 'plan_basic',
+      currentPricingPlanId: 'plan_enterprise',
       isLicenseValid: true,
       availableAccountSetCount: 0, // 会动态计算
 
@@ -302,6 +305,11 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
 
       // 计算可用账套数量
       calculateAvailableAccountSetCount: () => {
+        // 根据配置决定是否启用限制
+        if (!ENABLE_ACCOUNT_SET_LIMIT) {
+          return Number.MAX_SAFE_INTEGER;
+        }
+
         const state = get();
         const currentPlan = state.pricingPlans.find(plan => plan.id === state.currentPricingPlanId);
 
@@ -322,9 +330,11 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
         const state = get();
 
         // 检查是否有可用的账套数量
-        const availableCount = state.calculateAvailableAccountSetCount();
-        if (availableCount <= 0) {
-          throw new Error('账套数量已达到当前套餐限制，请升级套餐');
+        if (ENABLE_ACCOUNT_SET_LIMIT) {
+          const availableCount = state.calculateAvailableAccountSetCount();
+          if (availableCount <= 0) {
+            throw new Error('账套数量已达到当前套餐限制，请升级套餐');
+          }
         }
 
         // 系统自动生成ID

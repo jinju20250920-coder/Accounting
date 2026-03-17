@@ -259,6 +259,7 @@ export function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const [showLicenseDialog, setShowLicenseDialog] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
   const {
     accountSets,
     currentAccountSetId,
@@ -272,6 +273,11 @@ export function Sidebar() {
   const currentAccountSet = getCurrentAccountSet();
   const currentLicense = getCurrentLicense();
   const currentPlan = pricingPlans.find(p => p.id === currentPricingPlanId);
+
+  // 防止 Hydration 错误：只有在客户端挂载后才显示动态内容
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   // 监听账套变化
   useEffect(() => {
@@ -331,11 +337,11 @@ export function Sidebar() {
             className="w-full justify-between text-slate-300 hover:text-white hover:bg-slate-800"
             onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
           >
-            <span className="truncate flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              {currentAccountSet?.name || '请选择账套'}
-            </span>
-            <ChevronDown className="h-4 w-4" />
+            <div className="flex items-center gap-2 min-w-0 flex-1" suppressHydrationWarning>
+              <Building2 className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">{hasMounted ? (currentAccountSet?.name || '请选择账套') : '请选择账套'}</span>
+            </div>
+            <ChevronDown className="h-4 w-4 flex-shrink-0" />
           </Button>
 
           {/* 下拉菜单 */}

@@ -574,7 +574,7 @@ export function VoucherEntryGrid() {
   // 保存凭证
   const handleSave = () => {
     try {
-      saveVoucher();
+      saveVoucher('draft', subjects);
       toast({
         title: "操作成功",
         description: "凭证保存成功"

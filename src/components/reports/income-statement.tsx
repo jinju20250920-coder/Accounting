@@ -15,114 +15,21 @@ import {
   PieChart,
   Target
 } from 'lucide-react';
-
-interface IncomeStatementItem {
-  code: string;
-  name: string;
-  level: number;
-  amount: number;
-  isDebit: boolean; // true for expenses, false for revenue
-  percentage?: number;
-  parentCode?: string;
-  children?: IncomeStatementItem[];
-}
-
-interface IncomeStatementData {
-  revenue: IncomeStatementItem[];
-  expenses: IncomeStatementItem[];
-  totalRevenue: number;
-  totalExpenses: number;
-  netIncome: number;
-  grossProfitMargin: number;
-  operatingMargin: number;
-  netProfitMargin: number;
-}
+import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useSubjectStore } from '@/stores/useSubjectStore';
+import { generateIncomeStatementData, type IncomeStatementData, type IncomeStatementItem } from '@/lib/financial-reports';
 
 export function IncomeStatement() {
   const [date, setDate] = useState('2026-03-31');
   const [showPercentage, setShowPercentage] = useState(true);
   const [expandAll, setExpandAll] = useState(false);
+  const { vouchers } = useVoucherStore();
+  const { subjects } = useSubjectStore();
 
-  // 模拟损益表数据
+  // 从真实数据生成损益表
   const incomeStatementData: IncomeStatementData = useMemo(() => {
-    const revenueItems: IncomeStatementItem[] = [
-      {
-        code: '6',
-        name: '营业收入',
-        level: 1,
-        amount: 8500000,
-        isDebit: false,
-        children: [
-          { code: '6001', name: '主营业务收入', level: 2, amount: 7500000, isDebit: false },
-          { code: '6051', name: '其他业务收入', level: 2, amount: 1000000, isDebit: false }
-        ]
-      },
-      {
-        code: '6111', name: '公允价值变动收益', level: 2, amount: 200000, isDebit: false },
-      {
-        code: '6301', name: '投资收益', level: 2, amount: 300000, isDebit: false },
-      {
-        code: '6403', name: '营业外收入', level: 2, amount: 200000, isDebit: false }
-    ];
-
-    const expenseItems: IncomeStatementItem[] = [
-      {
-        code: '1',
-        name: '营业成本',
-        level: 1,
-        amount: 5200000,
-        isDebit: true,
-        children: [
-          { code: '6001', name: '主营业务成本', level: 2, amount: 5000000, isDebit: true },
-          { code: '6051', name: '其他业务成本', level: 2, amount: 200000, isDebit: true }
-        ]
-      },
-      {
-        code: '6601', name: '销售费用', level: 1, amount: 1200000, isDebit: true, children: [
-          { code: '660101', name: '销售人员薪酬', level: 2, amount: 600000, isDebit: true },
-          { code: '660102', name: '广告宣传费', level: 2, amount: 400000, isDebit: true },
-          { code: '660103', name: '差旅费', level: 2, amount: 200000, isDebit: true }
-        ]
-      },
-      {
-        code: '6602', name: '管理费用', level: 1, amount: 800000, isDebit: true, children: [
-          { code: '660201', name: '管理人员薪酬', level: 2, amount: 500000, isDebit: true },
-          { code: '660202', name: '办公费', level: 2, amount: 200000, isDebit: true },
-          { code: '660203', name: '折旧费', level: 2, amount: 100000, isDebit: true }
-        ]
-      },
-      {
-        code: '6603', name: '财务费用', level: 1, amount: 300000, isDebit: true, children: [
-          { code: '660301', name: '利息支出', level: 2, amount: 200000, isDebit: true },
-          { code: '660302', name: '手续费', level: 2, amount: 100000, isDebit: true }
-        ]
-      },
-      {
-        code: '6701', name: '资产减值损失', level: 2, amount: 100000, isDebit: true },
-      {
-        code: '6711', name: '营业外支出', level: 2, amount: 100000, isDebit: true },
-      {
-        code: '6801', name: '所得税费用', level: 2, amount: 400000, isDebit: true }
-    ];
-
-    const totalRevenue = revenueItems.reduce((sum, item) => sum + Math.abs(item.amount), 0);
-    const totalExpenses = expenseItems.reduce((sum, item) => sum + Math.abs(item.amount), 0);
-    const netIncome = totalRevenue - totalExpenses;
-    const grossProfitMargin = ((totalRevenue - 5200000) / totalRevenue * 100);
-    const operatingMargin = ((totalRevenue - 5200000 - 1200000 - 800000 - 300000) / totalRevenue * 100);
-    const netProfitMargin = (netIncome / totalRevenue * 100);
-
-    return {
-      revenue: revenueItems,
-      expenses: expenseItems,
-      totalRevenue,
-      totalExpenses,
-      netIncome,
-      grossProfitMargin,
-      operatingMargin,
-      netProfitMargin
-    };
-  }, []);
+    return generateIncomeStatementData(vouchers, subjects);
+  }, [vouchers, subjects]);
 
   // 计算汇总金额
   const calculateTotal = (items: IncomeStatementItem[], type: 'revenue' | 'expense') => {

@@ -22,10 +22,12 @@ interface SubjectBalanceRow {
   subjectCode: string;
   subjectName: string;
   direction: 'debit' | 'credit';
-  openingBalance: number;
+  openingDebit: number;
+  openingCredit: number;
   debitTotal: number;
   creditTotal: number;
-  closingBalance: number;
+  closingDebit: number;
+  closingCredit: number;
 }
 
 export default function BalancePage() {
@@ -55,14 +57,20 @@ export default function BalancePage() {
             existing.debitTotal += debitAmount;
             existing.creditTotal += creditAmount;
           } else {
+            // 初始化期初余额（当前系统暂未录入期初余额，默认为0）
+            const openingDebit = 0;
+            const openingCredit = 0;
+
             balanceMap.set(entry.subjectCode, {
               subjectCode: entry.subjectCode,
               subjectName: entry.subjectName,
               direction: subject.direction,
-              openingBalance: 0,
+              openingDebit,
+              openingCredit,
               debitTotal: debitAmount,
               creditTotal: creditAmount,
-              closingBalance: 0
+              closingDebit: 0,
+              closingCredit: 0
             });
           }
         });
@@ -71,13 +79,34 @@ export default function BalancePage() {
 
     // 计算期末余额
     balanceMap.forEach((balance, code) => {
+      // 计算期末余额
+      let closingDebit = 0;
+      let closingCredit = 0;
+
       if (balance.direction === 'debit') {
-        // 借方科目：余额 = 期初 + 借方 - 贷方
-        balance.closingBalance = balance.openingBalance + balance.debitTotal - balance.creditTotal;
+        // 借方科目：余额 = 期初借方 + 借方 - 贷方
+        const closingBalance = balance.openingDebit - balance.openingCredit + balance.debitTotal - balance.creditTotal;
+        if (closingBalance >= 0) {
+          closingDebit = closingBalance;
+          closingCredit = 0;
+        } else {
+          closingDebit = 0;
+          closingCredit = Math.abs(closingBalance);
+        }
       } else {
-        // 贷方科目：余额 = 期初 + 贷方 - 借方
-        balance.closingBalance = balance.openingBalance + balance.creditTotal - balance.debitTotal;
+        // 贷方科目：余额 = 期初贷方 + 贷方 - 借方
+        const closingBalance = balance.openingCredit - balance.openingDebit + balance.creditTotal - balance.debitTotal;
+        if (closingBalance >= 0) {
+          closingDebit = 0;
+          closingCredit = closingBalance;
+        } else {
+          closingDebit = Math.abs(closingBalance);
+          closingCredit = 0;
+        }
       }
+
+      balance.closingDebit = closingDebit;
+      balance.closingCredit = closingCredit;
     });
 
     return Array.from(balanceMap.values());
@@ -97,16 +126,18 @@ export default function BalancePage() {
   const stats = useMemo(() => {
     const totalDebit = subjectBalances.reduce((sum, b) => sum + b.debitTotal, 0);
     const totalCredit = subjectBalances.reduce((sum, b) => sum + b.creditTotal, 0);
-    const debitClosing = subjectBalances.reduce((sum, b) =>
-      b.direction === 'debit' && b.closingBalance > 0 ? sum + b.closingBalance : sum, 0);
-    const creditClosing = subjectBalances.reduce((sum, b) =>
-      b.direction === 'credit' && b.closingBalance > 0 ? sum + b.closingBalance : sum, 0);
+    const totalOpeningDebit = subjectBalances.reduce((sum, b) => sum + b.openingDebit, 0);
+    const totalOpeningCredit = subjectBalances.reduce((sum, b) => sum + b.openingCredit, 0);
+    const totalClosingDebit = subjectBalances.reduce((sum, b) => sum + b.closingDebit, 0);
+    const totalClosingCredit = subjectBalances.reduce((sum, b) => sum + b.closingCredit, 0);
 
     return {
       totalDebit,
       totalCredit,
-      debitClosing,
-      creditClosing,
+      totalOpeningDebit,
+      totalOpeningCredit,
+      totalClosingDebit,
+      totalClosingCredit,
       isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
     };
   }, [subjectBalances]);
@@ -175,7 +206,7 @@ export default function BalancePage() {
               <div>
                 <p className="text-sm text-slate-500">期末借方余额</p>
                 <p className="text-2xl font-bold text-blue-600">
-                  {formatCurrency(stats.debitClosing)}
+                  {formatCurrency(stats.totalClosingDebit)}
                 </p>
               </div>
               <FileText className="h-8 w-8 text-blue-400" />
@@ -188,7 +219,7 @@ export default function BalancePage() {
               <div>
                 <p className="text-sm text-slate-500">期末贷方余额</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {formatCurrency(stats.creditClosing)}
+                  {formatCurrency(stats.totalClosingCredit)}
                 </p>
               </div>
               <FileText className="h-8 w-8 text-green-400" />
@@ -259,11 +290,11 @@ export default function BalancePage() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">
                       科目名称
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">
-                      方向
+                    <th className="px-4 py-3 text-right text-sm font-medium text-slate-700">
+                      期初借方
                     </th>
                     <th className="px-4 py-3 text-right text-sm font-medium text-slate-700">
-                      期初余额
+                      期初贷方
                     </th>
                     <th className="px-4 py-3 text-right text-sm font-medium text-slate-700">
                       本期借方
@@ -272,7 +303,10 @@ export default function BalancePage() {
                       本期贷方
                     </th>
                     <th className="px-4 py-3 text-right text-sm font-medium text-slate-700">
-                      期末余额
+                      期末借方
+                    </th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-slate-700">
+                      期末贷方
                     </th>
                   </tr>
                 </thead>
@@ -286,22 +320,23 @@ export default function BalancePage() {
                         <span className="font-mono text-sm">{balance.subjectCode}</span>
                       </td>
                       <td className="px-4 py-3 font-medium">{balance.subjectName}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={balance.direction === 'debit' ? 'default' : 'secondary'}>
-                          {balance.direction === 'debit' ? '借' : '贷'}
-                        </Badge>
+                      <td className="px-4 py-3 text-right font-mono text-sm">
+                        {balance.openingDebit > 0 ? formatCurrency(balance.openingDebit) : ''}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm">
-                        {formatCurrency(balance.openingBalance)}
+                        {balance.openingCredit > 0 ? formatCurrency(balance.openingCredit) : ''}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-blue-600">
-                        {formatCurrency(balance.debitTotal)}
+                        {balance.debitTotal > 0 ? formatCurrency(balance.debitTotal) : ''}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-green-600">
-                        {formatCurrency(balance.creditTotal)}
+                        {balance.creditTotal > 0 ? formatCurrency(balance.creditTotal) : ''}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm font-semibold">
-                        {formatCurrency(Math.abs(balance.closingBalance))}
+                        {balance.closingDebit > 0 ? formatCurrency(balance.closingDebit) : ''}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-sm font-semibold">
+                        {balance.closingCredit > 0 ? formatCurrency(balance.closingCredit) : ''}
                       </td>
                     </tr>
                   ))}
@@ -309,11 +344,14 @@ export default function BalancePage() {
                 {/* 合计行 */}
                 <tfoot className="bg-slate-100 font-semibold">
                   <tr>
-                    <td colSpan={3} className="px-4 py-3">
+                    <td colSpan={2} className="px-4 py-3">
                       合计
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {formatCurrency(0)}
+                      {formatCurrency(stats.totalOpeningDebit)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(stats.totalOpeningCredit)}
                     </td>
                     <td className="px-4 py-3 text-right text-blue-600">
                       {formatCurrency(stats.totalDebit)}
@@ -322,7 +360,10 @@ export default function BalancePage() {
                       {formatCurrency(stats.totalCredit)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {formatCurrency(stats.isBalanced ? 0 : Math.abs(stats.totalDebit - stats.totalCredit))}
+                      {formatCurrency(stats.totalClosingDebit)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(stats.totalClosingCredit)}
                     </td>
                   </tr>
                 </tfoot>
@@ -340,9 +381,9 @@ export default function BalancePage() {
           <CardTitle className="text-lg">说明</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-slate-600 space-y-2">
-          <p>• <strong>期初余额</strong>：本期期初的科目余额，当前系统暂未录入期初余额，默认为0</p>
+          <p>• <strong>期初借方/贷方</strong>：本期期初的科目借方或贷方余额，当前系统暂未录入期初余额，默认为0</p>
           <p>• <strong>本期借方/贷方</strong>：本期已记账凭证中该科目的借方或贷方发生额合计</p>
-          <p>• <strong>期末余额</strong>：根据科目方向计算的期末余额，借方科目=期初+借方-贷方，贷方科目=期初+贷方-借方</p>
+          <p>• <strong>期末借方/贷方</strong>：根据科目方向计算的期末余额，借方科目余额显示在借方列，贷方科目余额显示在贷方列</p>
           <p>• <strong>借贷平衡</strong>：所有科目的借方合计应等于贷方合计，系统会自动验证平衡状态</p>
           <p>• <strong>数据来源</strong>：数据来源于已记账（状态为"记账"）的凭证</p>
         </CardContent>

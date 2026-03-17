@@ -37,9 +37,7 @@ export default function SubjectsPage() {
 
   // 初始化默认科目数据
   useEffect(() => {
-    console.log('组件挂载，当前科目数量:', subjects.length);
     if (subjects.length === 0) {
-      console.log('科目列表为空，开始初始化...');
       initializeSubjects();
     }
   }, []);
@@ -81,21 +79,55 @@ export default function SubjectsPage() {
   const selectedSubject = selectedSubjectId ? subjects.find(s => s.id === selectedSubjectId) : null;
 
   function buildSubjectTree(parentId: string | null = null, level: number = 1): any[] {
+    // 如果有搜索查询，先计算所有需要显示的科目
+    let visibleSubjectIds = new Set<string>();
+
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      // 1. 找到直接匹配的科目
+      subjects.forEach(s => {
+        if (s.code.toLowerCase().includes(lowerQuery) ||
+            s.name.toLowerCase().includes(lowerQuery)) {
+          visibleSubjectIds.add(s.id);
+
+          // 2. 找到所有祖先科目
+          let current = s.parentId;
+          while (current) {
+            const parent = subjects.find(sub => sub.id === current);
+            if (parent) {
+              visibleSubjectIds.add(parent.id);
+              current = parent.parentId;
+            } else {
+              current = null;
+            }
+          }
+
+          // 3. 找到所有后代科目
+          const findDescendants = (subjectId: string) => {
+            const children = subjects.filter(s => s.parentId === subjectId);
+            children.forEach(child => {
+              visibleSubjectIds.add(child.id);
+              findDescendants(child.id);
+            });
+          };
+          findDescendants(s.id);
+        }
+      });
+    }
+
     // 获取符合条件的科目
-    const filtered = subjects
+    let filtered = subjects
       .filter(s => s.parentId === parentId || (parentId === null && !s.parentId))
       .filter(s => !filterDisabled || !s.disabled);
 
-    console.log(`构建科目树 (parentId=${parentId}, level=${level}):`, {
-      totalSubjects: subjects.length,
-      parentIdMatches: subjects.filter(s => s.parentId === parentId || (parentId === null && !s.parentId)).length,
-      filteredCount: filtered.length
-    });
+    // 如果有搜索查询，只保留可见的科目
+    if (searchQuery) {
+      filtered = filtered.filter(s => visibleSubjectIds.has(s.id));
+    }
 
     return filtered.map(s => {
       const children = buildSubjectTree(s.id, level + 1);
-      console.log(`科目 ${s.code} - ${s.name} 的子科目:`, children.length);
-      return { ...s, children, level, expanded: expandedSubjects.has(s.id) };
+      return { ...s, children, level, expanded: expandedSubjects.has(s.id) || (searchQuery && children.length > 0) };
     });
   }
 

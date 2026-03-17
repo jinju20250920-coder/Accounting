@@ -215,7 +215,7 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
   };
 
   return {
-    getItem: async (name: string) => {
+    getItem: async (name: string): Promise<string | null> => {
       if (!isClient) return null;
 
       const accountSetId = getAccountSetId();
@@ -237,7 +237,7 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       return item;
     },
 
-    setItem: async (name: string, value: string) => {
+    setItem: async (name: string, value: string): Promise<void> => {
       if (!isClient) return;
 
       const accountSetId = getAccountSetId();
@@ -253,7 +253,7 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       }
     },
 
-    removeItem: async (name: string) => {
+    removeItem: async (name: string): Promise<void> => {
       if (!isClient) return;
 
       const accountSetId = getAccountSetId();
@@ -271,8 +271,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
 }
 
 // 创建支持多账套的 persist 配置
-export function createAccountSetPersistConfig(baseKey: string) {
-  const storage = createAccountSetStorage(baseKey);
+export function createAccountSetPersistConfig(baseKey: string): any {
+  const storage = createAccountSetStorage(baseKey) as any;
   return {
     name: baseKey, // 基础键名，实际存储时会添加账套前缀
     storage,

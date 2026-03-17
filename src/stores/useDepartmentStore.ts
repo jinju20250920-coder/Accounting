@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Department } from '@/types';
-import { STORAGE_KEYS, DATA_VERSIONS } from './persistence-config';
+import { STORAGE_KEYS, DATA_VERSIONS, createAccountSetPersistConfig } from './persistence-config';
 
 // 部门树节点
 interface DepartmentTreeNode extends Department {
@@ -322,12 +322,6 @@ export const useDepartmentStore = create<DepartmentStore>()(
         set({ error: null });
       }
     }),
-    {
-      name: STORAGE_KEYS.DEPARTMENTS,
-      version: DATA_VERSIONS.CURRENT,
-      partialize: (state) => ({
-        departments: state.departments
-      })
-    }
+    createAccountSetPersistConfig(STORAGE_KEYS.DEPARTMENTS)
   )
 );

@@ -15,108 +15,21 @@ import {
   AlertTriangle,
   CheckCircle
 } from 'lucide-react';
-
-interface BalanceSheetItem {
-  code: string;
-  name: string;
-  level: number;
-  amount: number;
-  isDebit: boolean; // true for assets, false for liabilities and equity
-  percentage?: number;
-  parentCode?: string;
-  children?: BalanceSheetItem[];
-}
-
-interface BalanceSheetData {
-  assets: BalanceSheetItem[];
-  liabilities: BalanceSheetItem[];
-  equity: BalanceSheetItem[];
-  totalAssets: number;
-  totalLiabilities: number;
-  totalEquity: number;
-  isBalanced: boolean;
-}
+import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useSubjectStore } from '@/stores/useSubjectStore';
+import { generateBalanceSheetData, type BalanceSheetData, type BalanceSheetItem } from '@/lib/financial-reports';
 
 export function BalanceSheet() {
   const [date, setDate] = useState('2026-03-31');
   const [showPercentage, setShowPercentage] = useState(true);
   const [expandAll, setExpandAll] = useState(false);
+  const { vouchers } = useVoucherStore();
+  const { subjects } = useSubjectStore();
 
-  // 模拟资产负债表数据
+  // 从真实数据生成资产负债表
   const balanceSheetData: BalanceSheetData = useMemo(() => {
-    return {
-      assets: [
-        {
-          code: '1',
-          name: '流动资产',
-          level: 1,
-          amount: 1800000,
-          isDebit: true,
-          children: [
-            { code: '1001', name: '货币资金', level: 2, amount: 310000, isDebit: true },
-            { code: '1122', name: '应收账款', level: 2, amount: 450000, isDebit: true },
-            { code: '1131', name: '预付款项', level: 2, amount: 200000, isDebit: true },
-            { code: '1201', name: '存货', level: 2, amount: 840000, isDebit: true }
-          ]
-        },
-        {
-          code: '2',
-          name: '非流动资产',
-          level: 1,
-          amount: 1200000,
-          isDebit: true,
-          children: [
-            { code: '1501', name: '固定资产', level: 2, amount: 1000000, isDebit: true },
-            { code: '1502', name: '累计折旧', level: 2, amount: -200000, isDebit: true },
-            { code: '1701', name: '无形资产', level: 2, amount: 400000, isDebit: true }
-          ]
-        }
-      ],
-      liabilities: [
-        {
-          code: '2',
-          name: '流动负债',
-          level: 1,
-          amount: 650000,
-          isDebit: false,
-          children: [
-            { code: '2202', name: '应付账款', level: 2, amount: 300000, isDebit: false },
-            { code: '2211', name: '应付职工薪酬', level: 2, amount: 150000, isDebit: false },
-            { code: '2221', name: '应交税费', level: 2, amount: 200000, isDebit: false }
-          ]
-        },
-        {
-          code: '3',
-          name: '非流动负债',
-          level: 1,
-          amount: 450000,
-          isDebit: false,
-          children: [
-            { code: '2501', name: '长期借款', level: 2, amount: 450000, isDebit: false }
-          ]
-        }
-      ],
-      equity: [
-        {
-          code: '4',
-          name: '所有者权益',
-          level: 1,
-          amount: 1900000,
-          isDebit: false,
-          children: [
-            { code: '3001', name: '实收资本', level: 2, amount: 1500000, isDebit: false },
-            { code: '3002', name: '资本公积', level: 2, amount: 200000, isDebit: false },
-            { code: '3101', name: '盈余公积', level: 2, amount: 100000, isDebit: false },
-            { code: '3103', name: '未分配利润', level: 2, amount: 100000, isDebit: false }
-          ]
-        }
-      ],
-      totalAssets: 3000000,
-      totalLiabilities: 1100000,
-      totalEquity: 1900000,
-      isBalanced: true
-    };
-  }, []);
+    return generateBalanceSheetData(vouchers, subjects);
+  }, [vouchers, subjects]);
 
   // 渲染项目
   const renderItem = (item: BalanceSheetItem, parent?: BalanceSheetItem) => {

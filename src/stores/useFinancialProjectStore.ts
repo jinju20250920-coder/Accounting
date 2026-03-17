@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Project } from '@/types';
-import { STORAGE_KEYS, DATA_VERSIONS } from './persistence-config';
+import { STORAGE_KEYS, DATA_VERSIONS, createAccountSetPersistConfig } from './persistence-config';
 
 interface FinancialProjectStore {
   // 状态
@@ -329,12 +329,6 @@ export const useFinancialProjectStore = create<FinancialProjectStore>()(
         set({ error: null });
       }
     }),
-    {
-      name: STORAGE_KEYS.PROJECTS,
-      version: DATA_VERSIONS.CURRENT,
-      partialize: (state) => ({
-        projects: state.projects
-      })
-    }
+    createAccountSetPersistConfig(STORAGE_KEYS.PROJECTS)
   )
 );

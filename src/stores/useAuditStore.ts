@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createVersionedStorage, DATA_VERSIONS, STORAGE_KEYS } from './persistence-config';
+import { createAccountSetPersistConfig, DATA_VERSIONS } from './persistence-config';
 
 // 操作类型枚举
 enum OperationType {
@@ -319,19 +319,7 @@ export const useAuditStore = create<AuditStore>()(
         return state.records.slice(0, limit);
       }
     }),
-    {
-      name: 'finance-audit',
-      partialize: (state) => ({
-        records: state.records.slice(0, 5000),
-        settings: state.settings
-      }),
-      migrate: (state, version) => {
-        if (version < DATA_VERSIONS.V2) {
-          return migrateV1ToV2(state);
-        }
-        return state;
-      }
-    }
+    createAccountSetPersistConfig('finance-audit')
   )
 );
 
