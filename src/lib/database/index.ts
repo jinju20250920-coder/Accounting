@@ -394,10 +394,15 @@ class DatabaseService {
       subjects: await this.getAllSubjects(),
       departments: await this.getAllDepartments(),
       projects: await this.getAllProjects(),
+      currencies: await this.get('currencies') || [],
+      templates: await this.get('templates') || [],
+      commonSummaries: await this.get('commonSummaries') || [],
+      recentSummaries: await this.get('recentSummaries') || [],
+      partners: await this.get('partners') || [],
       preferences: await this.getPreferencesByUser('current-user'),
       auditLogs: await this.getAuditLogs(1000),
       exportDate: new Date().toISOString(),
-      version: '1.0'
+      version: '2.1'
     };
   }
 
@@ -458,6 +463,27 @@ class DatabaseService {
     }
 
     await tx.done;
+
+    // 导入其他数据类型
+    if (data.currencies) {
+      await this.set('currencies', data.currencies);
+    }
+
+    if (data.templates) {
+      await this.set('templates', data.templates);
+    }
+
+    if (data.commonSummaries) {
+      await this.set('commonSummaries', data.commonSummaries);
+    }
+
+    if (data.recentSummaries) {
+      await this.set('recentSummaries', data.recentSummaries);
+    }
+
+    if (data.partners) {
+      await this.set('partners', data.partners);
+    }
   }
 
   // 清空所有数据
@@ -552,6 +578,11 @@ class DatabaseService {
         // 保存最近使用的摘要（新增）
         await this.set('recentSummaries', store.recentSummaries);
       }
+
+      if (store.partners) {
+        // 保存往来单位数据（新增）
+        await this.set('partners', store.partners);
+      }
     }
 
     console.log('All data synchronized to IndexedDB');
@@ -580,6 +611,7 @@ class DatabaseService {
     data.templates = await this.get('templates') || [];
     data.commonSummaries = await this.get('commonSummaries') || [];
     data.recentSummaries = await this.get('recentSummaries') || [];
+    data.partners = await this.get('partners') || [];
 
     return data;
   }

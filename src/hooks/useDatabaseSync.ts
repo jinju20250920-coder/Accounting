@@ -4,6 +4,10 @@ import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useDepartmentStore } from '@/stores/useDepartmentStore';
 import { useFinancialProjectStore } from '@/stores/useFinancialProjectStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
+import { useVoucherTemplateStore } from '@/stores/useVoucherTemplateStore';
+import { useSummaryStore } from '@/stores/useSummaryStore';
+import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useToast } from '@/hooks/use-toast';
 
 export function useDatabaseSync() {
@@ -12,6 +16,10 @@ export function useDatabaseSync() {
   const subjectStore = useSubjectStore();
   const departmentStore = useDepartmentStore();
   const projectStore = useFinancialProjectStore();
+  const currencyStore = useCurrencyStore();
+  const templateStore = useVoucherTemplateStore();
+  const summaryStore = useSummaryStore();
+  const partnerStore = usePartnerStore();
 
   useEffect(() => {
     const syncData = async () => {
@@ -86,9 +94,38 @@ export function useDatabaseSync() {
           projectStore.projects = restoredData.projects;
         }
 
+        // 恢复币别数据
+        if (restoredData.currencies && restoredData.currencies.length > 0 && currencyStore.currencies.length === 0) {
+          currencyStore.currencies = restoredData.currencies;
+        }
+
+        // 恢复凭证模板数据
+        if (restoredData.templates && restoredData.templates.length > 0 && templateStore.templates.length === 0) {
+          templateStore.templates = restoredData.templates;
+        }
+
+        // 恢复摘要数据
+        if (restoredData.commonSummaries && restoredData.commonSummaries.length > 0 && summaryStore.commonSummaries.length === 0) {
+          summaryStore.commonSummaries = restoredData.commonSummaries;
+        }
+
+        if (restoredData.recentSummaries && restoredData.recentSummaries.length > 0 && summaryStore.recentSummaries.length === 0) {
+          summaryStore.recentSummaries = restoredData.recentSummaries;
+        }
+
+        // 恢复往来单位数据
+        if (restoredData.partners && restoredData.partners.length > 0 && partnerStore.partners.length === 0) {
+          partnerStore.importPartners(restoredData.partners);
+        }
+
         // 检查数据完整性
         const integrity = await database.checkDataIntegrity();
         console.log('Data integrity check:', integrity);
+
+        // 初始化币别数据（如果需要）
+        if (currencyStore.currencies.length === 0) {
+          currencyStore.initializeCurrencies();
+        }
 
       } catch (error) {
         console.error('Database sync error:', error);
@@ -129,13 +166,46 @@ export function useDatabaseSync() {
           await database.saveProjects(projectStore.projects);
         }
 
+        // 保存币别数据
+        if (currencyStore.currencies.length > 0) {
+          await database.set('currencies', currencyStore.currencies);
+        }
+
+        // 保存凭证模板数据
+        if (templateStore.templates.length > 0) {
+          await database.set('templates', templateStore.templates);
+        }
+
+        // 保存摘要数据
+        if (summaryStore.commonSummaries.length > 0) {
+          await database.set('commonSummaries', summaryStore.commonSummaries);
+        }
+        if (summaryStore.recentSummaries.length > 0) {
+          await database.set('recentSummaries', summaryStore.recentSummaries);
+        }
+
+        // 保存往来单位数据
+        if (partnerStore.partners.length > 0) {
+          await database.set('partners', partnerStore.partners);
+        }
+
       } catch (error) {
         console.error('Auto-save error:', error);
       }
     }, 30000); // 每30秒自动保存一次
 
     return () => clearInterval(saveInterval);
-  }, [voucherStore.vouchers, subjectStore.subjects, departmentStore.departments, projectStore.projects]);
+  }, [
+    voucherStore.vouchers,
+    subjectStore.subjects,
+    departmentStore.departments,
+    projectStore.projects,
+    currencyStore.currencies,
+    templateStore.templates,
+    summaryStore.commonSummaries,
+    summaryStore.recentSummaries,
+    partnerStore.partners
+  ]);
 
   // 导出数据功能
   const exportData = async () => {
@@ -182,6 +252,13 @@ export function useDatabaseSync() {
       subjectStore.subjects = data.subjects || [];
       departmentStore.departments = data.departments || [];
       projectStore.projects = data.projects || [];
+
+      // 更新新增数据类型
+      if (data.currencies) currencyStore.currencies = data.currencies;
+      if (data.templates) templateStore.templates = data.templates;
+      if (data.commonSummaries) summaryStore.commonSummaries = data.commonSummaries;
+      if (data.recentSummaries) summaryStore.recentSummaries = data.recentSummaries;
+      if (data.partners) partnerStore.importPartners(data.partners);
 
       toast({
         title: "数据导入成功",

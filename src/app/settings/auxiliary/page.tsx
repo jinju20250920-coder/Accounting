@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
+import { usePartnerStore } from '@/stores/usePartnerStore';
 
 // 往来单位接口 - 统一模型
 interface Partner {
@@ -52,87 +53,11 @@ interface Partner {
   parentId?: string; // 关联的集团ID（用于合并到集团）
 }
 
-// 模拟数据
-const mockPartners: Partner[] = [
-  {
-    id: 'p1',
-    code: 'ABC001',
-    name: '上海科技有限公司',
-    isCustomer: true,
-    isSupplier: false,
-    isEmployee: false,
-    contact: '张三',
-    phone: '021-12345678',
-    email: 'zhangsan@example.com',
-    address: '上海市浦东新区张江高科技园区',
-    taxNumber: '310115XXXXXXXX',
-    bankAccount: '622588XXXXXXXXXXX',
-    bankName: '中国工商银行',
-    frozen: false,
-    createdAt: '2024-01-01'
-  },
-  {
-    id: 'p2',
-    code: 'XYZ001',
-    name: '北京商贸有限公司',
-    isCustomer: true,
-    isSupplier: true,
-    isEmployee: false,
-    contact: '李四',
-    phone: '010-87654321',
-    email: 'lisi@example.com',
-    address: '北京市朝阳区建国路88号',
-    taxNumber: '110115XXXXXXXX',
-    bankAccount: '622202XXXXXXXXXXX',
-    bankName: '中国建设银行',
-    frozen: false,
-    createdAt: '2024-02-01'
-  },
-  {
-    id: 'p3',
-    code: 'SUP001',
-    name: '广州电子科技有限公司',
-    isCustomer: false,
-    isSupplier: true,
-    isEmployee: false,
-    contact: '王五',
-    phone: '020-87654321',
-    email: 'wangwu@example.com',
-    address: '广州市天河区天河路123号',
-    taxNumber: '440115XXXXXXXX',
-    bankAccount: '621700XXXXXXXXXXX',
-    bankName: '中国农业银行',
-    frozen: false,
-    createdAt: '2024-01-15'
-  },
-  {
-    id: 'e1',
-    code: 'EMP001',
-    name: '赵六',
-    isCustomer: false,
-    isSupplier: false,
-    isEmployee: true,
-    contact: '赵六',
-    phone: '13800138000',
-    email: 'zhaoliu@example.com',
-    address: '上海市黄浦区南京东路100号',
-    taxNumber: '',
-    bankAccount: '622848XXXXXXXXXXX',
-    bankName: '中国银行',
-    frozen: false,
-    createdAt: '2024-03-01'
-  }
-];
-
-// 用于存储历史重复数据的映射
-const historicalDuplicates = new Map([
-  // key: 公司名称, value: 关联的ID数组
-  ['上海科技有限公司', ['p1', 'p1-customer', 'p1-supplier']]
-]);
-
 export default function AuxiliaryDataPage() {
   const { showToast } = useToast();
-  const [partners, setPartners] = useState<Partner[]>(mockPartners);
+  const partnerStore = usePartnerStore();
+
+  const [partners, setPartners] = useState<Partner[]>(partnerStore.partners);
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
@@ -216,26 +141,24 @@ export default function AuxiliaryDataPage() {
       return;
     }
 
-    const newPartner: Partner = {
-      ...formData,
-      id: editingId || `partner_${Date.now()}`,
-      isCustomer: formData.isCustomer,
-      isSupplier: formData.isSupplier,
-      isEmployee: formData.isEmployee,
-      frozen: formData.frozen,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
+    try {
+      if (editingId) {
+        // 更新
+        partnerStore.updatePartner(editingId, formData);
+        showToast('success', '往来单位更新成功');
+      } else {
+        // 添加
+        partnerStore.addPartner(formData);
+        showToast('success', '往来单位添加成功');
+      }
 
-    if (editingId) {
-      setPartners(partners.map(p => p.id === editingId ? { ...newPartner, id: editingId } : p));
-      showToast('success', '往来单位更新成功');
-    } else {
-      setPartners([...partners, newPartner]);
-      showToast('success', '往来单位添加成功');
+      setShowDialog(false);
+      resetFormData();
+      setEditingId(null);
+      setPartners(partnerStore.partners);
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '操作失败');
     }
-    setShowDialog(false);
-    resetFormData();
-    setEditingId(null);
   };
 
   const handleEdit = (partner: Partner) => {
@@ -272,16 +195,17 @@ export default function AuxiliaryDataPage() {
       title: '确认删除',
       description: `确定要删除往来单位 ${partner.code} - ${partner.name} 吗？`,
       onConfirm: () => {
-        setPartners(partners.filter(p => p.id !== id));
+        partnerStore.deletePartner(id);
+        setPartners(partnerStore.partners);
         showToast('success', '往来单位删除成功');
+        setConfirmDialog(null);
       }
     });
   };
 
   const handleToggleFrozen = (id: string) => {
-    setPartners(partners.map(p =>
-      p.id === id ? { ...p, frozen: !p.frozen } : p
-    ));
+    partnerStore.toggleFrozen(id);
+    setPartners(partnerStore.partners);
     showToast('success', '冻结状态已更新');
   };
 
@@ -319,7 +243,8 @@ export default function AuxiliaryDataPage() {
           createdAt: new Date().toISOString().split('T')[0]
         }));
 
-        setPartners([...partners, ...newItems]);
+        partnerStore.importPartners(newItems);
+        setPartners(partnerStore.partners);
         showToast('success', `成功导入 ${newItems.length} 条往来单位数据`);
 
         fileInputRef.current.value = '';
@@ -450,7 +375,7 @@ export default function AuxiliaryDataPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">客户数量</p>
-                <p className="text-3xl font-bold text-green-600">{partners.filter(p => p.isCustomer).length}</p>
+                <p className="text-3xl font-bold text-green-600">{partnerStore.getPartnersByType('customer').length}</p>
               </div>
               <Users className="h-8 w-8 text-green-500" />
             </div>
@@ -461,7 +386,7 @@ export default function AuxiliaryDataPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">供应商数量</p>
-                <p className="text-3xl font-bold text-orange-600">{partners.filter(p => p.isSupplier).length}</p>
+                <p className="text-3xl font-bold text-orange-600">{partnerStore.getPartnersByType('supplier').length}</p>
               </div>
               <Building2 className="h-8 w-8 text-orange-500" />
             </div>
@@ -472,7 +397,7 @@ export default function AuxiliaryDataPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">雇员数量</p>
-                <p className="text-3xl font-bold text-purple-600">{partners.filter(p => p.isEmployee).length}</p>
+                <p className="text-3xl font-bold text-purple-600">{partnerStore.getPartnersByType('employee').length}</p>
               </div>
               <User className="h-8 w-8 text-purple-500" />
             </div>
