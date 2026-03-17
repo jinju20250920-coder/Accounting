@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createAccountSetPersistConfig } from './persistence-config';
+import { STORAGE_KEYS, createAccountSetPersistConfig } from './persistence-config';
 
 // 往来单位接口 - 统一模型
 interface Partner {
@@ -294,6 +294,6 @@ export const usePartnerStore = create<PartnerStore>()(
       });
     }
   }),
-    createAccountSetPersistConfig('finance-partners')
+    createAccountSetPersistConfig(STORAGE_KEYS.PARTNERS)
   )
 );

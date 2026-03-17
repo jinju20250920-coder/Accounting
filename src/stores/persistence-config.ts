@@ -24,7 +24,10 @@ export const STORAGE_KEYS = {
   SUBJECTS: 'finance-subjects',
   DEPARTMENTS: 'finance-departments',
   PROJECTS: 'finance-projects',
-  CURRENCIES: 'finance-currencies'
+  CURRENCIES: 'finance-currencies',
+  PARTNERS: 'finance-partners',
+  VOUCHER_TEMPLATES: 'finance-voucher-templates',
+  SUMMARIES: 'finance-summaries'
 } as const;
 
 // ========== IndexedDB 存储实现 ==========

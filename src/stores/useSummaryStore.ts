@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { CommonSummary, RecentSummary } from '@/types';
-import { createAccountSetPersistConfig } from './persistence-config';
+import { STORAGE_KEYS, createAccountSetPersistConfig } from './persistence-config';
 
 // 常用摘要存储
 interface SummaryStore {
@@ -223,6 +223,6 @@ export const useSummaryStore = create<SummaryStore>()(
         }));
     }
   }),
-    createAccountSetPersistConfig('finance-summaries')
+    createAccountSetPersistConfig(STORAGE_KEYS.SUMMARIES)
   )
 );

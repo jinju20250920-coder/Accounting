@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { VoucherFullTemplate, VoucherTemplateEntry } from '@/types';
-import { createAccountSetPersistConfig } from './persistence-config';
+import { STORAGE_KEYS, createAccountSetPersistConfig } from './persistence-config';
 
 // 校验数据类型
 interface TemplateValidationData {
@@ -309,6 +309,6 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>()(
       return exportData;
     }
   }),
-    createAccountSetPersistConfig('finance-voucher-templates')
+    createAccountSetPersistConfig(STORAGE_KEYS.VOUCHER_TEMPLATES)
   )
 );
