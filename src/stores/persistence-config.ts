@@ -1,6 +1,6 @@
 import { persist } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
-import { database } from '@/lib/database';
+import { databaseService } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 
 // 数据版本定义
@@ -33,45 +33,58 @@ export const STORAGE_KEYS = {
 // ========== IndexedDB 存储实现 ==========
 
 // 创建 IndexedDB 存储
-export function createIndexedDBStorage(baseKey: string): StateStorage {
+export function createIndexedDBStorage(): StateStorage {
   const isClient = typeof window !== 'undefined';
 
   return {
     getItem: async (name: string): Promise<string | null> => {
       if (!isClient) return null;
 
+      console.log(`[IndexedDBStorage] 读取数据，name: ${name}`);
       try {
-        await database.init();
-        const data = await database.get(name);
+        await databaseService.init();
+        const data = await databaseService.get(name);
+        console.log(`[IndexedDBStorage] 从数据库获取数据:`, data);
         if (data) {
           return JSON.stringify(data);
         }
+        // 如果 IndexedDB 中没有数据，返回 null，不要从 localStorage 回退
+        return null;
       } catch (e) {
-        console.warn('IndexedDB read failed, falling back to localStorage:', e);
+        console.warn('IndexedDB read failed:', e);
+        return null;
       }
-
-      // 回退到 localStorage
-      const item = localStorage.getItem(name);
-      if (item) {
-        // 同步到 IndexedDB
-        try {
-          const parsed = JSON.parse(item);
-          await database.init();
-          await database.set(name, parsed);
-        } catch {
-          // 忽略同步错误
-        }
-      }
-      return item;
     },
 
     setItem: async (name: string, value: string): Promise<void> => {
       if (!isClient) return;
 
+      console.log(`[IndexedDBStorage] 保存数据，name: ${name}`);
       try {
-        await database.init();
-        await database.set(name, JSON.parse(value));
-        localStorage.setItem(name, value);
+        await databaseService.init();
+        // 尝试解析 value，如果已经是对象就直接使用
+        let parsedValue;
+        try {
+          parsedValue = typeof value === 'string' ? JSON.parse(value) : value;
+        } catch {
+          parsedValue = value;
+        }
+
+        // 安全处理：确保数据可序列化，移除任何函数
+        const safeValue = JSON.parse(JSON.stringify(parsedValue));
+        console.log(`[IndexedDBStorage] 要保存的数据:`, safeValue);
+
+        if (name.includes('finance-vouchers')) {
+          console.log(`[IndexedDBStorage] 凭证数量:`, safeValue.state?.vouchers?.length || 0);
+          if (safeValue.state?.vouchers) {
+            console.log(`[IndexedDBStorage] 凭证列表:`, safeValue.state.vouchers.map((v: any) => v.voucherNo));
+          }
+        }
+
+        await databaseService.set(name, safeValue);
+        // 同时也写入 localStorage 作为备份（但不回读）
+        localStorage.setItem(name, JSON.stringify(safeValue));
+        console.log(`[IndexedDBStorage] 数据保存成功`);
       } catch (e) {
         console.warn('IndexedDB write failed, using localStorage only:', e);
         localStorage.setItem(name, value);
@@ -81,12 +94,14 @@ export function createIndexedDBStorage(baseKey: string): StateStorage {
     removeItem: async (name: string): Promise<void> => {
       if (!isClient) return;
 
+      console.log(`[IndexedDBStorage] 删除数据，name: ${name}`);
       try {
-        await database.init();
-        await database.delete(name);
+        await databaseService.init();
+        await databaseService.delete(name);
       } catch (e) {
         console.warn('IndexedDB delete failed:', e);
       }
+      // 同时也从 localStorage 中删除
       localStorage.removeItem(name);
     }
   };
@@ -103,7 +118,7 @@ export function getAccountSetScopedKey(baseKey: string, accountSetId: string | n
 }
 
 // 创建支持多账套隔离的 StateStorage
-export function createAccountSetStorage(baseKey: string): StateStorage {
+export function createAccountSetStorage(): StateStorage {
   const isClient = typeof window !== 'undefined';
 
   // 获取当前账套ID
@@ -117,14 +132,15 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
     }
   };
 
-  const indexedDBStorage = createIndexedDBStorage(baseKey);
+  const indexedDBStorage = createIndexedDBStorage();
 
   return {
     getItem: async (name: string): Promise<string | null> => {
       if (!isClient) return null;
 
       const accountSetId = getAccountSetId();
-      const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
+      const scopedKey = getAccountSetScopedKey(name, accountSetId);
+      console.log(`[createAccountSetStorage] getItem, name: ${name}, accountSetId: ${accountSetId}, scopedKey: ${scopedKey}`);
 
       // 使用带账套前缀的键调用 IndexedDB 存储
       return indexedDBStorage.getItem(scopedKey);
@@ -134,7 +150,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       if (!isClient) return;
 
       const accountSetId = getAccountSetId();
-      const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
+      const scopedKey = getAccountSetScopedKey(name, accountSetId);
+      console.log(`[createAccountSetStorage] setItem, name: ${name}, accountSetId: ${accountSetId}, scopedKey: ${scopedKey}`);
 
       // 使用带账套前缀的键调用 IndexedDB 存储
       await indexedDBStorage.setItem(scopedKey, value);
@@ -144,7 +161,8 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
       if (!isClient) return;
 
       const accountSetId = getAccountSetId();
-      const scopedKey = getAccountSetScopedKey(baseKey, accountSetId);
+      const scopedKey = getAccountSetScopedKey(name, accountSetId);
+      console.log(`[createAccountSetStorage] removeItem, name: ${name}, accountSetId: ${accountSetId}, scopedKey: ${scopedKey}`);
 
       // 使用带账套前缀的键调用 IndexedDB 存储
       await indexedDBStorage.removeItem(scopedKey);
@@ -154,11 +172,22 @@ export function createAccountSetStorage(baseKey: string): StateStorage {
 
 // 创建支持多账套的 persist 配置
 export function createAccountSetPersistConfig(baseKey: string): any {
-  const storage = createAccountSetStorage(baseKey) as any;
+  const storage = createAccountSetStorage() as any;
   return {
     name: baseKey, // 基础键名，实际存储时会添加账套前缀
     storage,
-    partialize: (state: any) => state
+    // 只持久化纯数据，不持久化函数
+    partialize: (state: any) => {
+      const newState: any = {};
+      for (const key in state) {
+        const value = state[key];
+        // 跳过函数、undefined 和 null
+        if (typeof value !== 'function' && value !== undefined && value !== null) {
+          newState[key] = value;
+        }
+      }
+      return newState;
+    }
   };
 }
 
@@ -181,7 +210,7 @@ export async function migrateFromLocalStorageToIndexedDB(): Promise<boolean> {
   if (!isClient) return false;
 
   try {
-    await database.init();
+    await databaseService.init();
 
     const keys = Object.keys(localStorage);
     let migratedCount = 0;
@@ -192,7 +221,7 @@ export async function migrateFromLocalStorageToIndexedDB(): Promise<boolean> {
         if (item) {
           try {
             const parsed = JSON.parse(item);
-            await database.set(key, parsed);
+            await databaseService.set(key, parsed);
             migratedCount++;
           } catch {
             // 跳过无法解析的项
@@ -227,14 +256,14 @@ export async function checkStorageHealth(): Promise<{
 
   // 检查 IndexedDB
   try {
-    await database.init();
-    await database.set('health-check', 'ok');
-    const result = await database.get('health-check');
+    await databaseService.init();
+    await databaseService.set('health-check', 'ok');
+    const result = await databaseService.get('health-check');
     indexedDBHealth = result === 'ok';
-    await database.delete('health-check');
+    await databaseService.delete('health-check');
 
     // 检查数据完整性
-    dataIntegrity = await database.checkDataIntegrity();
+    dataIntegrity = await databaseService.checkDataIntegrity();
   } catch (e) {
     console.error('IndexedDB health check failed:', e);
   }

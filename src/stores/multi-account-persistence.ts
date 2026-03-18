@@ -1,5 +1,5 @@
 import { StateStorage } from 'zustand/middleware';
-import { database } from '@/lib/database';
+import { databaseService } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 
 /**
@@ -61,8 +61,8 @@ export function createAccountSetScopedStorage(baseKey: string): StateStorage {
 
       try {
         // 尝试从 IndexedDB 获取
-        await database.init();
-        const data = await database.get(scopedKey);
+        await databaseService.init();
+        const data = await databaseService.get(scopedKey);
         if (data) {
           cache.set(scopedKey, data);
           return JSON.stringify(data);
@@ -106,8 +106,8 @@ export function createAccountSetScopedStorage(baseKey: string): StateStorage {
 
       try {
         // 同时保存到 IndexedDB 和 localStorage
-        await database.init();
-        await database.set(scopedKey, parsedValue);
+        await databaseService.init();
+        await databaseService.set(scopedKey, parsedValue);
         localStorage.setItem(scopedKey, value);
       } catch (e) {
         console.warn('IndexedDB write failed, using localStorage only:', e);
@@ -126,8 +126,8 @@ export function createAccountSetScopedStorage(baseKey: string): StateStorage {
       cache.delete(scopedKey);
 
       try {
-        await database.init();
-        await database.delete(scopedKey);
+        await databaseService.init();
+        await databaseService.delete(scopedKey);
       } catch (e) {
         console.warn('IndexedDB delete failed:', e);
       }
@@ -174,9 +174,9 @@ export async function migrateToAccountSetScoped(
     localStorage.setItem(newKey, oldData);
 
     try {
-      await database.init();
+      await databaseService.init();
       const parsed = JSON.parse(oldData);
-      await database.set(newKey, parsed);
+      await databaseService.set(newKey, parsed);
     } catch {
       // 忽略 IndexedDB 错误
     }
@@ -185,8 +185,8 @@ export async function migrateToAccountSetScoped(
     if (deleteOldData) {
       localStorage.removeItem(oldKey);
       try {
-        await database.init();
-        await database.delete(oldKey);
+        await databaseService.init();
+        await databaseService.delete(oldKey);
       } catch {
         // 忽略
       }
@@ -215,8 +215,8 @@ export async function clearAccountSetData(accountSetId: string, baseKeys: string
     cache.delete(scopedKey);
 
     try {
-      await database.init();
-      await database.delete(scopedKey);
+      await databaseService.init();
+      await databaseService.delete(scopedKey);
     } catch {
       // 忽略
     }
@@ -247,9 +247,9 @@ export async function copyAccountSetData(
       if (data) {
         localStorage.setItem(targetKey, data);
         try {
-          await database.init();
+          await databaseService.init();
           const parsed = JSON.parse(data);
-          await database.set(targetKey, parsed);
+          await databaseService.set(targetKey, parsed);
         } catch {
           // 忽略
         }
