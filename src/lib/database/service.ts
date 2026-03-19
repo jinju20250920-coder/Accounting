@@ -178,15 +178,15 @@ class DatabaseService {
 
     const tx = this.db.transaction(['vouchers', 'entries'], 'readwrite');
 
-    // 删除凭证
-    await tx.objectStore('vouchers').delete(id);
-
     // 删除关联的分录
     const entries = await this.db.getAllFromIndex('entries', 'by-voucher', id);
     const filteredEntries = entries.filter(entry => entry.accountSetId === this.accountSetId);
     for (const entry of filteredEntries) {
       await tx.objectStore('entries').delete(entry.id);
     }
+
+    // 删除凭证
+    await tx.objectStore('vouchers').delete(id);
 
     await tx.done;
   }

@@ -741,14 +741,14 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     );
   },
 
-  loadTemplate: (template: any, loadAmounts: boolean) => {
+  loadTemplate: async (template: any, loadAmounts: boolean) => {
     const state = get();
+    const now = new Date().toISOString();
+    const newId = Date.now().toString();
 
     // Create new entries from template
     const newEntries = template.entries.map((entry: any, index: number) => ({
-      id: `entry-${Date.now()}-${index}`,
-      voucherId: '',
-      date: state.voucherDate,
+      ...createDefaultEntry(newId, index),
       summary: entry.summary || '',
       subjectCode: entry.subjectCode || '',
       subjectName: entry.subjectName || '',
@@ -766,28 +766,38 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
 
     // Ensure we have at least 10 rows
     while (newEntries.length < 10) {
-      newEntries.push({
-        id: `entry-${Date.now()}-${newEntries.length}`,
-        voucherId: '',
-        date: state.voucherDate,
-        summary: '',
-        subjectCode: '',
-        subjectName: '',
-        deptCode: '',
-        projectCode: '',
-        debit: 0,
-        credit: 0,
-        auxiliary: {}
-      });
+      newEntries.push(createDefaultEntry(newId, newEntries.length));
     }
+
+    // Calculate totals
+    const totalDebit = newEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredit = newEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
+
+    // Create a new voucher with the entries
+    const newVoucher: Voucher = {
+      id: newId,
+      voucherNo: generateVoucherNo(state.voucherDate),
+      date: state.voucherDate,
+      summary: '',
+      entries: newEntries,
+      status: 'draft',
+      voucherType: 'general',
+      createdBy: 'user',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // Save to database
+    await databaseService.saveVoucher(newVoucher);
 
     set({
       currentEntries: newEntries,
-      voucherNo: generateVoucherNo(state.voucherDate),
-      currentVoucher: null,
-      totalDebit: newEntries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0),
-      totalCredit: newEntries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0),
-      isBalanced: false
+      voucherNo: newVoucher.voucherNo,
+      currentVoucher: newVoucher,
+      totalDebit,
+      totalCredit,
+      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
+      vouchers: [...state.vouchers, newVoucher]
     });
   }
 }));
