@@ -56,6 +56,8 @@ interface VoucherEntry {
     customer?: string;
     supplier?: string;
   };
+  docNo?: string;
+  recRefNo?: string;
 }
 
 // 从@/types导入统一的Partner类型
@@ -225,6 +227,7 @@ export function VoucherEntryGrid() {
       serial: true,
       summary: true,
       subject: true,
+      docNo: true,
       debit: true,
       credit: true,
       deptCode: true,
@@ -261,13 +264,13 @@ export function VoucherEntryGrid() {
         }
       }
       return [
-        'serial', 'summary', 'subject',
+        'serial', 'summary', 'subject', 'docNo',
         'debit', 'credit', 'deptCode', 'projectCode',
         'customerSupplier', 'operation'
       ];
     }
     return [
-      'serial', 'summary', 'subject',
+      'serial', 'summary', 'subject', 'docNo',
       'debit', 'credit', 'deptCode', 'projectCode',
       'customerSupplier', 'operation'
     ];
@@ -278,6 +281,7 @@ export function VoucherEntryGrid() {
     { id: 'serial', label: '序列号' },
     { id: 'summary', label: '摘要' },
     { id: 'subject', label: '会计科目' },
+    { id: 'docNo', label: '业务单据号' },
     { id: 'debit', label: '借方' },
     { id: 'credit', label: '贷方' },
     { id: 'deptCode', label: '部门' },
@@ -315,6 +319,7 @@ export function VoucherEntryGrid() {
     // 计算摘要列的连续可见情况
     if (columnVisibility.summary) summarySpan++;
     if (columnVisibility.subject) summarySpan++;
+    if (columnVisibility.docNo) summarySpan++;
 
     // 计算借贷列之间有多少个可见字段
     if (columnVisibility.debit) totalFieldsSpan++;
@@ -460,7 +465,7 @@ export function VoucherEntryGrid() {
     }
   };
 
-  // 处理 Tab 键 - 自动跳到下一个单元格，最后一行按 Tab 或 Enter 自动新增行
+  // 处理键盘事件 - 支持方向键导航、Tab 和 Enter 自动新增行
   const handleKeyDown = (
     entryId: string,
     field: string,
@@ -468,11 +473,74 @@ export function VoucherEntryGrid() {
     e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const isLastRow = index === entries.length - 1;
-    const fields = ['summary', 'subject', 'debit', 'credit', 'deptCode', 'projectCode', 'customerSupplier'];
+    const fields = ['summary', 'subject', 'docNo', 'debit', 'credit', 'deptCode', 'projectCode', 'customerSupplier'];
     const currentIndex = fields.indexOf(field);
     const isLastField = currentIndex === fields.length - 1;
     const isSummaryField = field === 'summary';
+    const entryIndex = entries.findIndex(e => e.id === entryId);
 
+    // 方向键导航
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (currentIndex < fields.length - 1) {
+        const nextField = fields[currentIndex + 1];
+        const nextInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${nextField}"]`) as HTMLElement;
+        if (nextInput) {
+          nextInput.focus();
+          if ('select' in nextInput && typeof (nextInput as any).select === 'function') {
+            (nextInput as any).select();
+          }
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (currentIndex > 0) {
+        const prevField = fields[currentIndex - 1];
+        const prevInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${prevField}"]`) as HTMLElement;
+        if (prevInput) {
+          prevInput.focus();
+          if ('select' in prevInput && typeof (prevInput as any).select === 'function') {
+            (prevInput as any).select();
+          }
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (entryIndex < entries.length - 1) {
+        const nextEntry = entries[entryIndex + 1];
+        const nextInput = document.querySelector(`[data-entry-id="${nextEntry.id}"][data-field="${field}"]`) as HTMLElement;
+        if (nextInput) {
+          nextInput.focus();
+          if ('select' in nextInput && typeof (nextInput as any).select === 'function') {
+            (nextInput as any).select();
+          }
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (entryIndex > 0) {
+        const prevEntry = entries[entryIndex - 1];
+        const prevInput = document.querySelector(`[data-entry-id="${prevEntry.id}"][data-field="${field}"]`) as HTMLElement;
+        if (prevInput) {
+          prevInput.focus();
+          if ('select' in prevInput && typeof (prevInput as any).select === 'function') {
+            (prevInput as any).select();
+          }
+        }
+      }
+      return;
+    }
+
+    // Tab 键导航
     if (e.key === 'Tab') {
       e.preventDefault();
 
@@ -866,8 +934,8 @@ export function VoucherEntryGrid() {
                         const resetVisibility = {
                           serial: true,
                           summary: true,
-                          subjectCode: true,
-                          subjectName: true,
+                          subject: true,
+                          docNo: true,
                           debit: true,
                           credit: true,
                           deptCode: true,
@@ -877,14 +945,14 @@ export function VoucherEntryGrid() {
                         };
                         setColumnVisibility(resetVisibility);
                         setColumnOrder([
-                          'serial', 'summary', 'subjectCode', 'subjectName',
+                          'serial', 'summary', 'subject', 'docNo',
                           'debit', 'credit', 'deptCode', 'projectCode',
                           'customerSupplier', 'operation'
                         ]);
                         if (typeof window !== 'undefined') {
                           localStorage.setItem('voucher-column-settings', JSON.stringify(resetVisibility));
                           localStorage.setItem('voucher-column-order', JSON.stringify([
-                            'serial', 'summary', 'subjectCode', 'subjectName',
+                            'serial', 'summary', 'subject', 'docNo',
                             'debit', 'credit', 'deptCode', 'projectCode',
                             'customerSupplier', 'operation'
                           ]));
@@ -1043,6 +1111,24 @@ export function VoucherEntryGrid() {
                                 onKeyDown={(e) => handleKeyDown(entry.id, 'subject', index, e)}
                               />
                             </div>
+                          </td>
+                        );
+                      case 'docNo':
+                        return (
+                          <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
+                            <Input
+                              variant="excel"
+                              data-field="docNo"
+                              data-entry-id={entry.id}
+                              value={entry.docNo || ''}
+                              onChange={(e) => updateEntry(entry.id, 'docNo', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(entry.id, 'docNo', index, e)}
+                              onFocus={() => handleFocus(entry.id, 'docNo')}
+                              onBlur={handleBlur}
+                              placeholder="单据号"
+                              className={isCellFocused ? 'border-2 border-blue-500 z-10 relative' : ''}
+                              style={{ height: ROW_HEIGHT, borderRadius: 0 }}
+                            />
                           </td>
                         );
                       case 'debit':
