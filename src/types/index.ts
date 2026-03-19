@@ -291,6 +291,41 @@ export interface UserPreference {
   createdAt: string;
 }
 
+// 核销关系表
+export interface RecRelation {
+  id: string;
+  debitEntryId: string;        // 借方分录ID
+  creditEntryId: string;       // 贷方分录ID
+  amount: number;              // 核销金额
+  recRefNo: string;            // 核销单号
+  recDate: string;             // 核销日期
+  createdBy: string;           // 创建人
+  createdAt: string;           // 创建时间
+  accountSetId?: string;       // 所属账套ID
+}
+
+// 未结清单据查询参数
+export interface OutstandingQuery {
+  partnerName: string;         // 往来单位名称
+  subjectCode?: string;        // 科目代码（可选）
+  startDate?: string;          // 开始日期（可选）
+  endDate?: string;            // 结束日期（可选）
+  amountRange?: [number, number]; // 金额范围（可选）
+}
+
+// 未结清单据项
+export interface OutstandingItem {
+  entryId: string;             // 分录ID
+  voucherNo: string;           // 凭证号
+  docNo: string;               // 业务单据号
+  date: string;                // 日期
+  summary: string;             // 摘要
+  amount: number;              // 金额
+  remainingAmount: number;     // 剩余未核销金额
+  direction: 'debit' | 'credit'; // 方向
+  partnerName?: string;        // 往来单位名称
+}
+
 // 记账表
 export interface LedgerEntry {
   id: string;
