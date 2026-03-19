@@ -375,8 +375,8 @@ export function SmartSubjectSelector({
         }}
         onFocus={handleFocus}
         onKeyDown={(e) => {
-          // 如果是 Tab 键，直接调用外部的 onKeyDown 进行导航
-          if (e.key === 'Tab') {
+          // 对于导航键（方向键和 Tab），直接调用外部的 onKeyDown 进行导航
+          if (e.key === 'Tab' || e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             onKeyDown?.(e);
             return;
           }
