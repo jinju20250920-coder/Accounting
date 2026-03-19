@@ -409,8 +409,9 @@ class DatabaseService {
       commonSummaries: await this.getAllCommonSummaries(),
       preferences: await this.getPreferencesByUser('current-user'),
       auditLogs: await this.getAuditLogs(1000),
+      recRelations: await this.getAllFromIndexSafe('recRelations', 'by-accountSet', this.accountSetId),
       exportDate: new Date().toISOString(),
-      version: '2.1'
+      version: '3.0'
     };
   }
 
@@ -426,7 +427,8 @@ class DatabaseService {
       'voucherTemplates',
       'commonSummaries',
       'userPreferences',
-      'auditLogs'
+      'auditLogs',
+      'recRelations'
     ], 'readwrite');
 
     // 导入凭证
@@ -547,6 +549,17 @@ class DatabaseService {
       }
     }
 
+    // 导入核销关系
+    if (data.recRelations) {
+      for (const relation of data.recRelations) {
+        const relationWithAccountSet = {
+          ...relation,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('recRelations').put(relationWithAccountSet);
+      }
+    }
+
     await tx.done;
   }
 
@@ -587,6 +600,10 @@ class DatabaseService {
       if (store.commonSummaries) {
         await this.saveCommonSummaries(store.commonSummaries);
       }
+
+      if (store.recRelations) {
+        await this.saveRecRelations(store.recRelations);
+      }
     }
 
     console.log('All data synchronized to IndexedDB');
@@ -616,6 +633,109 @@ class DatabaseService {
     return data;
   }
 
+  // ========== 核销关系操作 ==========
+
+  async saveRecRelations(relations: any[]): Promise<void> {
+    const tx = this.db.transaction('recRelations', 'readwrite');
+
+    for (const relation of relations) {
+      const relationWithAccountSet = {
+        ...relation,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('recRelations').put(relationWithAccountSet);
+    }
+
+    await tx.done;
+  }
+
+  async getRecRelationsByRecRefNo(recRefNo: string): Promise<any[]> {
+    return await this.getAllFromIndexSafe('recRelations', 'by-recRefNo', recRefNo);
+  }
+
+  async getRecRelationsByEntryId(entryId: string): Promise<any[]> {
+    const debitRelations = await this.getAllFromIndexSafe('recRelations', 'by-debitEntry', entryId);
+    const creditRelations = await this.getAllFromIndexSafe('recRelations', 'by-creditEntry', entryId);
+    return [...debitRelations, ...creditRelations];
+  }
+
+  async getOutstandingItems(query: any): Promise<any[]> {
+    const allEntries = await this.getAllFromIndexSafe('entries', 'by-accountSet', this.accountSetId);
+
+    // 过滤往来单位分录
+    let partnerEntries = allEntries.filter(entry =>
+      entry.customerName === query.partnerName || entry.supplierName === query.partnerName
+    );
+
+    // 科目代码过滤
+    if (query.subjectCode) {
+      partnerEntries = partnerEntries.filter(entry =>
+        entry.subjectCode === query.subjectCode
+      );
+    }
+
+    // 日期范围过滤
+    if (query.startDate && query.endDate) {
+      partnerEntries = partnerEntries.filter(entry =>
+        entry.date >= query.startDate && entry.date <= query.endDate
+      );
+    }
+
+    const outstandingItems: any[] = [];
+
+    for (const entry of partnerEntries) {
+      const relations = await this.getRecRelationsByEntryId(entry.id);
+      const totalRecAmount = relations.reduce((sum: number, rel: any) => {
+        return sum + rel.amount;
+      }, 0);
+
+      const entryAmount = entry.debit > 0 ? entry.debit : entry.credit;
+      const remainingAmount = entryAmount - totalRecAmount;
+
+      if (remainingAmount > 0) {
+        if (query.amountRange) {
+          if (remainingAmount < query.amountRange[0] || remainingAmount > query.amountRange[1]) {
+            continue;
+          }
+        }
+
+        outstandingItems.push({
+          entryId: entry.id,
+          voucherNo: entry.voucherNo,
+          docNo: entry.docNo || '',
+          date: entry.date,
+          summary: entry.summary,
+          amount: entryAmount,
+          remainingAmount,
+          direction: entry.debit > 0 ? 'debit' : 'credit',
+          partnerName: entry.customerName || entry.supplierName
+        });
+      }
+    }
+
+    return outstandingItems;
+  }
+
+  async calculatePartnerBalance(partnerName: string): Promise<number> {
+    const outstandingItems = await this.getOutstandingItems({
+      partnerName,
+      subjectCode: '',
+      startDate: '',
+      endDate: '',
+      amountRange: [0, Infinity]
+    });
+
+    const debitSum = outstandingItems
+      .filter(item => item.direction === 'debit')
+      .reduce((sum: number, item: any) => sum + item.remainingAmount, 0);
+
+    const creditSum = outstandingItems
+      .filter(item => item.direction === 'credit')
+      .reduce((sum: number, item: any) => sum + item.remainingAmount, 0);
+
+    return debitSum - creditSum;
+  }
+
   // ========== 数据完整性检查 ==========
 
   async checkDataIntegrity() {
@@ -631,6 +751,7 @@ class DatabaseService {
     counts.commonSummaries = (await this.db.getAllFromIndex('commonSummaries', 'by-accountSet', this.accountSetId)).length;
     counts.userPreferences = (await this.db.getAllFromIndex('userPreferences', 'by-accountSet', this.accountSetId)).length;
     counts.auditLogs = (await this.db.getAllFromIndex('auditLogs', 'by-accountSet', this.accountSetId)).length;
+    counts.recRelations = (await this.db.getAllFromIndex('recRelations', 'by-accountSet', this.accountSetId)).length;
 
     console.log('Data integrity check:', counts);
     return counts;
@@ -654,7 +775,7 @@ class DatabaseService {
     }
 
     // 清空其他表
-    const clearSingleStore = async (storeName: 'subjects' | 'departments' | 'projects' | 'currencies' | 'partners' | 'voucherTemplates' | 'commonSummaries' | 'userPreferences' | 'auditLogs') => {
+    const clearSingleStore = async (storeName: 'subjects' | 'departments' | 'projects' | 'currencies' | 'partners' | 'voucherTemplates' | 'commonSummaries' | 'userPreferences' | 'auditLogs' | 'recRelations') => {
       const allRecords = await this.db.getAllFromIndex(storeName, 'by-accountSet', this.accountSetId);
       const tx = this.db.transaction(storeName, 'readwrite');
       for (const record of allRecords) {
@@ -672,6 +793,7 @@ class DatabaseService {
     await clearSingleStore('commonSummaries');
     await clearSingleStore('userPreferences');
     await clearSingleStore('auditLogs');
+    await clearSingleStore('recRelations');
   }
 }
 
