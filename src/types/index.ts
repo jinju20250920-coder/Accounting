@@ -77,6 +77,8 @@ export interface VoucherEntry {
     supplier?: string;
   };
   accountSetId?: string; // 新增字段：所属账套ID
+  docNo?: string; // 业务单据号（发票号、银行流水号等）
+  recRefNo?: string; // 核销单号（为后续核销系统预留）
 }
 
 // 科目余额
@@ -312,6 +314,8 @@ export interface LedgerEntry {
   writeOffFlag: boolean;
   correction: boolean;
   accountSetId?: string; // 新增字段：所属账套ID
+  docNo?: string; // 业务单据号（发票号、银行流水号等）
+  recRefNo?: string; // 核销单号（为后续核销系统预留）
 }
 
 // 初始化配置
