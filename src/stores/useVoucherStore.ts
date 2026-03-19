@@ -195,9 +195,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     set({ isLoading: true });
     try {
       const vouchers = await databaseService.getAllVouchers();
-      // Filter to only show draft vouchers
-      const draftVouchers = vouchers.filter(v => v.status === 'draft');
-      set({ vouchers: draftVouchers });
+      // Show all vouchers - filtering is done in individual components
+      set({ vouchers: vouchers });
     } catch (error) {
       console.error('Failed to initialize voucher store:', error);
     } finally {
