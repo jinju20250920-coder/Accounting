@@ -215,6 +215,10 @@ export function VoucherEntryGrid() {
             if (parsed.subjectCode || parsed.subjectName) {
               parsed.subject = true;
             }
+            // 添加新列默认可见性
+            if (parsed.recRefNo === undefined) {
+              parsed.recRefNo = true;
+            }
             return parsed;
           }
         } catch (error) {
@@ -228,6 +232,7 @@ export function VoucherEntryGrid() {
       summary: true,
       subject: true,
       docNo: true,
+      recRefNo: true,
       debit: true,
       credit: true,
       deptCode: true,
@@ -256,6 +261,24 @@ export function VoucherEntryGrid() {
                 newOrder.push(col);
               }
             }
+            // 添加新列到合适的位置
+            if (!newOrder.includes('recRefNo')) {
+              const docNoIndex = newOrder.indexOf('docNo');
+              if (docNoIndex !== -1) {
+                newOrder.splice(docNoIndex + 1, 0, 'recRefNo');
+              }
+            }
+            return newOrder;
+          }
+          // 添加新列到已有设置
+          if (!order.includes('recRefNo')) {
+            const newOrder = [...order];
+            const docNoIndex = newOrder.indexOf('docNo');
+            if (docNoIndex !== -1) {
+              newOrder.splice(docNoIndex + 1, 0, 'recRefNo');
+            } else {
+              newOrder.push('recRefNo');
+            }
             return newOrder;
           }
           return order;
@@ -264,13 +287,13 @@ export function VoucherEntryGrid() {
         }
       }
       return [
-        'serial', 'summary', 'subject', 'docNo',
+        'serial', 'summary', 'subject', 'docNo', 'recRefNo',
         'debit', 'credit', 'deptCode', 'projectCode',
         'customerSupplier', 'operation'
       ];
     }
     return [
-      'serial', 'summary', 'subject', 'docNo',
+      'serial', 'summary', 'subject', 'docNo', 'recRefNo',
       'debit', 'credit', 'deptCode', 'projectCode',
       'customerSupplier', 'operation'
     ];
@@ -282,6 +305,7 @@ export function VoucherEntryGrid() {
     { id: 'summary', label: '摘要' },
     { id: 'subject', label: '会计科目' },
     { id: 'docNo', label: '业务单据号' },
+    { id: 'recRefNo', label: '核销单号' },
     { id: 'debit', label: '借方' },
     { id: 'credit', label: '贷方' },
     { id: 'deptCode', label: '部门' },
@@ -473,7 +497,7 @@ export function VoucherEntryGrid() {
     e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const isLastRow = index === entries.length - 1;
-    const fields = ['summary', 'subject', 'docNo', 'debit', 'credit', 'deptCode', 'projectCode', 'customerSupplier'];
+    const fields = ['summary', 'subject', 'docNo', 'recRefNo', 'debit', 'credit', 'deptCode', 'projectCode', 'customerSupplier'];
     const currentIndex = fields.indexOf(field);
     const isLastField = currentIndex === fields.length - 1;
     const isSummaryField = field === 'summary';
@@ -731,8 +755,11 @@ export function VoucherEntryGrid() {
     const hasVisibleColumns = Object.values(columnVisibility).some(visible => visible);
     if (!hasVisibleColumns) {
       const defaultVisibility = {
+        serial: true,
         summary: true,
         subject: true,
+        docNo: true,
+        recRefNo: true,
         debit: true,
         credit: true,
         deptCode: true,
@@ -936,6 +963,7 @@ export function VoucherEntryGrid() {
                           summary: true,
                           subject: true,
                           docNo: true,
+                          recRefNo: true,
                           debit: true,
                           credit: true,
                           deptCode: true,
@@ -945,14 +973,14 @@ export function VoucherEntryGrid() {
                         };
                         setColumnVisibility(resetVisibility);
                         setColumnOrder([
-                          'serial', 'summary', 'subject', 'docNo',
+                          'serial', 'summary', 'subject', 'docNo', 'recRefNo',
                           'debit', 'credit', 'deptCode', 'projectCode',
                           'customerSupplier', 'operation'
                         ]);
                         if (typeof window !== 'undefined') {
                           localStorage.setItem('voucher-column-settings', JSON.stringify(resetVisibility));
                           localStorage.setItem('voucher-column-order', JSON.stringify([
-                            'serial', 'summary', 'subject', 'docNo',
+                            'serial', 'summary', 'subject', 'docNo', 'recRefNo',
                             'debit', 'credit', 'deptCode', 'projectCode',
                             'customerSupplier', 'operation'
                           ]));
@@ -1126,6 +1154,24 @@ export function VoucherEntryGrid() {
                               onFocus={() => handleFocus(entry.id, 'docNo')}
                               onBlur={handleBlur}
                               placeholder="单据号"
+                              className={isCellFocused ? 'border-2 border-blue-500 z-10 relative' : ''}
+                              style={{ height: ROW_HEIGHT, borderRadius: 0 }}
+                            />
+                          </td>
+                        );
+                      case 'recRefNo':
+                        return (
+                          <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
+                            <Input
+                              variant="excel"
+                              data-field="recRefNo"
+                              data-entry-id={entry.id}
+                              value={entry.recRefNo || ''}
+                              onChange={(e) => updateEntry(entry.id, 'recRefNo', e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(entry.id, 'recRefNo', index, e)}
+                              onFocus={() => handleFocus(entry.id, 'recRefNo')}
+                              onBlur={handleBlur}
+                              placeholder="核销单号"
                               className={isCellFocused ? 'border-2 border-blue-500 z-10 relative' : ''}
                               style={{ height: ROW_HEIGHT, borderRadius: 0 }}
                             />
