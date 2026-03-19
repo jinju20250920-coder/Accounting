@@ -441,6 +441,12 @@ export default function SetsPage() {
                         <p className="font-medium">{vouchers.length}</p>
                       </div>
                       <div>
+                        <p className="text-muted-foreground">最后凭证号</p>
+                        <p className="font-medium font-mono">
+                          {accountSet.lastVoucherNo ? `记-${new Date().toISOString().slice(0, 4)}${new Date().toISOString().slice(5, 7)}-${String(accountSet.lastVoucherNo).padStart(3, '0')}` : '未设置'}
+                        </p>
+                      </div>
+                      <div>
                         <p className="text-muted-foreground">创建日期</p>
                         <p className="font-medium">{accountSet.createdDate}</p>
                       </div>

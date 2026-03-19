@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { Project } from '@/types';
-import { STORAGE_KEYS, DATA_VERSIONS, createAccountSetPersistConfig } from './persistence-config';
+import { databaseService } from '@/lib/database/service';
+import type { Project } from '@/lib/database/service';
+import { useAccountSetStore } from './useAccountSetStore';
 
 interface FinancialProjectStore {
   // 状态
@@ -13,12 +13,12 @@ interface FinancialProjectStore {
   selectedProjectId: string | null;
 
   // CRUD 操作
-  addProject: (project: Omit<Project, 'id'>) => void;
-  updateProject: (id: string, updates: Partial<Project>) => void;
-  deleteProject: (id: string) => void;
-  closeProject: (id: string, endDate?: string) => void;
-  reopenProject: (id: string) => void;
-  toggleProjectFrozen: (id: string) => void;
+  addProject: (project: Omit<Project, 'id'>) => Promise<void>;
+  updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
+  closeProject: (id: string, endDate?: string) => Promise<void>;
+  reopenProject: (id: string) => Promise<void>;
+  toggleProjectFrozen: (id: string) => Promise<void>;
 
   // 查询操作
   getProjectById: (id: string) => Project | undefined;
@@ -38,8 +38,9 @@ interface FinancialProjectStore {
   };
 
   // 批量操作
-  importProjects: (projects: Project[]) => void;
+  importProjects: (projects: Project[]) => Promise<void>;
   exportProjects: () => string;
+  initializeProjects: () => Promise<void>;
 
   // 数据管理
   setSearchQuery: (query: string) => void;
@@ -68,16 +69,8 @@ const validateProjectCode = (code: string, existingCodes: string[]): { isValid: 
   return { isValid: true };
 };
 
-// 计算项目状态
-const calculateProjectStatus = (project: Project): 'active' | 'closed' | 'expired' => {
-  if (project.endDate && new Date(project.endDate) < new Date()) {
-    return 'expired';
-  }
-  return project.endDate ? 'closed' : 'active';
-};
-
 // 默认项目数据
-const DEFAULT_PROJECTS: Omit<Project, 'id'>[] = [
+const DEFAULT_PROJECTS: Omit<Project, 'id' | 'accountSetId'>[] = [
   {
     code: 'PRJ001',
     name: '客户管理系统',
@@ -120,215 +113,332 @@ const DEFAULT_PROJECTS: Omit<Project, 'id'>[] = [
   }
 ];
 
-export const useFinancialProjectStore = create<FinancialProjectStore>()(
-  persist(
-    (set, get) => ({
-      // 初始状态
-      projects: [...DEFAULT_PROJECTS.map(p => ({ ...p, id: generateId() }))],
-      loading: false,
-      error: null,
-      searchQuery: '',
-      filterType: 'all',
-      selectedProjectId: null,
+export const useFinancialProjectStore = create<FinancialProjectStore>((set, get) => ({
+  // 初始状态
+  projects: [],
+  loading: false,
+  error: null,
+  searchQuery: '',
+  filterType: 'all',
+  selectedProjectId: null,
 
-      // 添加项目
-      addProject: (project) => {
-        const state = get();
-        const existingCodes = state.projects.map(p => p.code);
-        const validation = validateProjectCode(project.code, existingCodes);
+  // 添加项目
+  addProject: async (project) => {
+    try {
+      const state = get();
+      const existingCodes = state.projects.map(p => p.code);
+      const validation = validateProjectCode(project.code, existingCodes);
 
-        if (!validation.isValid) {
-          set({ error: validation.error || '添加失败' });
-          return;
-        }
-
-        // 如果没有提供代码，自动生成
-        const code = project.code || generateProjectCode(state.projects);
-
-        const newProject: Project = {
-          ...project,
-          id: generateId(),
-          code
-        };
-
-        set((state) => ({
-          projects: [...state.projects, newProject],
-          error: null
-        }));
-      },
-
-      // 更新项目
-      updateProject: (id, updates) => {
-        set((state) => ({
-          projects: state.projects.map(p =>
-            p.id === id ? { ...p, ...updates } : p
-          ),
-          error: null
-        }));
-      },
-
-      // 删除项目
-      deleteProject: (id) => {
-        set((state) => ({
-          projects: state.projects.filter(p => p.id !== id),
-          selectedProjectId: state.selectedProjectId === id ? null : state.selectedProjectId,
-          error: null
-        }));
-      },
-
-      // 关闭项目
-      closeProject: (id, endDate) => {
-        set((state) => ({
-          projects: state.projects.map(p =>
-            p.id === id ? { ...p, endDate } : p
-          ),
-          error: null
-        }));
-      },
-
-      // 重新打开项目
-      reopenProject: (id) => {
-        set((state) => ({
-          projects: state.projects.map(p =>
-            p.id === id ? { ...p, endDate: null } : p
-          ),
-          error: null
-        }));
-      },
-
-      // 切换项目冻结状态
-      toggleProjectFrozen: (id) => {
-        const state = get();
-        const project = state.projects.find(p => p.id === id);
-
-        if (!project) {
-          set({ error: '项目不存在' });
-          return;
-        }
-
-        set((state) => ({
-          projects: state.projects.map(p =>
-            p.id === id ? { ...p, frozen: !p.frozen } : p
-          ),
-          error: null
-        }));
-      },
-
-      // 根据ID获取项目
-      getProjectById: (id) => {
-        return get().projects.find(p => p.id === id);
-      },
-
-      // 根据代码获取项目
-      getProjectByCode: (code) => {
-        return get().projects.find(p => p.code === code);
-      },
-
-      // 搜索项目
-      searchProjects: (query) => {
-        if (!query.trim()) return get().projects;
-
-        const lowerQuery = query.toLowerCase();
-        return get().projects.filter(p =>
-          p.code.toLowerCase().includes(lowerQuery) ||
-          p.name.toLowerCase().includes(lowerQuery)
-        );
-      },
-
-      // 按类型获取项目
-      getProjectsByType: (type) => {
-        return get().projects.filter(p => p.type === type);
-      },
-
-      // 获取活跃项目
-      getActiveProjects: () => {
-        return get().projects.filter(p => !p.endDate);
-      },
-
-      // 获取已关闭项目
-      getClosedProjects: () => {
-        return get().projects.filter(p => !!p.endDate);
-      },
-
-      // 获取项目统计
-      getProjectStatistics: () => {
-        const state = get();
-        const projects = state.projects;
-
-        const total = projects.length;
-        const active = projects.filter(p => !p.endDate).length;
-        const closed = projects.filter(p => !!p.endDate).length;
-        const expired = projects.filter(p => p.endDate && new Date(p.endDate) < new Date()).length;
-
-        const byType: Record<Project['type'], number> = {
-          income: projects.filter(p => p.type === 'income').length,
-          cost: projects.filter(p => p.type === 'cost').length,
-          other: projects.filter(p => p.type === 'other').length
-        };
-
-        return { total, active, closed, expired, byType };
-      },
-
-      // 批量导入项目
-      importProjects: (projects) => {
-        const state = get();
-
-        // 验证代码唯一性
-        const existingCodes = state.projects.map(p => p.code);
-        const invalidProjects: string[] = [];
-        const validProjects = projects.filter(project => {
-          const code = project.code || generateProjectCode([...state.projects, ...projects]);
-          const validation = validateProjectCode(code, existingCodes);
-          if (!validation.isValid) {
-            invalidProjects.push(`${project.code || code}: ${validation.error}`);
-            return false;
-          }
-          existingCodes.push(code);
-          return true;
-        });
-
-        if (invalidProjects.length > 0) {
-          set({ error: `导入失败：${invalidProjects.join('; ')}` });
-          return;
-        }
-
-        const projectsWithIds = validProjects.map(p => ({
-          ...p,
-          id: generateId()
-        }));
-
-        set((state) => ({
-          projects: [...state.projects, ...projectsWithIds],
-          error: null
-        }));
-      },
-
-      // 导出项目
-      exportProjects: () => {
-        const state = get();
-        return JSON.stringify(state.projects, null, 2);
-      },
-
-      // 设置搜索查询
-      setSearchQuery: (query) => {
-        set({ searchQuery: query });
-      },
-
-      // 设置类型筛选
-      setFilterType: (type) => {
-        set({ filterType: type });
-      },
-
-      // 设置选中项目
-      setSelectedProjectId: (id) => {
-        set({ selectedProjectId: id });
-      },
-
-      // 清除错误
-      clearError: () => {
-        set({ error: null });
+      if (!validation.isValid) {
+        set({ error: validation.error || '添加失败' });
+        return;
       }
-    }),
-    createAccountSetPersistConfig(STORAGE_KEYS.PROJECTS)
-  )
-);
+
+      // 如果没有提供代码，自动生成
+      const code = project.code || generateProjectCode(state.projects);
+
+      // 获取当前账套ID
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      const newProject: Project = {
+        ...project,
+        id: generateId(),
+        code,
+        accountSetId: currentAccountSet?.id
+      };
+
+      await databaseService.saveProjects([...state.projects, newProject]);
+      set((state) => ({
+        projects: [...state.projects, newProject],
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to add project:', error);
+      set({ error: '添加项目失败' });
+    }
+  },
+
+  // 更新项目
+  updateProject: async (id, updates) => {
+    try {
+      const state = get();
+      const project = state.projects.find(p => p.id === id);
+      if (!project) {
+        set({ error: '项目不存在' });
+        return;
+      }
+
+      const updatedProject = { ...project, ...updates };
+      await databaseService.saveProjects([
+        ...state.projects.filter(p => p.id !== id),
+        updatedProject
+      ]);
+
+      set((state) => ({
+        projects: state.projects.map(p =>
+          p.id === id ? updatedProject : p
+        ),
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to update project:', error);
+      set({ error: '更新项目失败' });
+    }
+  },
+
+  // 删除项目
+  deleteProject: async (id) => {
+    try {
+      const state = get();
+      await databaseService.saveProjects(state.projects.filter(p => p.id !== id));
+      set((state) => ({
+        projects: state.projects.filter(p => p.id !== id),
+        selectedProjectId: state.selectedProjectId === id ? null : state.selectedProjectId,
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to delete project:', error);
+      set({ error: '删除项目失败' });
+    }
+  },
+
+  // 关闭项目
+  closeProject: async (id, endDate) => {
+    try {
+      const state = get();
+      const project = state.projects.find(p => p.id === id);
+      if (!project) {
+        set({ error: '项目不存在' });
+        return;
+      }
+
+      const updatedProject = { ...project, endDate };
+      await databaseService.saveProjects([
+        ...state.projects.filter(p => p.id !== id),
+        updatedProject
+      ]);
+
+      set((state) => ({
+        projects: state.projects.map(p =>
+          p.id === id ? updatedProject : p
+        ),
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to close project:', error);
+      set({ error: '关闭项目失败' });
+    }
+  },
+
+  // 重新打开项目
+  reopenProject: async (id) => {
+    try {
+      const state = get();
+      const project = state.projects.find(p => p.id === id);
+      if (!project) {
+        set({ error: '项目不存在' });
+        return;
+      }
+
+      const updatedProject = { ...project, endDate: null };
+      await databaseService.saveProjects([
+        ...state.projects.filter(p => p.id !== id),
+        updatedProject
+      ]);
+
+      set((state) => ({
+        projects: state.projects.map(p =>
+          p.id === id ? updatedProject : p
+        ),
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to reopen project:', error);
+      set({ error: '重新打开项目失败' });
+    }
+  },
+
+  // 切换项目冻结状态
+  toggleProjectFrozen: async (id) => {
+    try {
+      const state = get();
+      const project = state.projects.find(p => p.id === id);
+
+      if (!project) {
+        set({ error: '项目不存在' });
+        return;
+      }
+
+      const updatedProject = { ...project, frozen: !project.frozen };
+      await databaseService.saveProjects([
+        ...state.projects.filter(p => p.id !== id),
+        updatedProject
+      ]);
+
+      set((state) => ({
+        projects: state.projects.map(p =>
+          p.id === id ? updatedProject : p
+        ),
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to toggle project frozen:', error);
+      set({ error: '操作失败' });
+    }
+  },
+
+  // 根据ID获取项目
+  getProjectById: (id) => {
+    return get().projects.find(p => p.id === id);
+  },
+
+  // 根据代码获取项目
+  getProjectByCode: (code) => {
+    return get().projects.find(p => p.code === code);
+  },
+
+  // 搜索项目
+  searchProjects: (query) => {
+    if (!query.trim()) return get().projects;
+
+    const lowerQuery = query.toLowerCase();
+    return get().projects.filter(p =>
+      p.code.toLowerCase().includes(lowerQuery) ||
+      p.name.toLowerCase().includes(lowerQuery)
+    );
+  },
+
+  // 按类型获取项目
+  getProjectsByType: (type) => {
+    return get().projects.filter(p => p.type === type);
+  },
+
+  // 获取活跃项目
+  getActiveProjects: () => {
+    return get().projects.filter(p => !p.endDate);
+  },
+
+  // 获取已关闭项目
+  getClosedProjects: () => {
+    return get().projects.filter(p => !!p.endDate);
+  },
+
+  // 获取项目统计
+  getProjectStatistics: () => {
+    const state = get();
+    const projects = state.projects;
+
+    const total = projects.length;
+    const active = projects.filter(p => !p.endDate).length;
+    const closed = projects.filter(p => !!p.endDate).length;
+    const expired = projects.filter(p => p.endDate && new Date(p.endDate) < new Date()).length;
+
+    const byType: Record<Project['type'], number> = {
+      income: projects.filter(p => p.type === 'income').length,
+      cost: projects.filter(p => p.type === 'cost').length,
+      other: projects.filter(p => p.type === 'other').length
+    };
+
+    return { total, active, closed, expired, byType };
+  },
+
+  // 批量导入项目
+  importProjects: async (projects) => {
+    try {
+      const state = get();
+
+      // 验证代码唯一性
+      const existingCodes = state.projects.map(p => p.code);
+      const invalidProjects: string[] = [];
+      const validProjects = projects.filter(project => {
+        const code = project.code || generateProjectCode([...state.projects, ...projects]);
+        const validation = validateProjectCode(code, existingCodes);
+        if (!validation.isValid) {
+          invalidProjects.push(`${project.code || code}: ${validation.error}`);
+          return false;
+        }
+        existingCodes.push(code);
+        return true;
+      });
+
+      if (invalidProjects.length > 0) {
+        set({ error: `导入失败：${invalidProjects.join('; ')}` });
+        return;
+      }
+
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      const projectsWithIds = validProjects.map(p => ({
+        ...p,
+        id: generateId(),
+        accountSetId: currentAccountSet?.id
+      }));
+
+      await databaseService.saveProjects([...state.projects, ...projectsWithIds]);
+      set((state) => ({
+        projects: [...state.projects, ...projectsWithIds],
+        error: null
+      }));
+    } catch (error) {
+      console.error('Failed to import projects:', error);
+      set({ error: '导入项目失败' });
+    }
+  },
+
+  // 导出项目
+  exportProjects: () => {
+    const state = get();
+    return JSON.stringify(state.projects, null, 2);
+  },
+
+  // 初始化项目数据
+  initializeProjects: async () => {
+    try {
+      // 从数据库加载项目数据
+      const projects = await databaseService.getAllProjects();
+
+      if (projects.length > 0) {
+        set({ projects });
+        return;
+      }
+
+      // 创建默认项目
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      const projectsWithIds = DEFAULT_PROJECTS.map(p => ({
+        ...p,
+        id: generateId(),
+        accountSetId: currentAccountSet?.id
+      }));
+
+      await databaseService.saveProjects(projectsWithIds);
+      set({ projects: projectsWithIds });
+    } catch (error) {
+      console.error('Failed to initialize projects:', error);
+      set({ error: '初始化项目数据失败' });
+    }
+  },
+
+  // 设置搜索查询
+  setSearchQuery: (query) => {
+    set({ searchQuery: query });
+  },
+
+  // 设置类型筛选
+  setFilterType: (type) => {
+    set({ filterType: type });
+  },
+
+  // 设置选中项目
+  setSelectedProjectId: (id) => {
+    set({ selectedProjectId: id });
+  },
+
+  // 清除错误
+  clearError: () => {
+    set({ error: null });
+  }
+}));

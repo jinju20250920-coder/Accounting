@@ -34,6 +34,8 @@ export interface AccountSet {
   isInitialized: boolean;
   trialEndDate?: string; // 试用结束日期
   licensedCount?: number; // 授权的凭证数量（可选）
+  lastVoucherNo?: number; // 最后一个凭证号（序号部分）
+  lastVoucherFullNo?: string; // 完整的最后一个凭证号（含前缀）
 }
 
 // 授权信息类型
@@ -209,7 +211,9 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           status: 'active',
           createdDate: '2024-01-01',
           lastModifiedDate: '2026-03-10',
-          isInitialized: true
+          isInitialized: true,
+          lastVoucherNo: 0,  // 最后一个凭证号（序号部分）
+          lastVoucherFullNo: '记-202603-000'  // 完整的最后一个凭证号
         }
       ],
       currentAccountSetId: 'set_001',
@@ -339,12 +343,15 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
 
         // 系统自动生成ID
         const now = new Date().toISOString().split('T')[0];
+        const yearMonth = now.substring(0, 7).replace('-', '');
         const newAccountSet: AccountSet = {
           ...accountSet,
           id: `set_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // 系统自动生成
           createdDate: now,
           lastModifiedDate: now,
-          isInitialized: true
+          isInitialized: true,
+          lastVoucherNo: 0, // 最后一个凭证号（序号部分）
+          lastVoucherFullNo: `记-${yearMonth}-000` // 完整的最后一个凭证号
         };
 
         // 获取当前套餐的功能配置
@@ -647,6 +654,7 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
         const now = new Date().toISOString().split('T')[0];
         const trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 14天试用期
 
+        const yearMonth = now.substring(0, 7).replace('-', '');
         const newAccountSet: AccountSet = {
           ...accountSetData,
           id: `set_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -654,7 +662,9 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastModifiedDate: now,
           isInitialized: true,
           status: 'trial',
-          trialEndDate
+          trialEndDate,
+          lastVoucherNo: 0, // 最后一个凭证号（序号部分）
+          lastVoucherFullNo: `记-${yearMonth}-000` // 完整的最后一个凭证号
         };
 
         const newLicense: AccountLicense = {

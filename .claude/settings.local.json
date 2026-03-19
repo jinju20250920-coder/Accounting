@@ -108,7 +108,21 @@
       "Bash(netstat:*)",
       "Bash(powershell -Command \"Stop-Process -Id 135444 -Force\")",
       "Bash(xargs -r taskkill //F //PID)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(findstr \"node\")",
+      "Bash(findstr node:*)",
+      "Bash(start:*)",
+      "Bash(dir:*)",
+      "Bash(findstr :300)",
+      "Bash(/plugin)",
+      "Bash(/reload-plugins)",
+      "Bash(findstr :3000)",
+      "Bash(npx playwright:*)",
+      "Bash(findstr /i \"node\")",
+      "Bash(if exist:*)",
+      "Bash(npm start:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm test:*)"
     ]
   }
 }

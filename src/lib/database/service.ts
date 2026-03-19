@@ -1,262 +1,131 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { databaseManager } from './manager';
+import type { IDBPDatabase } from 'idb';
+import type { FinanceDB } from './manager';
+import type {
+  Voucher as _Voucher,
+  VoucherEntry as _VoucherEntry,
+  Subject as _Subject,
+  Department as _Department,
+  Project as _Project,
+  Currency as _Currency,
+  Partner as _Partner,
+  VoucherFullTemplate as _VoucherTemplate,
+  CommonSummary as _CommonSummary,
+  UserPreference as _UserPreference
+} from '@/types';
 
-// 定义数据库结构
-interface FinanceDB extends DBSchema {
-  vouchers: {
-    key: string;
-    value: Voucher;
-    indexes: {
-      'by-date': string;
-      'by-status': string;
-      'by-created': number;
-    };
-  };
-  entries: {
-    key: string;
-    value: VoucherEntry;
-    indexes: {
-      'by-voucher': string;
-      'by-subject': string;
-    };
-  };
-  subjects: {
-    key: string;
-    value: Subject;
-    indexes: {
-      'by-code': string;
-      'by-parent': string;
-    };
-  };
-  departments: {
-    key: string;
-    value: Department;
-    indexes: {
-      'by-code': string;
-    };
-  };
-  projects: {
-    key: string;
-    value: Project;
-    indexes: {
-      'by-code': string;
-    };
-  };
-  preferences: {
-    key: string;
-    value: UserPreference;
-    indexes: {
-      'by-user': string;
-    };
-  };
-  auditLogs: {
-    key: string;
-    value: AuditLog;
-    indexes: {
-      'by-timestamp': number;
-      'by-type': string;
-    };
-  };
-  keyValues: {
-    key: string;
-    value: any;
-    indexes: {
-      'by-key': string;
-    };
-  };
-}
+// Re-export types for stores to import
+export type Voucher = _Voucher;
+export type VoucherEntry = _VoucherEntry;
+export type Subject = _Subject;
+export type Department = _Department;
+export type Project = _Project;
+export type Currency = _Currency;
+export type Partner = _Partner;
+export type VoucherTemplate = _VoucherTemplate;
+export type CommonSummary = _CommonSummary;
+export type UserPreference = _UserPreference;
 
-// 数据类型定义
-export interface Voucher {
-  id: string;
-  voucherNo: string;
-  date: string;
-  summary: string;
-  entries: VoucherEntry[];
-  status: 'draft' | 'review' | 'posted' | 'reversed';
-  voucherType: 'general' | 'payment' | 'receipt' | 'transfer' | 'closing';
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface VoucherEntry {
-  id: string;
-  voucherId: string;
-  date: string;
-  summary: string;
-  subjectCode: string;
-  subjectName: string;
-  deptCode?: string;
-  projectCode?: string;
-  debit: number;
-  credit: number;
-  auxiliary?: {
-    department?: string;
-    project?: string;
-    customer?: string;
-    supplier?: string;
-  };
-}
-
-export interface Subject {
-  id: string;
-  code: string;
-  name: string;
-  parentId: string | null;
-  level: number;
-  direction: 'debit' | 'credit';
-  enableDept: boolean;
-  enableProject: boolean;
-  enableForeign: boolean;
-  foreignCurrency?: string;
-  isCustomer: boolean; // 客户核算（原应收）
-  isSupplier: boolean; // 供应商核算（原应付）
-  isEmployee: boolean; // 雇员核算
-  enableCashFlow: boolean; // 现金流量核算
-  cashFlowItem?: string; // 现金流量项目
-  disabled: boolean;
-  block: boolean;
-}
-
-export interface Department {
-  id: string;
-  code: string;
-  name: string;
-  parentId: string | null;
-  level: number;
-  frozen: boolean;
-}
-
-export interface Project {
-  id: string;
-  code: string;
-  name: string;
-  parentId: string | null;
-  level: number;
-  type: 'income' | 'cost' | 'other';
-  frozen: boolean;
-  startDate?: string;
-  endDate?: string;
-}
-
-export interface UserPreference {
-  id: string;
-  userId: string;
-  subjectCode: string;
-  subjectName: string;
-  keyword: string;
-  summary: string;
-  createdAt: string;
-  usedCount: number;
-}
-
+// AuditLog interface (not in types/index.ts yet)
 export interface AuditLog {
   id: string;
   type: 'create' | 'update' | 'delete' | 'post' | 'reverse';
-  entityType: 'voucher' | 'entry' | 'subject' | 'department' | 'project';
+  entityType: 'voucher' | 'entry' | 'subject' | 'department' | 'project' | 'partner' | 'currency' | 'template';
   entityId: string;
   details: string;
   userId: string;
   timestamp: string;
+  accountSetId?: string;
 }
 
 class DatabaseService {
-  private db: IDBPDatabase<FinanceDB> | null = null;
-  private readonly DB_NAME = 'finance-assistant-db';
-  private readonly DB_VERSION = 1;
-
-  async init() {
-    // 检查是否在客户端环境
-    if (typeof window === 'undefined') {
-      console.log('Server-side: Skipping database initialization');
-      return;
-    }
-
-    if (this.db) return;
-
-    this.db = await openDB<FinanceDB>(this.DB_NAME, this.DB_VERSION, {
-      upgrade(db) {
-        // 创建凭证表
-        const voucherStore = db.createObjectStore('vouchers', { keyPath: 'id' });
-        voucherStore.createIndex('by-date', 'date');
-        voucherStore.createIndex('by-status', 'status');
-        voucherStore.createIndex('by-created', 'createdAt');
-
-        // 创建分录表
-        const entryStore = db.createObjectStore('entries', { keyPath: 'id' });
-        entryStore.createIndex('by-voucher', 'voucherId');
-        entryStore.createIndex('by-subject', 'subjectCode');
-
-        // 创建科目表
-        const subjectStore = db.createObjectStore('subjects', { keyPath: 'id' });
-        subjectStore.createIndex('by-code', 'code');
-        subjectStore.createIndex('by-parent', 'parentId');
-
-        // 创建部门表
-        const deptStore = db.createObjectStore('departments', { keyPath: 'id' });
-        deptStore.createIndex('by-code', 'code');
-
-        // 创建项目表
-        const projectStore = db.createObjectStore('projects', { keyPath: 'id' });
-        projectStore.createIndex('by-code', 'code');
-
-        // 创建用户偏好表
-        const prefStore = db.createObjectStore('preferences', { keyPath: 'id' });
-        prefStore.createIndex('by-user', 'userId');
-
-        // 创建审计日志表
-        const auditStore = db.createObjectStore('auditLogs', { keyPath: 'id' });
-        auditStore.createIndex('by-timestamp', 'timestamp');
-        auditStore.createIndex('by-type', 'type');
-
-        // 创建通用键值存储表
-        const keyValueStore = db.createObjectStore('keyValues', { keyPath: 'id' });
-        keyValueStore.createIndex('by-key', 'key');
-      },
-    });
+  private get db(): IDBPDatabase<FinanceDB> {
+    return databaseManager.getDatabase();
   }
 
-  // 凭证操作
-  async saveVoucher(voucher: Voucher) {
-    await this.init();
-
-    // 保存凭证
-    await this.db!.put('vouchers', voucher);
-
-    // 保存或更新分录
-    for (const entry of voucher.entries) {
-      await this.db!.put('entries', {
-        ...entry,
-        voucherId: voucher.id
-      });
+  private get accountSetId(): string {
+    const id = databaseManager.getCurrentAccountSetId();
+    if (!id) {
+      throw new Error('No account set selected');
     }
+    return id;
+  }
+
+  // 安全获取所有记录：优先使用索引，失败则回退到全表扫描
+  private async getAllFromIndexSafe(
+    storeName: any,
+    indexName: string,
+    key?: any
+  ): Promise<any[]> {
+    try {
+      if (key !== undefined) {
+        return await this.db.getAllFromIndex(storeName, indexName, key);
+      }
+      return await this.db.getAllFromIndex(storeName, indexName);
+    } catch (error) {
+      // 索引不存在时，回退到全表扫描
+      console.warn(`Index ${indexName} not found, falling back to full scan for ${storeName}`);
+      const all = await this.db.getAll(storeName);
+      if (key !== undefined) {
+        return all.filter((item: any) => item.accountSetId === key);
+      }
+      return all;
+    }
+  }
+
+  // ========== 凭证操作 ==========
+
+  async saveVoucher(voucher: Voucher): Promise<void> {
+    const tx = this.db.transaction(['vouchers', 'entries'], 'readwrite');
+
+    // 保存凭证（自动添加 accountSetId）
+    const voucherWithAccountSet = {
+      ...voucher,
+      accountSetId: this.accountSetId
+    };
+    await tx.objectStore('vouchers').put(voucherWithAccountSet);
+
+    // 保存分录
+    for (const entry of voucher.entries) {
+      const entryWithAccountSet = {
+        ...entry,
+        accountSetId: this.accountSetId,
+        voucherId: voucher.id
+      };
+      await tx.objectStore('entries').put(entryWithAccountSet);
+    }
+
+    await tx.done;
   }
 
   async getVoucher(id: string): Promise<Voucher | undefined> {
-    await this.init();
-    const voucher = await this.db!.get('vouchers', id);
+    const voucher = await this.db.get('vouchers', id);
 
-    if (!voucher) return undefined;
+    if (!voucher || voucher.accountSetId !== this.accountSetId) {
+      return undefined;
+    }
 
-    // 获取相关的分录
-    const entries = await this.db!.getAllFromIndex('entries', 'by-voucher', voucher.id);
+    // 获取关联的分录
+    const entries = await this.getAllFromIndexSafe('entries', 'by-voucher', id);
+    const filteredEntries = entries.filter(entry => entry.accountSetId === this.accountSetId);
+
     return {
       ...voucher,
-      entries
+      entries: filteredEntries
     };
   }
 
   async getAllVouchers(): Promise<Voucher[]> {
-    await this.init();
-    const vouchers = await this.db!.getAll('vouchers');
+    const allVouchers = await this.getAllFromIndexSafe('vouchers', 'by-accountSet', this.accountSetId);
 
     // 为每个凭证加载分录
     const vouchersWithEntries = await Promise.all(
-      vouchers.map(async (voucher) => {
-        const entries = await this.db!.getAllFromIndex('entries', 'by-voucher', voucher.id);
+      allVouchers.map(async (voucher) => {
+        const entries = await this.db.getAllFromIndex('entries', 'by-voucher', voucher.id);
+        const filteredEntries = entries.filter(entry => entry.accountSetId === this.accountSetId);
         return {
           ...voucher,
-          entries
+          entries: filteredEntries
         };
       })
     );
@@ -265,16 +134,16 @@ class DatabaseService {
   }
 
   async getVouchersByDateRange(startDate: string, endDate: string): Promise<Voucher[]> {
-    await this.init();
-    const vouchers = await this.db!.getAllFromIndex('vouchers', 'by-date',
-      IDBKeyRange.bound(startDate, endDate));
+    const allVouchers = await this.getAllFromIndexSafe('vouchers', 'by-accountSet', this.accountSetId);
+    const dateRangeVouchers = allVouchers.filter(v => v.date >= startDate && v.date <= endDate);
 
     const vouchersWithEntries = await Promise.all(
-      vouchers.map(async (voucher) => {
-        const entries = await this.db!.getAllFromIndex('entries', 'by-voucher', voucher.id);
+      dateRangeVouchers.map(async (voucher) => {
+        const entries = await this.db.getAllFromIndex('entries', 'by-voucher', voucher.id);
+        const filteredEntries = entries.filter(entry => entry.accountSetId === this.accountSetId);
         return {
           ...voucher,
-          entries
+          entries: filteredEntries
         };
       })
     );
@@ -283,15 +152,16 @@ class DatabaseService {
   }
 
   async getVouchersByStatus(status: 'draft' | 'review' | 'posted' | 'reversed'): Promise<Voucher[]> {
-    await this.init();
-    const vouchers = await this.db!.getAllFromIndex('vouchers', 'by-status', status);
+    const allVouchers = await this.getAllFromIndexSafe('vouchers', 'by-accountSet', this.accountSetId);
+    const statusVouchers = allVouchers.filter(v => v.status === status);
 
     const vouchersWithEntries = await Promise.all(
-      vouchers.map(async (voucher) => {
-        const entries = await this.db!.getAllFromIndex('entries', 'by-voucher', voucher.id);
+      statusVouchers.map(async (voucher) => {
+        const entries = await this.db.getAllFromIndex('entries', 'by-voucher', voucher.id);
+        const filteredEntries = entries.filter(entry => entry.accountSetId === this.accountSetId);
         return {
           ...voucher,
-          entries
+          entries: filteredEntries
         };
       })
     );
@@ -299,106 +169,244 @@ class DatabaseService {
     return vouchersWithEntries;
   }
 
-  async deleteVoucher(id: string) {
-    await this.init();
-    await this.db!.delete('vouchers', id);
-
-    // 删除相关分录
-    const entries = await this.db!.getAllFromIndex('entries', 'by-voucher', id);
-    for (const entry of entries) {
-      await this.db!.delete('entries', entry.id);
+  async deleteVoucher(id: string): Promise<void> {
+    // 首先检查凭证是否属于当前账套
+    const voucher = await this.db.get('vouchers', id);
+    if (!voucher || voucher.accountSetId !== this.accountSetId) {
+      return;
     }
+
+    const tx = this.db.transaction(['vouchers', 'entries'], 'readwrite');
+
+    // 删除凭证
+    await tx.objectStore('vouchers').delete(id);
+
+    // 删除关联的分录
+    const entries = await this.db.getAllFromIndex('entries', 'by-voucher', id);
+    const filteredEntries = entries.filter(entry => entry.accountSetId === this.accountSetId);
+    for (const entry of filteredEntries) {
+      await tx.objectStore('entries').delete(entry.id);
+    }
+
+    await tx.done;
   }
 
-  // 科目操作
-  async saveSubjects(subjects: Subject[]) {
-    await this.init();
-    const tx = this.db!.transaction('subjects', 'readwrite');
-    const store = tx.objectStore('subjects');
+  // ========== 科目操作 ==========
+
+  async saveSubjects(subjects: Subject[]): Promise<void> {
+    const tx = this.db.transaction('subjects', 'readwrite');
+
     for (const subject of subjects) {
-      await store.put(subject);
+      const subjectWithAccountSet = {
+        ...subject,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('subjects').put(subjectWithAccountSet);
     }
+
     await tx.done;
   }
 
   async getAllSubjects(): Promise<Subject[]> {
-    await this.init();
-    return await this.db!.getAll('subjects');
+    return await this.getAllFromIndexSafe('subjects', 'by-accountSet', this.accountSetId);
   }
 
   async getSubjectByCode(code: string): Promise<Subject | undefined> {
-    await this.init();
-    return await this.db!.getFromIndex('subjects', 'by-code', code);
+    const allSubjects = await this.getAllFromIndexSafe('subjects', 'by-accountSet', this.accountSetId);
+    return allSubjects.find(s => s.code === code);
   }
 
-  // 部门操作
-  async saveDepartments(departments: Department[]) {
-    await this.init();
-    const tx = this.db!.transaction('departments', 'readwrite');
-    const store = tx.objectStore('departments');
+  // ========== 部门操作 ==========
+
+  async saveDepartments(departments: Department[]): Promise<void> {
+    const tx = this.db.transaction('departments', 'readwrite');
+
     for (const dept of departments) {
-      await store.put(dept);
+      const deptWithAccountSet = {
+        ...dept,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('departments').put(deptWithAccountSet);
     }
+
     await tx.done;
   }
 
   async getAllDepartments(): Promise<Department[]> {
-    await this.init();
-    return await this.db!.getAll('departments');
+    return await this.getAllFromIndexSafe('departments', 'by-accountSet', this.accountSetId);
   }
 
-  // 项目操作
-  async saveProjects(projects: Project[]) {
-    await this.init();
-    const tx = this.db!.transaction('projects', 'readwrite');
-    const store = tx.objectStore('projects');
+  async getDepartmentByCode(code: string): Promise<Department | undefined> {
+    const allDepartments = await this.getAllFromIndexSafe('departments', 'by-accountSet', this.accountSetId);
+    return allDepartments.find(d => d.code === code);
+  }
+
+  // ========== 项目操作 ==========
+
+  async saveProjects(projects: Project[]): Promise<void> {
+    const tx = this.db.transaction('projects', 'readwrite');
+
     for (const project of projects) {
-      await store.put(project);
+      const projectWithAccountSet = {
+        ...project,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('projects').put(projectWithAccountSet);
     }
+
     await tx.done;
   }
 
   async getAllProjects(): Promise<Project[]> {
-    await this.init();
-    return await this.db!.getAll('projects');
+    return await this.getAllFromIndexSafe('projects', 'by-accountSet', this.accountSetId);
   }
 
-  // 用户偏好操作
-  async savePreference(preference: UserPreference) {
-    await this.init();
-    await this.db!.put('preferences', preference);
+  async getProjectByCode(code: string): Promise<Project | undefined> {
+    const allProjects = await this.getAllFromIndexSafe('projects', 'by-accountSet', this.accountSetId);
+    return allProjects.find(p => p.code === code);
+  }
+
+  // ========== 币别操作 ==========
+
+  async saveCurrencies(currencies: Currency[]): Promise<void> {
+    const tx = this.db.transaction('currencies', 'readwrite');
+
+    for (const currency of currencies) {
+      const currencyWithAccountSet = {
+        ...currency,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('currencies').put(currencyWithAccountSet);
+    }
+
+    await tx.done;
+  }
+
+  async getAllCurrencies(): Promise<Currency[]> {
+    return await this.getAllFromIndexSafe('currencies', 'by-accountSet', this.accountSetId);
+  }
+
+  async getCurrencyByCode(code: string): Promise<Currency | undefined> {
+    const allCurrencies = await this.getAllFromIndexSafe('currencies', 'by-accountSet', this.accountSetId);
+    return allCurrencies.find(c => c.code === code);
+  }
+
+  // ========== 往来单位操作 ==========
+
+  async savePartners(partners: Partner[]): Promise<void> {
+    const tx = this.db.transaction('partners', 'readwrite');
+
+    for (const partner of partners) {
+      const partnerWithAccountSet = {
+        ...partner,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('partners').put(partnerWithAccountSet);
+    }
+
+    await tx.done;
+  }
+
+  async getAllPartners(): Promise<Partner[]> {
+    return await this.getAllFromIndexSafe('partners', 'by-accountSet', this.accountSetId);
+  }
+
+  async getPartnerByCode(code: string): Promise<Partner | undefined> {
+    const allPartners = await this.getAllFromIndexSafe('partners', 'by-accountSet', this.accountSetId);
+    return allPartners.find(p => p.code === code);
+  }
+
+  // ========== 凭证模板操作 ==========
+
+  async saveVoucherTemplates(templates: VoucherTemplate[]): Promise<void> {
+    const tx = this.db.transaction('voucherTemplates', 'readwrite');
+
+    for (const template of templates) {
+      const templateWithAccountSet = {
+        ...template,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('voucherTemplates').put(templateWithAccountSet);
+    }
+
+    await tx.done;
+  }
+
+  async getAllVoucherTemplates(): Promise<VoucherTemplate[]> {
+    return await this.getAllFromIndexSafe('voucherTemplates', 'by-accountSet', this.accountSetId);
+  }
+
+  async getVoucherTemplateById(id: string): Promise<VoucherTemplate | undefined> {
+    const template = await this.db.get('voucherTemplates', id);
+    return template && template.accountSetId === this.accountSetId ? template : undefined;
+  }
+
+  // ========== 常用摘要操作 ==========
+
+  async saveCommonSummaries(summaries: CommonSummary[]): Promise<void> {
+    const tx = this.db.transaction('commonSummaries', 'readwrite');
+
+    for (const summary of summaries) {
+      const summaryWithAccountSet = {
+        ...summary,
+        accountSetId: this.accountSetId
+      };
+      await tx.objectStore('commonSummaries').put(summaryWithAccountSet);
+    }
+
+    await tx.done;
+  }
+
+  async getAllCommonSummaries(): Promise<CommonSummary[]> {
+    return await this.getAllFromIndexSafe('commonSummaries', 'by-accountSet', this.accountSetId);
+  }
+
+  // ========== 用户偏好操作 ==========
+
+  async savePreference(preference: UserPreference): Promise<void> {
+    const tx = this.db.transaction('userPreferences', 'readwrite');
+    const preferenceWithAccountSet = {
+      ...preference,
+      accountSetId: this.accountSetId
+    };
+    await tx.objectStore('userPreferences').put(preferenceWithAccountSet);
+    await tx.done;
   }
 
   async getPreferencesByUser(userId: string): Promise<UserPreference[]> {
-    await this.init();
-    return await this.db!.getAllFromIndex('preferences', 'by-user', userId);
+    const allPreferences = await this.getAllFromIndexSafe('userPreferences', 'by-accountSet', this.accountSetId);
+    return allPreferences.filter(p => (p as any).userId === userId);
   }
 
-  // 审计日志操作
-  async addAuditLog(log: AuditLog) {
-    await this.init();
-    await this.db!.put('auditLogs', log);
+  // ========== 审计日志操作 ==========
+
+  async addAuditLog(log: AuditLog): Promise<void> {
+    const tx = this.db.transaction('auditLogs', 'readwrite');
+    const logWithAccountSet = {
+      ...log,
+      accountSetId: this.accountSetId
+    };
+    await tx.objectStore('auditLogs').put(logWithAccountSet);
+    await tx.done;
   }
 
   async getAuditLogs(limit = 100): Promise<AuditLog[]> {
-    await this.init();
-    return await this.db!.getAllFromIndex('auditLogs', 'by-timestamp', undefined, limit);
+    const allLogs = await this.getAllFromIndexSafe('auditLogs', 'by-accountSet', this.accountSetId);
+    return allLogs.slice(0, limit);
   }
 
-  // 数据导出
-  async exportData() {
-    await this.init();
+  // ========== 数据导出/导入 ==========
 
+  async exportData() {
     return {
       vouchers: await this.getAllVouchers(),
       subjects: await this.getAllSubjects(),
       departments: await this.getAllDepartments(),
       projects: await this.getAllProjects(),
-      currencies: await this.get('currencies') || [],
-      templates: await this.get('templates') || [],
-      commonSummaries: await this.get('commonSummaries') || [],
-      recentSummaries: await this.get('recentSummaries') || [],
-      partners: await this.get('partners') || [],
+      currencies: await this.getAllCurrencies(),
+      partners: await this.getAllPartners(),
+      voucherTemplates: await this.getAllVoucherTemplates(),
+      commonSummaries: await this.getAllCommonSummaries(),
       preferences: await this.getPreferencesByUser('current-user'),
       auditLogs: await this.getAuditLogs(1000),
       exportDate: new Date().toISOString(),
@@ -406,140 +414,145 @@ class DatabaseService {
     };
   }
 
-  // 数据导入
   async importData(data: any) {
-    await this.init();
-
-    const tx = this.db!.transaction([
+    const tx = this.db.transaction([
       'vouchers',
       'entries',
       'subjects',
       'departments',
       'projects',
-      'preferences'
+      'currencies',
+      'partners',
+      'voucherTemplates',
+      'commonSummaries',
+      'userPreferences',
+      'auditLogs'
     ], 'readwrite');
 
     // 导入凭证
     if (data.vouchers) {
       for (const voucher of data.vouchers) {
-        tx.objectStore('vouchers').put(voucher);
-        const entryStore = tx.objectStore('entries');
+        const voucherWithAccountSet = {
+          ...voucher,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('vouchers').put(voucherWithAccountSet);
         for (const entry of voucher.entries) {
-          await entryStore.put(entry);
+          const entryWithAccountSet = {
+            ...entry,
+            accountSetId: this.accountSetId,
+            voucherId: voucher.id
+          };
+          await tx.objectStore('entries').put(entryWithAccountSet);
         }
       }
     }
 
     // 导入科目
     if (data.subjects) {
-      const subjectStore = tx.objectStore('subjects');
       for (const subject of data.subjects) {
-        await subjectStore.put(subject);
+        const subjectWithAccountSet = {
+          ...subject,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('subjects').put(subjectWithAccountSet);
       }
     }
 
     // 导入部门
     if (data.departments) {
-      const deptStore = tx.objectStore('departments');
       for (const dept of data.departments) {
-        await deptStore.put(dept);
+        const deptWithAccountSet = {
+          ...dept,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('departments').put(deptWithAccountSet);
       }
     }
 
     // 导入项目
     if (data.projects) {
-      const projectStore = tx.objectStore('projects');
       for (const project of data.projects) {
-        await projectStore.put(project);
+        const projectWithAccountSet = {
+          ...project,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('projects').put(projectWithAccountSet);
       }
     }
 
-    // 导入偏好
-    if (data.preferences) {
-      const prefStore = tx.objectStore('preferences');
-      for (const pref of data.preferences) {
-        await prefStore.put(pref);
-      }
-    }
-
-    await tx.done;
-
-    // 导入其他数据类型
+    // 导入币别
     if (data.currencies) {
-      await this.set('currencies', data.currencies);
+      for (const currency of data.currencies) {
+        const currencyWithAccountSet = {
+          ...currency,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('currencies').put(currencyWithAccountSet);
+      }
     }
 
-    if (data.templates) {
-      await this.set('templates', data.templates);
-    }
-
-    if (data.commonSummaries) {
-      await this.set('commonSummaries', data.commonSummaries);
-    }
-
-    if (data.recentSummaries) {
-      await this.set('recentSummaries', data.recentSummaries);
-    }
-
+    // 导入往来单位
     if (data.partners) {
-      await this.set('partners', data.partners);
+      for (const partner of data.partners) {
+        const partnerWithAccountSet = {
+          ...partner,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('partners').put(partnerWithAccountSet);
+      }
     }
-  }
 
-  // 清空所有数据
-  async clearAllData() {
-    await this.init();
-    const tx = this.db!.transaction([
-      'vouchers',
-      'entries',
-      'subjects',
-      'departments',
-      'projects',
-      'preferences',
-      'auditLogs'
-    ], 'readwrite');
+    // 导入凭证模板
+    if (data.voucherTemplates) {
+      for (const template of data.voucherTemplates) {
+        const templateWithAccountSet = {
+          ...template,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('voucherTemplates').put(templateWithAccountSet);
+      }
+    }
 
-    await tx.objectStore('vouchers').clear();
-    await tx.objectStore('entries').clear();
-    await tx.objectStore('subjects').clear();
-    await tx.objectStore('departments').clear();
-    await tx.objectStore('projects').clear();
-    await tx.objectStore('preferences').clear();
-    await tx.objectStore('auditLogs').clear();
+    // 导入常用摘要
+    if (data.commonSummaries) {
+      for (const summary of data.commonSummaries) {
+        const summaryWithAccountSet = {
+          ...summary,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('commonSummaries').put(summaryWithAccountSet);
+      }
+    }
+
+    // 导入用户偏好
+    if (data.preferences) {
+      for (const pref of data.preferences) {
+        const prefWithAccountSet = {
+          ...pref,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('userPreferences').put(prefWithAccountSet);
+      }
+    }
+
+    // 导入审计日志
+    if (data.auditLogs) {
+      for (const log of data.auditLogs) {
+        const logWithAccountSet = {
+          ...log,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('auditLogs').put(logWithAccountSet);
+      }
+    }
 
     await tx.done;
   }
 
-  // 通用键值存储
-  async set(key: string, value: any) {
-    await this.init();
+  // ========== 数据同步与恢复 ==========
 
-    // 使用一个通用对象存储所有简单键值对
-    const keyValue = {
-      id: `key-${key}`,
-      key,
-      value,
-      timestamp: Date.now()
-    };
-
-    await this.db!.put('keyValues', keyValue);
-  }
-
-  async get(key: string): Promise<any | null> {
-    await this.init();
-    const keyValue = await this.db!.get('keyValues', `key-${key}`);
-    return keyValue ? keyValue.value : null;
-  }
-
-  async delete(key: string) {
-    await this.init();
-    await this.db!.delete('keyValues', `key-${key}`);
-  }
-
-  // 数据同步方法
   async syncAllData(stores: any[]) {
-    await this.init();
-
     for (const store of stores) {
       if (store.vouchers) {
         for (const voucher of store.vouchers) {
@@ -560,38 +573,26 @@ class DatabaseService {
       }
 
       if (store.currencies) {
-        // 保存货币数据（新增）
-        await this.set('currencies', store.currencies);
-      }
-
-      if (store.templates) {
-        // 保存模板数据（新增）
-        await this.set('templates', store.templates);
-      }
-
-      if (store.commonSummaries) {
-        // 保存常用摘要（新增）
-        await this.set('commonSummaries', store.commonSummaries);
-      }
-
-      if (store.recentSummaries) {
-        // 保存最近使用的摘要（新增）
-        await this.set('recentSummaries', store.recentSummaries);
+        await this.saveCurrencies(store.currencies);
       }
 
       if (store.partners) {
-        // 保存往来单位数据（新增）
-        await this.set('partners', store.partners);
+        await this.savePartners(store.partners);
+      }
+
+      if (store.voucherTemplates) {
+        await this.saveVoucherTemplates(store.voucherTemplates);
+      }
+
+      if (store.commonSummaries) {
+        await this.saveCommonSummaries(store.commonSummaries);
       }
     }
 
     console.log('All data synchronized to IndexedDB');
   }
 
-  // 数据恢复方法
   async restoreAllData() {
-    await this.init();
-
     const data: any = {};
 
     // 恢复凭证数据
@@ -607,31 +608,71 @@ class DatabaseService {
     data.projects = await this.getAllProjects();
 
     // 恢复其他数据
-    data.currencies = await this.get('currencies') || [];
-    data.templates = await this.get('templates') || [];
-    data.commonSummaries = await this.get('commonSummaries') || [];
-    data.recentSummaries = await this.get('recentSummaries') || [];
-    data.partners = await this.get('partners') || [];
+    data.currencies = await this.getAllCurrencies();
+    data.partners = await this.getAllPartners();
+    data.voucherTemplates = await this.getAllVoucherTemplates();
+    data.commonSummaries = await this.getAllCommonSummaries();
 
     return data;
   }
 
-  // 检查数据完整性
-  async checkDataIntegrity() {
-    await this.init();
+  // ========== 数据完整性检查 ==========
 
+  async checkDataIntegrity() {
     const counts: any = {};
-    counts.vouchers = (await this.db!.getAll('vouchers')).length;
-    counts.entries = (await this.db!.getAll('entries')).length;
-    counts.subjects = (await this.db!.getAll('subjects')).length;
-    counts.departments = (await this.db!.getAll('departments')).length;
-    counts.projects = (await this.db!.getAll('projects')).length;
-    counts.keyValues = (await this.db!.getAll('keyValues')).length;
+    counts.vouchers = (await this.db.getAllFromIndex('vouchers', 'by-accountSet', this.accountSetId)).length;
+    counts.entries = (await this.db.getAllFromIndex('entries', 'by-accountSet', this.accountSetId)).length;
+    counts.subjects = (await this.db.getAllFromIndex('subjects', 'by-accountSet', this.accountSetId)).length;
+    counts.departments = (await this.db.getAllFromIndex('departments', 'by-accountSet', this.accountSetId)).length;
+    counts.projects = (await this.db.getAllFromIndex('projects', 'by-accountSet', this.accountSetId)).length;
+    counts.currencies = (await this.db.getAllFromIndex('currencies', 'by-accountSet', this.accountSetId)).length;
+    counts.partners = (await this.db.getAllFromIndex('partners', 'by-accountSet', this.accountSetId)).length;
+    counts.voucherTemplates = (await this.db.getAllFromIndex('voucherTemplates', 'by-accountSet', this.accountSetId)).length;
+    counts.commonSummaries = (await this.db.getAllFromIndex('commonSummaries', 'by-accountSet', this.accountSetId)).length;
+    counts.userPreferences = (await this.db.getAllFromIndex('userPreferences', 'by-accountSet', this.accountSetId)).length;
+    counts.auditLogs = (await this.db.getAllFromIndex('auditLogs', 'by-accountSet', this.accountSetId)).length;
 
     console.log('Data integrity check:', counts);
     return counts;
   }
+
+  // ========== 清空数据 ==========
+
+  async clearAllData() {
+    // 清空 vouchers 和 entries
+    {
+      const allRecords = await this.db.getAllFromIndex('vouchers', 'by-accountSet', this.accountSetId);
+      const tx = this.db.transaction(['vouchers', 'entries'], 'readwrite');
+      for (const record of allRecords) {
+        await tx.objectStore('vouchers').delete(record.id);
+      }
+      const allEntries = await this.db.getAllFromIndex('entries', 'by-accountSet', this.accountSetId);
+      for (const record of allEntries) {
+        await tx.objectStore('entries').delete(record.id);
+      }
+      await tx.done;
+    }
+
+    // 清空其他表
+    const clearSingleStore = async (storeName: 'subjects' | 'departments' | 'projects' | 'currencies' | 'partners' | 'voucherTemplates' | 'commonSummaries' | 'userPreferences' | 'auditLogs') => {
+      const allRecords = await this.db.getAllFromIndex(storeName, 'by-accountSet', this.accountSetId);
+      const tx = this.db.transaction(storeName, 'readwrite');
+      for (const record of allRecords) {
+        await tx.objectStore(storeName).delete(record.id);
+      }
+      await tx.done;
+    };
+
+    await clearSingleStore('subjects');
+    await clearSingleStore('departments');
+    await clearSingleStore('projects');
+    await clearSingleStore('currencies');
+    await clearSingleStore('partners');
+    await clearSingleStore('voucherTemplates');
+    await clearSingleStore('commonSummaries');
+    await clearSingleStore('userPreferences');
+    await clearSingleStore('auditLogs');
+  }
 }
 
-// 导出单例实例
 export const databaseService = new DatabaseService();

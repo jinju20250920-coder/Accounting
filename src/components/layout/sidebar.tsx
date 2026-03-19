@@ -297,6 +297,8 @@ export function Sidebar() {
   const isActive = (path: string) => pathname === path || pathname?.startsWith(path + '/');
 
   const handleSwitchAccount = (accountSetId: string) => {
+    // 保存当前账套ID到 sessionStorage，用于在 hook 中检测账套切换
+    sessionStorage.setItem('lastAccountSetId', currentAccountSetId || '');
     setCurrentAccountSet(accountSetId);
     setShowAccountSwitcher(false);
     showToast('success', '已切换到 ' + (accountSets.find(s => s.id === accountSetId)?.name || '账套'));
@@ -472,11 +474,11 @@ export function Sidebar() {
       {/* 底部信息 */}
       <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
         <div className="flex items-center justify-between mb-2">
-          <span>期间: {currentAccountSet?.currentPeriod || '2026-03'}</span>
+          <span>期间: {hasMounted ? (currentAccountSet?.currentPeriod || '2026-03') : '2026-03'}</span>
           <span>记-001</span>
         </div>
         <div>操作员: 管理员</div>
-        {currentLicense && (
+        {hasMounted && currentLicense && (
           <div className="mt-2 pt-2 border-t border-slate-700">
             <div className="flex items-center justify-between">
               <span>有效期至:</span>

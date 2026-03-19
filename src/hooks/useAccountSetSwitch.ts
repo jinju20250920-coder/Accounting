@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useDepartmentStore } from '@/stores/useDepartmentStore';
+import { useFinancialProjectStore } from '@/stores/useFinancialProjectStore';
 
 // 账套数据切换 Hook
 export function useAccountSetSwitch() {
@@ -15,30 +17,64 @@ export function useAccountSetSwitch() {
     const accountSet = getCurrentAccountSet();
     console.log('切换到账套:', accountSet?.name, currentAccountSetId);
 
-    // 触发各个 store 的数据重置/重新加载
-    // 注意：实际的数据隔离是通过 persist 中间件的 storage 层处理的
-    // 这里我们通过重置 store 状态来触发重新加载
+    // 检查是否是第一次加载（避免无限刷新）
+    const lastAccountSetId = sessionStorage.getItem('lastAccountSetId');
 
-    // 重置凭证 store
-    try {
-      const voucherStore = useVoucherStore.getState();
-      // 清空当前编辑状态
-      voucherStore.clearVoucher();
-      // 注意：实际的数据重新加载由 persist 中间件的 storage 处理
-    } catch (e) {
-      console.warn('重置凭证 store 失败:', e);
+    // 第一次加载时，保存当前账套ID
+    if (!lastAccountSetId) {
+      sessionStorage.setItem('lastAccountSetId', currentAccountSetId);
+      return;
     }
 
-    // 重置科目 store - 重新初始化科目数据
-    try {
-      const subjectStore = useSubjectStore.getState();
-      // 科目初始化会在 store 内部处理
-      // 这里只是确保科目数据正确加载
-      setTimeout(() => {
+    // 如果账套真的改变了
+    if (lastAccountSetId !== currentAccountSetId) {
+      sessionStorage.setItem('lastAccountSetId', currentAccountSetId);
+
+      console.log('检测到账套切换，正在重新加载所有数据...');
+
+      // 重新初始化所有 store 的数据
+      try {
+        const voucherStore = useVoucherStore.getState();
+        voucherStore.clearVoucher();
+        // 重新初始化凭证数据
+        voucherStore.initialize();
+        console.log('凭证数据已重新加载');
+      } catch (e) {
+        console.warn('重新加载凭证数据失败:', e);
+      }
+
+      // 重新初始化科目数据
+      try {
+        const subjectStore = useSubjectStore.getState();
         subjectStore.initializeSubjects();
-      }, 0);
-    } catch (e) {
-      console.warn('重置科目 store 失败:', e);
+        console.log('科目数据已重新加载');
+      } catch (e) {
+        console.warn('重新加载科目数据失败:', e);
+      }
+
+      // 重新初始化部门数据
+      try {
+        const departmentStore = useDepartmentStore.getState();
+        if (departmentStore.initializeDepartments) {
+          departmentStore.initializeDepartments();
+        }
+        console.log('部门数据已重新加载');
+      } catch (e) {
+        console.warn('重新加载部门数据失败:', e);
+      }
+
+      // 重新初始化项目数据
+      try {
+        const projectStore = useFinancialProjectStore.getState();
+        if (projectStore.initializeProjects) {
+          projectStore.initializeProjects();
+        }
+        console.log('项目数据已重新加载');
+      } catch (e) {
+        console.warn('重新加载项目数据失败:', e);
+      }
+
+      console.log('所有数据重新加载完成');
     }
 
   }, [currentAccountSetId, getCurrentAccountSet]);

@@ -30,9 +30,9 @@ export default function SummariesSettingsPage() {
     exportSummariesToExcel
   } = useSummaryStore();
 
-  const handleAddSummary = () => {
+  const handleAddSummary = async () => {
     if (newSummaryText.trim()) {
-      addCommonSummary(newSummaryText);
+      await addCommonSummary(newSummaryText);
       setNewSummaryText('');
       setIsDialogOpen(false);
     }
@@ -43,9 +43,9 @@ export default function SummariesSettingsPage() {
     setEditingText(text);
   };
 
-  const handleSaveEdit = (id: string) => {
+  const handleSaveEdit = async (id: string) => {
     if (editingText.trim()) {
-      updateCommonSummary(id, editingText);
+      await updateCommonSummary(id, editingText);
       setEditingSummary(null);
       setEditingText('');
     }
@@ -98,7 +98,7 @@ export default function SummariesSettingsPage() {
       ] as const;
 
       const data = await importFromExcel<{ 摘要内容: string }>(importFile, headers as any);
-      const result = importSummariesFromExcel(data);
+      const result = await importSummariesFromExcel(data);
       setImportResult(result);
     } catch (error) {
       setImportResult({

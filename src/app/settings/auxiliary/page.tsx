@@ -30,28 +30,7 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
 import { usePartnerStore } from '@/stores/usePartnerStore';
-
-// 往来单位接口 - 统一模型
-interface Partner {
-  id: string;
-  code: string;
-  name: string;
-  isCustomer: boolean; // 客户勾选
-  isSupplier: boolean; // 供应商勾选
-  isEmployee: boolean; // 雇员勾选
-  contact?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  taxNumber?: string; // 税号
-  bankAccount?: string; // 银行账号
-  bankName?: string; // 开户银行
-  frozen: boolean;
-  createdAt: string;
-  // 合并相关字段
-  mergedFrom?: string[]; // 从哪些ID合并而来
-  parentId?: string; // 关联的集团ID（用于合并到集团）
-}
+import type { Partner } from '@/types';
 
 export default function AuxiliaryDataPage() {
   const { showToast } = useToast();

@@ -362,7 +362,13 @@ export default function VoucherListPage() {
 
   const confirmDelete = () => {
     if (showDeleteDialog) {
-      deleteVoucher(showDeleteDialog.id);
+      try {
+        deleteVoucher(showDeleteDialog.id);
+        showToast('success', `凭证 ${showDeleteDialog.voucherNo} 删除成功`);
+      } catch (error) {
+        console.error('Delete voucher error:', error);
+        showToast('error', '删除凭证失败');
+      }
       setShowDeleteDialog(null);
     }
   };

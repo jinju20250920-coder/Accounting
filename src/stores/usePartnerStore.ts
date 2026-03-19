@@ -1,33 +1,11 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { STORAGE_KEYS, createAccountSetPersistConfig } from './persistence-config';
-
-// 往来单位接口 - 统一模型
-interface Partner {
-  id: string;
-  code: string;
-  name: string;
-  isCustomer: boolean; // 客户勾选
-  isSupplier: boolean; // 供应商勾选
-  isEmployee: boolean; // 雇员勾选
-  contact?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  taxNumber?: string; // 税号
-  bankAccount?: string; // 银行账号
-  bankName?: string; // 开户银行
-  frozen: boolean;
-  createdAt: string;
-  // 合并相关字段
-  mergedFrom?: string[]; // 从哪些ID合并而来
-  parentId?: string; // 关联的集团ID（用于合并到集团）
-}
+import { databaseService } from '@/lib/database/service';
+import type { Partner } from '@/types';
+import { useAccountSetStore } from './useAccountSetStore';
 
 // 默认数据
-const defaultPartners: Partner[] = [
+const defaultPartners: Omit<Partner, 'id' | 'createdAt' | 'accountSetId'>[] = [
   {
-    id: 'p1',
     code: 'ABC001',
     name: '上海科技有限公司',
     isCustomer: true,
@@ -40,11 +18,9 @@ const defaultPartners: Partner[] = [
     taxNumber: '310115XXXXXXXX',
     bankAccount: '622588XXXXXXXXXXX',
     bankName: '中国工商银行',
-    frozen: false,
-    createdAt: '2024-01-01'
+    frozen: false
   },
   {
-    id: 'p2',
     code: 'XYZ001',
     name: '北京商贸有限公司',
     isCustomer: true,
@@ -57,11 +33,9 @@ const defaultPartners: Partner[] = [
     taxNumber: '110115XXXXXXXX',
     bankAccount: '622202XXXXXXXXXXX',
     bankName: '中国建设银行',
-    frozen: false,
-    createdAt: '2024-02-01'
+    frozen: false
   },
   {
-    id: 'p3',
     code: 'SUP001',
     name: '广州电子科技有限公司',
     isCustomer: false,
@@ -74,11 +48,9 @@ const defaultPartners: Partner[] = [
     taxNumber: '440115XXXXXXXX',
     bankAccount: '621700XXXXXXXXXXX',
     bankName: '中国农业银行',
-    frozen: false,
-    createdAt: '2024-01-15'
+    frozen: false
   },
   {
-    id: 'e1',
     code: 'EMP001',
     name: '赵六',
     isCustomer: false,
@@ -91,8 +63,7 @@ const defaultPartners: Partner[] = [
     taxNumber: '',
     bankAccount: '622848XXXXXXXXXXX',
     bankName: '中国银行',
-    frozen: false,
-    createdAt: '2024-03-01'
+    frozen: false
   }
 ];
 
@@ -103,10 +74,10 @@ interface PartnerStore {
   selectedPartnerId: string | null;
 
   // CRUD 操作
-  addPartner: (partner: Omit<Partner, 'id' | 'createdAt'>) => void;
-  updatePartner: (id: string, updates: Partial<Partner>) => void;
-  deletePartner: (id: string) => void;
-  toggleFrozen: (id: string) => void;
+  addPartner: (partner: Omit<Partner, 'id' | 'createdAt'>) => Promise<void>;
+  updatePartner: (id: string, updates: Partial<Partner>) => Promise<void>;
+  deletePartner: (id: string) => Promise<void>;
+  toggleFrozen: (id: string) => Promise<void>;
   setSelectedPartnerId: (id: string | null) => void;
 
   // 查询操作
@@ -116,21 +87,22 @@ interface PartnerStore {
   getAllPartners: () => Partner[];
 
   // 导入导出
-  importPartners: (partners: Omit<Partner, 'id' | 'createdAt'>[]) => void;
+  importPartners: (partners: Omit<Partner, 'id' | 'createdAt'>[]) => Promise<void>;
   exportPartners: () => string;
 
   // 批量操作
-  clearAllPartners: () => void;
+  clearAllPartners: () => Promise<void>;
+  initializePartners: () => Promise<void>;
 }
 
-export const usePartnerStore = create<PartnerStore>()(
-  persist((set, get) => ({
-    partners: defaultPartners,
-    searchQuery: '',
-    selectedPartnerId: null,
+export const usePartnerStore = create<PartnerStore>((set, get) => ({
+  partners: [],
+  searchQuery: '',
+  selectedPartnerId: null,
 
-    // 添加往来单位
-    addPartner: (partnerData) => {
+  // 添加往来单位
+  addPartner: async (partnerData) => {
+    try {
       const state = get();
 
       // 检查代码是否重复
@@ -144,20 +116,31 @@ export const usePartnerStore = create<PartnerStore>()(
         throw new Error('请至少勾选一种身份：客户、供应商或雇员');
       }
 
+      // 获取当前账套ID
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
       const newPartner: Partner = {
         ...partnerData,
         id: `partner_${Date.now()}`,
         frozen: partnerData.frozen || false,
-        createdAt: new Date().toISOString().split('T')[0]
+        createdAt: new Date().toISOString().split('T')[0],
+        accountSetId: currentAccountSet?.id
       };
 
+      await databaseService.savePartners([...state.partners, newPartner]);
       set({
         partners: [...state.partners, newPartner]
       });
-    },
+    } catch (error) {
+      console.error('Failed to add partner:', error);
+      throw error;
+    }
+  },
 
-    // 更新往来单位
-    updatePartner: (id, updates) => {
+  // 更新往来单位
+  updatePartner: async (id, updates) => {
+    try {
       const state = get();
 
       // 如果修改了代码，检查是否重复
@@ -180,15 +163,22 @@ export const usePartnerStore = create<PartnerStore>()(
         }
       }
 
+      const updatedPartners = state.partners.map(partner =>
+        partner.id === id ? { ...partner, ...updates } : partner
+      );
+      await databaseService.savePartners(updatedPartners);
       set({
-        partners: state.partners.map(partner =>
-          partner.id === id ? { ...partner, ...updates } : partner
-        )
+        partners: updatedPartners
       });
-    },
+    } catch (error) {
+      console.error('Failed to update partner:', error);
+      throw error;
+    }
+  },
 
-    // 删除往来单位
-    deletePartner: (id) => {
+  // 删除往来单位
+  deletePartner: async (id) => {
+    try {
       const state = get();
       const partner = state.partners.find(p => p.id === id);
 
@@ -200,64 +190,82 @@ export const usePartnerStore = create<PartnerStore>()(
         throw new Error('该往来单位已冻结，无法删除');
       }
 
+      await databaseService.savePartners(state.partners.filter(p => p.id !== id));
       set({
         partners: state.partners.filter(p => p.id !== id),
         selectedPartnerId: state.selectedPartnerId === id ? null : state.selectedPartnerId
       });
-    },
+    } catch (error) {
+      console.error('Failed to delete partner:', error);
+      throw error;
+    }
+  },
 
-    // 切换冻结状态
-    toggleFrozen: (id) => {
-      set((state) => ({
-        partners: state.partners.map(partner =>
-          partner.id === id ? { ...partner, frozen: !partner.frozen } : partner
-        )
-      }));
-    },
-
-    // 设置选中的往来单位
-    setSelectedPartnerId: (id) => {
-      set({ selectedPartnerId: id });
-    },
-
-    // 查询方法
-    getPartnerById: (id) => {
-      return get().partners.find(p => p.id === id);
-    },
-
-    getPartnersByType: (type) => {
+  // 切换冻结状态
+  toggleFrozen: async (id) => {
+    try {
       const state = get();
-      switch (type) {
-        case 'customer':
-          return state.partners.filter(p => p.isCustomer);
-        case 'supplier':
-          return state.partners.filter(p => p.isSupplier);
-        case 'employee':
-          return state.partners.filter(p => p.isEmployee);
-        default:
-          return [];
-      }
-    },
-
-    searchPartners: (query) => {
-      const state = get();
-      const lowerQuery = query.toLowerCase();
-      return state.partners.filter(partner =>
-        partner.code.toLowerCase().includes(lowerQuery) ||
-        partner.name.toLowerCase().includes(lowerQuery) ||
-        (partner.contact && partner.contact.toLowerCase().includes(lowerQuery))
+      const updatedPartners = state.partners.map(partner =>
+        partner.id === id ? { ...partner, frozen: !partner.frozen } : partner
       );
-    },
+      await databaseService.savePartners(updatedPartners);
+      set((state) => ({
+        partners: updatedPartners
+      }));
+    } catch (error) {
+      console.error('Failed to toggle frozen:', error);
+      throw error;
+    }
+  },
 
-    getAllPartners: () => {
-      return get().partners;
-    },
+  // 设置选中的往来单位
+  setSelectedPartnerId: (id) => {
+    set({ selectedPartnerId: id });
+  },
 
-    // 导入往来单位
-    importPartners: (partnersData) => {
+  // 查询方法
+  getPartnerById: (id) => {
+    return get().partners.find(p => p.id === id);
+  },
+
+  getPartnersByType: (type) => {
+    const state = get();
+    switch (type) {
+      case 'customer':
+        return state.partners.filter(p => p.isCustomer);
+      case 'supplier':
+        return state.partners.filter(p => p.isSupplier);
+      case 'employee':
+        return state.partners.filter(p => p.isEmployee);
+      default:
+        return [];
+    }
+  },
+
+  searchPartners: (query) => {
+    const state = get();
+    const lowerQuery = query.toLowerCase();
+    return state.partners.filter(partner =>
+      partner.code.toLowerCase().includes(lowerQuery) ||
+      partner.name.toLowerCase().includes(lowerQuery) ||
+      (partner.contact && partner.contact.toLowerCase().includes(lowerQuery))
+    );
+  },
+
+  getAllPartners: () => {
+    return get().partners;
+  },
+
+  // 导入往来单位
+  importPartners: async (partnersData) => {
+    try {
       const state = get();
       const existingCodes = new Set(state.partners.map(p => p.code));
       const validPartners: Partner[] = [];
+
+      // 获取当前账套ID
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
       partnersData.forEach(partnerData => {
         if (!existingCodes.has(partnerData.code)) {
@@ -266,34 +274,72 @@ export const usePartnerStore = create<PartnerStore>()(
             ...partnerData,
             id: `partner_${Date.now()}_${Math.random()}`,
             frozen: partnerData.frozen || false,
-            createdAt: new Date().toISOString().split('T')[0]
+            createdAt: new Date().toISOString().split('T')[0],
+            accountSetId: currentAccountSet?.id
           });
         }
       });
 
+      await databaseService.savePartners([...state.partners, ...validPartners]);
       set({
         partners: [...state.partners, ...validPartners]
       });
-    },
+    } catch (error) {
+      console.error('Failed to import partners:', error);
+      throw error;
+    }
+  },
 
-    // 导出往来单位
-    exportPartners: () => {
-      const state = get();
-      return JSON.stringify({
-        version: '1.0',
-        exportTime: new Date().toISOString(),
-        partners: state.partners
-      }, null, 2);
-    },
+  // 导出往来单位
+  exportPartners: () => {
+    const state = get();
+    return JSON.stringify({
+      version: '1.0',
+      exportTime: new Date().toISOString(),
+      partners: state.partners
+    }, null, 2);
+  },
 
-    // 清除所有往来单位
-    clearAllPartners: () => {
+  // 清除所有往来单位
+  clearAllPartners: async () => {
+    try {
+      await databaseService.savePartners([]);
       set({
         partners: [],
         selectedPartnerId: null
       });
+    } catch (error) {
+      console.error('Failed to clear all partners:', error);
+      throw error;
     }
-  }),
-    createAccountSetPersistConfig(STORAGE_KEYS.PARTNERS)
-  )
-);
+  },
+
+  // 初始化往来单位数据
+  initializePartners: async () => {
+    try {
+      const partners = await databaseService.getAllPartners();
+
+      if (partners.length > 0) {
+        set({ partners });
+        return;
+      }
+
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      const initializedPartners = defaultPartners.map(partnerData => ({
+        ...partnerData,
+        id: `partner_${Date.now()}_${Math.random()}`,
+        frozen: partnerData.frozen || false,
+        createdAt: new Date().toISOString().split('T')[0],
+        accountSetId: currentAccountSet?.id
+      }));
+
+      await databaseService.savePartners(initializedPartners);
+      set({ partners: initializedPartners });
+    } catch (error) {
+      console.error('Failed to initialize partners:', error);
+      throw error;
+    }
+  }
+}));

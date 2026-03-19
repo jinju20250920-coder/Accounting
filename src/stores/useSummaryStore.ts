@@ -1,22 +1,57 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { databaseService } from '@/lib/database/service';
+import type { CommonSummary, RecentSummary } from '@/types';
+import { useAccountSetStore } from './useAccountSetStore';
 
-import { CommonSummary, RecentSummary } from '@/types';
-import { STORAGE_KEYS, createAccountSetPersistConfig } from './persistence-config';
+// 默认常用摘要
+const defaultCommonSummaries: Omit<CommonSummary, 'id' | 'createdAt' | 'accountSetId'>[] = [
+  {
+    text: '报销差旅费',
+    sortOrder: 1
+  },
+  {
+    text: '支付货款',
+    sortOrder: 2
+  },
+  {
+    text: '计提折旧',
+    sortOrder: 3
+  },
+  {
+    text: '购买办公用品',
+    sortOrder: 4
+  },
+  {
+    text: '销售收入',
+    sortOrder: 5
+  },
+  {
+    text: '收到货款',
+    sortOrder: 6
+  },
+  {
+    text: '支付水电费',
+    sortOrder: 7
+  },
+  {
+    text: '发放工资',
+    sortOrder: 8
+  }
+];
 
 // 常用摘要存储
 interface SummaryStore {
   // 常用摘要库（预定义）
   commonSummaries: CommonSummary[];
 
-  // 最近使用的摘要
+  // 最近使用的摘要（内存存储，不持久化）
   recentSummaries: RecentSummary[];
 
   // 常用摘要操作
-  addCommonSummary: (text: string) => void;
-  updateCommonSummary: (id: string, text: string) => void;
-  deleteCommonSummary: (id: string) => void;
-  reorderCommonSummaries: (ids: string[]) => void;
+  addCommonSummary: (text: string) => Promise<void>;
+  updateCommonSummary: (id: string, text: string) => Promise<void>;
+  deleteCommonSummary: (id: string) => Promise<void>;
+  reorderCommonSummaries: (ids: string[]) => Promise<void>;
 
   // 最近使用操作
   addRecentSummary: (text: string) => void;
@@ -26,157 +61,173 @@ interface SummaryStore {
   getSummaryList: () => { common: CommonSummary[]; recent: RecentSummary[] };
 
   // Excel 导入导出
-  importSummariesFromExcel: (data: Array<{ 摘要内容: string }>) => { success: number; failed: number; errors: string[] };
+  importSummariesFromExcel: (data: Array<{ 摘要内容: string }>) => Promise<{ success: number; failed: number; errors: string[] }>;
   exportSummariesToExcel: () => Array<{ 摘要内容: string; 排序: number }>;
+
+  // 初始化
+  initializeSummaries: () => Promise<void>;
 }
 
-// 默认常用摘要
-const defaultCommonSummaries: CommonSummary[] = [
-  {
-    id: '1',
-    text: '报销差旅费',
-    sortOrder: 1,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '2',
-    text: '支付货款',
-    sortOrder: 2,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '3',
-    text: '计提折旧',
-    sortOrder: 3,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '4',
-    text: '购买办公用品',
-    sortOrder: 4,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '5',
-    text: '销售收入',
-    sortOrder: 5,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '6',
-    text: '收到货款',
-    sortOrder: 6,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '7',
-    text: '支付水电费',
-    sortOrder: 7,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '8',
-    text: '发放工资',
-    sortOrder: 8,
-    createdAt: new Date().toISOString()
-  }
-];
+export const useSummaryStore = create<SummaryStore>((set, get) => ({
+  commonSummaries: [],
+  recentSummaries: [],
 
-export const useSummaryStore = create<SummaryStore>()(
-  persist((set, get) => ({
-    commonSummaries: defaultCommonSummaries,
-    recentSummaries: [],
+  // 初始化常用摘要
+  initializeSummaries: async () => {
+    try {
+      const summaries = await databaseService.getAllCommonSummaries();
 
-    // 常用摘要操作
-    addCommonSummary: (text: string) => set((state) => {
+      if (summaries.length > 0) {
+        set({ commonSummaries: summaries });
+        return;
+      }
+
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      const now = new Date().toISOString();
+      const initializedSummaries = defaultCommonSummaries.map((summary, index) => ({
+        ...summary,
+        id: `summary_${index}`,
+        createdAt: now,
+        accountSetId: currentAccountSet?.id
+      }));
+
+      await databaseService.saveCommonSummaries(initializedSummaries);
+      set({ commonSummaries: initializedSummaries });
+    } catch (error) {
+      console.error('Failed to initialize summaries:', error);
+      throw error;
+    }
+  },
+
+  // 常用摘要操作
+  addCommonSummary: async (text: string) => {
+    try {
+      const state = get();
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
       const newSummary: CommonSummary = {
         id: Date.now().toString(),
         text: text.trim(),
         sortOrder: state.commonSummaries.length + 1,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        accountSetId: currentAccountSet?.id
       };
 
-      return {
-        commonSummaries: [...state.commonSummaries, newSummary].sort((a, b) => a.sortOrder - b.sortOrder)
-      };
-    }),
+      const newSummaries = [...state.commonSummaries, newSummary].sort((a, b) => a.sortOrder - b.sortOrder);
+      await databaseService.saveCommonSummaries(newSummaries);
 
-    updateCommonSummary: (id: string, text: string) => set((state) => ({
-      commonSummaries: state.commonSummaries.map(summary =>
-        summary.id === id ? { ...summary, text: text.trim() } : summary
-      )
-    })),
+      set({ commonSummaries: newSummaries });
+    } catch (error) {
+      console.error('Failed to add common summary:', error);
+      throw error;
+    }
+  },
 
-    deleteCommonSummary: (id: string) => set((state) => ({
-      commonSummaries: state.commonSummaries.filter(summary => summary.id !== id)
-    })),
-
-    reorderCommonSummaries: (ids: string[]) => set((state) => {
-      return {
-        commonSummaries: ids.map((id, index) => {
-          const summary = state.commonSummaries.find(s => s.id === id);
-          return summary ? { ...summary, sortOrder: index + 1 } : null;
-        }).filter(Boolean).map(s => s as CommonSummary),
-      };
-    }),
-
-    // 最近使用操作
-    addRecentSummary: (text: string) => set((state) => {
-      const trimmedText = text.trim();
-
-      // 如果是空字符串，不添加
-      if (!trimmedText) {
-        return state;
-      }
-
-      // 检查是否已存在（避免重复）
-      const existingIndex = state.recentSummaries.findIndex(summary =>
-        summary.text === trimmedText
-      );
-
-      let newRecentSummaries = [...state.recentSummaries];
-
-      if (existingIndex !== -1) {
-        // 如果已存在，移到顶部
-        const [existing] = newRecentSummaries.splice(existingIndex, 1);
-        newRecentSummaries.unshift({
-          ...existing,
-          usedAt: new Date().toISOString()
-        });
-      } else {
-        // 如果不存在，添加到顶部
-        newRecentSummaries.unshift({
-          id: Date.now().toString(),
-          text: trimmedText,
-          usedAt: new Date().toISOString()
-        });
-      }
-
-      // 最多保存 5 条最近使用的摘要
-      return {
-        recentSummaries: newRecentSummaries.slice(0, 5)
-      };
-    }),
-
-    clearRecentSummaries: () => set({ recentSummaries: [] }),
-
-    // 获取摘要列表
-    getSummaryList: () => {
+  updateCommonSummary: async (id: string, text: string) => {
+    try {
       const state = get();
-      return {
-        common: [...state.commonSummaries].sort((a, b) => a.sortOrder - b.sortOrder),
-        recent: [...state.recentSummaries]
-      };
-    },
+      const updatedSummaries = state.commonSummaries.map(summary =>
+        summary.id === id ? { ...summary, text: text.trim() } : summary
+      );
+      await databaseService.saveCommonSummaries(updatedSummaries);
+      set({ commonSummaries: updatedSummaries });
+    } catch (error) {
+      console.error('Failed to update common summary:', error);
+      throw error;
+    }
+  },
 
-    // Excel 导入摘要
-    importSummariesFromExcel: (data: Array<{ 摘要内容: string }>) => {
+  deleteCommonSummary: async (id: string) => {
+    try {
+      const state = get();
+      const updatedSummaries = state.commonSummaries.filter(summary => summary.id !== id);
+      await databaseService.saveCommonSummaries(updatedSummaries);
+      set({ commonSummaries: updatedSummaries });
+    } catch (error) {
+      console.error('Failed to delete common summary:', error);
+      throw error;
+    }
+  },
+
+  reorderCommonSummaries: async (ids: string[]) => {
+    try {
+      const state = get();
+      const reorderedSummaries = ids.map((id, index) => {
+        const summary = state.commonSummaries.find(s => s.id === id);
+        return summary ? { ...summary, sortOrder: index + 1 } : null;
+      }).filter(Boolean).map(s => s as CommonSummary);
+
+      await databaseService.saveCommonSummaries(reorderedSummaries);
+      set({ commonSummaries: reorderedSummaries });
+    } catch (error) {
+      console.error('Failed to reorder common summaries:', error);
+      throw error;
+    }
+  },
+
+  // 最近使用操作（内存存储，不持久化）
+  addRecentSummary: (text: string) => set((state) => {
+    const trimmedText = text.trim();
+
+    // 如果是空字符串，不添加
+    if (!trimmedText) {
+      return state;
+    }
+
+    // 检查是否已存在（避免重复）
+    const existingIndex = state.recentSummaries.findIndex(summary =>
+      summary.text === trimmedText
+    );
+
+    let newRecentSummaries = [...state.recentSummaries];
+
+    if (existingIndex !== -1) {
+      // 如果已存在，移到顶部
+      const [existing] = newRecentSummaries.splice(existingIndex, 1);
+      newRecentSummaries.unshift({
+        ...existing,
+        usedAt: new Date().toISOString()
+      });
+    } else {
+      // 如果不存在，添加到顶部
+      newRecentSummaries.unshift({
+        id: Date.now().toString(),
+        text: trimmedText,
+        usedAt: new Date().toISOString()
+      });
+    }
+
+    // 最多保存 5 条最近使用的摘要
+    return {
+      recentSummaries: newRecentSummaries.slice(0, 5)
+    };
+  }),
+
+  clearRecentSummaries: () => set({ recentSummaries: [] }),
+
+  // 获取摘要列表
+  getSummaryList: () => {
+    const state = get();
+    return {
+      common: [...state.commonSummaries].sort((a, b) => a.sortOrder - b.sortOrder),
+      recent: [...state.recentSummaries]
+    };
+  },
+
+  // Excel 导入摘要
+  importSummariesFromExcel: async (data: Array<{ 摘要内容: string }>) => {
+    try {
       const state = get();
       const errors: string[] = [];
       let success = 0;
       let failed = 0;
 
       const newSummaries: CommonSummary[] = [];
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
       data.forEach((row, index) => {
         const text = row['摘要内容'];
@@ -198,31 +249,33 @@ export const useSummaryStore = create<SummaryStore>()(
           id: Date.now().toString() + '_' + index,
           text: String(text).trim(),
           sortOrder: state.commonSummaries.length + success + 1,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          accountSetId: currentAccountSet?.id
         });
         success++;
       });
 
       if (newSummaries.length > 0) {
-        set((state) => ({
-          commonSummaries: [...state.commonSummaries, ...newSummaries].sort((a, b) => a.sortOrder - b.sortOrder)
-        }));
+        const updatedSummaries = [...state.commonSummaries, ...newSummaries].sort((a, b) => a.sortOrder - b.sortOrder);
+        await databaseService.saveCommonSummaries(updatedSummaries);
+        set({ commonSummaries: updatedSummaries });
       }
 
       return { success, failed, errors };
-    },
-
-    // Excel 导出摘要
-    exportSummariesToExcel: () => {
-      const state = get();
-      return state.commonSummaries
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((summary) => ({
-          摘要内容: summary.text,
-          排序: summary.sortOrder
-        }));
+    } catch (error) {
+      console.error('Failed to import summaries from Excel:', error);
+      throw error;
     }
-  }),
-    createAccountSetPersistConfig(STORAGE_KEYS.SUMMARIES)
-  )
-);
+  },
+
+  // Excel 导出摘要
+  exportSummariesToExcel: () => {
+    const state = get();
+    return state.commonSummaries
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((summary) => ({
+        摘要内容: summary.text,
+        排序: summary.sortOrder
+      }));
+  }
+}));

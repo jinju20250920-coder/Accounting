@@ -9,7 +9,8 @@ export interface AccountingSet {
   currentPeriod: string;
   voucherPrefix: string;
   voucherNoFormat: 'sequential' | 'monthly' | 'yearly';
-  lastVoucherNo: number;
+  lastVoucherNo: number;  // 最后一个凭证号（序号部分）
+  lastVoucherFullNo: string;  // 完整的最后一个凭证号（含前缀）
   isInitialized: boolean;
   isClosed: boolean;
   createdAt: string;
@@ -34,6 +35,7 @@ export interface Subject {
   disabled: boolean;
   block: boolean; // 冻结状态
   subjectType?: 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss'; // 科目类型
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 凭证
@@ -47,6 +49,8 @@ export interface Voucher {
   voucherType: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
   createdBy: string;
   createdAt: string;
+  updatedAt?: string;
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 凭证分录
@@ -66,6 +70,13 @@ export interface VoucherEntry {
   cashFlowItem?: string; // 现金流量项目
   customerName?: string; // 客户名称
   supplierName?: string; // 供应商名称
+  auxiliary?: {
+    department?: string;
+    project?: string;
+    customer?: string;
+    supplier?: string;
+  };
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 科目余额
@@ -87,6 +98,7 @@ export interface VoucherTemplate {
   entries: TemplateEntry[];
   createdAt: string;
   updatedAt: string;
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 模板分录
@@ -110,6 +122,7 @@ export interface Department {
   parentId: string | null;
   level: number;
   frozen: boolean; // 冻结状态
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 项目
@@ -123,6 +136,7 @@ export interface Project {
   startDate?: string;
   endDate?: string;
   frozen: boolean; // 冻结状态
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 账龄数据
@@ -278,6 +292,7 @@ export interface UserPreference {
 // 记账表
 export interface LedgerEntry {
   id: string;
+  entryNo: string;  // 分录编号，格式：{voucherNo}-{entrySeq}，从1开始
   voucherNo: string;
   entryDate: string;
   summary: string;
@@ -296,6 +311,7 @@ export interface LedgerEntry {
   entryTime: string;
   writeOffFlag: boolean;
   correction: boolean;
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 初始化配置
@@ -344,6 +360,7 @@ export interface Currency {
   isBase: boolean;
   disabled: boolean;
   createdAt: string;
+  accountSetId?: string; // 新增字段：所属账套ID
   updatedAt: string;
 }
 
@@ -353,6 +370,7 @@ export interface CommonSummary {
   text: string;
   sortOrder: number;
   createdAt: string;
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 最近使用摘要
@@ -371,6 +389,7 @@ export interface VoucherFullTemplate {
   entries: VoucherTemplateEntry[];
   createdAt: string;
   updatedAt: string;
+  accountSetId?: string; // 新增字段：所属账套ID
 }
 
 // 凭证模版分录
@@ -388,4 +407,27 @@ export interface VoucherTemplateEntry {
   cashFlowItem?: string; // 现金流量项目
   customerName?: string; // 客户名称
   supplierName?: string; // 供应商名称
+}
+
+// 往来单位（统一模型）
+export interface Partner {
+  id: string;
+  code: string;
+  name: string;
+  isCustomer: boolean; // 客户勾选
+  isSupplier: boolean; // 供应商勾选
+  isEmployee: boolean; // 雇员勾选
+  contact?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  taxNumber?: string; // 税号
+  bankAccount?: string; // 银行账号
+  bankName?: string; // 开户银行
+  frozen: boolean;
+  createdAt: string;
+  // 合并相关字段
+  mergedFrom?: string[]; // 从哪些ID合并而来
+  parentId?: string; // 关联的集团ID（用于合并到集团）
+  accountSetId?: string; // 新增字段：所属账套ID
 }

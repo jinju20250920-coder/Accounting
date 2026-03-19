@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据存储测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>数据存储测试工具</h1>
+
+    <div class="test-section">
+        <h2>1. 检查浏览器存储</h2>
+        <button onclick="checkStorage()">检查 localStorage</button>
+        <button onclick="checkIndexedDB()">检查 IndexedDB</button>
+        <div id="storage-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. localStorage 测试</h2>
+        <button onclick="testLocalStorage()">执行 localStorage 测试</button>
+        <div id="localStorage-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. 存储键值对检查</h2>
+        <button onclick="listStorageKeys()">列出所有存储键</button>
+        <div id="keys-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. 清除存储</h2>
+        <button onclick="clearAllStorage()">清除所有存储</button>
+        <div id="clear-result"></div>
+    </div>
+
+    <script>
+        // 检查 localStorage
+        function checkStorage() {
+            const result = document.getElementById('storage-result');
+            result.innerHTML = '';
+
+            try {
+                // 检查是否支持 localStorage
+                if (typeof Storage === "undefined") {
+                    result.innerHTML += '<div class="error">❌ 浏览器不支持 localStorage</div>';
+                    return;
+                }
+
+                // 检查是否有 finance 相关的存储
+                const financeKeys = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.includes('finance')) {
+                        financeKeys.push(key);
+                    }
+                }
+
+                if (financeKeys.length > 0) {
+                    result.innerHTML += `<div class="success">✅ localStorage 中有 ${financeKeys.length} 个 finance 相关的存储项</div>`;
+                    result.innerHTML += `<div class="info">📦 存储项：<br>${financeKeys.map(key => ` - ${key}`).join('<br>')}</div>`;
+                } else {
+                    result.innerHTML += '<div class="info">ℹ️ localStorage 中没有找到 finance 相关的存储项</div>';
+                }
+
+                // 检查可用空间
+                const testKey = '__test__';
+                const testValue = 'x'.repeat(1024); // 1KB
+                let storageSize = 0;
+                let storedItems = 0;
+
+                try {
+                    while (true) {
+                        localStorage.setItem(testKey + storedItems, testValue);
+                        storageSize += testValue.length;
+                        storedItems++;
+                    }
+                } catch (e) {
+                    // 清理测试数据
+                    for (let i = 0; i < storedItems; i++) {
+                        localStorage.removeItem(testKey + i);
+                    }
+                    result.innerHTML += `<div class="info">💾 可用存储空间：约 ${Math.round(storageSize / 1024)} KB</div>`;
+                }
+
+            } catch (error) {
+                result.innerHTML += `<div class="error">❌ 检查 localStorage 时出错：${error.message}</div>`;
+            }
+        }
+
+        // 检查 IndexedDB
+        function checkIndexedDB() {
+            const result = document.getElementById('storage-result');
+            result.innerHTML += '<div class="info">🔍 正在检查 IndexedDB...</div>';
+
+            try {
+                if (!window.indexedDB) {
+                    result.innerHTML += '<div class="error">❌ 浏览器不支持 IndexedDB</div>';
+                    return;
+                }
+
+                const request = indexedDB.open('finance-assistant-db');
+
+                request.onsuccess = function(event) {
+                    const db = event.target.result;
+                    const objectStores = db.objectStoreNames;
+                    result.innerHTML += `<div class="success">✅ IndexedDB 数据库 'finance-assistant-db' 已找到</div>`;
+                    result.innerHTML += `<div class="info">💾 包含的对象存储空间：<br>${Array.from(objectStores).map(store => ` - ${store}`).join('<br>')}</div>`;
+
+                    // 检查 keyValues 存储
+                    if (objectStores.contains('keyValues')) {
+                        const transaction = db.transaction('keyValues', 'readonly');
+                        const store = transaction.objectStore('keyValues');
+                        const countRequest = store.count();
+
+                        countRequest.onsuccess = function() {
+                            result.innerHTML += `<div class="info">📦 keyValues 存储中有 ${countRequest.result} 条记录</div>`;
+                        };
+
+                        // 列出前几条记录
+                        const getAllRequest = store.getAll(undefined, 10);
+                        getAllRequest.onsuccess = function() {
+                            if (getAllRequest.result.length > 0) {
+                                const keys = getAllRequest.result.map(item => item.key);
+                                result.innerHTML += `<div class="info">🔑 前 10 条记录的键：${JSON.stringify(keys, null, 2)}</div>`;
+                            }
+                        };
+                    }
+
+                    db.close();
+                };
+
+                request.onerror = function() {
+                    result.innerHTML += '<div class="error">❌ 无法打开 IndexedDB 数据库</div>';
+                };
+
+                request.onupgradeneeded = function() {
+                    result.innerHTML += '<div class="info">ℹ️ IndexedDB 数据库不存在或需要升级</div>';
+                };
+
+            } catch (error) {
+                result.innerHTML += `<div class="error">❌ 检查 IndexedDB 时出错：${error.message}</div>`;
+            }
+        }
+
+        // 测试 localStorage
+        function testLocalStorage() {
+            const result = document.getElementById('localStorage-result');
+            result.innerHTML = '';
+
+            try {
+                // 测试写入和读取
+                const testKey = 'test_finance_key';
+                const testValue = 'test_value_' + Date.now();
+
+                localStorage.setItem(testKey, testValue);
+                const retrievedValue = localStorage.getItem(testKey);
+
+                if (retrievedValue === testValue) {
+                    result.innerHTML += '<div class="success">✅ 写入和读取操作成功</div>';
+                } else {
+                    result.innerHTML += `<div class="error">❌ 写入和读取操作失败：预期 '${testValue}'，实际 '${retrievedValue}'</div>`;
+                }
+
+                // 测试删除
+                localStorage.removeItem(testKey);
+                const afterDelete = localStorage.getItem(testKey);
+
+                if (afterDelete === null) {
+                    result.innerHTML += '<div class="success">✅ 删除操作成功</div>';
+                } else {
+                    result.innerHTML += `<div class="error">❌ 删除操作失败：值仍然存在</div>`;
+                }
+
+                // 测试批量操作
+                const bulkCount = 5;
+                const bulkKeys = [];
+
+                for (let i = 0; i < bulkCount; i++) {
+                    const key = `bulk_test_${i}`;
+                    localStorage.setItem(key, `value_${i}`);
+                    bulkKeys.push(key);
+                }
+
+                // 检查是否都存储成功
+                const allStored = bulkKeys.every(key => localStorage.getItem(key) !== null);
+                if (allStored) {
+                    result.innerHTML += `<div class="success">✅ 批量写入 ${bulkCount} 条数据成功</div>`;
+                }
+
+                // 清理测试数据
+                bulkKeys.forEach(key => localStorage.removeItem(key));
+
+            } catch (error) {
+                result.innerHTML += `<div class="error">❌ 测试 localStorage 时出错：${error.message}</div>`;
+            }
+        }
+
+        // 列出所有存储键
+        function listStorageKeys() {
+            const result = document.getElementById('keys-result');
+            result.innerHTML = '';
+
+            if (typeof Storage === "undefined") {
+                result.innerHTML = '<div class="error">❌ 浏览器不支持 localStorage</div>';
+                return;
+            }
+
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key) {
+                    const value = localStorage.getItem(key);
+                    let valuePreview = value;
+                    if (value.length > 200) {
+                        valuePreview = value.substring(0, 200) + '...';
+                    }
+                    keys.push({ key, value: valuePreview });
+                }
+            }
+
+            if (keys.length > 0) {
+                result.innerHTML = `<div class="success">✅ 找到 ${keys.length} 个存储键：</div>`;
+                keys.forEach(item => {
+                    result.innerHTML += `<div class="info">🔑 <strong>${item.key}</strong>: <pre>${item.value}</pre></div>`;
+                });
+            } else {
+                result.innerHTML = '<div class="info">ℹ️ localStorage 是空的</div>';
+            }
+        }
+
+        // 清除所有存储
+        function clearAllStorage() {
+            const result = document.getElementById('clear-result');
+
+            if (!confirm('警告：此操作将清除浏览器中所有与 AI 财务助手相关的存储数据，包括：\n- localStorage 中的所有 finance-* 键\n- IndexedDB 中的 finance-assistant-db 数据库\n\n您确定要继续吗？')) {
+                return;
+            }
+
+            try {
+                result.innerHTML = '';
+
+                // 清除 localStorage 中的 finance 相关键
+                const financeKeys = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.includes('finance')) {
+                        financeKeys.push(key);
+                    }
+                }
+
+                financeKeys.forEach(key => localStorage.removeItem(key));
+                result.innerHTML += `<div class="success">✅ 删除了 ${financeKeys.length} 个 localStorage 存储项</div>`;
+
+                // 清除 IndexedDB
+                if (window.indexedDB) {
+                    const deleteRequest = indexedDB.deleteDatabase('finance-assistant-db');
+
+                    deleteRequest.onsuccess = function() {
+                        result.innerHTML += '<div class="success">✅ IndexedDB 数据库已删除</div>';
+                    };
+
+                    deleteRequest.onerror = function() {
+                        result.innerHTML += '<div class="error">❌ 无法删除 IndexedDB 数据库</div>';
+                    };
+                }
+
+                result.innerHTML += '<div class="success">✅ 所有存储已清除完成</div>';
+
+            } catch (error) {
+                result.innerHTML += `<div class="error">❌ 清除存储时出错：${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

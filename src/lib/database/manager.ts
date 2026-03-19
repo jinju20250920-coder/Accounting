@@ -1,6 +1,6 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
-interface FinanceDB extends DBSchema {
+export interface FinanceDB extends DBSchema {
   accountSets: {
     key: string;
     value: any;
@@ -114,7 +114,7 @@ class DatabaseManager {
   async init(): Promise<void> {
     if (this.db) return;
 
-    this.db = await openDB<FinanceDB>('finance-assistant-db', 1, {
+    this.db = await openDB<FinanceDB>('finance-assistant-db', 2, {
       upgrade(db) {
         // 创建账套元数据表
         if (!db.objectStoreNames.contains('accountSets')) {
@@ -203,6 +203,10 @@ class DatabaseManager {
     });
   }
 
+  setCurrentAccountSet(accountSetId: string): void {
+    this.currentAccountSetId = accountSetId;
+  }
+
   async switchAccountSet(accountSetId: string): Promise<void> {
     this.currentAccountSetId = accountSetId;
   }
@@ -216,6 +220,153 @@ class DatabaseManager {
       throw new Error('Database not initialized');
     }
     return this.db;
+  }
+
+  // ========== 数据导出/导入 ==========
+
+  async exportData() {
+    const db = this.getDatabase();
+    const accountSetId = this.getCurrentAccountSetId();
+
+    if (!accountSetId) {
+      throw new Error('No account set selected');
+    }
+
+    const vouchers = await db.getAllFromIndex('vouchers', 'by-accountSet', accountSetId);
+
+    // 为每个凭证加载分录
+    const vouchersWithEntries = await Promise.all(
+      vouchers.map(async (voucher) => {
+        const entries = await db.getAllFromIndex('entries', 'by-voucher', voucher.id);
+        const filteredEntries = entries.filter(entry => entry.accountSetId === accountSetId);
+        return {
+          ...voucher,
+          entries: filteredEntries
+        };
+      })
+    );
+
+    return {
+      vouchers: vouchersWithEntries,
+      subjects: await db.getAllFromIndex('subjects', 'by-accountSet', accountSetId),
+      departments: await db.getAllFromIndex('departments', 'by-accountSet', accountSetId),
+      projects: await db.getAllFromIndex('projects', 'by-accountSet', accountSetId),
+      currencies: await db.getAllFromIndex('currencies', 'by-accountSet', accountSetId),
+      partners: await db.getAllFromIndex('partners', 'by-accountSet', accountSetId),
+      voucherTemplates: await db.getAllFromIndex('voucherTemplates', 'by-accountSet', accountSetId),
+      commonSummaries: await db.getAllFromIndex('commonSummaries', 'by-accountSet', accountSetId),
+      preferences: await db.getAllFromIndex('userPreferences', 'by-accountSet', accountSetId),
+      auditLogs: await db.getAllFromIndex('auditLogs', 'by-accountSet', accountSetId),
+      exportDate: new Date().toISOString(),
+      version: '3.0'
+    };
+  }
+
+  async importData(data: any): Promise<void> {
+    const db = this.getDatabase();
+    const accountSetId = this.getCurrentAccountSetId();
+
+    if (!accountSetId) {
+      throw new Error('No account set selected');
+    }
+
+    const tx = db.transaction([
+      'vouchers',
+      'entries',
+      'subjects',
+      'departments',
+      'projects',
+      'currencies',
+      'partners',
+      'voucherTemplates',
+      'commonSummaries',
+      'userPreferences',
+      'auditLogs'
+    ], 'readwrite');
+
+    // 导入凭证
+    if (data.vouchers) {
+      for (const voucher of data.vouchers) {
+        const voucherWithAccountSet = {
+          ...voucher,
+          accountSetId
+        };
+        await tx.objectStore('vouchers').put(voucherWithAccountSet);
+        for (const entry of voucher.entries) {
+          const entryWithAccountSet = {
+            ...entry,
+            accountSetId,
+            voucherId: voucher.id
+          };
+          await tx.objectStore('entries').put(entryWithAccountSet);
+        }
+      }
+    }
+
+    // 导入科目
+    if (data.subjects) {
+      for (const subject of data.subjects) {
+        await tx.objectStore('subjects').put({ ...subject, accountSetId });
+      }
+    }
+
+    // 导入部门
+    if (data.departments) {
+      for (const dept of data.departments) {
+        await tx.objectStore('departments').put({ ...dept, accountSetId });
+      }
+    }
+
+    // 导入项目
+    if (data.projects) {
+      for (const project of data.projects) {
+        await tx.objectStore('projects').put({ ...project, accountSetId });
+      }
+    }
+
+    // 导入币别
+    if (data.currencies) {
+      for (const currency of data.currencies) {
+        await tx.objectStore('currencies').put({ ...currency, accountSetId });
+      }
+    }
+
+    // 导入往来单位
+    if (data.partners) {
+      for (const partner of data.partners) {
+        await tx.objectStore('partners').put({ ...partner, accountSetId });
+      }
+    }
+
+    // 导入凭证模板
+    if (data.voucherTemplates) {
+      for (const template of data.voucherTemplates) {
+        await tx.objectStore('voucherTemplates').put({ ...template, accountSetId });
+      }
+    }
+
+    // 导入常用摘要
+    if (data.commonSummaries) {
+      for (const summary of data.commonSummaries) {
+        await tx.objectStore('commonSummaries').put({ ...summary, accountSetId });
+      }
+    }
+
+    // 导入用户偏好
+    if (data.preferences) {
+      for (const pref of data.preferences) {
+        await tx.objectStore('userPreferences').put({ ...pref, accountSetId });
+      }
+    }
+
+    // 导入审计日志
+    if (data.auditLogs) {
+      for (const log of data.auditLogs) {
+        await tx.objectStore('auditLogs').put({ ...log, accountSetId });
+      }
+    }
+
+    await tx.done;
   }
 }
 

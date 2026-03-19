@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -34,7 +34,7 @@ interface ToastProviderProps {
 export function ToastProvider({ children }: ToastProviderProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const showToast = useCallback((type: ToastType, message: string, duration = 3000) => {
+  const showToast = useCallback((type: ToastType, message: string, duration = 2000) => {
     const id = Math.random().toString(36).substr(2, 9);
     setToasts(prev => [...prev, { id, type, message, duration }]);
   }, []);
@@ -78,15 +78,15 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
   const getBackgroundColor = () => {
     switch (toast.type) {
       case 'success':
-        return 'bg-green-600 border-green-700';
+        return 'bg-green-600 border-white';
       case 'error':
-        return 'bg-red-600 border-red-700';
+        return 'bg-red-600 border-white';
       case 'warning':
-        return 'bg-yellow-500 border-yellow-600';
+        return 'bg-yellow-500 border-white';
       case 'info':
-        return 'bg-blue-600 border-blue-700';
+        return 'bg-blue-600 border-white';
       default:
-        return 'bg-slate-700 border-slate-800';
+        return 'bg-slate-700 border-white';
     }
   };
 
@@ -121,11 +121,16 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
     }
   };
 
-  // 自动关闭
-  setTimeout(() => {
-    setVisible(false);
-    setTimeout(onClose, 300);
-  }, toast.duration);
+  // 自动关闭 - 使用 useEffect 避免重复创建
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setVisible(false);
+      const hideTimer = setTimeout(onClose, 300);
+      return () => clearTimeout(hideTimer);
+    }, toast.duration);
+
+    return () => clearTimeout(timer);
+  }, [toast.duration, onClose]);
 
   return (
     <div

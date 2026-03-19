@@ -149,7 +149,7 @@ export default function TemplatesSettingsPage() {
       ];
 
       const data = await importFromExcel<any>(importFile, headers);
-      const result = importTemplatesFromExcel(data, {
+      const result = await importTemplatesFromExcel(data, {
         subjects: subjects || [],
         departments: departments || [],
         projects: projects || [],
@@ -207,9 +207,9 @@ export default function TemplatesSettingsPage() {
     });
   };
 
-  const saveEditingTemplate = () => {
+  const saveEditingTemplate = async () => {
     if (editingTemplate) {
-      updateTemplate(editingTemplate, editForm);
+      await updateTemplate(editingTemplate, editForm);
       setEditingTemplate(null);
       setEditForm({});
     }
@@ -438,7 +438,7 @@ export default function TemplatesSettingsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => deleteTemplate(template.id)}
+                          onClick={async () => await deleteTemplate(template.id)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
                           <Trash2 className="w-4 h-4" />
