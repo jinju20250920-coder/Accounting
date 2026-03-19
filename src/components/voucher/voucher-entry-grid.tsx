@@ -22,6 +22,8 @@ import { SmartSubjectSelector, AmountInputWithPreview } from './smart-subject-se
 import { SummaryPicker } from './summary-picker';
 import { useAccountStore } from '@/stores/useAccountStore';
 import { useSummaryStore } from '@/stores';
+import { TemplateSelector } from './TemplateSelector';
+import { useVoucherTemplateStore } from '@/stores';
 
 interface ColumnItem {
   id: string;
@@ -56,19 +58,14 @@ interface VoucherEntry {
   };
 }
 
-interface Partner {
-  id: string;
-  code: string;
-  name: string;
-  isCustomer: boolean;
-  isSupplier: boolean;
-}
+// 从@/types导入统一的Partner类型
+import { Partner } from '@/types';
 
 // 模拟往来单位数据（与 settings/auxiliary 页面保持一致）
 const MOCK_PARTNERS: Partner[] = [
-  { id: 'p1', code: 'ABC001', name: '上海科技有限公司', isCustomer: true, isSupplier: false },
-  { id: 'p2', code: 'XYZ001', name: '北京商贸有限公司', isCustomer: true, isSupplier: true },
-  { id: 'p3', code: 'SUP001', name: '广州电子科技有限公司', isCustomer: false, isSupplier: true },
+  { id: 'p1', code: 'ABC001', name: '上海科技有限公司', isCustomer: true, isSupplier: false, isEmployee: false, frozen: false, createdAt: '2024-01-01' },
+  { id: 'p2', code: 'XYZ001', name: '北京商贸有限公司', isCustomer: true, isSupplier: true, isEmployee: false, frozen: false, createdAt: '2024-02-01' },
+  { id: 'p3', code: 'SUP001', name: '广州电子科技有限公司', isCustomer: false, isSupplier: true, isEmployee: false, frozen: false, createdAt: '2024-01-15' },
 ];
 
 // 显示行数
@@ -126,6 +123,21 @@ export function VoucherEntryGrid() {
   // 部门、项目输入框 refs
   const deptInputRefs = useRef<Record<string, any>>({});
   const projectInputRefs = useRef<Record<string, any>>({});
+
+  // 模板选择器状态
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+
+  // 处理模板选择
+  const handleTemplateSelected = (templateId: string, loadAmounts: boolean) => {
+    const template = useVoucherTemplateStore.getState().getTemplate(templateId);
+    if (template) {
+      useVoucherStore.getState().loadTemplate(template, loadAmounts);
+      toast({
+        title: "模板加载成功",
+        description: loadAmounts ? "已完全加载模板（含金额）" : "已加载模板（不含金额）"
+      });
+    }
+  };
 
 
   // 辅助函数：更新 entry 的嵌套 auxiliary 字段
@@ -597,16 +609,24 @@ export function VoucherEntryGrid() {
   };
 
   // 入账操作
-  const handlePostToLedger = () => {
+  const handlePostToLedger = async () => {
     try {
       // 传入 useSubjectStore 的科目数据，确保验证时使用统一数据源
-      addToLedger(subjects);
+      await saveVoucher('posted', subjects);
       toast({
         title: "操作成功",
-        description: "凭证已成功入账到记账表"
+        description: "凭证已成功入账，正在创建新凭证..."
       });
-      // 入账成功后创建新凭证
-      createVoucher();
+
+      // 延迟一下让用户看到成功提示，然后自动创建新凭证
+      setTimeout(() => {
+        clearVoucher();
+        createVoucher();
+        toast({
+          title: "新凭证已创建",
+          description: "可以继续录入下一张凭证"
+        });
+      }, 800);
     } catch (error) {
       toast({
         title: "入账失败",
@@ -1246,13 +1266,22 @@ export function VoucherEntryGrid() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex justify-between items-center">
-            <Button
-              variant="outline"
-              onClick={handleClear}
-            >
-              <RotateCcw className="w-4 h-4 mr-2" />
-              清空
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleClear}
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                清空
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowTemplateDialog(true)}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                导入模板
+              </Button>
+            </div>
 
             <div className="flex gap-2">
               <Button
@@ -1274,6 +1303,13 @@ export function VoucherEntryGrid() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 模板选择器对话框 */}
+      <TemplateSelector
+        open={showTemplateDialog}
+        onClose={() => setShowTemplateDialog(false)}
+        onSelectTemplate={handleTemplateSelected}
+      />
 
     </div>
   );

@@ -1,65 +1,13 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { createAccountSetPersistConfig } from './persistence-config';
+import { databaseService } from '@/lib/database/service';
+import type { Voucher } from '@/lib/database/service';
+import { useAccountSetStore } from './useAccountSetStore';
 
-// 会计科目数据
-interface Subject {
-  id: string;
-  code: string;
-  name: string;
-  parentId: string | null;
-  level: number;
-  direction: 'debit' | 'credit';
-  enableDept: boolean;
-  enableProject: boolean;
-  enableForeign: boolean;
-  foreignCurrency?: string;
-  isCustomer: boolean; // 客户核算（原应收）
-  isSupplier: boolean; // 供应商核算（原应付）
-  isEmployee: boolean; // 雇员核算
-  enableCashFlow: boolean; // 现金流量核算
-  cashFlowItem?: string; // 现金流量项目
-  disabled: boolean;
-}
+// 凭证状态
+type VoucherStatus = 'draft' | 'review' | 'posted' | 'reversed';
 
-// 凭证分录
-interface VoucherEntry {
-  id: string;
-  voucherId: string;
-  date: string;
-  summary: string;
-  subjectCode: string;
-  subjectName: string;
-  deptCode?: string;
-  projectCode?: string;
-  debit: number;
-  credit: number;
-  currencyCode?: string;
-  currencyName?: string;
-  cashFlowItem?: string;
-  customerName?: string;
-  supplierName?: string;
-  auxiliary?: {
-    department?: string;
-    project?: string;
-    customer?: string;
-    supplier?: string;
-  };
-}
-
-// 凭证
-interface Voucher {
-  id: string;
-  voucherNo: string;
-  date: string;
-  summary: string;
-  entries: VoucherEntry[];
-  status: 'draft' | 'review' | 'posted' | 'reversed';
-  voucherType: 'general' | 'payment' | 'receipt' | 'transfer' | 'closing';
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// 凭证类型
+type VoucherType = 'general' | 'payment' | 'receipt' | 'transfer' | 'closing';
 
 // 科目余额
 interface SubjectBalance {
@@ -74,6 +22,7 @@ interface SubjectBalance {
 // 记账表
 interface LedgerEntry {
   id: string;
+  entryNo: string; // 新增：分录编号，格式：{voucherNo}-{entrySeq}，从1开始
   voucherNo: string;
   entryDate: string;
   summary: string;
@@ -92,19 +41,14 @@ interface LedgerEntry {
   entryTime: string;
   writeOffFlag: boolean;
   correction: boolean;
+  accountSetId?: string; // 新增字段：所属账套ID
 }
-
-// 凭证状态
-type VoucherStatus = 'draft' | 'review' | 'posted' | 'reversed';
-
-// 凭证类型
-type VoucherType = 'general' | 'payment' | 'receipt' | 'transfer' | 'closing';
 
 // Store 接口
 interface VoucherStore {
   // 当前凭证状态
   currentVoucher: Voucher | null;
-  currentEntries: VoucherEntry[];
+  currentEntries: Voucher['entries'];
   voucherDate: string;
   voucherNo: string;
   isBalanced: boolean;
@@ -112,6 +56,7 @@ interface VoucherStore {
   totalCredit: number;
   vouchers: Voucher[];
   subjectBalances: SubjectBalance[];
+  isLoading: boolean;
   settings: {
     autoBalance: boolean;
     defaultSubject: string;
@@ -159,10 +104,16 @@ interface VoucherStore {
   copyVoucher: (voucherId: string) => void;
   saveVoucherAndCreateNext: () => void;
   pasteEntries: (entries: any[]) => void;
+
+  // 模板操作
+  loadTemplate: (template: any, loadAmounts: boolean) => void;
+
+  // 初始化
+  initialize: () => Promise<void>;
 }
 
 // 辅助函数：创建默认分录
-const createDefaultEntry = (voucherId: string, index?: number): VoucherEntry => ({
+const createDefaultEntry = (voucherId: string, index?: number): any => ({
   id: index !== undefined ? `entry_${voucherId}_${index}` : `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
   voucherId,
   date: new Date().toISOString().split('T')[0],
@@ -175,623 +126,669 @@ const createDefaultEntry = (voucherId: string, index?: number): VoucherEntry => 
   currencyName: '',
   cashFlowItem: '',
   customerName: '',
-  supplierName: ''
+  supplierName: '',
+  auxiliary: {}
 });
 
 // 辅助函数：生成凭证字号
-const generateVoucherNo = (date: string, count: number): string => {
+const generateVoucherNo = (date: string): string => {
   const yearMonth = date.substring(0, 7).replace('-', '');
-  const seq = String(count + 1).padStart(3, '0');
-  return `记-${yearMonth}-${seq}`;
+
+  // 从账套设置中获取最后一个凭证号
+  const { getCurrentAccountSet } = useAccountSetStore.getState();
+  const currentAccountSet = getCurrentAccountSet();
+
+  let lastSeq = 0;
+
+  if (currentAccountSet?.lastVoucherNo) {
+    lastSeq = currentAccountSet.lastVoucherNo;
+  } else {
+    // 如果账套设置中没有，尝试从现有凭证中查找最大序号
+    const voucherStore = useVoucherStore.getState();
+    const currentVouchers = voucherStore.vouchers;
+
+    // 过滤当前月份的凭证号
+    const currentMonthVouchers = currentVouchers.filter(v =>
+      v.voucherNo.startsWith(`记-${yearMonth}-`)
+    );
+
+    if (currentMonthVouchers.length > 0) {
+      // 提取序号并找到最大值
+      const sequences = currentMonthVouchers.map(v => {
+        const match = v.voucherNo.match(/-(\d{3})$/);
+        return match ? parseInt(match[1], 10) : 0;
+      });
+
+      lastSeq = Math.max(...sequences);
+    }
+  }
+
+  // 生成新的序号
+  const newSeq = lastSeq + 1;
+  const seqStr = String(newSeq).padStart(3, '0');
+
+  return `记-${yearMonth}-${seqStr}`;
 };
 
 // 创建store
-const useVoucherStoreBase = create<VoucherStore>()(
-  persist(
-    (set, get) => ({
-      // 初始状态
-      currentVoucher: null,
-      currentEntries: Array.from({ length: 10 }, (_, i) => createDefaultEntry('init', i)),
-      voucherDate: new Date().toISOString().split('T')[0],
-      voucherNo: '记-001',
-      isBalanced: false,
-      totalDebit: 0,
-      totalCredit: 0,
-      vouchers: [],
-      subjectBalances: [],
+export const useVoucherStore = create<VoucherStore>((set, get) => ({
+  // 初始状态
+  currentVoucher: null,
+  currentEntries: Array.from({ length: 10 }, (_, i) => createDefaultEntry('init', i)),
+  voucherDate: new Date().toISOString().split('T')[0],
+  voucherNo: '记-001',
+  isBalanced: false,
+  totalDebit: 0,
+  totalCredit: 0,
+  vouchers: [],
+  subjectBalances: [],
+  isLoading: false,
+  settings: {
+    autoBalance: true,
+    defaultSubject: '1002',
+    lastVoucherDate: new Date().toISOString().split('T')[0]
+  },
+  ledgerEntries: [],
+
+  // 初始化方法
+  initialize: async () => {
+    set({ isLoading: true });
+    try {
+      const vouchers = await databaseService.getAllVouchers();
+      // Filter to only show draft vouchers
+      const draftVouchers = vouchers.filter(v => v.status === 'draft');
+      set({ vouchers: draftVouchers });
+    } catch (error) {
+      console.error('Failed to initialize voucher store:', error);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  // 当前凭证操作
+  addEntry: () => set((state) => {
+    const newEntry = createDefaultEntry(state.currentVoucher?.id || Date.now().toString());
+    return {
+      currentEntries: [...state.currentEntries, newEntry]
+    };
+  }),
+
+  updateEntry: (id: string, field: string, value: any) => set((state) => {
+    const entries = state.currentEntries.map(entry =>
+      entry.id === id ? { ...entry, [field]: value } : entry
+    );
+
+    // 重新计算借贷总额
+    const totalDebit = entries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredit = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+
+    return {
+      currentEntries: entries,
+      totalDebit,
+      totalCredit,
+      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
+    };
+  }),
+
+  removeEntry: (id: string) => set((state) => {
+    const entries = state.currentEntries.filter(e => e.id !== id);
+    // 重新计算
+    const totalDebit = entries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredit = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+
+    return {
+      currentEntries: entries,
+      totalDebit,
+      totalCredit,
+      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
+    };
+  }),
+
+  updateVoucherDate: (date: string) => set((state) => ({
+    voucherDate: date,
+    voucherNo: generateVoucherNo(date),
+    currentVoucher: state.currentVoucher ? { ...state.currentVoucher, date } : null
+  })),
+
+  updateVoucherSummary: (summary: string) => set((state) => ({
+    currentVoucher: state.currentVoucher ? { ...state.currentVoucher, summary } : null
+  })),
+
+  saveVoucher: async (status: VoucherStatus = 'draft', subjects?: Array<{ code: string; name: string }>) => {
+    const state = get();
+    const voucher = state.currentVoucher;
+
+    if (!voucher) return;
+
+    // 验证借贷平衡
+    const isBalanced = Math.abs(state.totalDebit - state.totalCredit) < 0.01;
+    if (!isBalanced) {
+      throw new Error('借贷不平衡，请检查金额！');
+    }
+
+    const now = new Date().toISOString();
+    const savedVoucher: Voucher = {
+      ...voucher,
+      entries: state.currentEntries,
+      status,
+      updatedAt: now,
+      createdAt: voucher.createdAt || now
+    };
+
+    // 保存到数据库
+    await databaseService.saveVoucher(savedVoucher);
+
+    // 提取凭证号的序号部分并更新账套的 lastVoucherNo
+    const voucherNoMatch = savedVoucher.voucherNo.match(/(\d+)$/);
+    if (voucherNoMatch) {
+      const seqNumber = parseInt(voucherNoMatch[1], 10);
+
+      // 更新账套设置中的最后一个凭证号
+      const accountSetStore = useAccountSetStore.getState();
+      accountSetStore.updateAccountSet(accountSetStore.currentAccountSetId!, {
+        lastVoucherNo: seqNumber
+      });
+    }
+
+    set((prevState) => ({
+      vouchers: prevState.vouchers.some(v => v.id === voucher.id)
+        ? prevState.vouchers.map(v =>
+            v.id === voucher.id ? savedVoucher : v
+          )
+        : [...prevState.vouchers, savedVoucher],
+      currentVoucher: savedVoucher,
       settings: {
-        autoBalance: true,
-        defaultSubject: '1002',
-        lastVoucherDate: new Date().toISOString().split('T')[0]
-      },
-      ledgerEntries: [],
+        ...prevState.settings,
+        lastVoucherDate: state.voucherDate
+      }
+    }));
+  },
 
-      // 当前凭证操作
-      addEntry: () => set((state) => {
-        const newEntry = createDefaultEntry(state.currentVoucher?.id || Date.now().toString());
-        return {
-          currentEntries: [...state.currentEntries, newEntry]
-        };
-      }),
+  deleteVoucher: async (id: string) => {
+    await databaseService.deleteVoucher(id);
+    set((state) => ({
+      vouchers: state.vouchers.filter(v => v.id !== id)
+    }));
+  },
 
-      updateEntry: (id: string, field: string, value: any) => set((state) => {
-        const entries = state.currentEntries.map(entry =>
-          entry.id === id ? { ...entry, [field]: value } : entry
-        );
+  clearVoucher: () => set({
+    currentVoucher: null,
+    currentEntries: Array.from({ length: 10 }, (_, i) => createDefaultEntry('clear', i)),
+    isBalanced: false,
+    totalDebit: 0,
+    totalCredit: 0
+  }),
 
-        // 重新计算借贷总额
-        const totalDebit = entries.reduce((sum, e) => sum + (e.debit || 0), 0);
-        const totalCredit = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+  autoBalanceCredit: () => {
+    const state = get();
+    const totalDebit = state.currentEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredit = state.currentEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
+    const diff = totalDebit - totalCredit;
 
-        return {
-          currentEntries: entries,
-          totalDebit,
-          totalCredit,
-          isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
-        };
-      }),
+    // 找到贷方为空且是最后一行
+    const lastEntry = [...state.currentEntries].reverse().find(e => e.credit === 0 && e.id !== 'summary');
+    if (lastEntry) {
+      get().updateEntry(lastEntry.id, 'credit', diff);
+    }
+  },
 
-      removeEntry: (id: string) => set((state) => {
-        const entries = state.currentEntries.filter(e => e.id !== id);
-        // 重新计算
-        const totalDebit = entries.reduce((sum, e) => sum + (e.debit || 0), 0);
-        const totalCredit = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+  autoBalanceDebit: () => {
+    const state = get();
+    const totalDebit = state.currentEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredit = state.currentEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
+    const diff = totalCredit - totalDebit;
 
-        return {
-          currentEntries: entries,
-          totalDebit,
-          totalCredit,
-          isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
-        };
-      }),
+    // 找到借方为空且是最后一行
+    const lastEntry = [...state.currentEntries].reverse().find(e => e.debit === 0 && e.id !== 'summary');
+    if (lastEntry) {
+      get().updateEntry(lastEntry.id, 'debit', diff);
+    }
+  },
 
-      updateVoucherDate: (date: string) => set((state) => ({
-        voucherDate: date,
-        voucherNo: generateVoucherNo(date, state.vouchers.length),
-        currentVoucher: state.currentVoucher ? { ...state.currentVoucher, date } : null
-      })),
+  // 历史数据操作
+  loadVoucher: async (id: string) => {
+    const voucher = await databaseService.getVoucher(id);
+    if (voucher) {
+      set({
+        currentVoucher: voucher,
+        currentEntries: voucher.entries,
+        voucherDate: voucher.date,
+        voucherNo: voucher.voucherNo,
+        totalDebit: voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0),
+        totalCredit: voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0),
+        isBalanced: Math.abs(voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0) -
+                       voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0)) < 0.01
+      });
+    }
+  },
 
-      updateVoucherSummary: (summary: string) => set((state) => ({
-        currentVoucher: state.currentVoucher ? { ...state.currentVoucher, summary } : null
-      })),
+  getVouchersByStatus: (status: VoucherStatus) => {
+    const state = get();
+    return state.vouchers.filter(v => v.status === status);
+  },
 
-      saveVoucher: (status: VoucherStatus = 'draft', subjects?: Array<{ code: string; name: string }>) => {
-        const state = get();
-        const voucher = state.currentVoucher;
+  getVouchersByDateRange: (startDate: string, endDate: string) => {
+    const state = get();
+    return state.vouchers.filter(v => v.date >= startDate && v.date <= endDate);
+  },
 
-        if (!voucher) return;
+  getVoucherStatistics: () => {
+    const state = get();
+    const byStatus = {
+      draft: 0,
+      review: 0,
+      posted: 0,
+      reversed: 0
+    };
 
-        // 验证借贷平衡
-        const isBalanced = Math.abs(state.totalDebit - state.totalCredit) < 0.01;
-        if (!isBalanced) {
-          throw new Error('借贷不平衡，请检查金额！');
-        }
+    state.vouchers.forEach(v => {
+      byStatus[v.status]++;
+    });
 
-        // 验证科目是否存在（如果提供了科目列表）
-        if (subjects && subjects.length > 0) {
-          // 过滤掉空行（没有科目且没有金额的行）
-          const validEntries = state.currentEntries.filter(entry => {
-            const hasSubject = entry.subjectCode && entry.subjectCode.trim() !== '';
-            const hasAmount = (entry.debit && entry.debit > 0) || (entry.credit && entry.credit > 0);
-            return hasSubject || hasAmount;
-          });
+    // 按月统计
+    const monthMap = new Map<string, number>();
+    state.vouchers.forEach(v => {
+      const month = v.date.substring(0, 7);
+      monthMap.set(month, (monthMap.get(month) || 0) + 1);
+    });
 
-          for (const entry of validEntries) {
-            if (!entry.subjectCode || entry.subjectCode.trim() === '') {
-              throw new Error('科目信息不完整，无法保存');
-            }
-            const subjectFound = subjects.find(s => s.code === entry.subjectCode);
-            if (!subjectFound) {
-              throw new Error(`科目编号 "${entry.subjectCode}" 不存在，无法保存`);
-            }
-          }
-        }
+    const byMonth = Array.from(monthMap.entries())
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => a.month.localeCompare(b.month));
 
-        const now = new Date().toISOString();
-        const savedVoucher: Voucher = {
-          ...voucher,
-          entries: state.currentEntries,
-          status,
-          updatedAt: now,
-          createdAt: voucher.createdAt || now
-        };
+    return {
+      total: state.vouchers.length,
+      byStatus,
+      byMonth
+    };
+  },
 
-        set((prevState) => ({
-          vouchers: [...prevState.vouchers.filter(v => v.id !== voucher.id), savedVoucher],
-          settings: {
-            ...prevState.settings,
-            lastVoucherDate: state.voucherDate
-          }
-        }));
-      },
+  // 科目余额
+  updateSubjectBalance: (subjectCode: string, debit: number, credit: number) => {
+    const state = get();
+    const existing = state.subjectBalances.find(b => b.subjectCode === subjectCode);
 
-      deleteVoucher: (id: string) => set((state) => ({
-        vouchers: state.vouchers.filter(v => v.id !== id)
-      })),
-
-      clearVoucher: () => set({
-        currentVoucher: null,
-        currentEntries: Array.from({ length: 10 }, (_, i) => createDefaultEntry('clear', i)),
-        isBalanced: false,
-        totalDebit: 0,
-        totalCredit: 0
-      }),
-
-      autoBalanceCredit: () => {
-        const state = get();
-        const totalDebit = state.currentEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
-        const totalCredit = state.currentEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
-        const diff = totalDebit - totalCredit;
-
-        // 找到贷方为空且是最后一行
-        const lastEntry = [...state.currentEntries].reverse().find(e => e.credit === 0 && e.id !== 'summary');
-        if (lastEntry) {
-          get().updateEntry(lastEntry.id, 'credit', diff);
-        }
-      },
-
-      autoBalanceDebit: () => {
-        const state = get();
-        const totalDebit = state.currentEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
-        const totalCredit = state.currentEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
-        const diff = totalCredit - totalDebit;
-
-        // 找到借方为空且是最后一行
-        const lastEntry = [...state.currentEntries].reverse().find(e => e.debit === 0 && e.id !== 'summary');
-        if (lastEntry) {
-          get().updateEntry(lastEntry.id, 'debit', diff);
-        }
-      },
-
-      // 历史数据操作
-      loadVoucher: (id: string) => {
-        const state = get();
-        const voucher = state.vouchers.find(v => v.id === id);
-
-        if (voucher) {
-          set({
-            currentVoucher: voucher,
-            currentEntries: voucher.entries,
-            voucherDate: voucher.date,
-            voucherNo: voucher.voucherNo,
-            totalDebit: voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0),
-            totalCredit: voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0),
-            isBalanced: Math.abs(voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0) -
-                           voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0)) < 0.01
-          });
-        }
-      },
-
-      getVouchersByStatus: (status: VoucherStatus) => {
-        const state = get();
-        return state.vouchers.filter(v => v.status === status);
-      },
-
-      getVouchersByDateRange: (startDate: string, endDate: string) => {
-        const state = get();
-        return state.vouchers.filter(v => v.date >= startDate && v.date <= endDate);
-      },
-
-      getVoucherStatistics: () => {
-        const state = get();
-        const byStatus = {
-          draft: 0,
-          review: 0,
-          posted: 0,
-          reversed: 0
-        };
-
-        state.vouchers.forEach(v => {
-          byStatus[v.status]++;
-        });
-
-        // 按月统计
-        const monthMap = new Map<string, number>();
-        state.vouchers.forEach(v => {
-          const month = v.date.substring(0, 7);
-          monthMap.set(month, (monthMap.get(month) || 0) + 1);
-        });
-
-        const byMonth = Array.from(monthMap.entries())
-          .map(([month, count]) => ({ month, count }))
-          .sort((a, b) => a.month.localeCompare(b.month));
-
-        return {
-          total: state.vouchers.length,
-          byStatus,
-          byMonth
-        };
-      },
-
-      // 科目余额
-      updateSubjectBalance: (subjectCode: string, debit: number, credit: number) => {
-        const state = get();
-        const existing = state.subjectBalances.find(b => b.subjectCode === subjectCode);
-
-        if (existing) {
-          set({
-            subjectBalances: state.subjectBalances.map(b =>
-              b.subjectCode === subjectCode
-                ? {
-                    ...b,
-                    debitTotal: b.debitTotal + debit,
-                    creditTotal: b.creditTotal + credit,
-                    closingBalance: b.openingBalance + b.debitTotal + debit - (b.creditTotal + credit)
-                  }
-                : b
-            )
-          });
-        } else {
-          const newBalance: SubjectBalance = {
-            subjectCode,
-            subjectName: '', // 需要从科目表获取
-            openingBalance: 0,
-            debitTotal: debit,
-            creditTotal: credit,
-            closingBalance: debit - credit
-          };
-          set({
-            subjectBalances: [...state.subjectBalances, newBalance]
-          });
-        }
-      },
-
-      calculateSubjectBalances: () => {
-        const state = get();
-        const balances = new Map<string, SubjectBalance>();
-
-        // 遍历所有凭证
-        state.vouchers.forEach(voucher => {
-          if (voucher.status === 'posted' || voucher.status === 'reversed') {
-            voucher.entries.forEach(entry => {
-              const existing = balances.get(entry.subjectCode);
-
-              if (existing) {
-                existing.debitTotal += entry.debit;
-                existing.creditTotal += entry.credit;
-                existing.closingBalance = existing.openingBalance + existing.debitTotal - existing.creditTotal;
-              } else {
-                balances.set(entry.subjectCode, {
-                  subjectCode: entry.subjectCode,
-                  subjectName: entry.subjectName,
-                  openingBalance: 0,
-                  debitTotal: entry.debit,
-                  creditTotal: entry.credit,
-                  closingBalance: entry.debit - entry.credit
-                });
+    if (existing) {
+      set({
+        subjectBalances: state.subjectBalances.map(b =>
+          b.subjectCode === subjectCode
+            ? {
+                ...b,
+                debitTotal: b.debitTotal + debit,
+                creditTotal: b.creditTotal + credit,
+                closingBalance: b.openingBalance + b.debitTotal + debit - (b.creditTotal + credit)
               }
+            : b
+        )
+      });
+    } else {
+      const newBalance: SubjectBalance = {
+        subjectCode,
+        subjectName: '', // 需要从科目表获取
+        openingBalance: 0,
+        debitTotal: debit,
+        creditTotal: credit,
+        closingBalance: debit - credit
+      };
+      set({
+        subjectBalances: [...state.subjectBalances, newBalance]
+      });
+    }
+  },
+
+  calculateSubjectBalances: () => {
+    const state = get();
+    const balances = new Map<string, SubjectBalance>();
+
+    // 遍历所有凭证
+    state.vouchers.forEach(voucher => {
+      if (voucher.status === 'posted' || voucher.status === 'reversed') {
+        voucher.entries.forEach(entry => {
+          const existing = balances.get(entry.subjectCode);
+
+          if (existing) {
+            existing.debitTotal += entry.debit;
+            existing.creditTotal += entry.credit;
+            existing.closingBalance = existing.openingBalance + existing.debitTotal - existing.creditTotal;
+          } else {
+            balances.set(entry.subjectCode, {
+              subjectCode: entry.subjectCode,
+              subjectName: entry.subjectName,
+              openingBalance: 0,
+              debitTotal: entry.debit,
+              creditTotal: entry.credit,
+              closingBalance: entry.debit - entry.credit
             });
           }
         });
-
-        set({
-          subjectBalances: Array.from(balances.values())
-        });
-      },
-
-      getSubjectBalance: (subjectCode: string) => {
-        const state = get();
-        return state.subjectBalances.find(b => b.subjectCode === subjectCode) || null;
-      },
-
-      // 设置
-      updateSettings: (newSettings) => set((state) => ({
-        settings: { ...state.settings, ...newSettings }
-      })),
-
-      // 数据清理
-      cleanupOldData: (cutoffDate: string) => {
-        const state = get();
-
-        // 清理旧凭证
-        const cleanedVouchers = state.vouchers.filter(v => v.date >= cutoffDate);
-
-        // 清理审计记录（如果需要）
-        const cleanedSubjectBalances = state.subjectBalances.filter(b => {
-          // 保留当前期间的数据
-          const subjectTransactions = state.vouchers.filter(v =>
-            v.date >= cutoffDate &&
-            (v.status === 'posted' || v.status === 'reversed')
-          ).some(v => v.entries.some(e => e.subjectCode === b.subjectCode));
-
-          return subjectTransactions || b.subjectCode === state.settings.defaultSubject;
-        });
-
-        set({
-          vouchers: cleanedVouchers,
-          subjectBalances: cleanedSubjectBalances
-        });
-      },
-
-      // 从交易记录生成凭证
-      addVoucherFromTransactions: (transactionData: any) => {
-        const state = get();
-        const now = new Date().toISOString();
-
-        // 创建凭证分录
-        const entries: VoucherEntry[] = transactionData.entries.map((entry: any, index: number) => ({
-          id: `entry_${Date.now()}_${index}`,
-          voucherId: transactionData.id,
-          date: transactionData.date,
-          summary: transactionData.description,
-          subjectCode: entry.subject,
-          subjectName: entry.subjectName,
-          debit: entry.debit || 0,
-          credit: entry.credit || 0
-        }));
-
-        // 创建新凭证
-        const newVoucher: Voucher = {
-          id: transactionData.id,
-          voucherNo: generateVoucherNo(transactionData.date, state.vouchers.length),
-          date: transactionData.date,
-          summary: transactionData.description,
-          entries,
-          status: 'draft',
-          voucherType: 'general',
-          createdBy: 'system',
-          createdAt: now,
-          updatedAt: now
-        };
-
-        // 添加到凭证列表
-        set((prevState) => ({
-          vouchers: [...prevState.vouchers, newVoucher]
-        }));
-      },
-
-      // Session management methods
-      setActiveVoucher: (voucherId: string) => {
-        const state = get();
-        const voucher = state.vouchers.find(v => v.id === voucherId);
-
-        if (voucher) {
-          set({
-            currentVoucher: voucher,
-            currentEntries: voucher.entries,
-            voucherDate: voucher.date,
-            voucherNo: voucher.voucherNo,
-            totalDebit: voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0),
-            totalCredit: voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0),
-            isBalanced: Math.abs(voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0) -
-                             voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0)) < 0.01
-          });
-        }
-      },
-
-      createVoucher: () => {
-        const state = get();
-        const now = new Date().toISOString();
-        const newId = Date.now().toString();
-
-        // Create blank voucher
-        const newVoucher: Voucher = {
-          id: newId,
-          voucherNo: generateVoucherNo(state.voucherDate, state.vouchers.length),
-          date: state.voucherDate,
-          summary: '',
-          entries: Array.from({ length: 10 }, (_, i) => createDefaultEntry(newId, i)),
-          status: 'draft',
-          voucherType: 'general',
-          createdBy: 'user',
-          createdAt: now,
-          updatedAt: now
-        };
-
-        // Update current state
-        set({
-          currentVoucher: newVoucher,
-          currentEntries: newVoucher.entries,
-          totalDebit: 0,
-          totalCredit: 0,
-          isBalanced: true,
-          vouchers: [...state.vouchers, newVoucher]
-        });
-      },
-
-      copyVoucher: (voucherId: string) => {
-        const state = get();
-        const voucher = state.vouchers.find(v => v.id === voucherId);
-
-        if (!voucher || voucher.status === 'posted') return;
-
-        const now = new Date().toISOString();
-        const newId = Date.now().toString();
-
-        // Create copy with new ID
-        const copiedVoucher: Voucher = {
-          ...voucher,
-          id: newId,
-          voucherNo: generateVoucherNo(voucher.date, state.vouchers.length),
-          summary: voucher.summary + ' (副本)',
-          status: 'draft',
-          createdAt: now,
-          updatedAt: now
-        };
-
-        // Update current state
-        set({
-          currentVoucher: copiedVoucher,
-          currentEntries: copiedVoucher.entries,
-          voucherDate: copiedVoucher.date,
-          voucherNo: copiedVoucher.voucherNo,
-          totalDebit: copiedVoucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0),
-          totalCredit: copiedVoucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0),
-          isBalanced: Math.abs(copiedVoucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0) -
-                             copiedVoucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0)) < 0.01,
-          vouchers: [...state.vouchers, copiedVoucher]
-        });
-      },
-
-      saveVoucherAndCreateNext: async () => {
-        const state = get();
-        if (!state.currentVoucher) return;
-
-        // Save current voucher
-        try {
-          // Verify balance
-          const isBalanced = Math.abs(state.totalDebit - state.totalCredit) < 0.01;
-          if (!isBalanced) {
-            throw new Error('借贷不平衡，请检查金额！');
-          }
-
-          const now = new Date().toISOString();
-          const savedVoucher: Voucher = {
-            ...state.currentVoucher,
-            entries: state.currentEntries,
-            status: 'draft',
-            updatedAt: now
-          };
-
-          // Update existing voucher in list
-          const updatedVouchers = state.vouchers.map(v =>
-            v.id === savedVoucher.id ? savedVoucher : v
-          );
-
-          // Create new voucher
-          const newId = Date.now().toString();
-          const newVoucher: Voucher = {
-            id: newId,
-            voucherNo: generateVoucherNo(state.voucherDate, updatedVouchers.length),
-            date: state.voucherDate,
-            summary: '',
-            entries: Array.from({ length: 10 }, (_, i) => createDefaultEntry(newId, i)),
-            status: 'draft',
-            voucherType: 'general',
-            createdBy: 'user',
-            createdAt: now,
-            updatedAt: now
-          };
-
-          set({
-            currentVoucher: newVoucher,
-            currentEntries: newVoucher.entries,
-            totalDebit: 0,
-            totalCredit: 0,
-            isBalanced: true,
-            vouchers: [...updatedVouchers, newVoucher]
-          });
-
-          return true;
-        } catch (error) {
-          throw error;
-        }
-      },
-
-      pasteEntries: (entries: any[]) => {
-        const state = get();
-
-        // Add entries to current voucher
-        const newEntries = [...state.currentEntries, ...entries.map((entry, index) => ({
-          ...entry,
-          id: `paste_${Date.now()}_${index}`,
-          voucherId: state.currentVoucher?.id || Date.now().toString()
-        }))];
-
-        // Recalculate totals
-        const totalDebit = newEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
-        const totalCredit = newEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
-
-        set({
-          currentEntries: newEntries,
-          totalDebit,
-          totalCredit,
-          isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
-        });
-      },
-
-      // 记账表操作
-      addToLedger: (subjects: Array<{ code: string; name: string }>) => {
-        const state = get();
-        if (!state.currentVoucher) return;
-
-        // 验证借贷平衡
-        if (!state.isBalanced) {
-          throw new Error('凭证借贷不平衡，无法入账');
-        }
-
-        // 过滤掉空行（没有科目且没有金额的行）
-        const validEntries = state.currentEntries.filter(entry => {
-          const hasSubject = entry.subjectCode && entry.subjectCode.trim() !== '';
-          const hasAmount = (entry.debit && entry.debit > 0) || (entry.credit && entry.credit > 0);
-          return hasSubject || hasAmount;
-        });
-
-        if (validEntries.length === 0) {
-          throw new Error('没有有效的凭证分录，无法入账');
-        }
-
-        // 直接使用传入的科目列表，严格验证科目是否存在
-        const allSubjects = subjects || [];
-
-        // 验证科目是否存在
-        for (const entry of validEntries) {
-          if (!entry.subjectCode || entry.subjectCode.trim() === '') {
-            throw new Error('科目信息不完整，无法入账');
-          }
-
-          // 严格检查科目是否存在，不使用任何回退逻辑
-          const subjectFound = allSubjects.find((s: any) => s.code === entry.subjectCode);
-          if (!subjectFound) {
-            throw new Error(`科目编号 "${entry.subjectCode}" 不存在，无法入账`);
-          }
-        }
-
-        // 将凭证分录转换为记账表条目
-        const newLedgerEntries: LedgerEntry[] = validEntries.map(entry => ({
-          id: `ledger_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          voucherNo: state.currentVoucher.voucherNo,
-          entryDate: state.currentVoucher.date,
-          summary: entry.summary,
-          subjectCode: entry.subjectCode,
-          subjectName: entry.subjectName,
-          debit: entry.debit,
-          credit: entry.credit,
-          deptCode: entry.deptCode,
-          projectCode: entry.projectCode,
-          auxiliary: entry.auxiliary,
-          entryTime: new Date().toISOString(),
-          writeOffFlag: false,
-          correction: false
-        }));
-
-        // 添加到记账表
-        set((prevState) => ({
-          ledgerEntries: [...prevState.ledgerEntries, ...newLedgerEntries],
-          // 更新凭证状态为已记账
-          vouchers: prevState.vouchers.map(v =>
-            v.id === state.currentVoucher?.id ? { ...v, status: 'posted' as const, entries: state.currentEntries } : v
-          ),
-          currentVoucher: state.currentVoucher ? {
-            ...state.currentVoucher,
-            status: 'posted' as const,
-            entries: state.currentEntries
-          } : null
-        }));
-      },
-
-      getLedgerEntries: () => {
-        const state = get();
-        return state.ledgerEntries;
-      },
-
-      getLedgerEntriesByDateRange: (startDate: string, endDate: string) => {
-        const state = get();
-        return state.ledgerEntries.filter(entry =>
-          entry.entryDate >= startDate && entry.entryDate <= endDate
-        );
-      },
-
-      getLedgerEntriesBySubject: (subjectCode: string) => {
-        const state = get();
-        return state.ledgerEntries.filter(entry =>
-          entry.subjectCode === subjectCode
-        );
       }
-    }),
-    createAccountSetPersistConfig('finance-vouchers')
-  )
-);
+    });
 
-// 导出 store
-export { useVoucherStoreBase as useVoucherStore };
+    set({
+      subjectBalances: Array.from(balances.values())
+    });
+  },
+
+  getSubjectBalance: (subjectCode: string) => {
+    const state = get();
+    return state.subjectBalances.find(b => b.subjectCode === subjectCode) || null;
+  },
+
+  // 设置
+  updateSettings: (newSettings) => set((state) => ({
+    settings: { ...state.settings, ...newSettings }
+  })),
+
+  // 数据清理
+  cleanupOldData: (cutoffDate: string) => {
+    const state = get();
+
+    // 清理旧凭证
+    const cleanedVouchers = state.vouchers.filter(v => v.date >= cutoffDate);
+
+    // 清理审计记录（如果需要）
+    const cleanedSubjectBalances = state.subjectBalances.filter(b => {
+      // 保留当前期间的数据
+      const subjectTransactions = state.vouchers.filter(v =>
+        v.date >= cutoffDate &&
+        (v.status === 'posted' || v.status === 'reversed')
+      ).some(v => v.entries.some(e => e.subjectCode === b.subjectCode));
+
+      return subjectTransactions || b.subjectCode === state.settings.defaultSubject;
+    });
+
+    set({
+      vouchers: cleanedVouchers,
+      subjectBalances: cleanedSubjectBalances
+    });
+  },
+
+  // 从交易记录生成凭证
+  addVoucherFromTransactions: async (transactionData: any) => {
+    const state = get();
+    const now = new Date().toISOString();
+
+    // 创建凭证分录
+    const entries: any[] = transactionData.entries.map((entry: any, index: number) => ({
+      id: `entry_${Date.now()}_${index}`,
+      voucherId: transactionData.id,
+      date: transactionData.date,
+      summary: transactionData.description,
+      subjectCode: entry.subject,
+      subjectName: entry.subjectName,
+      debit: entry.debit || 0,
+      credit: entry.credit || 0
+    }));
+
+    // 创建新凭证
+    const newVoucher: Voucher = {
+      id: transactionData.id,
+      voucherNo: generateVoucherNo(transactionData.date),
+      date: transactionData.date,
+      summary: transactionData.description,
+      entries: entries,
+      status: 'draft',
+      voucherType: 'general',
+      createdBy: 'system',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // 保存到数据库
+    await databaseService.saveVoucher(newVoucher);
+
+    // 添加到凭证列表
+    set((prevState) => ({
+      vouchers: [...prevState.vouchers, newVoucher]
+    }));
+  },
+
+  // Session management methods
+  setActiveVoucher: (voucherId: string) => {
+    const state = get();
+    const voucher = state.vouchers.find(v => v.id === voucherId);
+
+    if (voucher) {
+      set({
+        currentVoucher: voucher,
+        currentEntries: voucher.entries,
+        voucherDate: voucher.date,
+        voucherNo: voucher.voucherNo,
+        totalDebit: voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0),
+        totalCredit: voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0),
+        isBalanced: Math.abs(voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0) -
+                       voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0)) < 0.01
+      });
+    }
+  },
+
+  createVoucher: async () => {
+    const state = get();
+    const now = new Date().toISOString();
+    const newId = Date.now().toString();
+
+    // Create blank voucher
+    const newVoucher: Voucher = {
+      id: newId,
+      voucherNo: generateVoucherNo(state.voucherDate),
+      date: state.voucherDate,
+      summary: '',
+      entries: Array.from({ length: 10 }, (_, i) => createDefaultEntry(newId, i)),
+      status: 'draft',
+      voucherType: 'general',
+      createdBy: 'user',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // 保存到数据库
+    await databaseService.saveVoucher(newVoucher);
+
+    // Update current state
+    set({
+      currentVoucher: newVoucher,
+      currentEntries: newVoucher.entries,
+      totalDebit: 0,
+      totalCredit: 0,
+      isBalanced: true,
+      vouchers: [...state.vouchers, newVoucher]
+    });
+  },
+
+  copyVoucher: async (voucherId: string) => {
+    const state = get();
+    const voucher = state.vouchers.find(v => v.id === voucherId);
+
+    if (!voucher || voucher.status === 'posted') return;
+
+    const now = new Date().toISOString();
+    const newId = Date.now().toString();
+
+    // Create copy with new ID
+    const copiedVoucher: Voucher = {
+      ...voucher,
+      id: newId,
+      voucherNo: generateVoucherNo(voucher.date),
+      summary: voucher.summary + ' (副本)',
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+      entries: voucher.entries.map(entry => ({
+        ...entry
+      }))
+    };
+
+    // 保存到数据库
+    await databaseService.saveVoucher(copiedVoucher);
+
+    // Update current state
+    set({
+      currentVoucher: copiedVoucher,
+      currentEntries: copiedVoucher.entries,
+      voucherDate: copiedVoucher.date,
+      voucherNo: copiedVoucher.voucherNo,
+      totalDebit: copiedVoucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0),
+      totalCredit: copiedVoucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0),
+      isBalanced: Math.abs(copiedVoucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0) -
+                         copiedVoucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0)) < 0.01,
+      vouchers: [...state.vouchers, copiedVoucher]
+    });
+  },
+
+  saveVoucherAndCreateNext: async () => {
+    const state = get();
+    if (!state.currentVoucher) return;
+
+    // Save current voucher
+    try {
+      // Verify balance
+      const isBalanced = Math.abs(state.totalDebit - state.totalCredit) < 0.01;
+      if (!isBalanced) {
+        throw new Error('借贷不平衡，请检查金额！');
+      }
+
+      const now = new Date().toISOString();
+      const savedVoucher: Voucher = {
+        ...state.currentVoucher,
+        entries: state.currentEntries,
+        status: 'draft',
+        updatedAt: now
+      };
+
+      // 保存到数据库
+      await databaseService.saveVoucher(savedVoucher);
+
+      // Update existing voucher in list
+      const updatedVouchers = state.vouchers.map(v =>
+        v.id === savedVoucher.id ? savedVoucher : v
+      );
+
+      // Create new voucher
+      const newId = Date.now().toString();
+      const newVoucher: Voucher = {
+        id: newId,
+        voucherNo: generateVoucherNo(state.voucherDate),
+        date: state.voucherDate,
+        summary: '',
+        entries: Array.from({ length: 10 }, (_, i) => createDefaultEntry(newId, i)),
+        status: 'draft',
+        voucherType: 'general',
+        createdBy: 'user',
+        createdAt: now,
+        updatedAt: now
+      };
+
+      // 保存新凭证到数据库
+      await databaseService.saveVoucher(newVoucher);
+
+      set({
+        currentVoucher: newVoucher,
+        currentEntries: newVoucher.entries,
+        totalDebit: 0,
+        totalCredit: 0,
+        isBalanced: true,
+        vouchers: [...updatedVouchers, newVoucher]
+      });
+
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  pasteEntries: (entries: any[]) => {
+    const state = get();
+
+    // Add entries to current voucher
+    const newEntries = [...state.currentEntries, ...entries.map((entry, index) => ({
+      ...entry,
+      id: `paste_${Date.now()}_${index}`,
+      voucherId: state.currentVoucher?.id || Date.now().toString()
+    }))];
+
+    // Recalculate totals
+    const totalDebit = newEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredit = newEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
+
+    set({
+      currentEntries: newEntries,
+      totalDebit,
+      totalCredit,
+      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
+    });
+  },
+
+  // 记账表操作
+  addToLedger: () => {
+    // 实现记账表操作
+  },
+
+  getLedgerEntries: () => {
+    const state = get();
+    return state.ledgerEntries;
+  },
+
+  getLedgerEntriesByDateRange: (startDate: string, endDate: string) => {
+    const state = get();
+    return state.ledgerEntries.filter(entry =>
+      entry.entryDate >= startDate && entry.entryDate <= endDate
+    );
+  },
+
+  getLedgerEntriesBySubject: (subjectCode: string) => {
+    const state = get();
+    return state.ledgerEntries.filter(entry =>
+      entry.subjectCode === subjectCode
+    );
+  },
+
+  loadTemplate: (template: any, loadAmounts: boolean) => {
+    const state = get();
+
+    // Create new entries from template
+    const newEntries = template.entries.map((entry: any, index: number) => ({
+      id: `entry-${Date.now()}-${index}`,
+      voucherId: '',
+      date: state.voucherDate,
+      summary: entry.summary || '',
+      subjectCode: entry.subjectCode || '',
+      subjectName: entry.subjectName || '',
+      deptCode: entry.deptCode || '',
+      projectCode: entry.projectCode || '',
+      debit: loadAmounts ? (entry.debit || 0) : 0,
+      credit: loadAmounts ? (entry.credit || 0) : 0,
+      auxiliary: {
+        department: entry.deptCode || '',
+        project: entry.projectCode || '',
+        customer: entry.customerName || '',
+        supplier: entry.supplierName || ''
+      }
+    }));
+
+    // Ensure we have at least 10 rows
+    while (newEntries.length < 10) {
+      newEntries.push({
+        id: `entry-${Date.now()}-${newEntries.length}`,
+        voucherId: '',
+        date: state.voucherDate,
+        summary: '',
+        subjectCode: '',
+        subjectName: '',
+        deptCode: '',
+        projectCode: '',
+        debit: 0,
+        credit: 0,
+        auxiliary: {}
+      });
+    }
+
+    set({
+      currentEntries: newEntries,
+      voucherNo: generateVoucherNo(state.voucherDate),
+      currentVoucher: null,
+      totalDebit: newEntries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0),
+      totalCredit: newEntries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0),
+      isBalanced: false
+    });
+  }
+}));
