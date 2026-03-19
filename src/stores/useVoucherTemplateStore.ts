@@ -45,7 +45,81 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
   initializeTemplates: async () => {
     try {
       const templates = await databaseService.getAllVoucherTemplates();
-      set({ templates });
+
+      // 如果数据库中没有模板，则加载默认模板
+      if (templates.length === 0) {
+        // 导入默认模板数据
+        const defaultTemplates: VoucherFullTemplate[] = [
+          {
+            id: 'tpl001',
+            name: '房租凭证',
+            description: '每月固定房租',
+            voucherType: 'general',
+            entries: [
+              {
+                id: 'entry_tpl001_1',
+                summary: '付房租',
+                subjectCode: '1122',
+                subjectName: '应收账款',
+                debit: 3000,
+                credit: 0
+              },
+              {
+                id: 'entry_tpl001_2',
+                summary: '付房租',
+                subjectCode: '1002',
+                subjectName: '银行存款',
+                debit: 0,
+                credit: 3000
+              }
+            ],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          {
+            id: 'tpl002',
+            name: '工资凭证',
+            description: '按部门比例分摊工资',
+            voucherType: 'general',
+            entries: [
+              {
+                id: 'entry_tpl002_1',
+                summary: '计提工资',
+                subjectCode: '660201',
+                subjectName: '管理费用-工资',
+                debit: 10000,
+                credit: 0,
+                deptCode: 'DEPT01'
+              },
+              {
+                id: 'entry_tpl002_2',
+                summary: '计提工资',
+                subjectCode: '660201',
+                subjectName: '管理费用-工资',
+                debit: 10000,
+                credit: 0,
+                deptCode: 'DEPT02'
+              }
+            ],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        ];
+
+        // 获取当前账套ID
+        const accountSetStore = useAccountSetStore.getState();
+        const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+        const templatesWithAccountSet = defaultTemplates.map(template => ({
+          ...template,
+          accountSetId: currentAccountSet?.id
+        }));
+
+        await databaseService.saveVoucherTemplates(templatesWithAccountSet);
+        set({ templates: templatesWithAccountSet });
+      } else {
+        set({ templates });
+      }
     } catch (error) {
       console.error('Failed to initialize templates:', error);
       throw error;
