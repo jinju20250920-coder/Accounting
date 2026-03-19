@@ -26,20 +26,27 @@ interface AccountStore {
 
 // 计算科目余额从记账记录表
 const calculateBalanceFromLedger = (subjectCode: string): SubjectBalance => {
-  const { ledgerEntries } = useVoucherStore.getState();
-  const subjectEntries = ledgerEntries.filter(entry => entry.subjectCode === subjectCode);
+  // 从 useVoucherStore 获取历史数据和当前数据
+  const { ledgerEntries, currentEntries } = useVoucherStore.getState();
 
+  // 从 ledgerEntries 计算历史余额
+  const subjectEntries = ledgerEntries.filter(entry => entry.subjectCode === subjectCode);
   const debitTotal = subjectEntries.reduce((sum, entry) => sum + entry.debit, 0);
   const creditTotal = subjectEntries.reduce((sum, entry) => sum + entry.credit, 0);
+
+  // 加上当前凭证中该科目的金额（未入账金额）
+  const currentSubjectEntries = currentEntries.filter(entry => entry.subjectCode === subjectCode);
+  const currentDebit = currentSubjectEntries.reduce((sum, entry) => sum + entry.debit, 0);
+  const currentCredit = currentSubjectEntries.reduce((sum, entry) => sum + entry.credit, 0);
 
   // 假设所有科目期初余额为0，实际应用中应从设置获取
   const openingBalance = 0;
   const direction = subjectCode.startsWith('1') || subjectCode.startsWith('5') || subjectCode.startsWith('6') ? 'debit' : 'credit';
   const closingBalance = direction === 'debit'
-    ? openingBalance + debitTotal - creditTotal
-    : openingBalance + creditTotal - debitTotal;
+    ? openingBalance + debitTotal + currentDebit - (creditTotal + currentCredit)
+    : openingBalance + creditTotal + currentCredit - (debitTotal + currentDebit);
 
-  // 获取科目名称（从科目表获取，这里简化处理）
+  // 获取科目名称（从科目表获取）
   let subjectName = subjectCode;
   try {
     const subjects = require('../lib/data/subjects.json');
@@ -55,8 +62,8 @@ const calculateBalanceFromLedger = (subjectCode: string): SubjectBalance => {
     subjectCode,
     subjectName,
     openingBalance,
-    debitTotal,
-    creditTotal,
+    debitTotal: debitTotal + currentDebit,
+    creditTotal: creditTotal + currentCredit,
     closingBalance,
     direction
   };
