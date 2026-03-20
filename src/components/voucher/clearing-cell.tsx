@@ -45,6 +45,11 @@ export function ClearingCell({
           onChange={(e) => handleManualInput(e.target.value)}
           placeholder="输入单据编号或点击选择"
           className="flex-1"
+          autoComplete="new-password"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck="false"
+          name={`clearing-${entryId || Math.random().toString(36).substr(2, 9)}`}
         />
         <Button
           variant="outline"
