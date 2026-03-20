@@ -44,7 +44,8 @@ const statusConfig = {
   draft: { label: '草稿', color: 'bg-slate-100 text-slate-700' },
   review: { label: '审核中', color: 'bg-yellow-100 text-yellow-700' },
   posted: { label: '已记账', color: 'bg-green-100 text-green-700' },
-  reversed: { label: '已冲销', color: 'bg-red-100 text-red-700' }
+  reversed: { label: '已冲销', color: 'bg-red-100 text-red-700' },
+  posted_reversed: { label: '已记账/已冲销', color: 'bg-blue-100 text-blue-700' }
 };
 
 // 凭证类型配置
@@ -233,7 +234,7 @@ export default function VoucherListPage() {
 
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('posted_reversed');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [startMonth, setStartMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
   const [endMonth, setEndMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 结束月份：YYYY-MM
@@ -273,7 +274,12 @@ export default function VoucherListPage() {
       const matchesSearch = !searchQuery ||
         v.voucherNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (v.summary && v.summary.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
+
+      // 状态筛选：支持 'posted_reversed' 特殊值
+      const matchesStatus = selectedStatus === 'all' ||
+        (selectedStatus === 'posted_reversed' && (v.status === 'posted' || v.status === 'reversed')) ||
+        v.status === selectedStatus;
+
       const matchesType = selectedType === 'all' || v.voucherType === selectedType;
       // 月份区间筛选：凭证日期在开始月份和结束月份之间（包含两端）
       const voucherMonth = v.date.slice(0, 7);
@@ -385,14 +391,51 @@ export default function VoucherListPage() {
 
   const handleExport = () => {
     // 导出为CSV
-    const headers = ['凭证号', '日期', '摘要', '状态', '类型', '借方合计', '贷方合计'];
+    const headers = ['凭证号', '日期', '摘要', '业务单据号', '往来单位', '部门', '项目', '现金流量', '创建人', '创建时间', '状态', '类型', '借方合计', '贷方合计'];
     const rows = filteredVouchers.map(v => {
       const debitTotal = v.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
       const creditTotal = v.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+
+      // 提取往来单位（客户或供应商）
+      const partnerNames = new Set<string>();
+      v.entries.forEach(entry => {
+        if (entry.auxiliary?.customer) partnerNames.add(entry.auxiliary.customer);
+        if (entry.auxiliary?.supplier) partnerNames.add(entry.auxiliary.supplier);
+        if (entry.customerName) partnerNames.add(entry.customerName);
+        if (entry.supplierName) partnerNames.add(entry.supplierName);
+      });
+
+      // 提取部门
+      const deptNames = new Set<string>();
+      v.entries.forEach(entry => {
+        if (entry.deptCode) deptNames.add(entry.deptCode);
+        if (entry.auxiliary?.department) deptNames.add(entry.auxiliary.department);
+      });
+
+      // 提取项目
+      const projectNames = new Set<string>();
+      v.entries.forEach(entry => {
+        if (entry.projectCode) projectNames.add(entry.projectCode);
+        if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
+      });
+
+      // 提取现金流量
+      const cashFlowItems = new Set<string>();
+      v.entries.forEach(entry => {
+        if (entry.cashFlowItem) cashFlowItems.add(entry.cashFlowItem);
+      });
+
       return [
         v.voucherNo,
         v.date,
         v.summary || '',
+        v.entries[0]?.docNo || '',
+        Array.from(partnerNames).join('; '),
+        Array.from(deptNames).join('; '),
+        Array.from(projectNames).join('; '),
+        Array.from(cashFlowItems).join('; '),
+        v.createdBy || '',
+        v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN') : '',
         statusConfig[v.status as keyof typeof statusConfig].label,
         typeConfig[v.voucherType as keyof typeof typeConfig],
         debitTotal.toFixed(2),
@@ -495,6 +538,7 @@ export default function VoucherListPage() {
                 value={selectedStatus}
                 onChange={setSelectedStatus}
                 options={[
+                  { value: 'posted_reversed', label: '已记账/已冲销' },
                   { value: 'all', label: '全部状态' },
                   { value: 'draft', label: '草稿' },
                   { value: 'review', label: '审核中' },
@@ -591,6 +635,13 @@ export default function VoucherListPage() {
                         </button>
                       </th>
                       <th className="text-left p-3 border-b">摘要</th>
+                      <th className="text-left p-3 border-b">业务单据号</th>
+                      <th className="text-left p-3 border-b">往来单位</th>
+                      <th className="text-left p-3 border-b">部门</th>
+                      <th className="text-left p-3 border-b">项目</th>
+                      <th className="text-left p-3 border-b">现金流量</th>
+                      <th className="text-left p-3 border-b">创建人</th>
+                      <th className="text-left p-3 border-b">创建时间</th>
                       <th className="text-left p-3 border-b">类型</th>
                       <th className="text-left p-3 border-b">状态</th>
                       <th className="text-right p-3 border-b">借方合计</th>
@@ -629,6 +680,54 @@ export default function VoucherListPage() {
                             </td>
                             <td className="p-3 border-b">{voucher.date}</td>
                             <td className="p-3 border-b truncate max-w-xs">{voucher.summary || '-'}</td>
+                            <td className="p-3 border-b font-mono text-xs">{voucher.entries[0]?.docNo || '-'}</td>
+                            <td className="p-3 border-b text-xs">
+                              {(() => {
+                                // 提取往来单位
+                                const partnerNames = new Set<string>();
+                                voucher.entries.forEach(entry => {
+                                  if (entry.auxiliary?.customer) partnerNames.add(entry.auxiliary.customer);
+                                  if (entry.auxiliary?.supplier) partnerNames.add(entry.auxiliary.supplier);
+                                  if (entry.customerName) partnerNames.add(entry.customerName);
+                                  if (entry.supplierName) partnerNames.add(entry.supplierName);
+                                });
+                                return Array.from(partnerNames).join('; ') || '-';
+                              })()}
+                            </td>
+                            <td className="p-3 border-b text-xs">
+                              {(() => {
+                                // 提取部门
+                                const deptNames = new Set<string>();
+                                voucher.entries.forEach(entry => {
+                                  if (entry.deptCode) deptNames.add(entry.deptCode);
+                                  if (entry.auxiliary?.department) deptNames.add(entry.auxiliary.department);
+                                });
+                                return Array.from(deptNames).join('; ') || '-';
+                              })()}
+                            </td>
+                            <td className="p-3 border-b text-xs">
+                              {(() => {
+                                // 提取项目
+                                const projectNames = new Set<string>();
+                                voucher.entries.forEach(entry => {
+                                  if (entry.projectCode) projectNames.add(entry.projectCode);
+                                  if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
+                                });
+                                return Array.from(projectNames).join('; ') || '-';
+                              })()}
+                            </td>
+                            <td className="p-3 border-b text-xs">
+                              {(() => {
+                                // 提取现金流量
+                                const cashFlowItems = new Set<string>();
+                                voucher.entries.forEach(entry => {
+                                  if (entry.cashFlowItem) cashFlowItems.add(entry.cashFlowItem);
+                                });
+                                return Array.from(cashFlowItems).join('; ') || '-';
+                              })()}
+                            </td>
+                            <td className="p-3 border-b text-xs">{voucher.createdBy || '-'}</td>
+                            <td className="p-3 border-b text-xs">{voucher.createdAt ? new Date(voucher.createdAt).toLocaleString('zh-CN') : '-'}</td>
                             <td className="p-3 border-b">
                               {typeConfig[voucher.voucherType as keyof typeof typeConfig]}
                             </td>
@@ -691,9 +790,26 @@ export default function VoucherListPage() {
                             .map((entry) => (
                               <tr key={`${voucher.id}_${entry.id}`} className="hover:bg-slate-100">
                                 <td className="p-3 border-b no-print"></td>
-                                <td className="p-3 border-b pl-6" colSpan={2}>{entry.summary || '-'}</td>
+                                <td className="p-3 border-b pl-6" colSpan={4}>{entry.summary || '-'}</td>
                                 <td className="p-3 border-b font-mono">{entry.subjectCode || '-'}</td>
                                 <td className="p-3 border-b">{entry.subjectName || '-'}</td>
+                                <td className="p-3 border-b text-xs">
+                                  {(() => {
+                                    const partner = entry.auxiliary?.customer || entry.auxiliary?.supplier || entry.customerName || entry.supplierName;
+                                    return partner || '-';
+                                  })()}
+                                </td>
+                                <td className="p-3 border-b text-xs">
+                                  {entry.deptCode || entry.auxiliary?.department || '-'}
+                                </td>
+                                <td className="p-3 border-b text-xs">
+                                  {entry.projectCode || entry.auxiliary?.project || '-'}
+                                </td>
+                                <td className="p-3 border-b text-xs">
+                                  {entry.cashFlowItem || '-'}
+                                </td>
+                                <td className="p-3 border-b"></td>
+                                <td className="p-3 border-b"></td>
                                 <td className="p-3 border-b"></td>
                                 <td className="p-3 border-b text-right font-mono">
                                   {entry.debit > 0 ? entry.debit.toFixed(2) : ''}

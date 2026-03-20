@@ -18,9 +18,10 @@ interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>
   onKeyDown?: (e: React.KeyboardEvent<HTMLSelectElement>) => void;
   'data-field'?: string;
   'data-entry-id'?: string;
+  showCode?: boolean;
 }
 
-export function Select({ options, placeholder = '请选择', value, onChange, className, variant = 'default', onKeyDown, 'data-field': dataField, 'data-entry-id': dataEntryId, ...props }: SelectProps) {
+export function Select({ options, placeholder = '请选择', value, onChange, className, variant = 'default', onKeyDown, 'data-field': dataField, 'data-entry-id': dataEntryId, showCode = true, ...props }: SelectProps) {
   return (
     <select
       value={value ?? ''}
@@ -36,6 +37,7 @@ export function Select({ options, placeholder = '请选择', value, onChange, cl
             'flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
+      autoComplete="off"
       {...props}
     >
       {placeholder && (
@@ -45,7 +47,7 @@ export function Select({ options, placeholder = '请选择', value, onChange, cl
       )}
       {options.map((option) => (
         <option key={option.value} value={option.value}>
-          {option.code ? `${option.code} ${option.label}` : option.label}
+          {showCode && option.code ? `${option.code} ${option.label}` : option.label}
         </option>
       ))}
     </select>

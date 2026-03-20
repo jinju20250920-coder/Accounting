@@ -46,7 +46,8 @@ class DatabaseService {
   private get accountSetId(): string {
     const id = databaseManager.getCurrentAccountSetId();
     if (!id) {
-      throw new Error('No account set selected');
+      // 如果没有选择账套，返回默认账套ID（确保至少有一个默认账套）
+      return 'default-account-set';
     }
     return id;
   }
@@ -646,6 +647,30 @@ class DatabaseService {
       await tx.objectStore('recRelations').put(relationWithAccountSet);
     }
 
+    await tx.done;
+  }
+
+  async saveRecRelation(relation: any): Promise<void> {
+    const tx = this.db.transaction('recRelations', 'readwrite');
+    const relationWithAccountSet = {
+      ...relation,
+      accountSetId: this.accountSetId
+    };
+    await tx.objectStore('recRelations').put(relationWithAccountSet);
+    await tx.done;
+  }
+
+  async getRecRelations(): Promise<any[]> {
+    return await this.getAllFromIndexSafe('recRelations', 'by-accountSet', this.accountSetId);
+  }
+
+  async updateEntryRecRefNo(entryId: string, recRefNo: string): Promise<void> {
+    const tx = this.db.transaction('entries', 'readwrite');
+    const entry = await tx.objectStore('entries').get(entryId);
+    if (entry) {
+      entry.recRefNo = recRefNo;
+      await tx.objectStore('entries').put(entry);
+    }
     await tx.done;
   }
 

@@ -52,6 +52,7 @@ const menuItems = [
     { label: '现金流量表', path: '/reports/cashflow' },
   ]},
   { icon: Users, label: '往来管理', path: '/aging', children: [
+    { label: '往来单位管理', path: '/partner-dashboard' },
     { label: '应收明细', path: '/aging/ar' },
     { label: '应付明细', path: '/aging/ap' },
   ]},

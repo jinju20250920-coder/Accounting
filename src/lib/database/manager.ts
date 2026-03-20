@@ -1,6 +1,18 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
 export interface FinanceDB extends DBSchema {
+  recRelations: {
+    key: string;
+    value: any;
+    indexes: {
+      'by-accountSet': string;
+      'by-recRefNo': string;
+      'by-debitEntry': string;
+      'by-creditEntry': string;
+      'by-partner': string;
+      'by-date': string;
+    };
+  };
   accountSets: {
     key: string;
     value: any;
@@ -26,6 +38,7 @@ export interface FinanceDB extends DBSchema {
       'by-voucher': string;
       'by-subject': string;
       'by-date': string;
+      'by-recRefNo': string;
     };
   };
   subjects: {
@@ -114,7 +127,7 @@ class DatabaseManager {
   async init(): Promise<void> {
     if (this.db) return;
 
-    this.db = await openDB<FinanceDB>('finance-assistant-db', 2, {
+    this.db = await openDB<FinanceDB>('finance-assistant-db', 3, {
       upgrade(db) {
         // 创建账套元数据表
         if (!db.objectStoreNames.contains('accountSets')) {
@@ -199,6 +212,28 @@ class DatabaseManager {
           const auditStore = db.createObjectStore('auditLogs', { keyPath: 'id' });
           auditStore.createIndex('by-accountSet', 'accountSetId');
         }
+
+        // 创建核销关系表（版本3）
+        if (!db.objectStoreNames.contains('recRelations')) {
+          const recRelationsStore = db.createObjectStore('recRelations', { keyPath: 'id' });
+          recRelationsStore.createIndex('by-accountSet', 'accountSetId');
+          recRelationsStore.createIndex('by-recRefNo', 'recRefNo');
+          recRelationsStore.createIndex('by-debitEntry', 'debitEntryId');
+          recRelationsStore.createIndex('by-creditEntry', 'creditEntryId');
+          recRelationsStore.createIndex('by-partner', 'partnerName');
+          recRelationsStore.createIndex('by-date', 'recDate');
+        }
+
+        // 为entries表添加recRefNo字段的索引
+        // @ts-ignore - 在upgrade回调中，entriesStore和createIndex一定存在
+        const entriesStore = db.transaction('entries', 'readwrite').objectStore('entries');
+        // @ts-ignore - 在upgrade回调中，entriesStore和createIndex一定存在
+        try {
+          // @ts-ignore - 在upgrade回调中，entriesStore和createIndex一定存在
+          entriesStore.createIndex('by-recRefNo', 'recRefNo');
+        } catch (error) {
+          // 索引已存在，忽略错误
+        }
       },
     });
   }
@@ -217,7 +252,14 @@ class DatabaseManager {
 
   getDatabase(): IDBPDatabase<FinanceDB> {
     if (!this.db) {
-      throw new Error('Database not initialized');
+      // 如果数据库未初始化，尝试初始化
+      // 注意：这是同步方法，不能使用 async/await
+      // 我们需要确保在使用数据库前已经初始化
+      console.warn('Database not initialized, attempting to initialize...');
+      // 这里我们不能直接调用 init() 因为它是 async 的
+      // 我们需要在应用程序启动时确保数据库已初始化
+      // 为了避免崩溃，我们可以抛出更友好的错误
+      throw new Error('Database not initialized. Please ensure database is initialized before use.');
     }
     return this.db;
   }

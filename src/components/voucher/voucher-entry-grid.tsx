@@ -19,6 +19,7 @@ import { SubjectSearch } from './subject-search';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ColumnSettings } from './ColumnSettings';
 import { SmartSubjectSelector, AmountInputWithPreview } from './smart-subject-selector';
+import { ClearingManager } from './clearing-manager';
 import { SummaryPicker } from './summary-picker';
 import { useAccountStore } from '@/stores/useAccountStore';
 import { useSummaryStore } from '@/stores';
@@ -388,8 +389,11 @@ export function VoucherEntryGrid() {
 
   const handleSummaryTextChange = (entryId: string, text: string, index: number) => {
     handleSummaryChange(entryId, text, index);
+    // 移除实时保存逻辑，只在回车或失焦时保存
+  };
 
-    // 当用户输入新摘要时，自动添加到"最近使用"列表中
+  // 处理摘要输入框的失焦事件，保存到最近使用
+  const handleSummaryBlur = (entryId: string, text: string) => {
     if (text.trim()) {
       addRecentSummary(text.trim());
     }
@@ -1081,8 +1085,19 @@ export function VoucherEntryGrid() {
                                 onFocus={() => {
                                   handleFocus(entry.id, 'summary');
                                 }}
-                                onBlur={handleBlur}
-                                onKeyDown={(e) => handleKeyDown(entry.id, 'summary', index, e)}
+                                onBlur={(e) => {
+                                  handleSummaryBlur(entry.id, entry.summary);
+                                  handleBlur();
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    // 按下回车键时保存摘要
+                                    if (entry.summary.trim()) {
+                                      addRecentSummary(entry.summary.trim());
+                                    }
+                                  }
+                                  handleKeyDown(entry.id, 'summary', index, e);
+                                }}
                                 placeholder=""
                                 className={`w-full ${
                                   isCellFocused
@@ -1091,6 +1106,7 @@ export function VoucherEntryGrid() {
                                 }`}
                                 style={{ minHeight: ROW_HEIGHT, borderRadius: 0, lineHeight: '1.4', paddingTop: '14px', paddingBottom: '14px' }}
                                 rows={2}
+                                autoComplete="off"
                               />
                             </SummaryPicker>
                           </td>
@@ -1153,7 +1169,8 @@ export function VoucherEntryGrid() {
                               onKeyDown={(e) => handleKeyDown(entry.id, 'docNo', index, e)}
                               onFocus={() => handleFocus(entry.id, 'docNo')}
                               onBlur={handleBlur}
-                              placeholder="单据号"
+                              placeholder="银行流水/发票号"
+                              autoComplete="off"
                               className={isCellFocused ? 'border-2 border-blue-500 z-10 relative' : ''}
                               style={{ height: ROW_HEIGHT, borderRadius: 0 }}
                             />
@@ -1162,18 +1179,11 @@ export function VoucherEntryGrid() {
                       case 'recRefNo':
                         return (
                           <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
-                            <Input
-                              variant="excel"
-                              data-field="recRefNo"
-                              data-entry-id={entry.id}
-                              value={entry.recRefNo || ''}
-                              onChange={(e) => updateEntry(entry.id, 'recRefNo', e.target.value)}
-                              onKeyDown={(e) => handleKeyDown(entry.id, 'recRefNo', index, e)}
-                              onFocus={() => handleFocus(entry.id, 'recRefNo')}
-                              onBlur={handleBlur}
-                              placeholder="核销单号"
-                              className={isCellFocused ? 'border-2 border-blue-500 z-10 relative' : ''}
-                              style={{ height: ROW_HEIGHT, borderRadius: 0 }}
+                            <ClearingManager
+                              entryId={entry.id}
+                              recRefNo={entry.recRefNo || ''}
+                              partnerName={entry.customerName || entry.supplierName || ''}
+                              amount={entry.debit > 0 ? entry.debit : entry.credit}
                             />
                           </td>
                         );
@@ -1244,6 +1254,7 @@ export function VoucherEntryGrid() {
                                   : ''
                               }`}
                               style={{ height: ROW_HEIGHT }}
+                              showCode={false}
                             />
                           </td>
                         );
@@ -1268,6 +1279,7 @@ export function VoucherEntryGrid() {
                                   : ''
                               }`}
                               style={{ height: ROW_HEIGHT }}
+                              showCode={false}
                             />
                           </td>
                         );
@@ -1289,6 +1301,7 @@ export function VoucherEntryGrid() {
                               onKeyDown={(e) => handleKeyDown(entry.id, 'customerSupplier', index, e)}
                               className="w-full"
                               style={{ height: ROW_HEIGHT }}
+                              showCode={false}
                             />
                           </td>
                         );

@@ -50,15 +50,25 @@ interface AccountStore {
   getOutstandingItems: (query: OutstandingQuery) => Promise<OutstandingItem[]>;
 }
 
-// 计算科目余额从记账记录表
+// 计算科目余额从所有已记账凭证和当前凭证
 const calculateBalanceFromLedger = (subjectCode: string, excludeEntryId?: string): SubjectBalance => {
-  // 从 useVoucherStore 获取历史数据和当前数据
-  const { ledgerEntries, currentEntries } = useVoucherStore.getState();
+  // 从 useVoucherStore 获取所有已记账凭证和当前数据
+  const { vouchers, currentEntries } = useVoucherStore.getState();
 
-  // 从 ledgerEntries 计算历史余额
-  const subjectEntries = ledgerEntries.filter(entry => entry.subjectCode === subjectCode);
-  const debitTotal = subjectEntries.reduce((sum, entry) => sum + entry.debit, 0);
-  const creditTotal = subjectEntries.reduce((sum, entry) => sum + entry.credit, 0);
+  // 从所有已记账凭证中计算历史余额
+  let debitTotal = 0;
+  let creditTotal = 0;
+
+  vouchers.forEach(voucher => {
+    if (voucher.status === 'posted' || voucher.status === 'reversed') {
+      voucher.entries.forEach(entry => {
+        if (entry.subjectCode === subjectCode) {
+          debitTotal += entry.debit;
+          creditTotal += entry.credit;
+        }
+      });
+    }
+  });
 
   // 加上当前凭证中该科目的金额（未入账金额），排除指定分录
   const currentSubjectEntries = currentEntries.filter(entry =>
@@ -167,7 +177,7 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
     // 过滤该往来单位的所有分录
     const allEntries = [...ledgerEntries, ...currentEntries];
     const partnerEntries = allEntries.filter(entry =>
-      entry.customerName === partnerName || entry.supplierName === partnerName
+      (entry as any).customerName === partnerName || (entry as any).supplierName === partnerName
     );
 
     // 计算每个分录的已核销金额（这里简化处理，实际应从数据库查询核销关系）

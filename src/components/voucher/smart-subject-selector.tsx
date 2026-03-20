@@ -408,6 +408,11 @@ export function SmartSubjectSelector({
         }}
         className="w-full pr-16 pt-3"
         style={{ height: '56px', borderRadius: 0 }}
+        autoComplete="new-password"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck="false"
+        name={`subject-search-${dataEntryId || Math.random().toString(36).substr(2, 9)}`}
       />
 
       {/* 科目选择 Popover */}
@@ -491,6 +496,7 @@ export function AmountInputWithPreview({
         placeholder={placeholder}
         className={`text-right font-mono ${className}`}
         style={{ height: '56px', borderRadius: 0 }}
+        autoComplete="off"
       />
       {/* 大写金额预览 - 右对齐 */}
       {chineseAmount && (

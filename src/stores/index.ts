@@ -21,3 +21,7 @@ export { useSummaryStore } from './useSummaryStore';
 export { useVoucherTemplateStore } from './useVoucherTemplateStore';
 
 export { useCurrencyStore } from './useCurrencyStore';
+
+export { usePartnerStore } from './usePartnerStore';
+
+export { useClearingStore } from './useClearingStore';

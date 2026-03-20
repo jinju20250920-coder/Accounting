@@ -58,7 +58,13 @@ function SortableItem({ column, onToggleVisibility }: { column: ColumnItem; onTo
       className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 mb-2 cursor-grab active:cursor-grabbing"
     >
       <div className="flex items-center gap-3">
-        <GripVertical className="w-5 h-5 text-gray-400" {...attributes} {...listeners} />
+        <button
+          className="w-5 h-5 text-gray-400"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="w-5 h-5" />
+        </button>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
           <span className="font-medium">{column.label}</span>

@@ -205,6 +205,11 @@ export function SubjectSearch({
           onChange={(e) => setSearchText(e.target.value)}
           className="pl-10"
           autoFocus
+          autoComplete="new-password"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck="false"
+          name={`subject-search-${Math.random().toString(36).substr(2, 9)}`}
         />
       </div>
 

@@ -4,16 +4,19 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, Download, Filter, ArrowRight, Building, Building2, User } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Search, Download, Filter, ArrowRight, Building, Building2, User, Users, Factory, UserCheck } from 'lucide-react';
 import { usePartnerStore } from '@/stores';
 import { useAccountStore } from '@/stores/useAccountStore';
 import { useVoucherStore } from '@/stores';
+import type { Partner } from '@/types';
 
 export function PartnerDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'detail'>('overview');
   const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
+  const [partnerTab, setPartnerTab] = useState<'all' | 'supplier' | 'customer' | 'employee'>('all');
 
   const { partners } = usePartnerStore();
   const { getPartnerBalance } = useAccountStore();
@@ -51,10 +54,45 @@ export function PartnerDashboard() {
     loadSummaryData();
   }, [partners, getPartnerBalance]);
 
-  const filteredPartners = partners.filter(partner =>
-    partner.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    partner.code.toLowerCase().includes(searchText.toLowerCase())
-  );
+  // 根据tab和搜索条件过滤往来单位
+  const filteredPartners = partners.filter(partner => {
+    // 类型过滤
+    const typeMatch = partnerTab === 'all' ||
+      (partnerTab === 'customer' && partner.isCustomer) ||
+      (partnerTab === 'supplier' && partner.isSupplier) ||
+      (partnerTab === 'employee' && partner.isEmployee);
+
+    // 搜索过滤
+    const searchMatch = partner.name.toLowerCase().includes(searchText.toLowerCase()) ||
+      partner.code.toLowerCase().includes(searchText.toLowerCase());
+
+    return typeMatch && searchMatch;
+  });
+
+  // 获取往来单位类型的标签
+  const getPartnerTypeLabel = (partner: Partner): string => {
+    const types: string[] = [];
+    if (partner.isCustomer) types.push('客户');
+    if (partner.isSupplier) types.push('供应商');
+    if (partner.isEmployee) types.push('雇员');
+    return types.length > 0 ? types.join('/') : '其他';
+  };
+
+  // 获取往来单位类型的徽章样式
+  const getPartnerTypeBadgeClass = (partner: Partner): string => {
+    const hasMultiple = [partner.isCustomer, partner.isSupplier, partner.isEmployee].filter(Boolean).length > 1;
+
+    if (hasMultiple) {
+      return 'bg-purple-100 text-purple-800';
+    } else if (partner.isCustomer) {
+      return 'bg-blue-100 text-blue-800';
+    } else if (partner.isSupplier) {
+      return 'bg-red-100 text-red-800';
+    } else if (partner.isEmployee) {
+      return 'bg-green-100 text-green-800';
+    }
+    return 'bg-slate-100 text-slate-800';
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -138,6 +176,29 @@ export function PartnerDashboard() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* 类型筛选tab */}
+          <div className="mb-4">
+            <Tabs value={partnerTab} onValueChange={(value: 'all' | 'supplier' | 'customer' | 'employee') => setPartnerTab(value)}>
+              <TabsList className="grid w-full grid-cols-4 max-w-md">
+                <TabsTrigger value="all" className="flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  所有
+                </TabsTrigger>
+                <TabsTrigger value="customer" className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4" />
+                  客户
+                </TabsTrigger>
+                <TabsTrigger value="supplier" className="flex items-center gap-2">
+                  <Factory className="w-4 h-4" />
+                  供应商
+                </TabsTrigger>
+                <TabsTrigger value="employee" className="flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  雇员
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-slate-300 bg-slate-100">
@@ -158,18 +219,8 @@ export function PartnerDashboard() {
                 >
                   <td className="p-2 border-r border-slate-300 font-medium">{partner.name}</td>
                   <td className="p-2 border-r border-slate-300">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      partner.isCustomer && partner.isSupplier
-                        ? 'bg-purple-100 text-purple-800'
-                        : partner.isCustomer
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-red-100 text-red-800'
-                    }`}>
-                      {partner.isCustomer && partner.isSupplier
-                        ? '客户/供应商'
-                        : partner.isCustomer
-                          ? '客户'
-                          : '供应商'}
+                    <span className={`px-2 py-1 rounded-full text-xs ${getPartnerTypeBadgeClass(partner)}`}>
+                      {getPartnerTypeLabel(partner)}
                     </span>
                   </td>
                   <td className="p-2 text-right border-r border-slate-300">

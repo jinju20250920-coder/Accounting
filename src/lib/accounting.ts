@@ -2,6 +2,8 @@
  * 会计引擎核心逻辑
  */
 
+import type { VoucherEntry } from '@/types';
+
 // 常用会计科目代码
 const ACCOUNT_CODES = {
   CASH: '1001',
@@ -355,6 +357,251 @@ export function getSubjects(): Array<{ code: string; name: string }> {
 /**
  * 验证科目是否存在
  */
+// 账龄模式
+export type AgingMode = 'month' | 'year' | 'day';
+
+// 账龄结果类型
+export interface AgingResult {
+  partner: string;
+  partnerType: 'customer' | 'supplier';
+  totalAmount: number;
+  buckets: {
+    current: number;
+    overdue1: number;
+    overdue2: number;
+    overdue3: number;
+    overdue6: number;
+  };
+  agingDistribution: number[];
+  lastActivityDate?: string;
+  isWriteOff: boolean;
+}
+
+export interface AgingDetail {
+  id: string;
+  voucherNo: string;
+  docNo: string;
+  date: string;
+  summary: string;
+  amount: number;
+  remainingAmount: number;
+  daysOverdue: number;
+  bucket: string;
+  partnerName: string;
+  isWriteOff: boolean;
+}
+
+export interface AgingConfig {
+  mode: AgingMode;
+  asOfDate: string;
+  showWriteOff: boolean;
+  overdueThreshold: number;
+  customBuckets?: number[];
+  useCustomBuckets?: boolean;
+}
+
+// 计算天数差
+export function calculateDaysDifference(startDate: string, endDate: string): number {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
+}
+
+// 获取账龄区间
+export function getAgingBucket(days: number, mode: AgingMode, useCustomBuckets: boolean = false, customBuckets: number[] = [30, 90, 180, 365, 730]): string {
+  if (useCustomBuckets) {
+    // 使用用户自定义的5个区间，保持用户输入的顺序
+    if (days <= customBuckets[0]) return 'current';
+    if (days <= customBuckets[1]) return 'overdue1';
+    if (days <= customBuckets[2]) return 'overdue2';
+    if (days <= customBuckets[3]) return 'overdue3';
+    if (days <= customBuckets[4]) return 'overdue6';
+    return 'overdue6';
+  }
+
+  switch (mode) {
+    case 'month':
+      if (days <= 30) return 'current';
+      if (days <= 90) return 'overdue1';
+      if (days <= 180) return 'overdue2';
+      if (days <= 365) return 'overdue3';
+      return 'overdue6';
+
+    case 'year':
+      if (days <= 365) return 'current';
+      if (days <= 730) return 'overdue1';
+      if (days <= 1095) return 'overdue2';
+      return 'overdue6';
+
+    case 'day':
+      if (days <= 30) return 'current';
+      if (days <= 60) return 'overdue1';
+      if (days <= 90) return 'overdue2';
+      if (days <= 120) return 'overdue3';
+      return 'overdue6';
+
+    default:
+      return 'current';
+  }
+}
+
+// 计算账龄分布
+export function calculateAgingDistribution(amounts: number[]): number[] {
+  const total = amounts.reduce((sum, amt) => sum + amt, 0);
+  return amounts.map(amt => total > 0 ? amt / total : 0);
+}
+
+// 获取逾期颜色
+export function getOverdueColor(days: number, isWriteOff: boolean): string {
+  if (isWriteOff) return 'text-gray-400';
+  if (days <= 30) return 'text-gray-600';
+  if (days <= 90) return 'text-yellow-600';
+  if (days <= 180) return 'text-orange-600';
+  return 'text-red-600';
+}
+
+// 格式化账龄显示
+export function formatAging(days: number, mode: AgingMode): string {
+  if (mode === 'month') {
+    if (days <= 30) return '1个月内';
+    if (days <= 90) return '1-3个月';
+    if (days <= 180) return '3-6个月';
+    if (days <= 365) return '6个月-1年';
+    return '1年以上';
+  }
+
+  if (mode === 'year') {
+    if (days <= 365) return '1年以内';
+    if (days <= 730) return '1-2年';
+    if (days <= 1095) return '2-3年';
+    return '3年以上';
+  }
+
+  if (mode === 'day') {
+    if (days <= 30) return '1-30天';
+    if (days <= 60) return '31-60天';
+    if (days <= 90) return '61-90天';
+    if (days <= 120) return '91-120天';
+    return '120天以上';
+  }
+
+  return `${days}天`;
+}
+
+// 格式化金额
+export function formatMoney(amount: number): string {
+  if (amount === 0) return '-';
+  return amount.toLocaleString('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2
+  });
+}
+
+// 计算账龄数据
+export function calculateAgingData(
+  entries: VoucherEntry[],
+  config: AgingConfig
+): AgingResult[] {
+  // 1. 按往来单位分组
+  const partnerMap = new Map<string, VoucherEntry[]>();
+
+  entries.forEach(entry => {
+    const partner = entry.customerName || entry.supplierName;
+    if (partner) {
+      if (!partnerMap.has(partner)) {
+        partnerMap.set(partner, []);
+      }
+      partnerMap.get(partner)!.push(entry);
+    }
+  });
+
+  // 2. 计算每个往来单位的账龄
+  const agingResults: AgingResult[] = [];
+
+  partnerMap.forEach((entries, partner) => {
+    const result: AgingResult = {
+      partner,
+      partnerType: entries[0].customerName ? 'customer' : 'supplier',
+      totalAmount: 0,
+      buckets: { current: 0, overdue1: 0, overdue2: 0, overdue3: 0, overdue6: 0 },
+      agingDistribution: [],
+      isWriteOff: false,
+    };
+
+    // 计算每个分录的账龄
+    entries.forEach(entry => {
+      const days = calculateDaysDifference(entry.date, config.asOfDate);
+      const bucket = getAgingBucket(days, config.mode, config.useCustomBuckets, config.customBuckets);
+      const remainingAmount = entry.debit > 0 ? entry.debit : entry.credit;
+
+      result.totalAmount += remainingAmount;
+      result.buckets[bucket as keyof typeof result.buckets] += remainingAmount;
+
+      // 检查是否有核销记录
+      if (entry.recRefNo) {
+        result.isWriteOff = true;
+      }
+    });
+
+    // 计算分布
+    result.agingDistribution = calculateAgingDistribution([
+      result.buckets.current,
+      result.buckets.overdue1,
+      result.buckets.overdue2,
+      result.buckets.overdue3,
+      result.buckets.overdue6
+    ]);
+
+    agingResults.push(result);
+  });
+
+  return agingResults.sort((a, b) => b.totalAmount - a.totalAmount);
+}
+
+// 获取明细数据
+export function getAgingDetails(
+  entries: VoucherEntry[],
+  config: AgingConfig & { bucket?: string; partner?: string }
+): AgingDetail[] {
+  const details: AgingDetail[] = [];
+
+  entries.forEach(entry => {
+    const partner = entry.customerName || entry.supplierName;
+
+    // 按合作伙伴筛选
+    if (config.partner && partner !== config.partner) {
+      return;
+    }
+
+    const days = calculateDaysDifference(entry.date, config.asOfDate);
+    const bucket = getAgingBucket(days, config.mode, config.useCustomBuckets, config.customBuckets);
+
+    // 按账龄区间筛选
+    if (config.bucket && bucket !== config.bucket) {
+      return;
+    }
+
+    details.push({
+      id: entry.id,
+      voucherNo: entry.voucherId,
+      docNo: entry.docNo || '',
+      date: entry.date,
+      summary: entry.summary,
+      amount: entry.debit > 0 ? entry.debit : entry.credit,
+      remainingAmount: entry.debit > 0 ? entry.debit : entry.credit,
+      daysOverdue: days,
+      bucket,
+      partnerName: partner,
+      isWriteOff: !!entry.recRefNo
+    });
+  });
+
+  return details.sort((a, b) => b.daysOverdue - a.daysOverdue);
+}
+
 export function validateSubjectExists(
   subjectCode: string,
   subjects: Array<{ code: string; name: string }>
@@ -371,4 +618,35 @@ export function validateSubjectExists(
     };
   }
   return { valid: true };
+}
+
+// 核销相关方法
+export function calculateClearedAmount(relations: any[]): number {
+  return relations.reduce((sum, rel) => sum + rel.amount, 0);
+}
+
+export function calculateRemainingAmount(totalAmount: number, clearedAmount: number): number {
+  return totalAmount - clearedAmount;
+}
+
+export function validateClearingAmount(
+  entryAmount: number,
+  selectedAmount: number,
+  remainingAmount: number
+): { valid: boolean; message: string } {
+  if (selectedAmount <= 0) {
+    return { valid: false, message: '核销金额必须大于0' };
+  }
+
+  if (selectedAmount > remainingAmount) {
+    return { valid: false, message: `核销金额不能超过剩余未核销金额${remainingAmount.toFixed(2)}` };
+  }
+
+  return { valid: true, message: '金额验证通过' };
+}
+
+export function generateClearingNo(): string {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const randomStr = Math.random().toString(36).substr(2, 6).toUpperCase();
+  return `REC-${timestamp}-${randomStr}`;
 }

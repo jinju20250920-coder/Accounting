@@ -7,7 +7,9 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
-import { Input, Button, Checkbox } from '@/components/ui';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Search, Filter, Check, X, ChevronRight } from 'lucide-react';
 import { useAccountStore } from '@/stores/useAccountStore';
 
