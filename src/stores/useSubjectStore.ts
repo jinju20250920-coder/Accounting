@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { Subject } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
 import defaultSubjects from '@/lib/data/subjects.json';
@@ -143,7 +143,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
     console.log('当前科目列表:', state.subjects);
 
     try {
-      await databaseService.saveSubjects([newSubject]);
+      await getCurrentService().saveSubjects([newSubject]);
       set((state) => {
         const newSubjects = [...state.subjects, newSubject];
         console.log('更新后的科目列表:', newSubjects);
@@ -170,7 +170,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       }
 
       const updatedSubject = { ...subject, ...updates };
-      await databaseService.saveSubjects([updatedSubject]);
+      await getCurrentService().saveSubjects([updatedSubject]);
 
       set((state) => ({
         subjects: state.subjects.map(s =>
@@ -202,7 +202,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
         return;
       }
 
-      await databaseService.saveSubjects(state.subjects.filter(s => s.id !== id));
+      await getCurrentService().saveSubjects(state.subjects.filter(s => s.id !== id));
       set((state) => ({
         subjects: state.subjects.filter(s => s.id !== id),
         selectedSubjectId: state.selectedSubjectId === id ? null : state.selectedSubjectId,
@@ -232,7 +232,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       }
 
       const updatedSubject = { ...subject, disabled: !subject.disabled };
-      await databaseService.saveSubjects([updatedSubject]);
+      await getCurrentService().saveSubjects([updatedSubject]);
 
       set((state) => ({
         subjects: state.subjects.map(s =>
@@ -257,7 +257,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       }
 
       const updatedSubject = { ...subject, block: !subject.block };
-      await databaseService.saveSubjects([updatedSubject]);
+      await getCurrentService().saveSubjects([updatedSubject]);
 
       set((state) => ({
         subjects: state.subjects.map(s =>
@@ -407,7 +407,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
         return;
       }
 
-      await databaseService.saveSubjects([...state.subjects, ...validSubjects]);
+      await getCurrentService().saveSubjects([...state.subjects, ...validSubjects]);
       set((state) => ({
         subjects: [...state.subjects, ...validSubjects],
         error: null
@@ -463,7 +463,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           accountSetId: currentAccountSet?.id,
         };
       });
-      await databaseService.saveSubjects(initializedSubjects);
+      await getCurrentService().saveSubjects(initializedSubjects);
       set({
         subjects: initializedSubjects,
         error: null
@@ -510,7 +510,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       console.log('初始化检查 - 默认科目版本:', DEFAULT_SUBJECTS_VERSION);
 
       // 从数据库加载科目数据
-      const subjects = await databaseService.getAllSubjects();
+      const subjects = await getCurrentService().getAllSubjects();
       console.log('从数据库加载的科目数据:', subjects);
 
       if (subjects.length > 0) {
@@ -557,7 +557,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       console.log('准备设置的科目数据:', initializedSubjects);
 
       // 保存到数据库
-      await databaseService.saveSubjects(initializedSubjects);
+      await getCurrentService().saveSubjects(initializedSubjects);
 
       set((state) => {
         console.log('设置前的科目列表:', state.subjects);

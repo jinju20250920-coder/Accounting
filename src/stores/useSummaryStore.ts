@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { CommonSummary, RecentSummary } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -75,7 +75,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
   // 初始化常用摘要
   initializeSummaries: async () => {
     try {
-      const summaries = await databaseService.getAllCommonSummaries();
+      const summaries = await getCurrentService().getAllCommonSummaries();
 
       if (summaries.length > 0) {
         set({ commonSummaries: summaries });
@@ -93,7 +93,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveCommonSummaries(initializedSummaries);
+      await getCurrentService().saveCommonSummaries(initializedSummaries);
       set({ commonSummaries: initializedSummaries });
     } catch (error) {
       console.error('Failed to initialize summaries:', error);
@@ -117,7 +117,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
       };
 
       const newSummaries = [...state.commonSummaries, newSummary].sort((a, b) => a.sortOrder - b.sortOrder);
-      await databaseService.saveCommonSummaries(newSummaries);
+      await getCurrentService().saveCommonSummaries(newSummaries);
 
       set({ commonSummaries: newSummaries });
     } catch (error) {
@@ -132,7 +132,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
       const updatedSummaries = state.commonSummaries.map(summary =>
         summary.id === id ? { ...summary, text: text.trim() } : summary
       );
-      await databaseService.saveCommonSummaries(updatedSummaries);
+      await getCurrentService().saveCommonSummaries(updatedSummaries);
       set({ commonSummaries: updatedSummaries });
     } catch (error) {
       console.error('Failed to update common summary:', error);
@@ -144,7 +144,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
     try {
       const state = get();
       const updatedSummaries = state.commonSummaries.filter(summary => summary.id !== id);
-      await databaseService.saveCommonSummaries(updatedSummaries);
+      await getCurrentService().saveCommonSummaries(updatedSummaries);
       set({ commonSummaries: updatedSummaries });
     } catch (error) {
       console.error('Failed to delete common summary:', error);
@@ -160,7 +160,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
         return summary ? { ...summary, sortOrder: index + 1 } : null;
       }).filter(Boolean).map(s => s as CommonSummary);
 
-      await databaseService.saveCommonSummaries(reorderedSummaries);
+      await getCurrentService().saveCommonSummaries(reorderedSummaries);
       set({ commonSummaries: reorderedSummaries });
     } catch (error) {
       console.error('Failed to reorder common summaries:', error);
@@ -257,7 +257,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
 
       if (newSummaries.length > 0) {
         const updatedSummaries = [...state.commonSummaries, ...newSummaries].sort((a, b) => a.sortOrder - b.sortOrder);
-        await databaseService.saveCommonSummaries(updatedSummaries);
+        await getCurrentService().saveCommonSummaries(updatedSummaries);
         set({ commonSummaries: updatedSummaries });
       }
 

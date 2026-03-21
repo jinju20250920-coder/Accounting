@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { Project } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -148,7 +148,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
         accountSetId: currentAccountSet?.id
       };
 
-      await databaseService.saveProjects([...state.projects, newProject]);
+      await getCurrentService().saveProjects([...state.projects, newProject]);
       set((state) => ({
         projects: [...state.projects, newProject],
         error: null
@@ -170,7 +170,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
       }
 
       const updatedProject = { ...project, ...updates };
-      await databaseService.saveProjects([
+      await getCurrentService().saveProjects([
         ...state.projects.filter(p => p.id !== id),
         updatedProject
       ]);
@@ -191,7 +191,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
   deleteProject: async (id) => {
     try {
       const state = get();
-      await databaseService.saveProjects(state.projects.filter(p => p.id !== id));
+      await getCurrentService().saveProjects(state.projects.filter(p => p.id !== id));
       set((state) => ({
         projects: state.projects.filter(p => p.id !== id),
         selectedProjectId: state.selectedProjectId === id ? null : state.selectedProjectId,
@@ -214,7 +214,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
       }
 
       const updatedProject = { ...project, endDate };
-      await databaseService.saveProjects([
+      await getCurrentService().saveProjects([
         ...state.projects.filter(p => p.id !== id),
         updatedProject
       ]);
@@ -242,7 +242,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
       }
 
       const updatedProject = { ...project, endDate: null };
-      await databaseService.saveProjects([
+      await getCurrentService().saveProjects([
         ...state.projects.filter(p => p.id !== id),
         updatedProject
       ]);
@@ -271,7 +271,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
       }
 
       const updatedProject = { ...project, frozen: !project.frozen };
-      await databaseService.saveProjects([
+      await getCurrentService().saveProjects([
         ...state.projects.filter(p => p.id !== id),
         updatedProject
       ]);
@@ -376,7 +376,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveProjects([...state.projects, ...projectsWithIds]);
+      await getCurrentService().saveProjects([...state.projects, ...projectsWithIds]);
       set((state) => ({
         projects: [...state.projects, ...projectsWithIds],
         error: null
@@ -397,7 +397,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
   initializeProjects: async () => {
     try {
       // 从数据库加载项目数据
-      const projects = await databaseService.getAllProjects();
+      const projects = await getCurrentService().getAllProjects();
 
       if (projects.length > 0) {
         set({ projects });
@@ -414,7 +414,7 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveProjects(projectsWithIds);
+      await getCurrentService().saveProjects(projectsWithIds);
       set({ projects: projectsWithIds });
     } catch (error) {
       console.error('Failed to initialize projects:', error);

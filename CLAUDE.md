@@ -345,6 +345,12 @@ if (type === 'sale_invoice') {
    - ✅ 禁止在 label 文本中直接写 `*`，如 `<Label>部门代码 *</Label>` 错误
    - ✅ 红色样式：`text-red-500` (Tailwind CSS)
 
+13. **端口占用处理** - 不要使用 taskkill 命令终止 node.exe 进程
+   - ❌ 禁止使用 `taskkill /f /im node.exe` 命令来解决端口占用问题
+   - ❌ 该命令会同时终止 VS Code 等使用 node.exe 的应用程序
+   - ✅ 推荐使用 `lsof`（macOS/Linux）或 `netstat`（Windows）查找并终止特定进程
+   - ✅ Windows 示例：`netstat -ano | findstr :3000` 找到 PID，然后 `taskkill /f /pid <PID>`
+
 ---
 
 ## 创新特性

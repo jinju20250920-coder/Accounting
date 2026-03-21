@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { Currency } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -138,7 +138,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       };
 
-      await databaseService.saveCurrencies([...state.currencies, newCurrency]);
+      await getCurrentService().saveCurrencies([...state.currencies, newCurrency]);
       set((state) => ({
         currencies: [...state.currencies, newCurrency],
         error: null
@@ -178,7 +178,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
           }
           return { ...c, isBase: false };
         });
-        await databaseService.saveCurrencies(updatedCurrencies);
+        await getCurrentService().saveCurrencies(updatedCurrencies);
         set({
           currencies: updatedCurrencies,
           error: null
@@ -189,7 +189,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         const updatedCurrencies = state.currencies.map(c =>
           c.id === id ? updatedCurrency : c
         );
-        await databaseService.saveCurrencies(updatedCurrencies);
+        await getCurrentService().saveCurrencies(updatedCurrencies);
         set({
           currencies: updatedCurrencies,
           error: null
@@ -217,7 +217,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         return;
       }
 
-      await databaseService.saveCurrencies(state.currencies.filter(c => c.id !== id));
+      await getCurrentService().saveCurrencies(state.currencies.filter(c => c.id !== id));
       set((state) => ({
         currencies: state.currencies.filter(c => c.id !== id),
         selectedCurrencyId: state.selectedCurrencyId === id ? null : state.selectedCurrencyId,
@@ -250,7 +250,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const updatedCurrencies = state.currencies.map(c =>
         c.id === id ? updatedCurrency : c
       );
-      await databaseService.saveCurrencies(updatedCurrencies);
+      await getCurrentService().saveCurrencies(updatedCurrencies);
 
       set({
         currencies: updatedCurrencies,
@@ -284,7 +284,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         isBase: c.id === id,
         updatedAt: c.id === id ? now : c.updatedAt
       }));
-      await databaseService.saveCurrencies(updatedCurrencies);
+      await getCurrentService().saveCurrencies(updatedCurrencies);
 
       set({
         currencies: updatedCurrencies,
@@ -349,7 +349,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const state = get();
 
       // 从数据库加载币别数据
-      const currencies = await databaseService.getAllCurrencies();
+      const currencies = await getCurrentService().getAllCurrencies();
 
       if (currencies.length > 0) {
         set({ currencies });
@@ -368,7 +368,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveCurrencies(initializedCurrencies);
+      await getCurrentService().saveCurrencies(initializedCurrencies);
       set({ currencies: initializedCurrencies });
     } catch (error) {
       console.error('Failed to initialize currencies:', error);
@@ -408,7 +408,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         return;
       }
 
-      await databaseService.saveCurrencies([...state.currencies, ...validCurrencies]);
+      await getCurrentService().saveCurrencies([...state.currencies, ...validCurrencies]);
       set((state) => ({
         currencies: [...state.currencies, ...validCurrencies],
         error: null
@@ -452,7 +452,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveCurrencies(initializedCurrencies);
+      await getCurrentService().saveCurrencies(initializedCurrencies);
       set({ currencies: initializedCurrencies, error: null });
     } catch (error) {
       console.error('Failed to reset currencies:', error);

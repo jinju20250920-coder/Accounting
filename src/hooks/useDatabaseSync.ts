@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { databaseManager } from '@/lib/database/manager';
+import { getCurrentManager } from '@/lib/database';
 import { useToast } from '@/hooks/use-toast';
 
 export function useDatabaseSync() {
@@ -27,14 +27,15 @@ export function useDatabaseSync() {
         const { usePartnerStore } = await import('@/stores/usePartnerStore');
         const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
 
-        // 1. 初始化 DatabaseManager
-        await databaseManager.init();
+        // 1. 初始化当前配置的数据库
+        const manager = getCurrentManager();
+        await manager.init();
 
         // 2. 设置当前账套
         const accountSetStore = useAccountSetStore.getState();
         const currentAccountSet = accountSetStore.getCurrentAccountSet();
         if (currentAccountSet) {
-          databaseManager.setCurrentAccountSet(currentAccountSet.id);
+          manager.setCurrentAccountSet(currentAccountSet.id);
         }
 
         // 3. 从 IndexedDB 加载数据到各个 store（使用 getState 避免订阅）
@@ -64,10 +65,10 @@ export function useDatabaseSync() {
     initDatabase();
   }, [toast]);
 
-  // 导出数据功能 - 从 IndexedDB 获取数据
+  // 导出数据功能 - 从当前配置的数据库获取数据
   const exportData = async () => {
     try {
-      const data = await databaseManager.exportData();
+      const data = await getCurrentManager().exportData();
 
       // 创建下载链接
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -101,7 +102,7 @@ export function useDatabaseSync() {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      await databaseManager.importData(data);
+      await getCurrentManager().importData(data);
 
       // 重新加载所有数据（动态导入以避免循环依赖）
       const { useVoucherStore } = await import('@/stores/useVoucherStore');

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { Partner } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -128,7 +128,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       };
 
-      await databaseService.savePartners([...state.partners, newPartner]);
+      await getCurrentService().savePartners([...state.partners, newPartner]);
       set({
         partners: [...state.partners, newPartner]
       });
@@ -166,7 +166,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
       const updatedPartners = state.partners.map(partner =>
         partner.id === id ? { ...partner, ...updates } : partner
       );
-      await databaseService.savePartners(updatedPartners);
+      await getCurrentService().savePartners(updatedPartners);
       set({
         partners: updatedPartners
       });
@@ -190,7 +190,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         throw new Error('该往来单位已冻结，无法删除');
       }
 
-      await databaseService.savePartners(state.partners.filter(p => p.id !== id));
+      await getCurrentService().savePartners(state.partners.filter(p => p.id !== id));
       set({
         partners: state.partners.filter(p => p.id !== id),
         selectedPartnerId: state.selectedPartnerId === id ? null : state.selectedPartnerId
@@ -208,7 +208,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
       const updatedPartners = state.partners.map(partner =>
         partner.id === id ? { ...partner, frozen: !partner.frozen } : partner
       );
-      await databaseService.savePartners(updatedPartners);
+      await getCurrentService().savePartners(updatedPartners);
       set((state) => ({
         partners: updatedPartners
       }));
@@ -280,7 +280,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         }
       });
 
-      await databaseService.savePartners([...state.partners, ...validPartners]);
+      await getCurrentService().savePartners([...state.partners, ...validPartners]);
       set({
         partners: [...state.partners, ...validPartners]
       });
@@ -303,7 +303,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
   // 清除所有往来单位
   clearAllPartners: async () => {
     try {
-      await databaseService.savePartners([]);
+      await getCurrentService().savePartners([]);
       set({
         partners: [],
         selectedPartnerId: null
@@ -317,7 +317,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
   // 初始化往来单位数据
   initializePartners: async () => {
     try {
-      const partners = await databaseService.getAllPartners();
+      const partners = await getCurrentService().getAllPartners();
 
       if (partners.length > 0) {
         set({ partners });
@@ -335,7 +335,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.savePartners(initializedPartners);
+      await getCurrentService().savePartners(initializedPartners);
       set({ partners: initializedPartners });
     } catch (error) {
       console.error('Failed to initialize partners:', error);

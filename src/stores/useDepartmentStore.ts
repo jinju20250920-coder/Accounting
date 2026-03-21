@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { Department } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -110,7 +110,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       };
 
-      await databaseService.saveDepartments([...state.departments, newDepartment]);
+      await getCurrentService().saveDepartments([...state.departments, newDepartment]);
       set((state) => ({
         departments: [...state.departments, newDepartment],
         error: null
@@ -132,7 +132,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
       }
 
       const updatedDepartment = { ...department, ...updates };
-      await databaseService.saveDepartments([
+      await getCurrentService().saveDepartments([
         ...state.departments.filter(d => d.id !== id),
         updatedDepartment
       ]);
@@ -167,7 +167,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
         return;
       }
 
-      await databaseService.saveDepartments(state.departments.filter(d => d.id !== id));
+      await getCurrentService().saveDepartments(state.departments.filter(d => d.id !== id));
       set((state) => ({
         departments: state.departments.filter(d => d.id !== id),
         selectedDepartmentId: state.selectedDepartmentId === id ? null : state.selectedDepartmentId,
@@ -198,7 +198,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
       }
 
       const updatedDepartment = { ...department, frozen: !department.frozen };
-      await databaseService.saveDepartments([
+      await getCurrentService().saveDepartments([
         ...state.departments.filter(d => d.id !== id),
         updatedDepartment
       ]);
@@ -326,7 +326,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveDepartments([...state.departments, ...departmentsWithIds]);
+      await getCurrentService().saveDepartments([...state.departments, ...departmentsWithIds]);
       set((state) => ({
         departments: [...state.departments, ...departmentsWithIds],
         error: null
@@ -365,7 +365,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveDepartments([...state.departments, ...departmentsWithIds]);
+      await getCurrentService().saveDepartments([...state.departments, ...departmentsWithIds]);
       set((state) => ({
         departments: [...state.departments, ...departmentsWithIds],
         error: null
@@ -380,7 +380,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
   initializeDepartments: async () => {
     try {
       // 从数据库加载部门数据
-      const departments = await databaseService.getAllDepartments();
+      const departments = await getCurrentService().getAllDepartments();
 
       if (departments.length > 0) {
         set({ departments });
@@ -397,7 +397,7 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveDepartments(departmentsWithIds);
+      await getCurrentService().saveDepartments(departmentsWithIds);
       set({ departments: departmentsWithIds });
     } catch (error) {
       console.error('Failed to initialize departments:', error);

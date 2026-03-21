@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 import type { VoucherFullTemplate, VoucherTemplateEntry } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -44,7 +44,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
   // 初始化模版
   initializeTemplates: async () => {
     try {
-      const templates = await databaseService.getAllVoucherTemplates();
+      const templates = await getCurrentService().getAllVoucherTemplates();
 
       // 如果数据库中没有模板，则加载默认模板
       if (templates.length === 0) {
@@ -115,7 +115,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
           accountSetId: currentAccountSet?.id
         }));
 
-        await databaseService.saveVoucherTemplates(templatesWithAccountSet);
+        await getCurrentService().saveVoucherTemplates(templatesWithAccountSet);
         set({ templates: templatesWithAccountSet });
       } else {
         set({ templates });
@@ -142,7 +142,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
         accountSetId: currentAccountSet?.id
       };
 
-      await databaseService.saveVoucherTemplates([...get().templates, newTemplate]);
+      await getCurrentService().saveVoucherTemplates([...get().templates, newTemplate]);
       set((state) => ({
         templates: [...state.templates, newTemplate]
       }));
@@ -160,7 +160,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
           ? { ...template, ...templateData, updatedAt: new Date().toISOString() }
           : template
       );
-      await databaseService.saveVoucherTemplates(updatedTemplates);
+      await getCurrentService().saveVoucherTemplates(updatedTemplates);
       set({ templates: updatedTemplates });
     } catch (error) {
       console.error('Failed to update template:', error);
@@ -172,7 +172,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
     try {
       const state = get();
       const updatedTemplates = state.templates.filter(template => template.id !== id);
-      await databaseService.saveVoucherTemplates(updatedTemplates);
+      await getCurrentService().saveVoucherTemplates(updatedTemplates);
       set({ templates: updatedTemplates });
     } catch (error) {
       console.error('Failed to delete template:', error);
@@ -230,7 +230,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
         accountSetId: currentAccountSet?.id
       }));
 
-      await databaseService.saveVoucherTemplates([...get().templates, ...validTemplates]);
+      await getCurrentService().saveVoucherTemplates([...get().templates, ...validTemplates]);
       set((state) => ({
         templates: [...state.templates, ...validTemplates]
       }));
@@ -391,7 +391,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
     });
 
     if (newTemplates.length > 0) {
-      await databaseService.saveVoucherTemplates([...get().templates, ...newTemplates]);
+      await getCurrentService().saveVoucherTemplates([...get().templates, ...newTemplates]);
       set((state) => ({
         templates: [...state.templates, ...newTemplates]
       }));
