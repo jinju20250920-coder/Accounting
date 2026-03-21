@@ -37,6 +37,7 @@ interface AccountSetFormData {
   startDate: string;
   accountingStandard: 'small-enterprise' | 'enterprise' | 'other';
   enableDate: string;
+  lastVoucherNo: number;
 }
 
 export default function SetsPage() {
@@ -70,7 +71,8 @@ export default function SetsPage() {
     baseCurrency: '人民币',
     startDate: '',
     accountingStandard: 'small-enterprise',
-    enableDate: ''
+    enableDate: '',
+    lastVoucherNo: 0
   });
 
   // 重置表单数据
@@ -83,7 +85,8 @@ export default function SetsPage() {
       baseCurrency: '人民币',
       startDate: '',
       accountingStandard: 'small-enterprise',
-      enableDate: ''
+      enableDate: '',
+      lastVoucherNo: 0
     });
   };
 
@@ -97,7 +100,8 @@ export default function SetsPage() {
       baseCurrency: accountSet.baseCurrency,
       startDate: accountSet.startDate,
       accountingStandard: accountSet.accountingStandard,
-      enableDate: accountSet.enableDate
+      enableDate: accountSet.enableDate,
+      lastVoucherNo: accountSet.lastVoucherNo || 0
     });
   };
 
@@ -224,7 +228,8 @@ export default function SetsPage() {
       baseCurrency: formData.baseCurrency,
       startDate: formData.startDate,
       accountingStandard: formData.accountingStandard,
-      enableDate: formData.enableDate
+      enableDate: formData.enableDate,
+      lastVoucherNo: formData.lastVoucherNo
     });
 
     setShowEditDialog(false);
@@ -237,7 +242,8 @@ export default function SetsPage() {
       baseCurrency: formData.baseCurrency,
       startDate: formData.startDate,
       accountingStandard: formData.accountingStandard,
-      enableDate: formData.enableDate
+      enableDate: formData.enableDate,
+      lastVoucherNo: formData.lastVoucherNo
     } : null);
     showToast('success', '账套更新成功');
   };
@@ -685,6 +691,17 @@ export default function SetsPage() {
                     { value: 'enterprise', label: '企业会计准则' },
                     { value: 'other', label: '其他' }
                   ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label required>最后凭证号</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="999"
+                  placeholder="请输入最后凭证号（0-999）"
+                  value={formData.lastVoucherNo || ''}
+                  onChange={(e) => setFormData({ ...formData, lastVoucherNo: parseInt(e.target.value) || 0 })}
                 />
               </div>
             </div>

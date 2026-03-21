@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { DatabaseSwitcher } from '@/components/database/database-switcher';
 import {
   Home,
   FileText,
@@ -472,8 +473,11 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      {/* 底部信息 */}
+      {/* 数据库切换和底部信息 */}
       <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
+        <div className="mb-3">
+          <DatabaseSwitcher />
+        </div>
         <div className="flex items-center justify-between mb-2">
           <span>期间: {hasMounted ? (currentAccountSet?.currentPeriod || '2026-03') : '2026-03'}</span>
           <span>记-001</span>

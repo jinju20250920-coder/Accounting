@@ -10,6 +10,7 @@ import { usePartnerStore } from '@/stores';
 import { useAccountStore } from '@/stores/useAccountStore';
 import { useVoucherStore } from '@/stores';
 import type { Partner } from '@/types';
+import { PartnerDetail } from './partner-detail';
 
 export function PartnerDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'detail'>('overview');
@@ -251,23 +252,10 @@ export function PartnerDashboard() {
       </Card>
 
       {selectedPartner && activeTab === 'detail' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              往来单位明细 - {partners.find(p => p.id === selectedPartner)?.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-8 text-slate-500">
-              往来单位明细功能开发中...
-            </div>
-          </CardContent>
-          <div className="flex justify-end gap-2 p-4 border-t border-slate-200">
-            <Button variant="outline" onClick={() => setActiveTab('overview')}>
-              返回
-            </Button>
-          </div>
-        </Card>
+        <PartnerDetail
+          partner={partners.find(p => p.id === selectedPartner)!}
+          onBack={() => setActiveTab('overview')}
+        />
       )}
     </div>
   );

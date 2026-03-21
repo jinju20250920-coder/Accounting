@@ -234,6 +234,7 @@ export default function VoucherListPage() {
 
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'all' | 'subject'>('all'); // 搜索模式：全部或科目
   const [selectedStatus, setSelectedStatus] = useState<string>('posted_reversed');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [startMonth, setStartMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
@@ -271,9 +272,26 @@ export default function VoucherListPage() {
   // 筛选和排序凭证
   const filteredVouchers = vouchers
     .filter(v => {
-      const matchesSearch = !searchQuery ||
-        v.voucherNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (v.summary && v.summary.toLowerCase().includes(searchQuery.toLowerCase()));
+      let matchesSearch = true;
+
+      if (searchQuery) {
+        if (searchMode === 'all') {
+          // 全模式搜索：凭证号、摘要、科目代码或科目名称
+          matchesSearch =
+            v.voucherNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (v.summary && v.summary.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            v.entries.some(entry =>
+              (entry.subjectCode && entry.subjectCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
+              (entry.subjectName && entry.subjectName.toLowerCase().includes(searchQuery.toLowerCase()))
+            );
+        } else {
+          // 科目模式搜索：仅搜索科目代码或科目名称
+          matchesSearch = v.entries.some(entry =>
+            (entry.subjectCode && entry.subjectCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (entry.subjectName && entry.subjectName.toLowerCase().includes(searchQuery.toLowerCase()))
+          );
+        }
+      }
 
       // 状态筛选：支持 'posted_reversed' 特殊值
       const matchesStatus = selectedStatus === 'all' ||
@@ -522,14 +540,25 @@ export default function VoucherListPage() {
       <Card className="border-slate-200 no-print">
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-[300px]">
               <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-slate-400" />
-                <Input
-                  placeholder="搜索凭证号或摘要"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                <Select
+                  value={searchMode}
+                  onChange={(value) => setSearchMode(value as 'all' | 'subject')}
+                  options={[
+                    { value: 'all', label: '全部' },
+                    { value: 'subject', label: '科目' }
+                  ]}
+                  className="w-24"
                 />
+                <div className="flex items-center gap-2 flex-1">
+                  <Search className="w-4 h-4 text-slate-400" />
+                  <Input
+                    placeholder={searchMode === 'all' ? "搜索凭证号、摘要或科目" : "搜索科目代码或科目名称"}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2">

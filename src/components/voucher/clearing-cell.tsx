@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Check } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { OutstandingSelector } from './outstanding-selector';
 import type { OutstandingItem } from '@/types';
 
@@ -24,38 +24,49 @@ export function ClearingCell({
 }: ClearingCellProps) {
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);
 
+  console.log('ClearingCell rendered:', { entryId, partnerName, recRefNo });
+
   const handleSelect = (items: OutstandingItem[]) => {
+    console.log('ClearingCell handleSelect:', items);
     if (items.length > 0) {
       // 生成核销单号
       const clearingNo = `REC-${Date.now().toString(36).toUpperCase()}`;
       onRecRefNoChange(entryId, clearingNo);
       onClearing(entryId, items);
     }
+    setIsSelectorOpen(false);
   };
 
   const handleManualInput = (value: string) => {
     onRecRefNoChange(entryId, value);
   };
 
+  const handleButtonClick = () => {
+    console.log('Search button clicked!', { partnerName });
+    setIsSelectorOpen(true);
+  };
+
   return (
-    <div className="relative">
-      <div className="flex items-center gap-1">
+    <div className="relative" style={{ height: '100%' }}>
+      <div className="flex items-center gap-1 h-full">
         <Input
           value={recRefNo}
           onChange={(e) => handleManualInput(e.target.value)}
-          placeholder="输入单据编号或点击选择"
-          className="flex-1"
+          placeholder="输入单据编号"
+          className="flex-1 h-full"
           autoComplete="new-password"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck="false"
           name={`clearing-${entryId || Math.random().toString(36).substr(2, 9)}`}
+          style={{ height: '56px', borderRadius: 0 }}
         />
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setIsSelectorOpen(true)}
-          disabled={!partnerName}
+          onClick={handleButtonClick}
+          className="h-full"
+          style={{ height: '56px', borderRadius: 0 }}
         >
           <Search className="w-4 h-4" />
         </Button>

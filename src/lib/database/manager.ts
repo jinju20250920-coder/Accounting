@@ -116,6 +116,7 @@ class DatabaseManager {
   private static instance: DatabaseManager;
   private db: IDBPDatabase<FinanceDB> | null = null;
   private currentAccountSetId: string | null = null;
+  private initPromise: Promise<void> | null = null;
 
   static getInstance(): DatabaseManager {
     if (!DatabaseManager.instance) {
@@ -126,9 +127,17 @@ class DatabaseManager {
 
   async init(): Promise<void> {
     if (this.db) return;
+    if (this.initPromise) return this.initPromise;
 
-    this.db = await openDB<FinanceDB>('finance-assistant-db', 3, {
-      upgrade(db) {
+    this.initPromise = this._init();
+    return this.initPromise;
+  }
+
+  private async _init(): Promise<void> {
+    this.db = await openDB<FinanceDB>('finance-assistant-db', 4, {
+      upgrade(db, oldVersion, newVersion, transaction) {
+        console.log(`数据库升级: 版本 ${oldVersion} -> ${newVersion}`);
+
         // 创建账套元数据表
         if (!db.objectStoreNames.contains('accountSets')) {
           const accountSetsStore = db.createObjectStore('accountSets', { keyPath: 'id' });
@@ -213,26 +222,24 @@ class DatabaseManager {
           auditStore.createIndex('by-accountSet', 'accountSetId');
         }
 
-        // 创建核销关系表（版本3）
+        // 创建核销关系表（版本4）
         if (!db.objectStoreNames.contains('recRelations')) {
+          console.log('创建 recRelations 表');
           const recRelationsStore = db.createObjectStore('recRelations', { keyPath: 'id' });
           recRelationsStore.createIndex('by-accountSet', 'accountSetId');
           recRelationsStore.createIndex('by-recRefNo', 'recRefNo');
           recRelationsStore.createIndex('by-debitEntry', 'debitEntryId');
           recRelationsStore.createIndex('by-creditEntry', 'creditEntryId');
-          recRelationsStore.createIndex('by-partner', 'partnerName');
           recRelationsStore.createIndex('by-date', 'recDate');
         }
 
         // 为entries表添加recRefNo字段的索引
-        // @ts-ignore - 在upgrade回调中，entriesStore和createIndex一定存在
-        const entriesStore = db.transaction('entries', 'readwrite').objectStore('entries');
-        // @ts-ignore - 在upgrade回调中，entriesStore和createIndex一定存在
+        const entriesStore = transaction.objectStore('entries');
         try {
-          // @ts-ignore - 在upgrade回调中，entriesStore和createIndex一定存在
           entriesStore.createIndex('by-recRefNo', 'recRefNo');
         } catch (error) {
           // 索引已存在，忽略错误
+          console.log('by-recRefNo 索引已存在');
         }
       },
     });
@@ -252,16 +259,29 @@ class DatabaseManager {
 
   getDatabase(): IDBPDatabase<FinanceDB> {
     if (!this.db) {
-      // 如果数据库未初始化，尝试初始化
-      // 注意：这是同步方法，不能使用 async/await
-      // 我们需要确保在使用数据库前已经初始化
+      // 如果数据库未初始化，抛出更友好的错误
       console.warn('Database not initialized, attempting to initialize...');
-      // 这里我们不能直接调用 init() 因为它是 async 的
-      // 我们需要在应用程序启动时确保数据库已初始化
-      // 为了避免崩溃，我们可以抛出更友好的错误
       throw new Error('Database not initialized. Please ensure database is initialized before use.');
     }
     return this.db;
+  }
+
+  /**
+   * 安全获取数据库，如果未初始化则等待初始化
+   * 使用这个方法而不是 getDatabase() 来避免初始化时序问题
+   */
+  async getDatabaseSafe(): Promise<IDBPDatabase<FinanceDB>> {
+    if (!this.db) {
+      await this.init();
+    }
+    return this.db!;
+  }
+
+  /**
+   * 检查数据库是否已初始化
+   */
+  isInitialized(): boolean {
+    return this.db !== null;
   }
 
   // ========== 数据导出/导入 ==========

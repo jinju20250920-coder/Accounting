@@ -685,12 +685,35 @@ class DatabaseService {
   }
 
   async getOutstandingItems(query: any): Promise<any[]> {
-    const allEntries = await this.getAllFromIndexSafe('entries', 'by-accountSet', this.accountSetId);
+    console.log('getOutstandingItems called with query:', query);
 
-    // 过滤往来单位分录
-    let partnerEntries = allEntries.filter(entry =>
-      entry.customerName === query.partnerName || entry.supplierName === query.partnerName
-    );
+    if (!query.partnerName) {
+      return [];
+    }
+
+    const allEntries = await this.getAllFromIndexSafe('entries', 'by-accountSet', this.accountSetId);
+    console.log('All entries count:', allEntries.length);
+
+    // 过滤往来单位分录 - 支持多种匹配方式
+    let partnerEntries = allEntries.filter(entry => {
+      const matches =
+        entry.customerName === query.partnerName ||
+        entry.supplierName === query.partnerName ||
+        (entry.auxiliary?.customer === query.partnerName) ||
+        (entry.auxiliary?.supplier === query.partnerName);
+
+      if (matches) {
+        console.log('Matching entry found:', {
+          id: entry.id,
+          customerName: entry.customerName,
+          supplierName: entry.supplierName,
+          auxiliary: entry.auxiliary
+        });
+      }
+      return matches;
+    });
+
+    console.log('Partner entries after filter:', partnerEntries.length);
 
     // 科目代码过滤
     if (query.subjectCode) {
@@ -709,35 +732,47 @@ class DatabaseService {
     const outstandingItems: any[] = [];
 
     for (const entry of partnerEntries) {
+      console.log('Processing entry:', entry.id, entry.summary);
+
       const relations = await this.getRecRelationsByEntryId(entry.id);
+      console.log('Rec relations for entry:', entry.id, relations);
+
       const totalRecAmount = relations.reduce((sum: number, rel: any) => {
         return sum + rel.amount;
       }, 0);
 
+      console.log('Total rec amount:', totalRecAmount);
+
       const entryAmount = entry.debit > 0 ? entry.debit : entry.credit;
       const remainingAmount = entryAmount - totalRecAmount;
 
-      if (remainingAmount > 0) {
+      console.log('Entry amount:', entryAmount, 'Remaining:', remainingAmount);
+
+      if (remainingAmount > 0.001) { // 考虑浮点误差
         if (query.amountRange) {
           if (remainingAmount < query.amountRange[0] || remainingAmount > query.amountRange[1]) {
             continue;
           }
         }
 
-        outstandingItems.push({
+        const item = {
           entryId: entry.id,
-          voucherNo: entry.voucherNo,
+          voucherNo: entry.voucherNo || '未知凭证',
           docNo: entry.docNo || '',
           date: entry.date,
           summary: entry.summary,
           amount: entryAmount,
-          remainingAmount,
-          direction: entry.debit > 0 ? 'debit' : 'credit',
-          partnerName: entry.customerName || entry.supplierName
-        });
+          remainingAmount: remainingAmount,
+          direction: entry.debit > 0 ? 'debit' as const : 'credit' as const,
+          partnerName: entry.customerName || entry.supplierName || query.partnerName
+        };
+
+        console.log('Adding outstanding item:', item);
+        outstandingItems.push(item);
       }
     }
 
+    console.log('Final outstanding items:', outstandingItems);
     return outstandingItems;
   }
 

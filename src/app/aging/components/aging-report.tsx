@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { AgingResult, AgingDetail, AgingMode } from '@/lib/accounting';
 import { formatMoney, formatAging, getOverdueColor } from '@/lib/accounting';
 
@@ -13,6 +16,7 @@ interface AgingReportProps {
   onPartnerClick: (partner: string) => void;
   useCustomBuckets?: boolean;
   customBuckets?: number[];
+  onBatchWriteOff?: (selectedIds: string[]) => Promise<void>;
 }
 
 function getBucketColor(index: number): string {
@@ -84,9 +88,42 @@ export function AgingReport({
   onBucketClick,
   onPartnerClick,
   useCustomBuckets = false,
-  customBuckets = [30, 90, 180, 365]
+  customBuckets = [30, 90, 180, 365],
+  onBatchWriteOff
 }: AgingReportProps) {
   const bucketLabels = getBucketLabels(mode, useCustomBuckets, customBuckets);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+
+  // 切换选择状态
+  const toggleItemSelection = (id: string) => {
+    setSelectedItems(prev =>
+      prev.includes(id)
+        ? prev.filter(itemId => itemId !== id)
+        : [...prev, id]
+    );
+  };
+
+  // 全选/取消全选
+  const toggleSelectAll = () => {
+    if (selectedItems.length === details.length) {
+      setSelectedItems([]);
+    } else {
+      setSelectedItems(details.map(detail => detail.id));
+    }
+  };
+
+  // 批量核销
+  const handleBatchWriteOff = async () => {
+    if (onBatchWriteOff && selectedItems.length > 0) {
+      try {
+        await onBatchWriteOff(selectedItems);
+        // 核销成功后，清空选择
+        setSelectedItems([]);
+      } catch (error) {
+        console.error('批量核销失败:', error);
+      }
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -180,15 +217,34 @@ export function AgingReport({
       {/* 明细表 */}
       {details.length > 0 && (
         <div className="mt-6">
-          <h3 className="text-lg font-medium mb-4">明细数据</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium">明细数据</h3>
+            {selectedItems.length > 0 && (
+              <Button
+                onClick={handleBatchWriteOff}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                批量核销 ({selectedItems.length})
+              </Button>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="p-2 text-center text-sm font-medium w-8">
+                    <Checkbox
+                      checked={selectedItems.length === details.length}
+                      onCheckedChange={toggleSelectAll}
+                      className="mx-auto"
+                    />
+                  </th>
                   <th className="p-2 text-left text-sm font-medium">凭证号</th>
                   <th className="p-2 text-left text-sm font-medium">单据号</th>
                   <th className="p-2 text-left text-sm font-medium">日期</th>
                   <th className="p-2 text-left text-sm font-medium">摘要</th>
+                  <th className="p-2 text-left text-sm font-medium">科目代码</th>
+                  <th className="p-2 text-left text-sm font-medium">科目名称</th>
                   <th className="p-2 text-right text-sm font-medium">金额</th>
                   <th className="p-2 text-right text-sm font-medium">剩余金额</th>
                   <th className="p-2 text-right text-sm font-medium">账龄</th>
@@ -198,20 +254,36 @@ export function AgingReport({
               <tbody>
                 {details.map((detail) => (
                   <tr key={detail.id} className="border-b hover:bg-gray-50">
+                    <td className="p-2 text-center">
+                      <Checkbox
+                        checked={selectedItems.includes(detail.id)}
+                        onCheckedChange={() => toggleItemSelection(detail.id)}
+                        disabled={detail.isWriteOff}
+                        className="mx-auto"
+                      />
+                    </td>
                     <td className="p-2 text-sm">{detail.voucherNo}</td>
                     <td className="p-2 text-sm">{detail.docNo}</td>
                     <td className="p-2 text-sm">{detail.date}</td>
                     <td className="p-2 text-sm">{detail.summary}</td>
-                    <td className="p-2 text-right text-sm">{formatMoney(detail.amount)}</td>
-                    <td className="p-2 text-right text-sm">{formatMoney(detail.remainingAmount)}</td>
+                    <td className="p-2 text-sm">{detail.subjectCode}</td>
+                    <td className="p-2 text-sm">{detail.subjectName}</td>
+                    <td className={`p-2 text-right text-sm ${detail.amount < 0 ? 'text-red-600' : ''}`}>
+                      {formatMoney(detail.amount)}
+                    </td>
+                    <td className={`p-2 text-right text-sm ${detail.remainingAmount < 0 ? 'text-red-600' : ''}`}>
+                      {formatMoney(detail.remainingAmount)}
+                    </td>
                     <td className={`p-2 text-right text-sm font-medium ${
                       getOverdueColor(detail.daysOverdue, detail.isWriteOff)
                     }`}>
                       {formatAging(detail.daysOverdue, mode)}
                     </td>
                     <td className="p-2">
-                      {detail.isWriteOff ? (
+                      {Math.abs(detail.remainingAmount) < 0.01 ? (
                         <Badge variant="outline" className="text-xs">已核销</Badge>
+                      ) : Math.abs(detail.remainingAmount - detail.amount) >= 0.01 ? (
+                        <Badge variant="outline" className="text-xs bg-orange-100 text-orange-800">部分核销</Badge>
                       ) : (
                         <Badge variant="default" className="text-xs bg-yellow-100 text-yellow-800">
                           未核销

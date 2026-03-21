@@ -389,6 +389,9 @@ export interface AgingDetail {
   bucket: string;
   partnerName: string;
   isWriteOff: boolean;
+  subjectCode?: string;
+  subjectName?: string;
+  recRefNo?: string;
 }
 
 export interface AgingConfig {
@@ -564,9 +567,20 @@ export function calculateAgingData(
 // 获取明细数据
 export function getAgingDetails(
   entries: VoucherEntry[],
-  config: AgingConfig & { bucket?: string; partner?: string }
+  config: AgingConfig & { bucket?: string; partner?: string },
+  isAccountsReceivable: boolean = true,
+  vouchers?: any[], // 新增：可选的凭证列表参数，用于获取真正的凭证号
+  recRelations?: any[] // 新增：可选的核销关系，用于计算剩余金额
 ): AgingDetail[] {
   const details: AgingDetail[] = [];
+
+    // 辅助函数：计算已核销金额
+  const getClearedAmount = (entryId: string): number => {
+    if (!recRelations) return 0;
+    return recRelations
+      .filter(rel => rel.debitEntryId === entryId || rel.creditEntryId === entryId)
+      .reduce((sum, rel) => sum + rel.amount, 0);
+  };
 
   entries.forEach(entry => {
     const partner = entry.customerName || entry.supplierName;
@@ -584,18 +598,61 @@ export function getAgingDetails(
       return;
     }
 
+    // 计算金额：应收时借方为正，贷方为负；应付时相反
+    let amount = 0;
+    let totalAmount = 0;
+
+    if (isAccountsReceivable) {
+      // 应收账款：借方为正，贷方为负
+      amount = entry.debit > 0 ? entry.debit : -entry.credit;
+      totalAmount = entry.debit > 0 ? entry.debit : -entry.credit;
+    } else {
+      // 应付账款：贷方为正，借方为负
+      amount = entry.credit > 0 ? entry.credit : -entry.debit;
+      totalAmount = entry.credit > 0 ? entry.credit : -entry.debit;
+    }
+
+    // 计算剩余金额：根据金额的正负方向来计算
+    const clearedAmount = getClearedAmount(entry.id);
+    let remainingAmount = 0;
+
+    if (totalAmount > 0) {
+      // 借方金额：剩余金额 = 总金额 - 已核销金额
+      remainingAmount = totalAmount - clearedAmount;
+    } else {
+      // 贷方金额：剩余金额 = 总金额 + 已核销金额（因为已核销金额是正数）
+      remainingAmount = totalAmount + clearedAmount;
+    }
+
+    // 判断核销状态：剩余金额为0表示完全核销
+    const isFullyWrittenOff = Math.abs(remainingAmount) < 0.01;
+    const isPartiallyWrittenOff = clearedAmount > 0 && !isFullyWrittenOff;
+    const isWriteOff = isFullyWrittenOff;
+
+    // 查找真正的凭证号
+    let actualVoucherNo = entry.voucherId;
+    if (vouchers) {
+      const voucher = vouchers.find(v => v.id === entry.voucherId);
+      if (voucher && voucher.voucherNo) {
+        actualVoucherNo = voucher.voucherNo;
+      }
+    }
+
     details.push({
       id: entry.id,
-      voucherNo: entry.voucherId,
+      voucherNo: actualVoucherNo,
       docNo: entry.docNo || '',
       date: entry.date,
       summary: entry.summary,
-      amount: entry.debit > 0 ? entry.debit : entry.credit,
-      remainingAmount: entry.debit > 0 ? entry.debit : entry.credit,
+      amount: amount,
+      remainingAmount: remainingAmount,
       daysOverdue: days,
       bucket,
       partnerName: partner,
-      isWriteOff: !!entry.recRefNo
+      isWriteOff: isWriteOff,
+      subjectCode: entry.subjectCode,
+      subjectName: entry.subjectName,
+      recRefNo: entry.recRefNo
     });
   });
 

@@ -123,7 +123,25 @@
       "Bash(npm start:*)",
       "Bash(npm ls:*)",
       "Bash(npm test:*)",
-      "mcp__filesystem__list_directory"
+      "mcp__filesystem__list_directory",
+      "Bash(echo:*)",
+      "mcp__filesystem__write_file",
+      "Bash(powershell \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(pkill -f \"npm run dev\")",
+      "Bash(pip install:*)",
+      "Bash(playwright install:*)",
+      "Bash(powershell -Command \"Stop-Process -Id 13172 -Force; Start-Sleep -Seconds 2; Remove-Item -Path 'D:\\\\AI\\\\ai-finance-assistant\\\\.next\\\\dev\\\\lock' -Force -ErrorAction SilentlyContinue\")",
+      "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force; Remove-Item -Path '.next' -Recurse -Force -ErrorAction SilentlyContinue; npm run dev\")",
+      "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(npm view:*)",
+      "Bash(npm pack:*)",
+      "Bash(mkdir -p public/sqljs)",
+      "Bash(tar -xzf sql.js-1.14.1.tgz -C public/sqljs --strip-components=1 dist/sql-wasm-browser.js dist/sql-wasm-browser.wasm)",
+      "Bash(mkdir -p temp)",
+      "Bash(tar -xzf sql.js-1.14.1.tgz -C temp)",
+      "Bash(cp temp/package/dist/sql-wasm-browser.js public/sqljs/)",
+      "Bash(cp temp/package/dist/sql-wasm-browser.wasm public/sqljs/)",
+      "Bash(mkdir:*)"
     ]
   }
 }

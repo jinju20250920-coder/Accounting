@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { Voucher } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
 
@@ -138,16 +138,32 @@ const createDefaultEntry = (voucherId: string, index?: number): any => ({
 const generateVoucherNo = (date: string): string => {
   const yearMonth = date.substring(0, 7).replace('-', '');
 
-  // 从账套设置中获取最后一个凭证号
+  // 从账套设置中获取最后一个凭证号和年月
   const { getCurrentAccountSet } = useAccountSetStore.getState();
   const currentAccountSet = getCurrentAccountSet();
 
   let lastSeq = 0;
+  let lastYearMonth = '';
 
-  if (currentAccountSet?.lastVoucherNo) {
+  // 检查账套中记录的最后凭证年月
+  if (currentAccountSet?.lastVoucherFullNo) {
+    // 从完整凭证号中提取年月：格式 "记-202603-001"
+    const match = currentAccountSet.lastVoucherFullNo.match(/记-(\d{6})-\d{3}/);
+    if (match) {
+      lastYearMonth = match[1];
+    }
+  }
+
+  // 如果是新月，重置序号为 0
+  if (lastYearMonth && lastYearMonth !== yearMonth) {
+    lastSeq = 0;
+  } else if (currentAccountSet?.lastVoucherNo !== undefined) {
+    // 同一月，使用账套中记录的序号
     lastSeq = currentAccountSet.lastVoucherNo;
-  } else {
-    // 如果账套设置中没有，尝试从现有凭证中查找最大序号
+  }
+
+  // 如果账套中没有数据，尝试从现有凭证中查找
+  if (lastSeq === 0 && !currentAccountSet?.lastVoucherNo) {
     const voucherStore = useVoucherStore.getState();
     const currentVouchers = voucherStore.vouchers;
 
@@ -198,7 +214,9 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   initialize: async () => {
     set({ isLoading: true });
     try {
-      const vouchers = await databaseService.getAllVouchers();
+      // 初始化数据库
+      await getCurrentManager().init();
+      const vouchers = await getCurrentService().getAllVouchers();
       // Show all vouchers - filtering is done in individual components
       set({ vouchers: vouchers });
     } catch (error) {
@@ -279,17 +297,18 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
 
     // 保存到数据库
-    await databaseService.saveVoucher(savedVoucher);
+    await getCurrentService().saveVoucher(savedVoucher);
 
     // 提取凭证号的序号部分并更新账套的 lastVoucherNo
     const voucherNoMatch = savedVoucher.voucherNo.match(/(\d+)$/);
     if (voucherNoMatch) {
       const seqNumber = parseInt(voucherNoMatch[1], 10);
 
-      // 更新账套设置中的最后一个凭证号
+      // 更新账套设置中的最后一个凭证号（同时保存序号和完整凭证号）
       const accountSetStore = useAccountSetStore.getState();
       accountSetStore.updateAccountSet(accountSetStore.currentAccountSetId!, {
-        lastVoucherNo: seqNumber
+        lastVoucherNo: seqNumber,
+        lastVoucherFullNo: savedVoucher.voucherNo
       });
     }
 
@@ -308,7 +327,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   },
 
   deleteVoucher: async (id: string) => {
-    await databaseService.deleteVoucher(id);
+    await getCurrentService().deleteVoucher(id);
     set((state) => ({
       vouchers: state.vouchers.filter(v => v.id !== id)
     }));
@@ -350,7 +369,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
 
   // 历史数据操作
   loadVoucher: async (id: string) => {
-    const voucher = await databaseService.getVoucher(id);
+    const voucher = await getCurrentService().getVoucher(id);
     if (voucher) {
       set({
         currentVoucher: voucher,
@@ -538,7 +557,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
 
     // 保存到数据库
-    await databaseService.saveVoucher(newVoucher);
+    await getCurrentService().saveVoucher(newVoucher);
 
     // 添加到凭证列表
     set((prevState) => ({
@@ -585,7 +604,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
 
     // 保存到数据库
-    await databaseService.saveVoucher(newVoucher);
+    await getCurrentService().saveVoucher(newVoucher);
 
     // Update current state
     set({
@@ -622,7 +641,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
 
     // 保存到数据库
-    await databaseService.saveVoucher(copiedVoucher);
+    await getCurrentService().saveVoucher(copiedVoucher);
 
     // Update current state
     set({
@@ -659,7 +678,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       };
 
       // 保存到数据库
-      await databaseService.saveVoucher(savedVoucher);
+      await getCurrentService().saveVoucher(savedVoucher);
 
       // Update existing voucher in list
       const updatedVouchers = state.vouchers.map(v =>
@@ -682,7 +701,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       };
 
       // 保存新凭证到数据库
-      await databaseService.saveVoucher(newVoucher);
+      await getCurrentService().saveVoucher(newVoucher);
 
       set({
         currentVoucher: newVoucher,
@@ -792,7 +811,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
 
     // Save to database
-    await databaseService.saveVoucher(newVoucher);
+    await getCurrentService().saveVoucher(newVoucher);
 
     set({
       currentEntries: newEntries,

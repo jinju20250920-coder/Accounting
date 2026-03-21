@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useVoucherStore } from './useVoucherStore';
-import { databaseService } from '@/lib/database/service';
+import { getCurrentService } from '@/lib/database';
 
 interface SubjectBalance {
   subjectCode: string;
@@ -172,24 +172,55 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
   // 计算往来单位余额（实时轧差）
   getPartnerBalance: (partnerName: string): number => {
     // 从 useVoucherStore 获取历史数据和当前数据
-    const { ledgerEntries, currentEntries } = useVoucherStore.getState();
+    const { vouchers, currentEntries } = useVoucherStore.getState();
 
-    // 过滤该往来单位的所有分录
-    const allEntries = [...ledgerEntries, ...currentEntries];
-    const partnerEntries = allEntries.filter(entry =>
-      (entry as any).customerName === partnerName || (entry as any).supplierName === partnerName
-    );
+    // 收集所有分录（包括已记账和当前未记账的）
+    const allEntries: any[] = [];
 
-    // 计算每个分录的已核销金额（这里简化处理，实际应从数据库查询核销关系）
+    // 添加已记账凭证的分录
+    vouchers.forEach(voucher => {
+      if (voucher.status === 'posted' || voucher.status === 'review' || voucher.status === 'draft') {
+        voucher.entries.forEach(entry => {
+          allEntries.push({
+            ...entry,
+            isPosted: voucher.status === 'posted'
+          });
+        });
+      }
+    });
+
+    // 添加当前凭证的分录
+    currentEntries.forEach(entry => {
+      allEntries.push({
+        ...entry,
+        isPosted: false
+      });
+    });
+
+    // 过滤该往来单位的所有分录 - 支持多种匹配方式
+    const partnerEntries = allEntries.filter(entry => {
+      const matches =
+        entry.customerName === partnerName ||
+        entry.supplierName === partnerName ||
+        (entry.auxiliary?.customer === partnerName) ||
+        (entry.auxiliary?.supplier === partnerName);
+      return matches;
+    });
+
+    // 计算每个分录的已核销金额（从数据库获取）
+    // 注意：这里应该从数据库查询，但为了简化，我们暂时假设已核销金额为0
+    // 实际应用中应该调用 databaseService.getRecRelationsByEntryId
     const entriesWithRec = partnerEntries.map(entry => {
       const recAmount = 0; // TODO: 从数据库获取已核销金额
+      const totalAmount = entry.debit > 0 ? entry.debit : entry.credit;
       return {
         ...entry,
         recAmount,
-        remainingAmount: (entry.debit > 0 ? entry.debit : entry.credit) - recAmount
+        remainingAmount: totalAmount - recAmount
       };
     });
 
+    // 计算借方和贷方总额（都为正数，但在余额计算时区分方向）
     const debitSum = entriesWithRec
       .filter(entry => entry.debit > 0)
       .reduce((sum, entry) => sum + entry.remainingAmount, 0);
@@ -204,7 +235,7 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
   // 获取未结清单据
   getOutstandingItems: async (query: OutstandingQuery): Promise<OutstandingItem[]> => {
     try {
-      return await databaseService.getOutstandingItems(query);
+      return await getCurrentService().getOutstandingItems(query);
     } catch (error) {
       console.error('Failed to get outstanding items:', error);
       return [];

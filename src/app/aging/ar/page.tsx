@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useClearingStore } from '@/stores/useClearingStore';
+import { useToast } from '@/components/ui/toast';
 import { calculateAgingData, getAgingDetails, type AgingMode, type AgingConfig, formatMoney } from '@/lib/accounting';
 import { AgingReport } from '../components/aging-report';
 import { AgingFilter } from '../components/aging-filter';
@@ -21,6 +23,43 @@ export default function ARReportPage() {
 
   const voucherStore = useVoucherStore();
   const subjectStore = useSubjectStore();
+  const clearingStore = useClearingStore();
+  const { showToast } = useToast();
+
+  // 确保 clearingStore 被初始化
+  const ensureClearingInitialized = async () => {
+    if (!clearingStore.isInitialized) {
+      await clearingStore.ensureInitialized();
+    }
+  };
+
+  // 初始化 clearingStore
+  useEffect(() => {
+    ensureClearingInitialized();
+  }, [clearingStore.isInitialized]);
+
+  // 批量核销处理函数
+  const handleBatchWriteOff = async (selectedIds: string[]) => {
+    try {
+      // 调用批量核销方法
+      const clearedEntries = await clearingStore.processBatchClearing(selectedIds, arEntries);
+
+      if (clearedEntries.length > 0) {
+        // 显示成功提示
+        showToast('success', `批量核销成功：已成功核销 ${clearedEntries.length} 条记录`);
+
+        // 确保核销关系数据已加载
+        await clearingStore.ensureInitialized();
+
+        // 可以在这里添加其他刷新逻辑，比如重新获取凭证数据
+      } else {
+        showToast('warning', '未找到可核销的记录：请选择相反方向的分录进行核销');
+      }
+    } catch (error) {
+      console.error('批量核销失败:', error);
+      showToast('error', '批量核销失败：请稍后重试');
+    }
+  };
 
   // 添加按钮点击处理函数
   const handleAdvancedFilter = () => {
@@ -130,8 +169,8 @@ export default function ARReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return getAgingDetails(arEntries, config);
-  }, [arEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets]);
+    return getAgingDetails(arEntries, config, true, voucherStore.vouchers, clearingStore.recRelations);
+  }, [arEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations]);
 
   return (
     <div className="space-y-6">
@@ -177,6 +216,7 @@ export default function ARReportPage() {
             onPartnerClick={setSelectedPartner}
             useCustomBuckets={useCustomBuckets}
             customBuckets={customBuckets}
+            onBatchWriteOff={handleBatchWriteOff}
           />
         </CardContent>
       </Card>

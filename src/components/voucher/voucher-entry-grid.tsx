@@ -493,6 +493,11 @@ export function VoucherEntryGrid() {
     }
   };
 
+  // 获取可见的字段列表（按 columnOrder 顺序）
+  const getVisibleFields = useCallback(() => {
+    return columnOrder.filter(fieldId => columnVisibility[fieldId] && fieldId !== 'serial' && fieldId !== 'operation');
+  }, [columnOrder, columnVisibility]);
+
   // 处理键盘事件 - 支持方向键导航、Tab 和 Enter 自动新增行
   const handleKeyDown = (
     entryId: string,
@@ -501,17 +506,17 @@ export function VoucherEntryGrid() {
     e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const isLastRow = index === entries.length - 1;
-    const fields = ['summary', 'subject', 'docNo', 'recRefNo', 'debit', 'credit', 'deptCode', 'projectCode', 'customerSupplier'];
-    const currentIndex = fields.indexOf(field);
-    const isLastField = currentIndex === fields.length - 1;
+    const visibleFields = getVisibleFields();
+    const currentIndex = visibleFields.indexOf(field);
+    const isLastField = currentIndex === visibleFields.length - 1;
     const isSummaryField = field === 'summary';
     const entryIndex = entries.findIndex(e => e.id === entryId);
 
     // 方向键导航
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      if (currentIndex < fields.length - 1) {
-        const nextField = fields[currentIndex + 1];
+      if (currentIndex < visibleFields.length - 1) {
+        const nextField = visibleFields[currentIndex + 1];
         const nextInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${nextField}"]`) as HTMLElement;
         if (nextInput) {
           nextInput.focus();
@@ -526,7 +531,7 @@ export function VoucherEntryGrid() {
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (currentIndex > 0) {
-        const prevField = fields[currentIndex - 1];
+        const prevField = visibleFields[currentIndex - 1];
         const prevInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${prevField}"]`) as HTMLElement;
         if (prevInput) {
           prevInput.focus();
@@ -575,9 +580,9 @@ export function VoucherEntryGrid() {
       if (isLastRow && isLastField) {
         // 最后一行最后一个字段按 Tab，新增一行
         addVoucherRow();
-      } else if (currentIndex < fields.length - 1) {
+      } else if (currentIndex < visibleFields.length - 1) {
         // 跳到下一个字段
-        const nextField = fields[currentIndex + 1];
+        const nextField = visibleFields[currentIndex + 1];
         const nextInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${nextField}"]`) as HTMLElement;
         if (nextInput) {
           nextInput.focus();
@@ -1177,12 +1182,16 @@ export function VoucherEntryGrid() {
                           </td>
                         );
                       case 'recRefNo':
+                        // 获取往来单位名称
+                        const partnerCode = entry.auxiliary?.customer || entry.auxiliary?.supplier;
+                        const partner = MOCK_PARTNERS.find(p => p.code === partnerCode);
+                        const partnerName = partner?.name || '';
                         return (
                           <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
                             <ClearingManager
                               entryId={entry.id}
                               recRefNo={entry.recRefNo || ''}
-                              partnerName={entry.customerName || entry.supplierName || ''}
+                              partnerName={partnerName}
                               amount={entry.debit > 0 ? entry.debit : entry.credit}
                             />
                           </td>
