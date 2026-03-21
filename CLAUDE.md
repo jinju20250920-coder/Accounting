@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 框架：Next.js 16 + React 19 + shadcn/ui + Zustand + Tailwind CSS
 - 特性：Excel-like网格、凭证导入/流水生成、AI学习功能、凭证冲销、自动化模板引擎、状态机管理
-- 数据存储：本地内存存储（当前），支持扩展IndexedDB
+- 数据存储：SQLite 数据库（默认），支持多账套管理和数据持久化
 
 ---
 
@@ -323,7 +323,7 @@ if (type === 'sale_invoice') {
 
 ### 注意事项
 
-1. **数据持久化** - 使用IndexedDB + localStorage存储所有数据，刷新不丢失
+1. **数据持久化** - 使用SQLite数据库存储所有数据，支持数据导入/导出和多账套管理
 2. **日期格式** - 所有日期使用ISO格式（YYYY-MM-DD）
 3. **金额精度** - 所有金额保留2位小数，使用Math.round避免浮点误差
 4. **科目验证** - 操作前验证科目是否存在，防止数据错误
