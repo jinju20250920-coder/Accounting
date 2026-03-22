@@ -339,9 +339,22 @@ export function VoucherHeader() {
         }
 
         try {
-          // 检查借贷平衡
-          const debitTotal = voucherData.entries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0)
-          const creditTotal = voucherData.entries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0)
+          // 检查借贷平衡 - 确保数值类型正确
+          const debitTotal = voucherData.entries.reduce((sum: number, e: any) => {
+            const val = Number(e.debit) || 0
+            return sum + val
+          }, 0)
+          const creditTotal = voucherData.entries.reduce((sum: number, e: any) => {
+            const val = Number(e.credit) || 0
+            return sum + val
+          }, 0)
+
+          console.log(`凭证 ${voucherData.voucherNo} 借贷检查:`, {
+            debitTotal,
+            creditTotal,
+            diff: Math.abs(debitTotal - creditTotal),
+            entries: voucherData.entries.map(e => ({ debit: e.debit, credit: e.credit, typeDebit: typeof e.debit, typeCredit: typeof e.credit }))
+          })
 
           if (Math.abs(debitTotal - creditTotal) > 0.01) {
             result.status = 'failed'
@@ -376,7 +389,9 @@ export function VoucherHeader() {
           }
 
           // 检查金额是否全部为0
-          const totalAmount = voucherData.entries.reduce((sum: number, e: any) => sum + (e.debit || 0) + (e.credit || 0), 0)
+          const totalAmount = voucherData.entries.reduce((sum: number, e: any) => {
+            return sum + (Number(e.debit) || 0) + (Number(e.credit) || 0)
+          }, 0)
           if (totalAmount === 0) {
             result.status = 'warning'
             result.message = '凭证金额为0，已创建但不建议入账'
@@ -808,8 +823,8 @@ export function VoucherHeader() {
                         </thead>
                         <tbody>
                           {importPreview.map((voucher, idx) => {
-                            const debitTotal = voucher.entries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0)
-                            const creditTotal = voucher.entries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0)
+                            const debitTotal = voucher.entries.reduce((sum: number, e: any) => sum + (Number(e.debit) || 0), 0)
+                            const creditTotal = voucher.entries.reduce((sum: number, e: any) => sum + (Number(e.credit) || 0), 0)
                             const isBalanced = Math.abs(debitTotal - creditTotal) < 0.01
                             const diff = Math.abs(debitTotal - creditTotal)
                             return (
@@ -996,8 +1011,8 @@ export function VoucherHeader() {
                                 {result.entries && (
                                   <>
                                     <span>•</span>
-                                    <span>借方: {result.entries.reduce((s: number, e: any) => s + (e.debit || 0), 0).toFixed(2)}</span>
-                                    <span>贷方: {result.entries.reduce((s: number, e: any) => s + (e.credit || 0), 0).toFixed(2)}</span>
+                                    <span>借方: {result.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0).toFixed(2)}</span>
+                                    <span>贷方: {result.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0).toFixed(2)}</span>
                                   </>
                                 )}
                               </div>
