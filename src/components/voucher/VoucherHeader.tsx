@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -30,6 +31,7 @@ import { calculateVoucherStatus } from '@/lib/accounting'
 import { getCurrentService } from '@/lib/database'
 
 export function VoucherHeader() {
+  const router = useRouter()
   const {
     currentVoucher,
     saveVoucher,
@@ -845,7 +847,15 @@ export function VoucherHeader() {
                 variant="ghost"
                 size="icon"
                 className="text-slate-400 hover:text-white hover:bg-white/10"
-                onClick={() => setShowImportResultDialog(false)}
+                onClick={() => {
+                  setShowImportResultDialog(false)
+                  setImportResults([])
+                  setImportFile(null)
+                  setImportPreview([])
+                  setExpandedResults(new Set())
+                  // 导航到凭证列表页面并指定草稿状态，用户可以看到刚导入的草稿凭证
+                  router.push('/voucher-list?status=draft')
+                }}
               >
                 ✕
               </Button>
@@ -1082,11 +1092,14 @@ export function VoucherHeader() {
               <Button
                 variant="outline"
                 onClick={() => {
+                  // 关闭对话框并清理状态
                   setShowImportResultDialog(false)
                   setImportResults([])
                   setImportFile(null)
                   setImportPreview([])
                   setExpandedResults(new Set())
+                  // 导航到凭证列表页面并指定草稿状态，用户可以看到刚导入的草稿凭证
+                  router.push('/voucher-list?status=draft')
                 }}
               >
                 关闭

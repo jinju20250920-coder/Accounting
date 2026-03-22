@@ -235,7 +235,14 @@ export default function VoucherListPage() {
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'all' | 'subject'>('all'); // 搜索模式：全部或科目
-  const [selectedStatus, setSelectedStatus] = useState<string>('posted_reversed');
+  // 从 URL 参数获取初始状态，如果URL有status参数则使用该参数
+  const [selectedStatus, setSelectedStatus] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('status') || 'posted_reversed';
+    }
+    return 'posted_reversed';
+  });
   const [selectedType, setSelectedType] = useState<string>('all');
   const [startMonth, setStartMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
   const [endMonth, setEndMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 结束月份：YYYY-MM
@@ -249,6 +256,19 @@ export default function VoucherListPage() {
       setEndMonth(value);
     }
   };
+
+  // 监听 URL 参数变化，自动切换筛选状态
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const statusParam = params.get('status');
+      if (statusParam) {
+        setSelectedStatus(statusParam);
+        // 清除 URL 参数，避免影响后续操作
+        window.history.replaceState({}, '', '/voucher-list');
+      }
+    }
+  }, []);
 
   const handleEndMonthChange = (value: string) => {
     setEndMonth(value);
