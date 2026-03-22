@@ -495,7 +495,7 @@ class AccountSetDbManager {
   /**
    * 获取指定账套的数据库
    */
-  getDatabase(accountSetId: string): any | null {
+  getDatabaseById(accountSetId: string): any | null {
     const cached = this.openDatabases.get(accountSetId);
     return cached?.db || null;
   }
@@ -600,7 +600,7 @@ class AccountSetDbManager {
     targetAccountSetId: string,
     targetAccountSetName: string
   ): Promise<void> {
-    const sourceDb = this.getDatabase(sourceAccountSetId);
+    const sourceDb = this.getDatabaseById(sourceAccountSetId);
     if (!sourceDb) {
       throw new Error('Source database not opened');
     }

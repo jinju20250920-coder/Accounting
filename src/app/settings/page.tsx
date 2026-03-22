@@ -124,7 +124,7 @@ export default function SettingsPage() {
 
     setIsLoading(true);
     try {
-      const db = accountSetDbManager.getDatabase(currentAccountSet.id);
+      const db = accountSetDbManager.getDatabaseById(currentAccountSet.id);
       if (!db) {
         showToast('error', '数据库未打开');
         return;
@@ -167,7 +167,7 @@ export default function SettingsPage() {
           const data = new Uint8Array(arrayBuffer);
 
           // 保存到当前数据库
-          const db = accountSetDbManager.getDatabase(currentAccountSet.id);
+          const db = accountSetDbManager.getDatabaseById(currentAccountSet.id);
           if (!db) {
             showToast('error', '数据库未打开');
             return;
@@ -179,7 +179,7 @@ export default function SettingsPage() {
           const exported = newDb.export();
 
           // 更新当前数据库
-          const currentDb = accountSetDbManager.getDatabase(currentAccountSet.id);
+          const currentDb = accountSetDbManager.getDatabaseById(currentAccountSet.id);
           if (currentDb) {
             // 保存更改
             await accountSetDbManager.saveAccountSetDatabase(currentAccountSet.id);
@@ -223,7 +223,7 @@ export default function SettingsPage() {
       );
 
       // 读取现有数据库
-      const currentDb = accountSetDbManager.getDatabase(currentAccountSet.id);
+      const currentDb = accountSetDbManager.getDatabaseById(currentAccountSet.id);
       if (currentDb) {
         // 写入新文件
         const writable = await handle.createWritable();

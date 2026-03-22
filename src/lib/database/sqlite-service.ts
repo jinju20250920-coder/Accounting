@@ -66,7 +66,7 @@ class SQLiteService {
 
     // 优先使用多账套管理器
     if (this._accountSetId !== 'default') {
-      let db = accountSetDbManager.getDatabase(this._accountSetId);
+      let db = accountSetDbManager.getDatabaseById(this._accountSetId);
 
       // 如果数据库未打开，尝试打开
       if (!db) {
