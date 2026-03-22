@@ -49,7 +49,7 @@ export async function parseBankStatement(file: File): Promise<ParseResult> {
 
   // 假设列结构（可配置）
   // A: 日期, B: 凭证字号, C: 摘要, D: 科目代码, E: 借方, F: 贷方, G: 对方单位
-  let colMap = { 0: 'date', 1: 'voucherNo', 2: 'summary', 3: 'subjectCode', 4: 'debit', 5: 'credit', 6: 'counterparty' };
+  const colMap = { 0: 'date', 1: 'voucherNo', 2: 'summary', 3: 'subjectCode', 4: 'debit', 5: 'credit', 6: 'counterparty' };
 
   for (let rowIndex = 0; rowIndex < firstSheet.data.length; rowIndex++) {
     const row = firstSheet.data[rowIndex];
@@ -124,7 +124,7 @@ export async function parseTaxStatement(file: File): Promise<ParseResult> {
 
   // 假设列结构（可配置）
   // A: 日期, B: 产品名称, C: 销售金额, D: 销项税额, E: 进项税额, F: 税率
-  let colMap = { 0: 'date', 1: 'product', 2: 'amount', 3: 'outputTax', 4: 'inputTax', 5: 'taxRate' };
+  const colMap = { 0: 'date', 1: 'product', 2: 'amount', 3: 'outputTax', 4: 'inputTax', 5: 'taxRate' };
 
   for (let rowIndex = 0; rowIndex < firstSheet.data.length; rowIndex++) {
     const row = firstSheet.data[rowIndex];
@@ -226,7 +226,7 @@ async function parseTemplateFile(file: File): Promise<ParseResult> {
   const errors: Array<{ row: number; message: string }> = [];
 
   // Template file column mapping: A: 摘要, B: 科目代码, C: 借方, D: 贷方
-  let colMap = { 0: 'summary', 1: 'subjectCode', 2: 'debit', 3: 'credit' };
+  const colMap = { 0: 'summary', 1: 'subjectCode', 2: 'debit', 3: 'credit' };
 
   for (let rowIndex = 0; rowIndex < firstSheet.data.length; rowIndex++) {
     const row = firstSheet.data[rowIndex];

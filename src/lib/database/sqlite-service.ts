@@ -730,9 +730,6 @@ class SQLiteService {
       disabled: result.enabled === 0,
       block: result.frozen === 1,
       subjectType: result.type,
-      balance: result.balance || 0,
-      createTime: result.createTime,
-      updateTime: result.updateTime,
       accountSetId: result.accountSetId
     };
   }

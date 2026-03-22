@@ -141,7 +141,28 @@
       "Bash(tar -xzf sql.js-1.14.1.tgz -C temp)",
       "Bash(cp temp/package/dist/sql-wasm-browser.js public/sqljs/)",
       "Bash(cp temp/package/dist/sql-wasm-browser.wasm public/sqljs/)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(timeout 10 ping -n 1 localhost 2)",
+      "Bash(powershell -Command \"Stop-Process -Id 34788 -Force\")",
+      "Bash(py test_ar_aging.py)",
+      "Bash(chmod +x start-electron.js)",
+      "WebFetch(domain:www.electronjs.org)",
+      "Bash(else echo:*)",
+      "Bash(fi)",
+      "Bash(npm why:*)",
+      "Bash(npm outdated:*)",
+      "Bash(npm audit:*)",
+      "Bash(findstr electron:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(findstr /i node)",
+      "Bash(electron:*)",
+      "Bash(powershell -Command \"Get-Process | Where-Object { $_Modules.FileName -like ''*electron*'' } | Select-Object Id, Name, Path | Format-Table\")",
+      "Bash(powershell -Command \"Move-Item -Force node_modules/electron node_modules/electron.bak\")",
+      "Bash(npx electron:*)",
+      "Bash(npm config:*)",
+      "Bash(export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/)",
+      "Bash(export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/)",
+      "Bash(npx eslint:*)"
     ]
   }
 }

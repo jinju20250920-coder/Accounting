@@ -65,7 +65,7 @@ class FormulaInterpreter {
     }
 
     // 移除公式的大括号
-    let expression = formula.replace(/[{}]/g, '').trim();
+    const expression = formula.replace(/[{}]/g, '').trim();
 
     // 如果是纯数字，直接返回
     if (/^\d+(\.\d+)?$/.test(expression)) {

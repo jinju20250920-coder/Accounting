@@ -96,8 +96,8 @@ export default function CashflowPage() {
   // 计算现金流量数据
   const cashFlowData = useMemo(() => {
     const data: Record<string, number> = {};
-    let openingCashBalance = 0;
-    let closingCashBalance = 0;
+    const openingCashBalance = 0;
+    const closingCashBalance = 0;
 
     // 识别现金及现金等价物科目（1001库存现金、1002银行存款）
     const cashSubjects = subjects.filter(s =>

@@ -186,7 +186,7 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
       summary.text === trimmedText
     );
 
-    let newRecentSummaries = [...state.recentSummaries];
+    const newRecentSummaries = [...state.recentSummaries];
 
     if (existingIndex !== -1) {
       // 如果已存在，移到顶部

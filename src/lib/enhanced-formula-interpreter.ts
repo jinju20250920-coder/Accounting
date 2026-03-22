@@ -71,7 +71,7 @@ export class EnhancedFormulaInterpreter {
    */
   evaluate(formula: string, variables: FormulaVariables): FormulaResult {
     const warnings: string[] = [];
-    let cleanFormula = formula.trim();
+    const cleanFormula = formula.trim();
 
     // 基本验证
     if (!cleanFormula) {
@@ -105,7 +105,7 @@ export class EnhancedFormulaInterpreter {
     }
 
     // 预处理公式
-    let processedFormula = this.preprocessFormula(cleanFormula);
+    const processedFormula = this.preprocessFormula(cleanFormula);
 
     // 安全检查
     const securityCheck = this.validateSecurity(processedFormula);

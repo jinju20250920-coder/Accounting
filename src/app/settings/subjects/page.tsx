@@ -80,7 +80,7 @@ export default function SubjectsPage() {
 
   function buildSubjectTree(parentId: string | null = null, level: number = 1): any[] {
     // 如果有搜索查询，先计算所有需要显示的科目
-    let visibleSubjectIds = new Set<string>();
+    const visibleSubjectIds = new Set<string>();
 
     if (searchQuery) {
       const lowerQuery = searchQuery.toLowerCase();
