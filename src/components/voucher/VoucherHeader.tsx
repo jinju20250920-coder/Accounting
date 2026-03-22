@@ -231,19 +231,19 @@ export function VoucherHeader() {
       if (row['科目代码'] || row['科目'] || debit > 0 || credit > 0) {
         voucher.entries.push({
           id: `entry_${Date.now()}_${voucher.entries.length}`,
-          summary: row['分录摘要'] || summary,
-          subjectCode: row['科目代码'] || row['科目'] || '',
-          subjectName: row['科目名称'] || '',
+          summary: String(row['分录摘要'] || summary),
+          subjectCode: String(row['科目代码'] || row['科目'] || ''),
+          subjectName: String(row['科目名称'] || ''),
           debit,
           credit,
-          deptCode: row['部门代码'] || row['部门'] || '',
-          projectCode: row['项目代码'] || row['项目'] || '',
-          docNo: row['单据号'] || '',
-          currencyCode: row['币别代码'] || row['币别'] || '',
-          currencyName: row['币别名称'] || '',
-          cashFlowItem: row['现金流量项目'] || row['现金流量'] || '',
-          customerName: row['客户'] || row['往来单位'] || row['客户名称'] || '',
-          supplierName: row['供应商'] || row['往来单位'] || row['供应商名称'] || ''
+          deptCode: String(row['部门代码'] || row['部门'] || ''),
+          projectCode: String(row['项目代码'] || row['项目'] || ''),
+          docNo: String(row['单据号'] || ''),
+          currencyCode: String(row['币别代码'] || row['币别'] || ''),
+          currencyName: String(row['币别名称'] || ''),
+          cashFlowItem: String(row['现金流量项目'] || row['现金流量'] || ''),
+          customerName: String(row['客户'] || row['往来单位'] || row['客户名称'] || ''),
+          supplierName: String(row['供应商'] || row['往来单位'] || row['供应商名称'] || '')
         })
       }
     })
@@ -311,11 +311,12 @@ export function VoucherHeader() {
 
           // 检查科目代码是否有效
           const invalidEntries = voucherData.entries.filter((entry: any) => {
-            if (!entry.subjectCode || entry.subjectCode.trim() === '') {
+            const code = String(entry.subjectCode || '').trim()
+            if (code === '') {
               return true
             }
             // 检查科目代码格式（4位或6位数字）
-            return !/^\d{4}(\d{2})?$/.test(entry.subjectCode)
+            return !/^\d{4}(\d{2})?$/.test(code)
           })
 
           if (invalidEntries.length > 0) {
