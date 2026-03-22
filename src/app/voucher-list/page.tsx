@@ -228,7 +228,9 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, cu
 // 将数字转换为中文大写金额
 export default function VoucherListPage() {
   const router = useRouter();
-  const { vouchers, loadVoucher, copyVoucher, deleteVoucher } = useVoucherStore();
+  // 使用 selector 订阅 vouchers 状态，确保数据更新时页面重新渲染
+  const vouchers = useVoucherStore(state => state.vouchers);
+  const { loadVoucher, copyVoucher, deleteVoucher } = useVoucherStore();
   const { getCurrentAccountSet } = useAccountSetStore();
   const { showToast } = useToast();
   const currentAccountSet = getCurrentAccountSet();
