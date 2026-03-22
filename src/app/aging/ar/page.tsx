@@ -144,13 +144,29 @@ export default function ARReportPage() {
 
   // 获取应收账款相关的凭证分录（仅包括已记账的凭证）
   const arEntries = useMemo(() => {
-    return voucherStore.vouchers
-      .filter(v => v.status === 'posted') // 仅显示已记账的凭证
-      .flatMap(v => v.entries)
-      .filter(entry => {
-        const subject = subjectStore.subjects.find(s => s.code === entry.subjectCode);
-        return subject?.isCustomer;
-      });
+    const postedVouchers = voucherStore.vouchers.filter(v => v.status === 'posted');
+    console.log('AR Aging - 已记账凭证数量:', postedVouchers.length);
+    console.log('AR Aging - 所有凭证数量:', voucherStore.vouchers.length);
+    console.log('AR Aging - 科目列表:', subjectStore.subjects.map((s: any) => ({ code: s.code, name: s.name, isCustomer: s.isCustomer })));
+
+    const allEntries = postedVouchers.flatMap(v => v.entries);
+    console.log('AR Aging - 已记账凭证的所有分录:', allEntries.map(e => ({ subjectCode: e.subjectCode, debit: e.debit, credit: e.credit })));
+
+    const filtered = allEntries.filter(entry => {
+      const subject = subjectStore.subjects.find(s => s.code === entry.subjectCode);
+      if (!subject) {
+        console.log('AR Aging - 未找到科目:', entry.subjectCode);
+        return false;
+      }
+      const isCustomer = subject.isCustomer === true;
+      if (!isCustomer) {
+        console.log('AR Aging - 非客户科目分录:', entry.subjectCode, subject.name, 'isCustomer:', subject.isCustomer);
+      }
+      return isCustomer;
+    });
+
+    console.log('AR Aging - 过滤后的客户分录数量:', filtered.length);
+    return filtered;
   }, [voucherStore.vouchers, subjectStore.subjects]);
 
   // 计算账龄数据

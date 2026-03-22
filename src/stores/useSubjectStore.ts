@@ -514,11 +514,37 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       console.log('初始化检查 - 当前数据版本:', state.dataVersion);
       console.log('初始化检查 - 默认科目版本:', DEFAULT_SUBJECTS_VERSION);
 
-      // 从数据库加载科目数据
+      // 从数据库加载科目数据（迁移会在这里运行）
       const subjects = await getCurrentService().getAllSubjects();
       console.log('从数据库加载的科目数据:', subjects);
+      console.log('科目 1122 的 isCustomer 值:', subjects.find((s: any) => s.code === '1122')?.isCustomer);
+      console.log('科目 2202 的 isSupplier 值:', subjects.find((s: any) => s.code === '2202')?.isSupplier);
 
       if (subjects.length > 0) {
+        // 如果科目存在但没有 isCustomer/isSupplier 字段（或者值不正确），强制更新
+        const subject1122 = subjects.find((s: any) => s.code === '1122');
+        const subject2202 = subjects.find((s: any) => s.code === '2202');
+
+        if (subject1122 && !subject1122.isCustomer) {
+          console.log('检测到科目 1122 缺少 isCustomer 标记，正在更新...');
+          await getCurrentService().saveSubjects([{ ...subject1122, isCustomer: true, enableDept: true, enableProject: true }]);
+          // 重新加载
+          const updatedSubjects = await getCurrentService().getAllSubjects();
+          set({ subjects: updatedSubjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
+          console.log('科目数据已更新');
+          return;
+        }
+
+        if (subject2202 && !subject2202.isSupplier) {
+          console.log('检测到科目 2202 缺少 isSupplier 标记，正在更新...');
+          await getCurrentService().saveSubjects([{ ...subject2202, isSupplier: true }]);
+          // 重新加载
+          const updatedSubjects = await getCurrentService().getAllSubjects();
+          set({ subjects: updatedSubjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
+          console.log('科目数据已更新');
+          return;
+        }
+
         set({ subjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
         console.log('科目数据已从数据库加载');
         return;

@@ -44,7 +44,7 @@ class SQLiteService {
   // 设置当前账套ID
   setAccountSetId(accountSetId: string) {
     this._accountSetId = accountSetId;
-    this._usingAccountSetDb = (accountId !== 'default');
+    this._usingAccountSetDb = (accountSetId !== 'default');
     this.dbInstance = null; // 清除缓存的数据库实例
   }
 
@@ -160,13 +160,15 @@ class SQLiteService {
 
     // 迁移：检查并添加 accountSetId 列（如果不存在）
     await this.migrateAddAccountSetIdColumns();
+    // 迁移：检查并添加 subjects 表的新列（如果不存在）
+    await this.migrateAddSubjectColumns();
   }
 
   /**
    * 迁移：为现有数据库添加 accountSetId 列
    * 这是为了兼容性，处理使用 accountSetDbManager 创建的旧数据库
    */
-  private async migrateAddAccountSetColumns(): Promise<void> {
+  private async migrateAddAccountSetIdColumns(): Promise<void> {
     if (!this.dbInstance) return;
 
     try {
@@ -198,6 +200,56 @@ class SQLiteService {
       // 如果是 "duplicate column name" 错误，说明列已存在，可以忽略
       if (!error.message?.includes('duplicate column name')) {
         console.warn('Database migration warning:', error);
+      }
+    }
+  }
+
+  /**
+   * 迁移：为 subjects 表添加缺失的列
+   * 添加 isCustomer, isSupplier, isEmployee, enableDept, enableProject, enableForeign, foreignCurrency, enableCashFlow
+   */
+  private async migrateAddSubjectColumns(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 检查 subjects 表是否有 isCustomer 列
+      const pragma = this.dbInstance.exec("PRAGMA table_info(subjects)");
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+      const neededColumns = [
+        'enableDept', 'enableProject', 'enableForeign', 'foreignCurrency',
+        'isCustomer', 'isSupplier', 'isEmployee', 'enableCashFlow'
+      ];
+
+      const missingColumns = neededColumns.filter(col => !columns.includes(col));
+
+      if (missingColumns.length > 0) {
+        console.log('Migrating subjects table: adding columns', missingColumns);
+
+        const alterStatements = missingColumns.map(col => {
+          if (col === 'foreignCurrency') {
+            return `ALTER TABLE subjects ADD COLUMN ${col} TEXT;`;
+          } else {
+            return `ALTER TABLE subjects ADD COLUMN ${col} INTEGER DEFAULT 0;`;
+          }
+        }).join('\n');
+
+        this.dbInstance.exec(alterStatements);
+        console.log('Subjects table migration completed successfully');
+      }
+
+      // 无论是否添加了列，都更新默认科目的值（确保数据正确）
+      // 1122 = 应收账款 (客户), 2202 = 应付账款 (供应商)
+      this.dbInstance.exec(`
+        UPDATE subjects SET isCustomer = 1 WHERE code = '1122';
+        UPDATE subjects SET isSupplier = 1 WHERE code = '2202';
+        UPDATE subjects SET enableDept = 1 WHERE code = '1122';
+        UPDATE subjects SET enableProject = 1 WHERE code = '1122';
+      `);
+      console.log('Subject default values updated');
+    } catch (error) {
+      if (!error.message?.includes('duplicate column name')) {
+        console.warn('Subjects table migration warning:', error);
       }
     }
   }
@@ -516,8 +568,10 @@ class SQLiteService {
         const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO subjects (
             id, code, name, parentId, level, type, direction, balance,
-            enabled, frozen, description, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            enabled, frozen, description, enableDept, enableProject,
+            enableForeign, foreignCurrency, isCustomer, isSupplier,
+            isEmployee, enableCashFlow, accountSetId, createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run([
           subjectWithAccountSet.id,
@@ -533,6 +587,14 @@ class SQLiteService {
           subjectWithAccountSet.block !== undefined ? Number(subjectWithAccountSet.block) :
             (subjectWithAccountSet.frozen !== undefined ? Number(subjectWithAccountSet.frozen) : 0),
           subjectWithAccountSet.description || '',
+          Number(subjectWithAccountSet.enableDept || false),
+          Number(subjectWithAccountSet.enableProject || false),
+          Number(subjectWithAccountSet.enableForeign || false),
+          subjectWithAccountSet.foreignCurrency || '',
+          Number(subjectWithAccountSet.isCustomer || false),
+          Number(subjectWithAccountSet.isSupplier || false),
+          Number(subjectWithAccountSet.isEmployee || false),
+          Number(subjectWithAccountSet.enableCashFlow || false),
           subjectWithAccountSet.accountSetId,
           subjectWithAccountSet.createTime || now,
           subjectWithAccountSet.updateTime || now
@@ -552,35 +614,100 @@ class SQLiteService {
       [this.accountSetId]
     );
 
-    return results.map(result => ({
+    const subjects = results.map(result => ({
       id: result.id,
       code: result.code,
       name: result.name,
       parentId: result.parentId,
       level: result.level,
       direction: result.direction,
-      enableDept: false,
-      enableProject: false,
-      enableForeign: false,
-      isCustomer: false,
-      isSupplier: false,
-      isEmployee: false,
-      enableCashFlow: false,
+      enableDept: Boolean(result.enableDept),
+      enableProject: Boolean(result.enableProject),
+      enableForeign: Boolean(result.enableForeign),
+      foreignCurrency: result.foreignCurrency || '',
+      isCustomer: Boolean(result.isCustomer),
+      isSupplier: Boolean(result.isSupplier),
+      isEmployee: Boolean(result.isEmployee),
+      enableCashFlow: Boolean(result.enableCashFlow),
       disabled: result.enabled === 0,
       block: result.frozen === 1,
       subjectType: result.type,
+      description: result.description,
+      balance: result.balance || 0,
       createTime: result.createTime,
       updateTime: result.updateTime,
       accountSetId: result.accountSetId
     }));
+
+    // 自动修复：确保 1122（应收账款）有 isCustomer=true
+    // 2202（应付账款）有 isSupplier=true
+    // 这是为了确保即使数据库中的值不正确，应用也能正常工作
+    const fixedSubjects = subjects.map(subject => {
+      if (subject.code === '1122') {
+        if (!subject.isCustomer) {
+          console.log('Auto-fix: Force setting isCustomer=true for subject 1122 (应收账款)');
+        }
+        return { ...subject, isCustomer: true, enableDept: true, enableProject: true };
+      }
+      if (subject.code === '2202') {
+        if (!subject.isSupplier) {
+          console.log('Auto-fix: Force setting isSupplier=true for subject 2202 (应付账款)');
+        }
+        return { ...subject, isSupplier: true };
+      }
+      return subject;
+    });
+
+    // 检查是否需要更新数据库
+    const needsDbUpdate = fixedSubjects.some((s, i) => {
+      const orig = subjects[i];
+      return (s.code === '1122' && s.isCustomer !== orig.isCustomer) ||
+             (s.code === '2202' && s.isSupplier !== orig.isSupplier);
+    });
+
+    if (needsDbUpdate) {
+      // 异步保存到数据库（不等待）
+      this.saveSubjects(fixedSubjects.filter(s => s.code === '1122' || s.code === '2202'))
+        .catch(err => console.warn('Failed to save subject fixes:', err));
+    }
+
+    return fixedSubjects;
   }
 
   async getSubjectByCode(code: string): Promise<Subject | undefined> {
     await this.ensureInitialized();
-    return await this.querySingleAsync<Subject>(
+    const result = await this.querySingleAsync<any>(
       `SELECT * FROM subjects WHERE accountSetId = ? AND code = ?`,
       [this.accountSetId, code]
     );
+
+    if (!result) return undefined;
+
+    // Map database result to Subject type
+    return {
+      id: result.id,
+      code: result.code,
+      name: result.name,
+      parentId: result.parentId,
+      level: result.level,
+      direction: result.direction,
+      enableDept: Boolean(result.enableDept),
+      enableProject: Boolean(result.enableProject),
+      enableForeign: Boolean(result.enableForeign),
+      foreignCurrency: result.foreignCurrency || '',
+      isCustomer: Boolean(result.isCustomer),
+      isSupplier: Boolean(result.isSupplier),
+      isEmployee: Boolean(result.isEmployee),
+      enableCashFlow: Boolean(result.enableCashFlow),
+      disabled: result.enabled === 0,
+      block: result.frozen === 1,
+      subjectType: result.type,
+      description: result.description,
+      balance: result.balance || 0,
+      createTime: result.createTime,
+      updateTime: result.updateTime,
+      accountSetId: result.accountSetId
+    };
   }
 
   // ========== 部门操作 ==========
