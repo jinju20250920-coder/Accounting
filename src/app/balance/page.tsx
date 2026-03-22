@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Search,
   Download,
@@ -13,10 +14,14 @@ import {
   TrendingUp,
   TrendingDown,
   RefreshCw,
-  Printer
+  Printer,
+  X,
+  ArrowLeft
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores';
 import { useSubjectStore } from '@/stores';
+import { useRouter } from 'next/navigation';
+import { formatMoney } from '@/lib/accounting';
 
 interface SubjectBalanceRow {
   subjectCode: string;
@@ -33,10 +38,17 @@ interface SubjectBalanceRow {
 export default function BalancePage() {
   const { vouchers, calculateSubjectBalances } = useVoucherStore();
   const { subjects, getSubjectByCode } = useSubjectStore();
+  const router = useRouter();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [startMonth, setStartMonth] = useState<string>('2026-03'); // 开始月份：YYYY-MM
-  const [endMonth, setEndMonth] = useState<string>('2026-03'); // 结束月份：YYYY-MM
+  const [startMonth, setStartMonth] = useState<string>(() => new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
+  const [endMonth, setEndMonth] = useState<string>(() => new Date().toISOString().slice(0, 7)); // 结束月份：YYYY-MM
+  const [showLedgerDialog, setShowLedgerDialog] = useState(false);
+  const [selectedSubject, setSelectedSubject] = useState<{
+    code: string;
+    name: string;
+    direction: 'debit' | 'credit';
+  } | null>(null);
 
   // 确保开始月份不晚于结束月份
   const handleStartMonthChange = (value: string) => {
@@ -167,6 +179,85 @@ export default function BalancePage() {
 
   const formatCurrency = (amount: number) => {
     return amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  };
+
+  // 计算明细账数据
+  const ledgerEntries = useMemo(() => {
+    if (!selectedSubject) return [];
+
+    const subjectCode = selectedSubject.code;
+    const direction = selectedSubject.direction;
+
+    // 收集该科目的所有分录，按日期排序
+    const entries: Array<{
+      id: string;
+      date: string;
+      voucherNo: string;
+      summary: string;
+      debit: number;
+      credit: number;
+      balance: number;
+      balanceDisplay: string;
+    }> = [];
+
+    // 过滤月份范围
+    const filteredVouchers = vouchers.filter(voucher => {
+      if (voucher.status !== 'posted') return false;
+      const voucherMonth = voucher.date.slice(0, 7);
+      return voucherMonth >= startMonth && voucherMonth <= endMonth;
+    });
+
+    // 按日期和凭证号排序
+    const sortedVouchers = [...filteredVouchers].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return (a.voucherNo || '').localeCompare(b.voucherNo || '');
+    });
+
+    // 计算余额
+    let runningBalance = 0;
+
+    sortedVouchers.forEach(voucher => {
+      voucher.entries.forEach(entry => {
+        if (entry.subjectCode === subjectCode) {
+          const debit = entry.debit || 0;
+          const credit = entry.credit || 0;
+
+          // 计算余额
+          if (direction === 'debit') {
+            // 借方科目：借方增加，贷方减少
+            runningBalance += debit - credit;
+          } else {
+            // 贷方科目：贷方增加，借方减少
+            runningBalance += credit - debit;
+          }
+
+          entries.push({
+            id: entry.id,
+            date: entry.date,
+            voucherNo: voucher.voucherNo || '',
+            summary: entry.summary || '',
+            debit,
+            credit,
+            balance: runningBalance,
+            balanceDisplay: runningBalance.toFixed(2)
+          });
+        }
+      });
+    });
+
+    return entries;
+  }, [selectedSubject, vouchers, startMonth, endMonth]);
+
+  // 点击科目行显示明细账
+  const handleSubjectClick = (subjectCode: string, subjectName: string, direction: 'debit' | 'credit') => {
+    setSelectedSubject({ code: subjectCode, name: subjectName, direction });
+    setShowLedgerDialog(true);
+  };
+
+  // 关闭明细账弹窗
+  const handleCloseLedgerDialog = () => {
+    setShowLedgerDialog(false);
+    setSelectedSubject(null);
   };
 
   return (
@@ -347,9 +438,21 @@ export default function BalancePage() {
                       className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
                     >
                       <td className="px-4 py-3">
-                        <span className="font-mono text-sm">{balance.subjectCode}</span>
+                        <button
+                          onClick={() => handleSubjectClick(balance.subjectCode, balance.subjectName, balance.direction)}
+                          className="font-mono text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                        >
+                          {balance.subjectCode}
+                        </button>
                       </td>
-                      <td className="px-4 py-3 font-medium">{balance.subjectName}</td>
+                      <td className="px-4 py-3 font-medium">
+                        <button
+                          onClick={() => handleSubjectClick(balance.subjectCode, balance.subjectName, balance.direction)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
+                          {balance.subjectName}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-right font-mono text-sm">
                         {balance.openingDebit > 0 ? formatCurrency(balance.openingDebit) : ''}
                       </td>
@@ -418,6 +521,88 @@ export default function BalancePage() {
           <p>• <strong>数据来源</strong>：数据来源于已记账（状态为"记账"）的凭证</p>
         </CardContent>
       </Card>
+
+      {/* 明细账弹窗 */}
+      <Dialog open={showLedgerDialog} onOpenChange={(open) => {
+        if (!open) handleCloseLedgerDialog();
+        setShowLedgerDialog(open);
+      }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
+            <div>
+              <DialogTitle className="text-lg">
+                {selectedSubject?.subjectName} ({selectedSubject?.code})
+              </DialogTitle>
+              <p className="text-sm text-slate-500 mt-1">
+                明细账 · {startMonth} 至 {endMonth}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCloseLedgerDialog}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto p-4">
+            {ledgerEntries.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <FileText className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                <p>该科目在此期间无发生额</p>
+              </div>
+            ) : (
+              <table className="w-full border-collapse">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border border-slate-200">日期</th>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border border-slate-200">凭证号</th>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-slate-700 border border-slate-200">摘要</th>
+                    <th className="px-4 py-2 text-right text-sm font-medium text-slate-700 border border-slate-200">借方</th>
+                    <th className="px-4 py-2 text-right text-sm font-medium text-slate-700 border border-slate-200">贷方</th>
+                    <th className="px-4 py-2 text-right text-sm font-medium text-slate-700 border border-slate-200">
+                      {selectedSubject?.direction === 'debit' ? '借方余额' : '贷方余额'}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerEntries.map((entry, index) => (
+                    <tr key={entry.id} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                      <td className="px-4 py-2 text-sm border border-slate-200">{entry.date}</td>
+                      <td className="px-4 py-2 text-sm font-mono border border-slate-200">{entry.voucherNo}</td>
+                      <td className="px-4 py-2 text-sm border border-slate-200">{entry.summary}</td>
+                      <td className="px-4 py-2 text-sm text-right font-mono border border-slate-200">
+                        {entry.debit > 0 ? (
+                          <span className="text-blue-600">{formatMoney(entry.debit)}</span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-right font-mono border border-slate-200">
+                        {entry.credit > 0 ? (
+                          <span className="text-green-600">{formatMoney(entry.credit)}</span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-right font-mono font-semibold border border-slate-200">
+                        {formatMoney(entry.balance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="flex justify-end border-t pt-4">
+            <Button variant="outline" onClick={handleCloseLedgerDialog}>
+              关闭
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

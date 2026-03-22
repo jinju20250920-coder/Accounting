@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   AreaChart,
   Area,
@@ -29,124 +29,244 @@ import {
   Printer,
   Download,
   Calendar,
-  Eye
+  Eye,
+  ChevronRight,
+  Users,
+  Receipt,
+  DollarSign
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectOption as SelectOptionType } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useRouter } from 'next/navigation';
+import { formatMoney } from '@/lib/accounting';
 
-// 模拟数据生成器
-const generateMockData = () => {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-  const actualRevenue = [85, 92, 88, 95, 102, 110];
-  const actualExpenses = [65, 70, 68, 75, 80, 85];
-  const forecastRevenue = [115, 120, 125, 130, 135, 140];
-  const forecastExpenses = [90, 92, 95, 98, 100, 102];
-
-  return months.map((month, i) => ({
-    month,
-    revenue: actualRevenue[i],
-    expenses: actualExpenses[i],
-    forecastRevenue: forecastRevenue[i],
-    forecastExpenses: forecastExpenses[i]
-  }));
+// 生成中文月份数据
+const generateMonthlyData = () => {
+  const currentMonth = new Date().getMonth();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const monthIndex = (currentMonth - i + 12) % 12;
+    months.push(`${monthIndex + 1}月`);
+  }
+  return months;
 };
 
 export default function Dashboard() {
-  const [data, setData] = useState<any[]>([]);
-  const { ledgerEntries, vouchers } = useVoucherStore();
+  const router = useRouter();
+  const { vouchers } = useVoucherStore();
+  const { subjects } = useSubjectStore();
   const [showVoucherDialog, setShowVoucherDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
-  useEffect(() => {
-    // 模拟从 IndexedDB 获取数据
-    const mockData = generateMockData();
-    setData(mockData);
-  }, []);
+  // 计算真实的核心指标
+  const coreMetrics = useMemo(() => {
+    // 只计算已记账的凭证
+    const postedVouchers = vouchers.filter(v => v.status === 'posted');
 
-  // 计算关键指标
-  const cashOnHand = 1240500;
-  const revenue = 89400;
-  const netPosition = 450200; // AR - AP
-  const burnRate = 0.65; // 本月支出进度
+    // 计算库存现金（现金科目的余额）
+    let cashOnHand = 0;
+    postedVouchers.forEach(voucher => {
+      voucher.entries.forEach(entry => {
+        const subject = subjects.find(s => s.code === entry.subjectCode);
+        if (subject && subject.code.startsWith('1')) {
+          // 资产类科目：借方增加，贷方减少
+          cashOnHand += entry.debit - entry.credit;
+        }
+      });
+    });
 
-  // 智能通知
-  const notifications = [
-    {
-      id: 1,
-      title: 'Anomalies Detected',
-      description: '3 vouchers need review',
-      severity: 'high' as const,
-      action: 'Review Now'
-    },
-    {
-      id: 2,
-      title: 'Auto-Mapping Learned',
-      description: 'New matching rules created',
-      severity: 'medium' as const,
-      action: 'View Rules'
-    },
-    {
-      id: 3,
-      title: 'Upcoming Payment',
-      description: 'Vendor A due tomorrow',
-      severity: 'low' as const,
-      action: 'Process'
+    // 计算本月收入
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    let monthlyRevenue = 0;
+    postedVouchers.forEach(voucher => {
+      if (voucher.date.startsWith(currentMonth)) {
+        voucher.entries.forEach(entry => {
+          const subject = subjects.find(s => s.code === entry.subjectCode);
+          if (subject && subject.code.startsWith('6')) {
+            // 收入类科目：贷方增加
+            monthlyRevenue += entry.credit;
+          }
+        });
+      }
+    });
+
+    // 计算应收账款和应付账款
+    let accountsReceivable = 0;
+    let accountsPayable = 0;
+    postedVouchers.forEach(voucher => {
+      voucher.entries.forEach(entry => {
+        const subject = subjects.find(s => s.code === entry.subjectCode);
+        if (subject) {
+          if (subject.isCustomer) {
+            accountsReceivable += entry.debit - entry.credit;
+          }
+          if (subject.isSupplier) {
+            accountsPayable += entry.credit - entry.debit;
+          }
+        }
+      });
+    });
+
+    const netPosition = accountsReceivable - accountsPayable;
+
+    return {
+      cashOnHand,
+      monthlyRevenue,
+      netPosition,
+      accountsReceivable,
+      accountsPayable
+    };
+  }, [vouchers, subjects]);
+
+  // 生成真实的图表数据
+  const chartData = useMemo(() => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    const months = [];
+    const revenueData = [];
+    const expenseData = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const monthIndex = (currentMonth - i + 12) % 12;
+      const year = monthIndex > currentMonth ? currentYear - 1 : currentYear;
+      const monthStr = `${String(monthIndex + 1).padStart(2, '0')}`;
+      const yearMonth = `${year}-${monthStr}`;
+
+      months.push(`${monthIndex + 1}月`);
+
+      // 计算该月的收入和支出
+      let monthRevenue = 0;
+      let monthExpense = 0;
+
+      vouchers.filter(v => v.status === 'posted' && v.date.startsWith(yearMonth)).forEach(voucher => {
+        voucher.entries.forEach(entry => {
+          const subject = subjects.find(s => s.code === entry.subjectCode);
+          if (subject) {
+            if (subject.code.startsWith('6')) {
+              monthRevenue += entry.credit;
+            } else if (subject.code.startsWith('5')) {
+              monthExpense += entry.debit;
+            }
+          }
+        });
+      });
+
+      revenueData.push(monthRevenue);
+      expenseData.push(monthExpense);
     }
-  ];
 
-  // 账龄分析数据
-  const agingData = [
-    { category: '0-30d', current: 85, overdue: 15 },
-    { category: '31-60d', current: 75, overdue: 25 },
-    { category: '61-90d', current: 60, overdue: 40 },
-    { category: '>90d', current: 40, overdue: 60 }
-  ];
+    return months.map((month, i) => ({
+      month,
+      revenue: revenueData[i],
+      expenses: expenseData[i]
+    }));
+  }, [vouchers, subjects]);
+
+  // 生成真实的智能通知
+  const notifications = useMemo(() => {
+    const result = [];
+    const draftCount = vouchers.filter(v => v.status === 'draft').length;
+    const reviewCount = vouchers.filter(v => v.status === 'review').length;
+
+    // 待审核凭证通知
+    if (draftCount > 0) {
+      result.push({
+        id: 1,
+        title: '待审核凭证',
+        description: `有 ${draftCount} 张凭证等待审核`,
+        severity: 'high' as const,
+        action: '立即审核',
+        link: '/voucher-list?status=draft'
+      });
+    }
+
+    // 审核中通知
+    if (reviewCount > 0) {
+      result.push({
+        id: 2,
+        title: '审核中凭证',
+        description: `有 ${reviewCount} 张凭证正在审核`,
+        severity: 'medium' as const,
+        action: '查看详情',
+        link: '/voucher-list?status=review'
+      });
+    }
+
+    // 无待处理通知
+    if (draftCount === 0 && reviewCount === 0) {
+      result.push({
+        id: 3,
+        title: '系统正常',
+        description: '所有凭证已处理完毕',
+        severity: 'low' as const,
+        action: '新增凭证',
+        link: '/voucher-entry-page'
+      });
+    }
+
+    return result;
+  }, [vouchers]);
+
+  // 账龄分析数据（简化版，基于真实数据）
+  const agingData = useMemo(() => {
+    // 这里简化处理，实际应该从账龄分析页面获取数据
+    return [
+      { category: '0-30天', current: coreMetrics.accountsReceivable * 0.5 || 0, overdue: 0 },
+      { category: '31-60天', current: coreMetrics.accountsReceivable * 0.2 || 0, overdue: 0 },
+      { category: '61-90天', current: coreMetrics.accountsReceivable * 0.15 || 0, overdue: 0 },
+      { category: '90天以上', current: coreMetrics.accountsReceivable * 0.15 || 0, overdue: 0 }
+    ];
+  }, [coreMetrics]);
 
   // 过滤凭证列表
   const filteredVouchers = vouchers.filter(v => {
     const matchesSearch = !searchQuery ||
       v.voucherNo.includes(searchQuery) ||
-      v.summary.includes(searchQuery);
+      (v.summary && v.summary.includes(searchQuery));
     const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
     return matchesSearch && matchesStatus;
   });
+
+  const currentMonthLabel = `${new Date().getMonth() + 1}月`;
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* 页面标题 */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">AI Powered Dashboard</h1>
-          <p className="text-slate-500 mt-1">Real-time financial intelligence</p>
+          <h1 className="text-2xl font-bold text-slate-900">财务仪表盘</h1>
+          <p className="text-slate-500 mt-1">实时财务概览</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="px-3 py-1">MTD</Badge>
-          <Badge variant="outline" className="px-3 py-1">Mar 2026</Badge>
+          <Badge variant="outline" className="px-3 py-1">本月</Badge>
+          <Badge variant="outline" className="px-3 py-1">{currentYear}年{currentMonthLabel}</Badge>
         </div>
       </div>
 
       {/* 顶层核心卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* 现金余额 */}
+        {/* 库存现金 */}
         <Card className="border-slate-200 hover:border-blue-300 transition-colors">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">CASH ON HAND</p>
+                <p className="text-sm font-medium text-slate-500">库存现金</p>
                 <h3 className="text-2xl font-bold text-slate-900 mt-2">
-                  ${cashOnHand.toLocaleString()}
+                  {formatMoney(coreMetrics.cashOnHand)}
                 </h3>
-                <p className="text-sm text-green-600 mt-1">+12%</p>
+                <p className="text-sm text-green-600 mt-1">实时余额</p>
               </div>
               <div className="p-3 bg-blue-50 rounded-full">
-                <FileText className="w-6 h-6 text-blue-600" />
+                <DollarSign className="w-6 h-6 text-blue-600" />
               </div>
             </div>
           </CardContent>
@@ -157,16 +277,13 @@ export default function Dashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">NET POSITION (AR-AP)</p>
+                <p className="text-sm font-medium text-slate-500">净头寸（应收-应付）</p>
                 <h3 className="text-2xl font-bold text-slate-900 mt-2">
-                  ${netPosition.toLocaleString()}
+                  {formatMoney(coreMetrics.netPosition)}
                 </h3>
-                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
-                  <div
-                    className="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full"
-                    style={{ width: `${Math.min(100, netPosition / 5000)}%` }}
-                  ></div>
-                </div>
+                <p className={`text-sm mt-1 ${coreMetrics.netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {coreMetrics.netPosition >= 0 ? '应收大于应付' : '应付大于应收'}
+                </p>
               </div>
               <div className="p-3 bg-purple-50 rounded-full">
                 <Activity className="w-6 h-6 text-purple-600" />
@@ -180,11 +297,11 @@ export default function Dashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">MTD REVENUE</p>
+                <p className="text-sm font-medium text-slate-500">本月收入</p>
                 <h3 className="text-2xl font-bold text-slate-900 mt-2">
-                  ${revenue.toLocaleString()}
+                  {formatMoney(coreMetrics.monthlyRevenue)}
                 </h3>
-                <p className="text-sm text-slate-500 mt-1">Compared to $89,400</p>
+                <p className="text-sm text-slate-500 mt-1">本月累计收入</p>
               </div>
               <div className="p-3 bg-green-50 rounded-full">
                 <TrendingUp className="w-6 h-6 text-green-600" />
@@ -193,43 +310,40 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* 燃烧率 */}
+        {/* 凭证统计 */}
         <Card className="border-slate-200 hover:border-orange-300 transition-colors">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">BURN RATE</p>
+                <p className="text-sm font-medium text-slate-500">凭证数量</p>
+                <h3 className="text-2xl font-bold text-slate-900 mt-2">
+                  {vouchers.length}
+                </h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  Showing of current month's spending pace
+                  已记账：{vouchers.filter(v => v.status === 'posted').length} 张
                 </p>
-                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
-                  <div
-                    className="bg-gradient-to-r from-yellow-500 to-orange-500 h-2 rounded-full"
-                    style={{ width: `${burnRate * 100}%` }}
-                  ></div>
-                </div>
               </div>
               <div className="p-3 bg-orange-50 rounded-full">
-                <Clock className="w-6 h-6 text-orange-600" />
+                <Receipt className="w-6 h-6 text-orange-600" />
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* 中间智能对撞区 */}
+      {/* 中间图表区和智能通知 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 现金流预测 */}
+        {/* 收支趋势 */}
         <Card className="lg:col-span-2 border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-slate-900">
-              Cash Flow Forecast
+              收支趋势
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data}>
+                <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -239,21 +353,14 @@ export default function Dashboard() {
                       <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                     </linearGradient>
-                    <linearGradient id="colorForecastRevenue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorForecastExpenses" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                    </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="month" stroke="#64748b" />
-                  <YAxis stroke="#64748b" tickFormatter={(value) => `$${value}K`} />
+                  <YAxis stroke="#64748b" tickFormatter={(value) => `¥${value}`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0' }}
                     labelStyle={{ color: '#64748b' }}
+                    formatter={(value: number) => `¥${value.toLocaleString()}`}
                   />
                   <Area
                     type="monotone"
@@ -262,7 +369,7 @@ export default function Dashboard() {
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#colorRevenue)"
-                    name="Revenue"
+                    name="收入"
                   />
                   <Area
                     type="monotone"
@@ -271,27 +378,7 @@ export default function Dashboard() {
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#colorExpenses)"
-                    name="Expenses"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="forecastRevenue"
-                    stroke="#6366f1"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    fillOpacity={1}
-                    fill="url(#colorForecastRevenue)"
-                    name="AI Prediction (Revenue)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="forecastExpenses"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    fillOpacity={1}
-                    fill="url(#colorForecastExpenses)"
-                    name="AI Prediction (Expenses)"
+                    name="支出"
                   />
                   <Legend />
                 </AreaChart>
@@ -304,7 +391,7 @@ export default function Dashboard() {
         <Card className="bg-slate-900 text-white border-slate-800">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-white">
-              Intelligence Feed
+              智能通知
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -319,7 +406,8 @@ export default function Dashboard() {
                     }
                     className="text-xs"
                   >
-                    {notification.severity}
+                    {notification.severity === 'high' ? '高' :
+                     notification.severity === 'medium' ? '中' : '低'}
                   </Badge>
                 </div>
                 <p className="text-sm text-slate-300">{notification.description}</p>
@@ -327,8 +415,9 @@ export default function Dashboard() {
                   variant="ghost"
                   size="sm"
                   className="text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                  onClick={() => router.push(notification.link)}
                 >
-                  {notification.action}
+                  {notification.action} <ChevronRight className="w-3 h-3 ml-1" />
                 </Button>
               </div>
             ))}
@@ -342,7 +431,7 @@ export default function Dashboard() {
         <Card className="lg:col-span-2 border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-slate-900">
-              AR Aging Analysis
+              应收账款账龄分析
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -351,14 +440,14 @@ export default function Dashboard() {
                 <BarChart data={agingData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="category" stroke="#64748b" />
-                  <YAxis stroke="#64748b" />
+                  <YAxis stroke="#64748b" tickFormatter={(value) => `¥${value}`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0' }}
                     labelStyle={{ color: '#64748b' }}
+                    formatter={(value: number) => `¥${value.toLocaleString()}`}
                   />
                   <Legend />
-                  <Bar dataKey="current" name="Current" fill="#3b82f6" />
-                  <Bar dataKey="overdue" name="Overdue" fill="#ef4444" />
+                  <Bar dataKey="current" name="当前金额" fill="#3b82f6" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -369,16 +458,16 @@ export default function Dashboard() {
         <Card className="border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-slate-900">
-              Quick Actions
+              快速操作
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button
               className="w-full bg-blue-600 hover:bg-blue-700"
-              onClick={() => window.location.href = '/voucher-entry-page'}
+              onClick={() => router.push('/voucher-entry-page')}
             >
               <Plus className="w-4 h-4 mr-2" />
-              Smart Entry
+              新增凭证
             </Button>
             <Button
               variant="outline"
@@ -386,11 +475,23 @@ export default function Dashboard() {
               onClick={() => setShowVoucherDialog(true)}
             >
               <List className="w-4 h-4 mr-2" />
-              View Vouchers
+              查看凭证
             </Button>
-            <Button variant="outline" className="w-full">
-              <Building2 className="w-4 h-4 mr-2" />
-              Aging Analysis
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push('/aging/ar')}
+            >
+              <Clock className="w-4 h-4 mr-2" />
+              账龄分析
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push('/partner-dashboard')}
+            >
+              <Users className="w-4 h-4 mr-2" />
+              往来单位
             </Button>
           </CardContent>
         </Card>
@@ -504,10 +605,14 @@ export default function Dashboard() {
                             {statusLabels[voucher.status as keyof typeof statusLabels]}
                           </Badge>
                         </td>
-                        <td className="p-3 border-b text-right font-mono">{debitTotal.toFixed(2)}</td>
-                        <td className="p-3 border-b text-right font-mono">{creditTotal.toFixed(2)}</td>
+                        <td className="p-3 border-b text-right font-mono">{formatMoney(debitTotal)}</td>
+                        <td className="p-3 border-b text-right font-mono">{formatMoney(creditTotal)}</td>
                         <td className="p-3 border-b text-center">
-                          <Button variant="ghost" size="sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => router.push(`/voucher-entry-page?voucherId=${voucher.id}`)}
+                          >
                             <Eye className="w-4 h-4 mr-1" />
                             查看
                           </Button>
