@@ -803,20 +803,36 @@ export function VoucherHeader() {
                             <th className="px-3 py-2 text-left font-medium">分录数</th>
                             <th className="px-3 py-2 text-right font-medium">借方合计</th>
                             <th className="px-3 py-2 text-right font-medium">贷方合计</th>
+                            <th className="px-3 py-2 text-center font-medium">平衡状态</th>
                           </tr>
                         </thead>
                         <tbody>
                           {importPreview.map((voucher, idx) => {
                             const debitTotal = voucher.entries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0)
                             const creditTotal = voucher.entries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0)
+                            const isBalanced = Math.abs(debitTotal - creditTotal) < 0.01
+                            const diff = Math.abs(debitTotal - creditTotal)
                             return (
-                              <tr key={idx} className="border-t">
+                              <tr key={idx} className={`border-t ${!isBalanced ? 'bg-red-50' : ''}`}>
                                 <td className="px-3 py-2 font-mono">{voucher.voucherNo}</td>
                                 <td className="px-3 py-2">{voucher.date}</td>
                                 <td className="px-3 py-2">{voucher.summary}</td>
                                 <td className="px-3 py-2 text-center">{voucher.entries.length}</td>
                                 <td className="px-3 py-2 text-right font-mono">{debitTotal.toFixed(2)}</td>
                                 <td className="px-3 py-2 text-right font-mono">{creditTotal.toFixed(2)}</td>
+                                <td className="px-3 py-2 text-center">
+                                  {isBalanced ? (
+                                    <span className="inline-flex items-center text-green-700">
+                                      <CheckCircle className="w-4 h-4 mr-1" />
+                                      平衡
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center text-red-700">
+                                      <XCircle className="w-4 h-4 mr-1" />
+                                      差额 {diff.toFixed(2)}
+                                    </span>
+                                  )}
+                                </td>
                               </tr>
                             )
                           })}
