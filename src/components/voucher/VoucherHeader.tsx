@@ -201,140 +201,67 @@ export function VoucherHeader() {
     }
   }
 
-  // 解析Excel数据为凭证
+  // 解析Excel数据为凭证 - 始终按凭证号分组
   const parseExcelToVouchers = (data: any[]): any[] => {
-    const vouchers: any[] = []
-    let currentVoucher: any = null
-    let currentEntries: any[] = []
-    let currentVoucherNo = ''
-    let currentDate = ''
-    let currentSummary = ''
+    // 按凭证号分组所有分录
+    const groupedVouchers = new Map<string, any>()
 
-    data.forEach((row: any, index: number) => {
-      // 检查是否是凭证头部行（包含凭证号、日期、摘要）
-      if (row['凭证号'] || row['凭证字号']) {
-        // 保存上一个凭证
-        if (currentVoucher && currentEntries.length > 0) {
-          vouchers.push({
-            ...currentVoucher,
-            entries: currentEntries
-          })
-        }
+    data.forEach((row: any) => {
+      const voucherNo = row['凭证号'] || row['凭证字号'] || '记-001'
+      const date = row['日期'] || new Date().toISOString().split('T')[0]
+      const summary = row['摘要'] || ''
+      const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
+      const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
 
-        // 创建新凭证
-        currentVoucherNo = row['凭证号'] || row['凭证字号'] || ''
-        currentDate = row['日期'] || new Date().toISOString().split('T')[0]
-        currentSummary = row['摘要'] || ''
-
-        currentVoucher = {
-          voucherNo: currentVoucherNo,
-          date: currentDate,
-          summary: currentSummary,
-          status: 'draft',
-          voucherType: 'general'
-        }
-        currentEntries = []
+      // 如果凭证号不存在，创建新凭证
+      if (!groupedVouchers.has(voucherNo)) {
+        groupedVouchers.set(voucherNo, {
+          voucherNo,
+          date,
+          summary,
+          status: 'draft' as const,
+          voucherType: 'general' as const,
+          entries: []
+        })
       }
 
-      // 检查是否是分录行（包含科目代码或借贷金额）
-      if (row['科目代码'] || row['科目'] || row['借方金额'] || row['贷方金额'] || row['借方'] || row['贷方']) {
-        const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
-        const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
+      const voucher = groupedVouchers.get(voucherNo)!
 
-        // 只有科目代码或金额不为0时才添加分录
-        if (row['科目代码'] || row['科目'] || debit > 0 || credit > 0) {
-          currentEntries.push({
-            id: `entry_${Date.now()}_${currentEntries.length}`,
-            summary: row['分录摘要'] || currentSummary || '',
-            subjectCode: row['科目代码'] || row['科目'] || '',
-            subjectName: row['科目名称'] || '',
-            debit: debit,
-            credit: credit,
-            deptCode: row['部门代码'] || row['部门'] || '',
-            projectCode: row['项目代码'] || row['项目'] || '',
-            docNo: row['单据号'] || '',
-            currencyCode: row['币别代码'] || row['币别'] || '',
-            currencyName: row['币别名称'] || '',
-            cashFlowItem: row['现金流量项目'] || row['现金流量'] || '',
-            customerName: row['客户'] || row['往来单位'] || row['客户名称'] || '',
-            supplierName: row['供应商'] || row['往来单位'] || row['供应商名称'] || ''
-          })
-        }
+      // 如果这一行有科目代码或借贷金额，添加为分录
+      if (row['科目代码'] || row['科目'] || debit > 0 || credit > 0) {
+        voucher.entries.push({
+          id: `entry_${Date.now()}_${voucher.entries.length}`,
+          summary: row['分录摘要'] || summary,
+          subjectCode: row['科目代码'] || row['科目'] || '',
+          subjectName: row['科目名称'] || '',
+          debit,
+          credit,
+          deptCode: row['部门代码'] || row['部门'] || '',
+          projectCode: row['项目代码'] || row['项目'] || '',
+          docNo: row['单据号'] || '',
+          currencyCode: row['币别代码'] || row['币别'] || '',
+          currencyName: row['币别名称'] || '',
+          cashFlowItem: row['现金流量项目'] || row['现金流量'] || '',
+          customerName: row['客户'] || row['往来单位'] || row['客户名称'] || '',
+          supplierName: row['供应商'] || row['往来单位'] || row['供应商名称'] || ''
+        })
       }
     })
 
-    // 保存最后一个凭证
-    if (currentVoucher && currentEntries.length > 0) {
-      vouchers.push({
-        ...currentVoucher,
-        entries: currentEntries
-      })
-    }
+    const vouchers = Array.from(groupedVouchers.values()).filter(v => v.entries.length > 0)
 
-    // 如果Excel格式是每行一张凭证的分录
-    if (vouchers.length === 0 && data.length > 0) {
-      // 尝试按行解析：每行是一个分录，相同凭证号的分录归为同一凭证
-      const groupedVouchers = new Map<string, any>()
-
-      data.forEach((row: any) => {
-        const voucherNo = row['凭证号'] || row['凭证字号'] || '记-001'
-        const date = row['日期'] || new Date().toISOString().split('T')[0]
-        const summary = row['摘要'] || ''
-        const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
-        const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
-
-        if (!groupedVouchers.has(voucherNo)) {
-          groupedVouchers.set(voucherNo, {
-            voucherNo,
-            date,
-            summary,
-            status: 'draft' as const,
-            voucherType: 'general' as const,
-            entries: []
-          })
-        }
-
-        const voucher = groupedVouchers.get(voucherNo)!
-        if (row['科目代码'] || row['科目'] || debit > 0 || credit > 0) {
-          voucher.entries.push({
-            id: `entry_${Date.now()}_${voucher.entries.length}`,
-            summary: row['分录摘要'] || summary,
-            subjectCode: row['科目代码'] || row['科目'] || '',
-            subjectName: row['科目名称'] || '',
-            debit,
-            credit,
-            deptCode: row['部门代码'] || row['部门'] || '',
-            projectCode: row['项目代码'] || row['项目'] || '',
-            docNo: row['单据号'] || '',
-            currencyCode: row['币别代码'] || row['币别'] || '',
-            currencyName: row['币别名称'] || '',
-            cashFlowItem: row['现金流量项目'] || row['现金流量'] || '',
-            customerName: row['客户'] || row['往来单位'] || row['客户名称'] || '',
-            supplierName: row['供应商'] || row['往来单位'] || row['供应商名称'] || ''
-          })
-        }
-      })
-
-      const parsedVouchers = Array.from(groupedVouchers.values()).filter(v => v.entries.length > 0)
-      console.log('解析结果 - 第二种方式:', parsedVouchers.map(v => ({
-        voucherNo: v.voucherNo,
-        entriesCount: v.entries.length,
-        debitTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0),
-        creditTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0),
-        entries: v.entries.map((e: any) => ({ debit: e.debit, credit: e.credit, debitType: typeof e.debit }))
-      })))
-      return parsedVouchers
-    }
-
-    console.log('解析结果 - 第一种方式:', vouchers.map(v => ({
+    console.log('解析结果:', vouchers.map(v => ({
       voucherNo: v.voucherNo,
       entriesCount: v.entries.length,
       debitTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0),
       creditTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0),
-      entries: v.entries.map((e: any) => ({ debit: e.debit, credit: e.credit, debitType: typeof e.debit }))
+      isBalanced: Math.abs(
+        v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0) -
+        v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0)
+      ) < 0.01
     })))
 
-    return vouchers.filter(v => v.entries.length > 0)
+    return vouchers
   }
 
   // 确认导入
