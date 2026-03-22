@@ -2,13 +2,26 @@
   "name": "ai-finance-assistant",
   "version": "0.1.0",
   "private": true,
+  "description": "AI Finance Assistant - 基于Web的现代会计凭证录入系统",
+  "main": "electron/main.js",
+  "homepage": "./",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:electron": "concurrently -k \"BROWSER=none npm run dev\" \"npm run electron:start\"",
+    "electron:start": "wait-on tcp:3000 && electron .",
+    "electron:start:prod": "electron .",
+    "preelectron:package": "npm run build",
+    "electron:package": "electron-builder",
+    "electron:package:win": "electron-builder --win",
+    "electron:package:mac": "electron-builder --mac",
+    "electron:package:linux": "electron-builder --linux"
   },
   "dependencies": {
+    "electron-serve": "^1.1.0",
+    "electron-store": "^8.1.0",
     "@base-ui/react": "^1.2.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -47,10 +60,58 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^32.3.1",
+    "electron-builder": "^24.13.3",
+    "electron-devtools-installer": "^3.2.0",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "build": {
+    "appId": "com.ai-finance-assistant.app",
+    "productName": "AI Finance Assistant",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules",
+      "node_modules/sql.js",
+      "node_modules/sql.js/dist/sql-wasm.wasm",
+      "node_modules/sql.js/dist/sql-wasm.js",
+      "!**/*.map",
+      "!**/*.md",
+      "!**/*.ts",
+      "!**/*.tsx",
+      "!**/.git*",
+      "!**/build/*",
+      "!**/dist/*",
+      "!**/electron-builder.yml"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/sql.js/dist",
+        "to": "node_modules/sql.js/dist",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.finance"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Office"
+    }
   }
 }
