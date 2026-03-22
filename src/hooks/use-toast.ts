@@ -11,9 +11,9 @@ export function useToast() {
   const { showToast } = useCustomToast()
 
   const toast = ({ title, description, duration = 3000, type = 'info' }: ToastOptions = {}) => {
-    const message = title ? `${title}\n${description}` : description || '操作成功'
+    const message = title ? (description ? `${title}: ${description}` : title) : description || '操作成功'
     showToast(type, message, duration)
   }
 
-  return { toast }
+  return { toast, showToast }
 }

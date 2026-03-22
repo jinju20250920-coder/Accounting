@@ -18,7 +18,10 @@ import {
   FileText,
   Trash2,
   Upload,
-  Download
+  Download,
+  AlertCircle,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react'
 import { useVoucherStore } from '@/stores/useVoucherStore'
 import { useVoucherTemplateStore } from '@/stores/useVoucherTemplateStore'
@@ -41,16 +44,28 @@ export function VoucherHeader() {
 
   const { addTemplate } = useVoucherTemplateStore()
 
-  const { toast } = useToast()
+  const { showToast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showSaveAsTemplateDialog, setShowSaveAsTemplateDialog] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [showImportResultDialog, setShowImportResultDialog] = useState(false)
   const [importPreview, setImportPreview] = useState<any[]>([])
   const [importFile, setImportFile] = useState<File | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+
+  // 导入结果状态
+  interface ImportResult {
+    voucherNo: string
+    status: 'success' | 'failed' | 'warning'
+    message: string
+    voucher?: any
+    entries?: any[]
+  }
+  const [importResults, setImportResults] = useState<ImportResult[]>([])
+  const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set())
 
   // 保存为凭证模版
   const handleSaveAsTemplate = async () => {
@@ -66,10 +81,7 @@ export function VoucherHeader() {
       )
 
       if (validEntries.length === 0) {
-        toast({
-          title: "保存失败",
-          description: "没有有效的分录数据，无法保存为模版"
-        })
+        showToast('error', "没有有效的分录数据，无法保存为模版")
         return
       }
 
@@ -94,19 +106,13 @@ export function VoucherHeader() {
         }))
       })
 
-      toast({
-        title: "保存成功",
-        description: "凭证已保存为模版"
-      })
+      showToast('success', "凭证已保存为模版")
 
       setShowSaveAsTemplateDialog(false)
       setTemplateName('')
       setTemplateDescription('')
     } catch (error) {
-      toast({
-        title: "保存失败",
-        description: error instanceof Error ? error.message : "保存模版失败"
-      })
+      showToast('error', error instanceof Error ? error.message : "保存模版失败")
     }
   }
 
@@ -126,15 +132,9 @@ export function VoucherHeader() {
       // Create new voucher
       createVoucher()
 
-      toast({
-        title: "操作成功",
-        description: "凭证已保存并新建下一个",
-      })
+      showToast('success', "凭证已保存并新建下一个")
     } catch (error) {
-      toast({
-        title: "保存失败",
-        description: error instanceof Error ? error.message : "未知错误",
-      })
+      showToast('error', error instanceof Error ? error.message : "未知错误")
     } finally {
       setIsSaving(false)
     }
@@ -147,10 +147,7 @@ export function VoucherHeader() {
     try {
       deleteVoucher(currentVoucher.id)
 
-      toast({
-        title: "操作成功",
-        description: "凭证已删除",
-      })
+      showToast('success', "凭证已删除")
 
       // 如果还有其他凭证，激活第一个
       if (vouchers.length > 1) {
@@ -161,10 +158,7 @@ export function VoucherHeader() {
         createVoucher()
       }
     } catch (error) {
-      toast({
-        title: "删除失败",
-        description: error instanceof Error ? error.message : "未知错误",
-      })
+      showToast('error', error instanceof Error ? error.message : "未知错误")
     } finally {
       setShowDeleteConfirm(false)
     }
@@ -195,16 +189,9 @@ export function VoucherHeader() {
       const vouchers = parseExcelToVouchers(jsonData)
       setImportPreview(vouchers)
 
-      toast({
-        title: "文件解析成功",
-        description: `共解析到 ${vouchers.length} 张凭证`,
-      })
+      showToast('success', `共解析到 ${vouchers.length} 张凭证`)
     } catch (error) {
-      toast({
-        title: "文件解析失败",
-        description: error instanceof Error ? error.message : "请检查文件格式",
-        variant: "destructive"
-      })
+      showToast('error', error instanceof Error ? error.message : "请检查文件格式")
       setImportPreview([])
     } finally {
       setIsImporting(false)
@@ -334,30 +321,65 @@ export function VoucherHeader() {
   // 确认导入
   const handleConfirmImport = async () => {
     if (importPreview.length === 0) {
-      toast({
-        title: "没有可导入的凭证",
-        description: "请先上传Excel文件",
-        variant: "destructive"
-      })
+      showToast('error', "请先上传Excel文件")
       return
     }
 
     setIsImporting(true)
-    let successCount = 0
-    let errorCount = 0
-    const savedVouchers: any[] = []
+    const results: ImportResult[] = []
 
     try {
       for (const voucherData of importPreview) {
+        const result: ImportResult = {
+          voucherNo: voucherData.voucherNo,
+          status: 'success',
+          message: '导入成功',
+          voucher: voucherData,
+          entries: voucherData.entries
+        }
+
         try {
           // 检查借贷平衡
           const debitTotal = voucherData.entries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0)
           const creditTotal = voucherData.entries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0)
 
           if (Math.abs(debitTotal - creditTotal) > 0.01) {
-            console.warn(`凭证 ${voucherData.voucherNo} 借贷不平衡，跳过`)
-            errorCount++
+            result.status = 'failed'
+            result.message = `借贷不平衡：借方 ${debitTotal.toFixed(2)} ≠ 贷方 ${creditTotal.toFixed(2)}，差额 ${(debitTotal - creditTotal).toFixed(2)}`
+            results.push(result)
             continue
+          }
+
+          // 检查科目代码是否有效
+          const invalidEntries = voucherData.entries.filter((entry: any) => {
+            if (!entry.subjectCode || entry.subjectCode.trim() === '') {
+              return true
+            }
+            // 检查科目代码格式（4位或6位数字）
+            return !/^\d{4}(\d{2})?$/.test(entry.subjectCode)
+          })
+
+          if (invalidEntries.length > 0) {
+            result.status = 'failed'
+            const invalidCodes = invalidEntries.map((e: any) => e.subjectCode || '(空)').join(', ')
+            result.message = `科目代码格式错误：${invalidCodes}（应为4位或6位数字）`
+            results.push(result)
+            continue
+          }
+
+          // 检查是否有分录
+          if (voucherData.entries.length === 0) {
+            result.status = 'failed'
+            result.message = '凭证没有分录数据'
+            results.push(result)
+            continue
+          }
+
+          // 检查金额是否全部为0
+          const totalAmount = voucherData.entries.reduce((sum: number, e: any) => sum + (e.debit || 0) + (e.credit || 0), 0)
+          if (totalAmount === 0) {
+            result.status = 'warning'
+            result.message = '凭证金额为0，已创建但不建议入账'
           }
 
           // 创建新凭证
@@ -383,34 +405,41 @@ export function VoucherHeader() {
 
           // 直接保存到数据库
           await getCurrentService().saveVoucher(newVoucher)
-          savedVouchers.push(newVoucher)
-          successCount++
+          results.push(result)
         } catch (error) {
           console.error('导入凭证失败:', voucherData.voucherNo, error)
-          errorCount++
+          result.status = 'failed'
+          result.message = error instanceof Error ? error.message : `保存失败：${String(error)}`
+          results.push(result)
         }
       }
 
       // 重新加载凭证列表
       await initialize()
 
-      toast({
-        title: "导入完成",
-        description: `成功导入 ${successCount} 张凭证${errorCount > 0 ? `，失败 ${errorCount} 张` : ''}`,
-      })
-
+      // 显示结果对话框
+      setImportResults(results)
+      setShowImportResultDialog(true)
       setShowImportDialog(false)
+
+      // 如果有失败的凭证，提示用户
+      const failedCount = results.filter(r => r.status === 'failed').length
+      const successCount = results.filter(r => r.status === 'success').length
+
+      if (failedCount > 0) {
+        showToast('warning', `成功 ${successCount} 张，失败 ${failedCount} 张`)
+      } else {
+        showToast('success', `成功导入 ${successCount} 张凭证`)
+      }
+
+      // 清空预览数据
       setImportPreview([])
       setImportFile(null)
 
       // 创建新凭证准备继续录入
       createVoucher()
     } catch (error) {
-      toast({
-        title: "导入失败",
-        description: error instanceof Error ? error.message : "未知错误",
-        variant: "destructive"
-      })
+      showToast('error', error instanceof Error ? error.message : "未知错误")
     } finally {
       setIsImporting(false)
     }
@@ -816,6 +845,288 @@ export function VoucherHeader() {
             >
               {isImporting ? '导入中...' : '确认导入'}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导入结果对话框 */}
+      <Dialog open={showImportResultDialog} onOpenChange={setShowImportResultDialog}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
+          {/* Header with gradient background */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-6 py-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-white text-lg font-semibold p-0">
+                  导入结果报告
+                </DialogTitle>
+                <p className="text-slate-400 text-sm mt-1">
+                  查看每张凭证的导入状态和详细信息
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-slate-400 hover:text-white hover:bg-white/10"
+                onClick={() => setShowImportResultDialog(false)}
+              >
+                ✕
+              </Button>
+            </div>
+          </div>
+
+          {/* Summary Statistics Cards */}
+          <div className="grid grid-cols-3 gap-4 px-6 py-5 bg-slate-50 border-b border-slate-200">
+            <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold">总凭证数</p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1">{importResults.length}</p>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-slate-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold">成功导入</p>
+                  <p className="text-3xl font-bold text-emerald-600 mt-1">
+                    {importResults.filter(r => r.status === 'success').length}
+                  </p>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6 text-emerald-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold">导入失败</p>
+                  <p className="text-3xl font-bold text-red-600 mt-1">
+                    {importResults.filter(r => r.status === 'failed').length}
+                  </p>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Results List */}
+          <div className="flex-1 overflow-auto px-6 py-4">
+            <div className="space-y-3">
+              {importResults.map((result, index) => {
+                const isExpanded = expandedResults.has(result.voucherNo)
+                const isSuccess = result.status === 'success'
+                const isFailed = result.status === 'failed'
+                const isWarning = result.status === 'warning'
+
+                const StatusIcon = isSuccess ? CheckCircle : isFailed ? XCircle : AlertCircle
+                const statusColor = isSuccess ? 'text-emerald-600' : isFailed ? 'text-red-600' : 'text-amber-600'
+                const statusBg = isSuccess ? 'bg-emerald-100' : isFailed ? 'bg-red-100' : 'bg-amber-100'
+
+                return (
+                  <div
+                    key={index}
+                    className={`rounded-xl border-2 transition-all duration-200 ${
+                      isSuccess ? 'bg-emerald-50 border-emerald-200' :
+                      isFailed ? 'bg-red-50 border-red-200' :
+                      'bg-amber-50 border-amber-200'
+                    } ${isExpanded ? 'shadow-md' : 'shadow-sm hover:shadow-md'}`}
+                  >
+                    {/* Main Card - Always Visible */}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        {/* Left: Icon + Voucher Info */}
+                        <div className="flex items-start gap-3 flex-1">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            isSuccess ? 'bg-emerald-100' : isFailed ? 'bg-red-100' : 'bg-amber-100'
+                          }`}>
+                            <StatusIcon className={`w-5 h-5 ${statusColor}`} />
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-mono font-semibold text-slate-900">
+                                {result.voucherNo}
+                              </span>
+                              <Badge variant="secondary" className={
+                                isSuccess ? 'bg-emerald-100 text-emerald-700' :
+                                isFailed ? 'bg-red-100 text-red-700' :
+                                'bg-amber-100 text-amber-700'
+                              }>
+                                {isSuccess ? '成功' : isFailed ? '失败' : '警告'}
+                              </Badge>
+                            </div>
+
+                            <p className={`text-sm ${
+                              isSuccess ? 'text-emerald-800' :
+                              isFailed ? 'text-red-800' :
+                              'text-amber-800'
+                            } font-medium`}>
+                              {result.message}
+                            </p>
+
+                            {result.voucher && (
+                              <div className="flex items-center gap-4 mt-2 text-xs text-slate-600">
+                                <span>{result.voucher.date}</span>
+                                <span>•</span>
+                                <span>{result.voucher.entries.length} 条分录</span>
+                                {result.entries && (
+                                  <>
+                                    <span>•</span>
+                                    <span>借方: {result.entries.reduce((s: number, e: any) => s + (e.debit || 0), 0).toFixed(2)}</span>
+                                    <span>贷方: {result.entries.reduce((s: number, e: any) => s + (e.credit || 0), 0).toFixed(2)}</span>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Right: Expand Button */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="flex-shrink-0"
+                          onClick={() => {
+                            setExpandedResults(prev => {
+                              const next = new Set(prev)
+                              if (next.has(result.voucherNo)) {
+                                next.delete(result.voucherNo)
+                              } else {
+                                next.add(result.voucherNo)
+                              }
+                              return next
+                            })
+                          }}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-5 h-5 text-slate-600" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 text-slate-600" />
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* Expandable Details */}
+                      {isExpanded && result.entries && (
+                        <div className="mt-4 pt-4 border-t border-slate-200/50">
+                          <div className="text-xs font-semibold text-slate-700 mb-2">分录明细</div>
+                          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                            <table className="w-full text-xs">
+                              <thead className="bg-slate-50">
+                                <tr>
+                                  <th className="px-3 py-2 text-left font-medium text-slate-600">摘要</th>
+                                  <th className="px-3 py-2 text-left font-medium text-slate-600">科目代码</th>
+                                  <th className="px-3 py-2 text-left font-medium text-slate-600">科目名称</th>
+                                  <th className="px-3 py-2 text-right font-medium text-slate-600">借方</th>
+                                  <th className="px-3 py-2 text-right font-medium text-slate-600">贷方</th>
+                                  <th className="px-3 py-2 text-left font-medium text-slate-600">辅助核算</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {result.entries.map((entry: any, entryIdx: number) => (
+                                  <tr key={entryIdx} className="border-t border-slate-100">
+                                    <td className="px-3 py-2">{entry.summary || '-'}</td>
+                                    <td className="px-3 py-2 font-mono">{entry.subjectCode || '-'}</td>
+                                    <td className="px-3 py-2">{entry.subjectName || '-'}</td>
+                                    <td className="px-3 py-2 text-right font-mono">
+                                      {entry.debit > 0 ? entry.debit.toFixed(2) : '-'}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-mono">
+                                      {entry.credit > 0 ? entry.credit.toFixed(2) : '-'}
+                                    </td>
+                                    <td className="px-3 py-2 text-slate-500">
+                                      {[
+                                        entry.deptCode && `部门:${entry.deptCode}`,
+                                        entry.projectCode && `项目:${entry.projectCode}`,
+                                        entry.customerName && `客户:${entry.customerName}`,
+                                        entry.supplierName && `供应商:${entry.supplierName}`,
+                                        entry.currencyCode && `币别:${entry.currencyCode}`,
+                                        entry.cashFlowItem && `现金流:${entry.cashFlowItem}`
+                                      ].filter(Boolean).join(' ') || '-'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Validation Errors for Entries */}
+                          {isFailed && result.voucher && result.voucher.entries.some((e: any) => {
+                            return !e.subjectCode || e.subjectCode.trim() === '' || !/^\d{4}(\d{2})?$/.test(e.subjectCode)
+                          }) && (
+                            <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                              <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                <div className="text-xs text-amber-800">
+                                  <p className="font-semibold mb-1">数据验证警告</p>
+                                  <ul className="list-disc list-inside space-y-0.5 text-amber-700">
+                                    {result.voucher.entries.filter((e: any) =>
+                                      !e.subjectCode || e.subjectCode.trim() === '' || !/^\d{4}(\d{2})?$/.test(e.subjectCode)
+                                    ).map((e: any, i: number) => (
+                                      <li key={i}>
+                                        分录 {i + 1}: 科目代码 "{e.subjectCode || '(空)'}" 格式错误
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Footer Actions */}
+          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+            <div className="text-sm text-slate-600">
+              {importResults.filter(r => r.status === 'failed').length > 0 && (
+                <span className="flex items-center gap-1 text-amber-700">
+                  <AlertCircle className="w-4 h-4" />
+                  部分凭证导入失败，请检查数据后重试
+                </span>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowImportResultDialog(false)
+                  setImportResults([])
+                  setImportFile(null)
+                  setImportPreview([])
+                  setExpandedResults(new Set())
+                }}
+              >
+                关闭
+              </Button>
+
+              {importResults.filter(r => r.status === 'failed').length > 0 && (
+                <Button
+                  onClick={() => {
+                    // 重试：只导入失败的凭证
+                    const failedResults = importResults.filter(r => r.status === 'failed')
+                    // 这里可以实现重试逻辑
+                    showToast('info', "请修复Excel中的错误后重新上传文件")
+                  }}
+                >
+                  重试失败项
+                </Button>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
