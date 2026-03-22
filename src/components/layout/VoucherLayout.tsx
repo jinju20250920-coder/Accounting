@@ -7,6 +7,7 @@ import { VoucherEntryGrid } from '../voucher/voucher-entry-grid'
 
 export function VoucherLayout() {
   const {
+    currentVoucher,
     createVoucher,
     initialize
   } = useVoucherStore()
@@ -30,17 +31,24 @@ export function VoucherLayout() {
     initStore()
   }, [initialize])
 
-  // 页面加载时自动初始化
+  // 页面加载时检查是否需要创建新凭证
   useEffect(() => {
     // 只有在 store 初始化完成后才执行，且只执行一次
     if (!storeInitialized || hasInitialized.current) return
 
-    // 新增凭证页面应该总是创建新的空白草稿凭证
-    // 这样用户进入页面时总是看到可以编辑的空白凭证，而不是已入账的凭证
-    console.log('VoucherLayout: 创建新空白草稿凭证')
-    createVoucher()
+    // 检查是否需要创建新凭证：
+    // 1. 没有当前凭证
+    // 2. 当前凭证不是草稿状态（已记账/已冲销的凭证不能编辑）
+    const shouldCreateNew = !currentVoucher || currentVoucher.status !== 'draft'
+
+    if (shouldCreateNew) {
+      console.log('VoucherLayout: 创建新空白草稿凭证')
+      createVoucher()
+    } else {
+      console.log('VoucherLayout: 使用现有草稿凭证:', currentVoucher.voucherNo)
+    }
     hasInitialized.current = true
-  }, [storeInitialized, createVoucher])
+  }, [storeInitialized, currentVoucher, createVoucher])
 
   // Handle paste events globally
   useEffect(() => {

@@ -391,13 +391,13 @@ export default function VoucherListPage() {
     setShowDetailDialog(true);
   };
 
-  const handleEdit = (voucher: VoucherType) => {
-    loadVoucher(voucher.id);
+  const handleEdit = async (voucher: VoucherType) => {
+    await loadVoucher(voucher.id);
     router.push('/voucher-entry-page');
   };
 
-  const handleCopy = (voucher: VoucherType) => {
-    copyVoucher(voucher.id);
+  const handleCopy = async (voucher: VoucherType) => {
+    await copyVoucher(voucher.id);
     setShowDetailDialog(false);
     router.push('/voucher-entry-page');
   };
