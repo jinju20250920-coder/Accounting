@@ -459,6 +459,8 @@ class SQLiteService {
       ...voucher,
       entries: entries.map((entry: any) => ({
         ...entry,
+        // 字段映射：数据库字段 → 应用字段
+        deptCode: entry.departmentCode || entry.deptCode || '',
         auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
       }))
     };
@@ -482,6 +484,8 @@ class SQLiteService {
           ...voucher,
           entries: entries.map((entry: any) => ({
             ...entry,
+            // 字段映射：数据库字段 → 应用字段
+            deptCode: entry.departmentCode || entry.deptCode || '',
             auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
           }))
         };
@@ -507,6 +511,8 @@ class SQLiteService {
           ...voucher,
           entries: entries.map((entry: any) => ({
             ...entry,
+            // 字段映射：数据库字段 → 应用字段
+            deptCode: entry.departmentCode || entry.deptCode || '',
             auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
           }))
         };
@@ -532,6 +538,8 @@ class SQLiteService {
           ...voucher,
           entries: entries.map((entry: any) => ({
             ...entry,
+            // 字段映射：数据库字段 → 应用字段
+            deptCode: entry.departmentCode || entry.deptCode || '',
             auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
           }))
         };

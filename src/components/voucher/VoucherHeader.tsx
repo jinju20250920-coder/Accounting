@@ -830,8 +830,19 @@ export function VoucherHeader() {
       </Dialog>
 
       {/* 导入结果对话框 */}
-      <Dialog open={showImportResultDialog} onOpenChange={setShowImportResultDialog}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
+      <Dialog open={showImportResultDialog} onOpenChange={(open) => {
+        if (!open) {
+          // 关闭对话框并清理状态
+          setShowImportResultDialog(false)
+          setImportResults([])
+          setImportFile(null)
+          setImportPreview([])
+          setExpandedResults(new Set())
+          // 导航到凭证列表页面并指定草稿状态，用户可以看到刚导入的草稿凭证
+          router.push('/voucher-list?status=draft')
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
           {/* Header with gradient background */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-6 py-5">
             <div className="flex items-center justify-between">
@@ -847,15 +858,7 @@ export function VoucherHeader() {
                 variant="ghost"
                 size="icon"
                 className="text-slate-400 hover:text-white hover:bg-white/10"
-                onClick={() => {
-                  setShowImportResultDialog(false)
-                  setImportResults([])
-                  setImportFile(null)
-                  setImportPreview([])
-                  setExpandedResults(new Set())
-                  // 导航到凭证列表页面并指定草稿状态，用户可以看到刚导入的草稿凭证
-                  router.push('/voucher-list?status=draft')
-                }}
+                onClick={() => setShowImportResultDialog(false)}
               >
                 ✕
               </Button>
@@ -1091,16 +1094,7 @@ export function VoucherHeader() {
             <div className="flex gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  // 关闭对话框并清理状态
-                  setShowImportResultDialog(false)
-                  setImportResults([])
-                  setImportFile(null)
-                  setImportPreview([])
-                  setExpandedResults(new Set())
-                  // 导航到凭证列表页面并指定草稿状态，用户可以看到刚导入的草稿凭证
-                  router.push('/voucher-list?status=draft')
-                }}
+                onClick={() => setShowImportResultDialog(false)}
               >
                 关闭
               </Button>
