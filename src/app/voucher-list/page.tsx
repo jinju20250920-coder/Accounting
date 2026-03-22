@@ -240,18 +240,19 @@ export default function VoucherListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'all' | 'subject'>('all'); // 搜索模式：全部或科目
   // 从 URL 参数获取初始状态，如果URL有status参数则使用该参数
-  // 默认显示草稿状态，因为导入的凭证是草稿状态
+  // 默认显示已记账/已冲销状态
   const [selectedStatus, setSelectedStatus] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      return params.get('status') || 'draft';
+      return params.get('status') || 'posted_reversed';
     }
-    return 'draft';
+    return 'posted_reversed';
   });
   const [selectedType, setSelectedType] = useState<string>('all');
-  // 默认显示所有月份的凭证（不限制月份范围）
-  const [startMonth, setStartMonth] = useState<string>('');
-  const [endMonth, setEndMonth] = useState<string>('');
+  // 默认显示当前系统月份的凭证
+  const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+  const [startMonth, setStartMonth] = useState<string>(currentMonth);
+  const [endMonth, setEndMonth] = useState<string>(currentMonth);
   const [sortField, setSortField] = useState<'date' | 'voucherNo'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
