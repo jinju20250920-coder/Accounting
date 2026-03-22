@@ -7,9 +7,6 @@ import { VoucherEntryGrid } from '../voucher/voucher-entry-grid'
 
 export function VoucherLayout() {
   const {
-    currentVoucher,
-    vouchers,
-    setActiveVoucher,
     createVoucher,
     initialize
   } = useVoucherStore()
@@ -38,35 +35,16 @@ export function VoucherLayout() {
     // 只有在 store 初始化完成后才执行，且只执行一次
     if (!storeInitialized || hasInitialized.current) return
 
-    console.log('VoucherLayout 初始化 - 凭证数量:', vouchers.length, '当前凭证:', currentVoucher)
-
-    // 确保我们有凭证数据再执行
-    if (vouchers.length > 0) {
-      if (!currentVoucher) {
-        // 查找第一个已记账凭证
-        const firstPostedVoucher = vouchers.find(v => v.status === 'posted')
-        if (firstPostedVoucher) {
-          console.log('设置已记账凭证为当前凭证:', firstPostedVoucher.voucherNo)
-          setActiveVoucher(firstPostedVoucher.id)
-        } else {
-          console.log('设置第一个凭证为当前凭证:', vouchers[0].voucherNo)
-          setActiveVoucher(vouchers[0].id)
-        }
-        hasInitialized.current = true
-      }
-    } else {
-      // 当凭证列表为空时，创建新凭证
-      console.log('创建新凭证')
-      createVoucher()
-      hasInitialized.current = true
-    }
-  }, [vouchers.length, currentVoucher, setActiveVoucher, createVoucher, storeInitialized])
+    // 新增凭证页面应该总是创建新的空白草稿凭证
+    // 这样用户进入页面时总是看到可以编辑的空白凭证，而不是已入账的凭证
+    console.log('VoucherLayout: 创建新空白草稿凭证')
+    createVoucher()
+    hasInitialized.current = true
+  }, [storeInitialized, createVoucher])
 
   // Handle paste events globally
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      if (!currentVoucher) return
-
       const pasteArea = document.getElementById('voucher-main-content')
       if (!pasteArea || !pasteArea.contains(e.target as Node)) {
         return
@@ -81,7 +59,7 @@ export function VoucherLayout() {
 
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
-  }, [currentVoucher])
+  }, [])
 
   return (
     <div className="flex h-screen bg-slate-50">
