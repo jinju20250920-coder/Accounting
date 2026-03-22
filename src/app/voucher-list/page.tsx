@@ -249,8 +249,9 @@ export default function VoucherListPage() {
     return 'draft';
   });
   const [selectedType, setSelectedType] = useState<string>('all');
-  const [startMonth, setStartMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
-  const [endMonth, setEndMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 结束月份：YYYY-MM
+  // 默认显示所有月份的凭证（不限制月份范围）
+  const [startMonth, setStartMonth] = useState<string>('');
+  const [endMonth, setEndMonth] = useState<string>('');
   const [sortField, setSortField] = useState<'date' | 'voucherNo'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
