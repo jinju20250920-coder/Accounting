@@ -262,7 +262,12 @@ export function VoucherHeader() {
             credit: credit,
             deptCode: row['部门代码'] || row['部门'] || '',
             projectCode: row['项目代码'] || row['项目'] || '',
-            docNo: row['单据号'] || ''
+            docNo: row['单据号'] || '',
+            currencyCode: row['币别代码'] || row['币别'] || '',
+            currencyName: row['币别名称'] || '',
+            cashFlowItem: row['现金流量项目'] || row['现金流量'] || '',
+            customerName: row['客户'] || row['往来单位'] || row['客户名称'] || '',
+            supplierName: row['供应商'] || row['往来单位'] || row['供应商名称'] || ''
           })
         }
       }
@@ -310,7 +315,12 @@ export function VoucherHeader() {
             credit,
             deptCode: row['部门代码'] || row['部门'] || '',
             projectCode: row['项目代码'] || row['项目'] || '',
-            docNo: row['单据号'] || ''
+            docNo: row['单据号'] || '',
+            currencyCode: row['币别代码'] || row['币别'] || '',
+            currencyName: row['币别名称'] || '',
+            cashFlowItem: row['现金流量项目'] || row['现金流量'] || '',
+            customerName: row['客户'] || row['往来单位'] || row['客户名称'] || '',
+            supplierName: row['供应商'] || row['往来单位'] || row['供应商名称'] || ''
           })
         }
       })
@@ -361,7 +371,9 @@ export function VoucherHeader() {
               date: voucherData.date,
               auxiliary: {
                 department: entry.deptCode || '',
-                project: entry.projectCode || ''
+                project: entry.projectCode || '',
+                customer: entry.customerName || '',
+                supplier: entry.supplierName || ''
               }
             })),
             createdBy: 'import',
@@ -411,25 +423,41 @@ export function VoucherHeader() {
         '凭证号': '记-202503-001',
         '日期': '2025-03-22',
         '摘要': '收到货款',
+        '分录摘要': '银行收款',
         '科目代码': '1002',
         '科目名称': '银行存款',
         '借方': 10000,
         '贷方': 0,
         '部门代码': '',
         '项目代码': '',
-        '单据号': ''
+        '单据号': '',
+        '币别代码': '',
+        '币别名称': '',
+        '现金流量项目': '',
+        '现金流量': '经营活动_现金流入',
+        '客户': '',
+        '供应商': '',
+        '往来单位': ''
       },
       {
         '凭证号': '记-202503-001',
         '日期': '2025-03-22',
         '摘要': '收到货款',
+        '分录摘要': '确认收入',
         '科目代码': '1122',
         '科目名称': '应收账款',
         '借方': 0,
         '贷方': 10000,
         '部门代码': '',
         '项目代码': '',
-        '单据号': ''
+        '单据号': '',
+        '币别代码': '',
+        '币别名称': '',
+        '现金流量项目': '',
+        '现金流量': '',
+        '客户': '某某公司',
+        '供应商': '',
+        '往来单位': ''
       }
     ]
 
