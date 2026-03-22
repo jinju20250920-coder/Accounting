@@ -390,12 +390,20 @@ class SQLiteService {
       deleteStmt.free();
 
       // Save new entries
+      console.log('[saveVoucher] 保存凭证', voucher.voucherNo, '共有', voucher.entries?.length || 0, '条分录');
       for (const entry of voucher.entries) {
         const entryWithAccountSet = {
           ...entry,
           accountSetId: this.accountSetId,
           voucherId: voucher.id
         } as any;
+
+        console.log('[saveVoucher] 保存分录:', {
+          subjectCode: entryWithAccountSet.subjectCode,
+          subjectName: entryWithAccountSet.subjectName,
+          debit: entryWithAccountSet.debit,
+          credit: entryWithAccountSet.credit
+        });
 
         const entryStmt = this.dbInstance.prepare(`
           INSERT INTO entries (
@@ -457,6 +465,8 @@ class SQLiteService {
 
     return {
       ...voucher,
+      // 字段映射：数据库字段 → 应用字段
+      createdBy: voucher.creator || voucher.createdBy || 'user',
       entries: entries.map((entry: any) => ({
         ...entry,
         // 字段映射：数据库字段 → 应用字段
@@ -473,6 +483,8 @@ class SQLiteService {
       [this.accountSetId]
     );
 
+    console.log('[getAllVouchers] 从数据库读取到', vouchers.length, '张凭证');
+
     return Promise.all(
       vouchers.map(async (voucher: any) => {
         const entries = await this.queryAllAsync<any>(
@@ -480,8 +492,12 @@ class SQLiteService {
           [voucher.id, this.accountSetId]
         );
 
+        console.log('[getAllVouchers] 凭证', voucher.voucherNo, '有', entries.length, '条分录');
+
         return {
           ...voucher,
+          // 字段映射：数据库字段 → 应用字段
+          createdBy: voucher.creator || voucher.createdBy || 'user',
           entries: entries.map((entry: any) => ({
             ...entry,
             // 字段映射：数据库字段 → 应用字段
@@ -509,6 +525,8 @@ class SQLiteService {
 
         return {
           ...voucher,
+          // 字段映射：数据库字段 → 应用字段
+          createdBy: voucher.creator || voucher.createdBy || 'user',
           entries: entries.map((entry: any) => ({
             ...entry,
             // 字段映射：数据库字段 → 应用字段
@@ -536,6 +554,8 @@ class SQLiteService {
 
         return {
           ...voucher,
+          // 字段映射：数据库字段 → 应用字段
+          createdBy: voucher.creator || voucher.createdBy || 'user',
           entries: entries.map((entry: any) => ({
             ...entry,
             // 字段映射：数据库字段 → 应用字段
