@@ -151,8 +151,8 @@ export default function APReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return calculateAgingData(apEntries, config, partnerStore.partners);
-  }, [apEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners]);
+    return calculateAgingData(apEntries, config, partnerStore.partners, clearingStore.recRelations);
+  }, [apEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners, clearingStore.recRelations]);
 
   // 获取明细数据
   const agingDetails = useMemo(() => {

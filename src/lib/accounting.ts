@@ -503,11 +503,12 @@ export function formatMoney(amount: number): string {
   });
 }
 
-// 计算账龄数据
+// 计算账龄数据（基于剩余金额）
 export function calculateAgingData(
   entries: VoucherEntry[],
   config: AgingConfig,
-  partners: Array<{ code: string; name: string; isCustomer: boolean; isSupplier: boolean }> = []
+  partners: Array<{ code: string; name: string; isCustomer: boolean; isSupplier: boolean }> = [],
+  recRelations: Array<{ debitEntryId: string; creditEntryId: string; amount: number }> = []
 ): AgingResult[] {
   // 1. 按往来单位分组
   const partnerMap = new Map<string, VoucherEntry[]>();
@@ -532,7 +533,7 @@ export function calculateAgingData(
     }
   });
 
-  // 2. 计算每个往来单位的账龄
+  // 2. 计算每个往来单位的账龄（基于剩余金额）
   const agingResults: AgingResult[] = [];
 
   partnerMap.forEach((entries, partner) => {
@@ -547,15 +548,29 @@ export function calculateAgingData(
 
     // 计算每个分录的账龄
     entries.forEach(entry => {
+      // 计算该分录的已核销金额
+      const relatedRecs = recRelations.filter(rel =>
+        rel.debitEntryId === entry.id || rel.creditEntryId === entry.id
+      );
+      const recAmount = relatedRecs.reduce((sum, rel) => sum + rel.amount, 0);
+
+      // 计算剩余金额（原始金额 - 已核销金额）
+      const totalAmount = entry.debit > 0 ? entry.debit : entry.credit;
+      const remainingAmount = Math.max(0, totalAmount - recAmount);
+
+      // 如果已全部核销，跳过该分录
+      if (remainingAmount <= 0.01) {
+        return;
+      }
+
       const days = calculateDaysDifference(entry.date, config.asOfDate);
       const bucket = getAgingBucket(days, config.mode, config.useCustomBuckets, config.customBuckets);
-      const remainingAmount = entry.debit > 0 ? entry.debit : entry.credit;
 
       result.totalAmount += remainingAmount;
       result.buckets[bucket as keyof typeof result.buckets] += remainingAmount;
 
       // 检查是否有核销记录
-      if (entry.recRefNo) {
+      if (entry.recRefNo || recAmount > 0) {
         result.isWriteOff = true;
       }
     });

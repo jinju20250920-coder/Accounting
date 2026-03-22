@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { useVoucherStore } from './useVoucherStore';
+import { useClearingStore } from './useClearingStore';
 import { getCurrentService } from '@/lib/database';
 
 interface SubjectBalance {
@@ -175,13 +176,15 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
   getPartnerBalance: (partnerName: string): number => {
     // 从 useVoucherStore 获取历史数据和当前数据
     const { vouchers, currentEntries } = useVoucherStore.getState();
+    // 从 clearingStore 获取核销关系
+    const { recRelations } = useClearingStore.getState();
 
     // 收集所有分录（包括已记账和当前未记账的）
     const allEntries: any[] = [];
 
-    // 添加已记账凭证的分录（包括所有状态，除了已完全删除的）
+    // 只使用已记账凭证进行余额计算
     vouchers.forEach(voucher => {
-      if (voucher.status === 'posted' || voucher.status === 'review' || voucher.status === 'draft' || voucher.status === 'reversed') {
+      if (voucher.status === 'posted') {
         voucher.entries.forEach(entry => {
           allEntries.push({
             ...entry,
@@ -190,15 +193,6 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
           });
         });
       }
-    });
-
-    // 添加当前凭证的分录
-    currentEntries.forEach(entry => {
-      allEntries.push({
-        ...entry,
-        voucherStatus: 'draft',
-        isPosted: false
-      });
     });
 
     // 过滤该往来单位的所有分录 - 支持多种匹配方式
@@ -213,27 +207,21 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
       return matches;
     });
 
-    // 调试日志
-    if (partnerEntries.length > 0) {
-      console.log(`Partner "${partnerName}" entries:`, partnerEntries.map(e => ({
-        subjectCode: e.subjectCode,
-        debit: e.debit,
-        credit: e.credit,
-        customerName: e.customerName,
-        auxiliary: e.auxiliary
-      })));
-    }
-
-    // 计算每个分录的已核销金额（从数据库获取）
-    // 注意：这里应该从数据库查询，但为了简化，我们暂时假设已核销金额为0
-    // 实际应用中应该调用 databaseService.getRecRelationsByEntryId
+    // 计算每个分录的已核销金额（从核销关系数据获取）
     const entriesWithRec = partnerEntries.map(entry => {
-      const recAmount = 0; // TODO: 从数据库获取已核销金额
+      // 查找该分录的所有核销关系
+      const relatedRecs = recRelations.filter(rel =>
+        rel.debitEntryId === entry.id || rel.creditEntryId === entry.id
+      );
+
+      // 计算已核销金额总和
+      const recAmount = relatedRecs.reduce((sum, rel) => sum + rel.amount, 0);
       const totalAmount = entry.debit > 0 ? entry.debit : entry.credit;
+
       return {
         ...entry,
         recAmount,
-        remainingAmount: totalAmount - recAmount
+        remainingAmount: Math.max(0, totalAmount - recAmount) // 确保剩余金额不为负
       };
     });
 

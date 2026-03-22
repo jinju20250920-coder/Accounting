@@ -11,6 +11,7 @@ import { useAccountStore } from '@/stores/useAccountStore';
 import { useVoucherStore } from '@/stores';
 import type { Partner } from '@/types';
 import { PartnerDetail } from './partner-detail';
+import { formatMoney } from '@/lib/accounting';
 
 export function PartnerDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'detail'>('overview');
@@ -129,7 +130,7 @@ export function PartnerDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">
-              {summaryData.totalOutstanding.toFixed(2)}
+              {formatMoney(summaryData.totalOutstanding)}
             </div>
             <p className="text-xs text-red-600 mt-1">-8.5% 较上月</p>
           </CardContent>
@@ -142,7 +143,7 @@ export function PartnerDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">
-              {summaryData.totalRecAmount.toFixed(2)}
+              {formatMoney(summaryData.totalRecAmount)}
             </div>
             <p className="text-xs text-green-600 mt-1">+23% 较上月</p>
           </CardContent>
@@ -225,12 +226,12 @@ export function PartnerDashboard() {
                     </span>
                   </td>
                   <td className="p-2 text-right border-r border-slate-300">
-                    {getPartnerBalance(partner.name).toFixed(2)}
+                    {formatMoney(getPartnerBalance(partner.name))}
                   </td>
-                  <td className="p-2 text-right border-r border-slate-300">0.00</td>
-                  <td className="p-2 text-right border-r border-slate-300">0.00</td>
+                  <td className="p-2 text-right border-r border-slate-300">{formatMoney(0)}</td>
+                  <td className="p-2 text-right border-r border-slate-300">{formatMoney(0)}</td>
                   <td className="p-2 text-right border-r border-slate-300">
-                    {getPartnerBalance(partner.name).toFixed(2)}
+                    {formatMoney(getPartnerBalance(partner.name))}
                   </td>
                   <td className="p-2 text-center border-r border-slate-300">
                     <Button

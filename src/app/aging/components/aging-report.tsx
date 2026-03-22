@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { AgingResult, AgingDetail, AgingMode } from '@/lib/accounting';
 import { formatMoney, formatAging, getOverdueColor } from '@/lib/accounting';
 
@@ -93,6 +95,8 @@ export function AgingReport({
 }: AgingReportProps) {
   const bucketLabels = getBucketLabels(mode, useCustomBuckets, customBuckets);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [selectedPartnerName, setSelectedPartnerName] = useState<string | null>(null);
 
   // 切换选择状态
   const toggleItemSelection = (id: string) => {
@@ -125,6 +129,25 @@ export function AgingReport({
     }
   };
 
+  // 处理客户点击 - 显示明细弹窗
+  const handlePartnerClick = (partnerName: string) => {
+    setSelectedPartnerName(partnerName);
+    setShowDetailsDialog(true);
+    if (onPartnerClick) {
+      onPartnerClick(partnerName);
+    }
+  };
+
+  // 关闭明细弹窗
+  const handleCloseDetailsDialog = () => {
+    setShowDetailsDialog(false);
+    setSelectedPartnerName(null);
+    // 清除筛选，恢复显示全部明细
+    if (onPartnerClick) {
+      onPartnerClick(null); // 传递 null 表示清除筛选
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* 汇总表 */}
@@ -147,7 +170,7 @@ export function AgingReport({
               <tr key={item.partner} className="border-b hover:bg-gray-50">
                 <td className="p-2">
                   <button
-                    onClick={() => onPartnerClick(item.partner)}
+                    onClick={() => handlePartnerClick(item.partner)}
                     className="text-blue-600 hover:underline font-medium"
                   >
                     {item.partner}
@@ -214,23 +237,42 @@ export function AgingReport({
         </table>
       </div>
 
-      {/* 明细表 */}
-      {details.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium">明细数据</h3>
+      {/* 明细弹窗 */}
+      <Dialog open={showDetailsDialog} onOpenChange={(open) => {
+        if (!open) handleCloseDetailsDialog();
+        setShowDetailsDialog(open);
+      }}>
+        <DialogContent className="max-w-6xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
+            <div>
+              <DialogTitle>明细数据 - {selectedPartnerName}</DialogTitle>
+              <p className="text-sm text-slate-500 mt-1">
+                共 {details.length} 条记录
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCloseDetailsDialog}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto p-4">
             {selectedItems.length > 0 && (
-              <Button
-                onClick={handleBatchWriteOff}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                批量核销 ({selectedItems.length})
-              </Button>
+              <div className="mb-4 flex justify-end">
+                <Button
+                  onClick={handleBatchWriteOff}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  批量核销 ({selectedItems.length})
+                </Button>
+              </div>
             )}
-          </div>
-          <div className="overflow-x-auto">
+
             <table className="w-full border-collapse">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 sticky top-0">
                 <tr>
                   <th className="p-2 text-center text-sm font-medium w-8">
                     <Checkbox
@@ -294,9 +336,21 @@ export function AgingReport({
                 ))}
               </tbody>
             </table>
+
+            {details.length === 0 && (
+              <div className="text-center py-8 text-slate-500">
+                暂无明细数据
+              </div>
+            )}
           </div>
-        </div>
-      )}
+
+          <div className="flex justify-end border-t pt-4">
+            <Button variant="outline" onClick={handleCloseDetailsDialog}>
+              关闭
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

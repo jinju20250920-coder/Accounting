@@ -179,8 +179,8 @@ export default function ARReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return calculateAgingData(arEntries, config, partnerStore.partners);
-  }, [arEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners]);
+    return calculateAgingData(arEntries, config, partnerStore.partners, clearingStore.recRelations);
+  }, [arEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners, clearingStore.recRelations]);
 
   // 获取明细数据
   const agingDetails = useMemo(() => {
