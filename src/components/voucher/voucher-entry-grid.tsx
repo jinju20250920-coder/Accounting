@@ -365,6 +365,7 @@ export function VoucherEntryGrid() {
 
   // 处理日期变更
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 异步更新日期，不等待结果
     updateVoucherDate(e.target.value);
   };
 
@@ -716,18 +717,11 @@ export function VoucherEntryGrid() {
       await saveVoucher('posted', subjects);
       toast({
         title: "操作成功",
-        description: "凭证已成功入账，正在创建新凭证..."
+        description: "凭证已成功入账"
       });
 
-      // 延迟一下让用户看到成功提示，然后自动创建新凭证
-      setTimeout(() => {
-        clearVoucher();
-        createVoucher();
-        toast({
-          title: "新凭证已创建",
-          description: "可以继续录入下一张凭证"
-        });
-      }, 800);
+      // 入账后只清空当前凭证，不自动创建新凭证
+      clearVoucher();
     } catch (error) {
       toast({
         title: "入账失败",

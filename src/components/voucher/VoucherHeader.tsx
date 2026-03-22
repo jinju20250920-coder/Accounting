@@ -313,6 +313,32 @@ export function VoucherHeader() {
         sqliteService.setAccountSetId(currentAccountSet.id)
       }
 
+      // 检查导入批次内部的凭证号重复
+      const voucherNoCount = new Map<string, number>()
+      importPreview.forEach(v => {
+        voucherNoCount.set(v.voucherNo, (voucherNoCount.get(v.voucherNo) || 0) + 1)
+      })
+      const duplicateInBatch = Array.from(voucherNoCount.entries()).filter(([_, count]) => count > 1)
+      if (duplicateInBatch.length > 0) {
+        const dupList = duplicateInBatch.map(([no, _]) => no).join(', ')
+        showToast('error', `Excel文件中存在重复的凭证号: ${dupList}`)
+        setIsImporting(false)
+        return
+      }
+
+      // 获取已存在的凭证号列表，检查与数据库的重复
+      const existingVouchers = await getCurrentService().getAllVouchers()
+      const existingVoucherNos = new Set(existingVouchers.map(v => v.voucherNo))
+
+      // 检查与数据库中的凭证号重复
+      const duplicateInDb = importPreview.filter(v => existingVoucherNos.has(v.voucherNo))
+      if (duplicateInDb.length > 0) {
+        const dupList = duplicateInDb.map(v => v.voucherNo).join(', ')
+        showToast('error', `以下凭证号在数据库中已存在: ${dupList}`)
+        setIsImporting(false)
+        return
+      }
+
       for (const voucherData of importPreview) {
         const result: ImportResult = {
           voucherNo: voucherData.voucherNo,
@@ -517,7 +543,9 @@ export function VoucherHeader() {
                     <input
                       type="date"
                       value={new Date().toISOString().split('T')[0]}
-                      onChange={(e) => updateVoucherDate(e.target.value)}
+                      onChange={(e) => {
+                        updateVoucherDate(e.target.value)
+                      }}
                       className="bg-transparent border-b border-slate-300 hover:border-slate-500 focus:outline-none focus:border-blue-500 text-sm"
                     />
                   </div>
@@ -579,7 +607,9 @@ export function VoucherHeader() {
                   <input
                     type="date"
                     value={currentVoucher.date}
-                    onChange={(e) => updateVoucherDate(e.target.value)}
+                    onChange={(e) => {
+                      updateVoucherDate(e.target.value)
+                    }}
                     className="bg-transparent border-b border-slate-300 hover:border-slate-500 focus:outline-none focus:border-blue-500 text-sm"
                     disabled={currentVoucher.status !== 'draft'}
                   />
@@ -891,7 +921,11 @@ export function VoucherHeader() {
                 variant="ghost"
                 size="icon"
                 className="text-slate-400 hover:text-white hover:bg-white/10"
-                onClick={() => setShowImportResultDialog(false)}
+                onClick={() => {
+                  setShowImportResultDialog(false)
+                  // 手动触发导航到凭证列表页面
+                  router.push('/voucher-list?status=draft')
+                }}
               >
                 ✕
               </Button>
@@ -1127,7 +1161,11 @@ export function VoucherHeader() {
             <div className="flex gap-3">
               <Button
                 variant="outline"
-                onClick={() => setShowImportResultDialog(false)}
+                onClick={() => {
+                  setShowImportResultDialog(false)
+                  // 手动触发导航到凭证列表页面
+                  router.push('/voucher-list?status=draft')
+                }}
               >
                 关闭
               </Button>

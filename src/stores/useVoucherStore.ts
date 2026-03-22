@@ -80,9 +80,9 @@ interface VoucherStore {
   addEntry: () => void;
   updateEntry: (id: string, field: string, value: any) => void;
   removeEntry: (id: string) => void;
-  updateVoucherDate: (date: string) => void;
+  updateVoucherDate: (date: string) => Promise<void>;
   updateVoucherSummary: (summary: string) => void;
-  saveVoucher: (status?: VoucherStatus, subjects?: Array<{ code: string; name: string }>) => void;
+  saveVoucher: (status?: VoucherStatus, subjects?: Array<{ code: string; name: string }>) => Promise<void>;
   deleteVoucher: (id: string) => void;
   clearVoucher: () => void;
   autoBalanceCredit: () => void;
@@ -137,7 +137,7 @@ const createDefaultEntry = (voucherId: string, index?: number): any => ({
 });
 
 // 辅助函数：生成凭证字号
-const generateVoucherNo = (date: string): string => {
+const generateVoucherNo = async (date: string): Promise<string> => {
   const yearMonth = date.substring(0, 7).replace('-', '');
 
   // 从账套设置中获取最后一个凭证号和年月
@@ -164,13 +164,10 @@ const generateVoucherNo = (date: string): string => {
     lastSeq = currentAccountSet.lastVoucherNo;
   }
 
-  // 如果账套中没有数据，尝试从现有凭证中查找
-  if (lastSeq === 0 && !currentAccountSet?.lastVoucherNo) {
-    const voucherStore = useVoucherStore.getState();
-    const currentVouchers = voucherStore.vouchers;
-
-    // 过滤当前月份的凭证号
-    const currentMonthVouchers = currentVouchers.filter(v =>
+  // 从数据库获取当前月份的所有凭证号，确保序号连续
+  try {
+    const allVouchers = await getCurrentService().getAllVouchers();
+    const currentMonthVouchers = allVouchers.filter(v =>
       v.voucherNo.startsWith(`记-${yearMonth}-`)
     );
 
@@ -181,8 +178,12 @@ const generateVoucherNo = (date: string): string => {
         return match ? parseInt(match[1], 10) : 0;
       });
 
-      lastSeq = Math.max(...sequences);
+      const maxSeq = Math.max(...sequences);
+      // 使用数据库中的最大序号和账套记录的序号中的较大值
+      lastSeq = Math.max(lastSeq, maxSeq);
     }
+  } catch (error) {
+    console.warn('Failed to fetch vouchers for sequence generation:', error);
   }
 
   // 生成新的序号
@@ -277,11 +278,14 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
   }),
 
-  updateVoucherDate: (date: string) => set((state) => ({
-    voucherDate: date,
-    voucherNo: generateVoucherNo(date),
-    currentVoucher: state.currentVoucher ? { ...state.currentVoucher, date } : null
-  })),
+  updateVoucherDate: async (date: string) => {
+    const voucherNo = await generateVoucherNo(date);
+    set((state) => ({
+      voucherDate: date,
+      voucherNo,
+      currentVoucher: state.currentVoucher ? { ...state.currentVoucher, date } : null
+    }));
+  },
 
   updateVoucherSummary: (summary: string) => set((state) => ({
     currentVoucher: state.currentVoucher ? { ...state.currentVoucher, summary } : null
@@ -542,6 +546,9 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const state = get();
     const now = new Date().toISOString();
 
+    // 生成凭证号
+    const voucherNo = await generateVoucherNo(transactionData.date);
+
     // 创建凭证分录
     const entries: any[] = transactionData.entries.map((entry: any, index: number) => ({
       id: `entry_${Date.now()}_${index}`,
@@ -557,7 +564,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     // 创建新凭证
     const newVoucher: Voucher = {
       id: transactionData.id,
-      voucherNo: generateVoucherNo(transactionData.date),
+      voucherNo,
       date: transactionData.date,
       summary: transactionData.description,
       entries: entries,
@@ -601,10 +608,13 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const now = new Date().toISOString();
     const newId = Date.now().toString();
 
+    // Generate voucher number
+    const voucherNo = await generateVoucherNo(state.voucherDate);
+
     // Create blank voucher
     const newVoucher: Voucher = {
       id: newId,
-      voucherNo: generateVoucherNo(state.voucherDate),
+      voucherNo,
       date: state.voucherDate,
       summary: '',
       entries: Array.from({ length: 10 }, (_, i) => createDefaultEntry(newId, i)),
@@ -638,11 +648,14 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const now = new Date().toISOString();
     const newId = Date.now().toString();
 
+    // 生成新凭证号
+    const voucherNo = await generateVoucherNo(voucher.date);
+
     // Create copy with new ID
     const copiedVoucher: Voucher = {
       ...voucher,
       id: newId,
-      voucherNo: generateVoucherNo(voucher.date),
+      voucherNo,
       summary: voucher.summary + ' (副本)',
       status: 'draft',
       createTime: now,
@@ -697,11 +710,14 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         v.id === savedVoucher.id ? savedVoucher : v
       );
 
+      // Generate voucher number for new voucher
+      const voucherNo = await generateVoucherNo(state.voucherDate);
+
       // Create new voucher
       const newId = Date.now().toString();
       const newVoucher: Voucher = {
         id: newId,
-        voucherNo: generateVoucherNo(state.voucherDate),
+        voucherNo,
         date: state.voucherDate,
         summary: '',
         entries: Array.from({ length: 10 }, (_, i) => createDefaultEntry(newId, i)),
@@ -781,6 +797,9 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const now = new Date().toISOString();
     const newId = Date.now().toString();
 
+    // Generate voucher number
+    const voucherNo = await generateVoucherNo(state.voucherDate);
+
     // Create new entries from template
     const newEntries = template.entries.map((entry: any, index: number) => ({
       ...createDefaultEntry(newId, index),
@@ -811,7 +830,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     // Create a new voucher with the entries
     const newVoucher: Voucher = {
       id: newId,
-      voucherNo: generateVoucherNo(state.voucherDate),
+      voucherNo,
       date: state.voucherDate,
       summary: '',
       entries: newEntries,
