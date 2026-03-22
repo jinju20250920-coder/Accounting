@@ -1,13 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectOption as SelectOptionType } from '@/components/ui/select';
 import {
   Building2,
   RefreshCw,
@@ -15,19 +14,26 @@ import {
   Upload,
   Calendar,
   FolderKanban,
-  Settings,
   CheckCircle,
   AlertCircle,
-  Copy,
   Trash2,
   Plus,
-  Edit2
+  Edit2,
+  FolderOpen,
+  HardDrive,
+  Settings
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import type { AccountSet } from '@/stores/useAccountSetStore';
+import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
+import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
+import type { AccountSetHandleInfo } from '@/lib/database/file-handle-manager';
+import { DbStatusIndicator, StorageTypeBadge } from '@/components/database/db-status-indicator';
+import { DatabaseLocationDialog } from '@/components/database/database-location-dialog';
+import initSqlJs from 'sql.js';
 
-// 表单数据类型
 interface AccountSetFormData {
   code: string;
   name: string;
@@ -38,6 +44,8 @@ interface AccountSetFormData {
   accountingStandard: 'small-enterprise' | 'enterprise' | 'other';
   enableDate: string;
   lastVoucherNo: number;
+  currentPeriod: string;
+  status: 'active' | 'closed' | 'archived' | 'trial';
 }
 
 export default function SetsPage() {
@@ -49,18 +57,18 @@ export default function SetsPage() {
     addAccountSet,
     updateAccountSet,
     deleteAccountSet,
-    setCurrentAccountSet
+    setCurrentAccountSet,
+    getCurrentAccountSet
   } = useAccountSetStore();
-
-  const [selectedSet, setSelectedSet] = useState<any>(null);
 
   // 对话框状态
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showBackupDialog, setShowBackupDialog] = useState(false);
-  const [showCopyDialog, setShowCopyDialog] = useState(false);
-  const [showYearEndDialog, setShowYearEndDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showDbLocationDialog, setShowDbLocationDialog] = useState(false);
+
+  // 选中的账套
+  const [selectedSet, setSelectedSet] = useState<AccountSet | null>(null);
 
   // 表单数据
   const [formData, setFormData] = useState<AccountSetFormData>({
@@ -72,8 +80,35 @@ export default function SetsPage() {
     startDate: '',
     accountingStandard: 'small-enterprise',
     enableDate: '',
-    lastVoucherNo: 0
+    lastVoucherNo: 0,
+    currentPeriod: '',
+    status: 'active'
   });
+
+  // 加载状态
+  const [isLoading, setIsLoading] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
+  // 账套数据库信息映射
+  const [accountSetDbInfos, setAccountSetDbInfos] = useState<Map<string, AccountSetHandleInfo>>(new Map());
+
+  // 加载账套数据库信息
+  useEffect(() => {
+    const loadAccountSetInfos = async () => {
+      try {
+        const infos = await fileHandleManager.getAllAccountSets();
+        const infoMap = new Map<string, AccountSetHandleInfo>();
+        for (const info of infos) {
+          infoMap.set(info.accountSetId, info);
+        }
+        setAccountSetDbInfos(infoMap);
+      } catch (error) {
+        console.error('Failed to load account set infos:', error);
+      }
+    };
+
+    loadAccountSetInfos();
+  }, [accountSets]);
 
   // 重置表单数据
   const resetFormData = () => {
@@ -86,12 +121,14 @@ export default function SetsPage() {
       startDate: '',
       accountingStandard: 'small-enterprise',
       enableDate: '',
-      lastVoucherNo: 0
+      lastVoucherNo: 0,
+      currentPeriod: '',
+      status: 'active'
     });
   };
 
   // 填充表单数据（用于编辑）
-  const fillFormData = (accountSet: any) => {
+  const fillFormData = (accountSet: AccountSet) => {
     setFormData({
       code: accountSet.code,
       name: accountSet.name,
@@ -101,459 +138,596 @@ export default function SetsPage() {
       startDate: accountSet.startDate,
       accountingStandard: accountSet.accountingStandard,
       enableDate: accountSet.enableDate,
-      lastVoucherNo: accountSet.lastVoucherNo || 0
+      lastVoucherNo: accountSet.lastVoucherNo || 0,
+      currentPeriod: accountSet.currentPeriod || '',
+      status: accountSet.status || 'active'
     });
   };
 
-  const handleRefresh = () => {
-    showToast('info', '正在刷新账套数据...');
-    // 模拟刷新操作
-    setTimeout(() => {
-      showToast('success', '账套数据刷新成功');
-    }, 1000);
+  // 生成账套编码
+  const generateAccountSetCode = () => {
+    const count = accountSets.length;
+    const code = `SET${String(count + 1).padStart(3, '0')}`;
+    setFormData(prev => ({ ...prev, code }));
   };
 
-  const handleBackup = () => {
-    setShowBackupDialog(true);
-  };
-
-  const handleCopy = () => {
-    if (!selectedSet) {
-      showToast('warning', '请先选择要复制的账套');
-      return;
-    }
-    setShowCopyDialog(true);
-  };
-
-  const handleExport = () => {
-    showToast('info', '导出功能开发中...');
-  };
-
-  const handleImport = () => {
-    showToast('info', '导入功能开发中...');
-  };
-
-  const handleYearEnd = () => {
-    if (!selectedSet) {
-      showToast('warning', '请先选择要进行年结的账套');
-      return;
-    }
-    setShowYearEndDialog(true);
-  };
-
-  const handleDelete = () => {
-    if (!selectedSet) {
-      showToast('warning', '请先选择要删除的账套');
-      return;
-    }
-    setShowDeleteDialog(true);
-  };
-
-  // 新增账套
+  // 新建账套 - 打开对话框
   const handleCreate = () => {
     resetFormData();
+    generateAccountSetCode();
     setSelectedSet(null);
     setShowCreateDialog(true);
   };
 
-  // 编辑账套
-  const handleEdit = (e: React.MouseEvent, accountSet: any) => {
-    e.stopPropagation();
-    fillFormData(accountSet);
+  // 创建账套 - 确认
+  const confirmCreate = async () => {
+    // 验证表单
+    if (!formData.code || !formData.name || !formData.startDate || !formData.enableDate) {
+      showToast('error', '请填写必填字段');
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      // 使用 AccountSetDbManager 创建账套数据库
+      const SQL = await initSqlJs({
+        locateFile: (file: string) => `/sqljs/${file}`,
+      });
+
+      // 生成账套 ID
+      const accountSetId = `as_${Date.now()}`;
+
+      // 创建数据库文件名
+      const dbFileName = `${formData.code}_${accountSetId}.db`;
+
+      // 创建数据库并初始化表结构
+      const db = new SQL.Database();
+
+      // 创建基础表结构
+      const tables = `
+        -- 账套表
+        CREATE TABLE IF NOT EXISTS accountSets (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE,
+          name TEXT,
+          description TEXT,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 凭证表
+        CREATE TABLE IF NOT EXISTS vouchers (
+          id TEXT PRIMARY KEY,
+          voucherNo TEXT,
+          date TEXT,
+          status TEXT,
+          summary TEXT,
+          creator TEXT,
+          reviewer TEXT,
+          poster TEXT,
+          reverseVoucherId TEXT,
+          referenceNumber TEXT,
+          attachmentCount INTEGER DEFAULT 0,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 分录表
+        CREATE TABLE IF NOT EXISTS entries (
+          id TEXT PRIMARY KEY,
+          voucherId TEXT,
+          subjectCode TEXT,
+          subjectName TEXT,
+          direction TEXT,
+          debit REAL,
+          credit REAL,
+          summary TEXT,
+          customerName TEXT,
+          supplierName TEXT,
+          auxiliary TEXT,
+          recRefNo TEXT,
+          departmentCode TEXT,
+          departmentName TEXT,
+          projectCode TEXT,
+          projectName TEXT,
+          currencyCode TEXT,
+          exchangeRate REAL DEFAULT 1.0,
+          originalAmount REAL DEFAULT 0,
+          date TEXT,
+          createTime TEXT,
+          updateTime TEXT,
+          FOREIGN KEY (voucherId) REFERENCES vouchers(id)
+        );
+
+        -- 科目表
+        CREATE TABLE IF NOT EXISTS subjects (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          parentId TEXT,
+          level INTEGER DEFAULT 1,
+          type TEXT,
+          direction TEXT DEFAULT 'debit',
+          balance REAL DEFAULT 0,
+          enabled INTEGER DEFAULT 1,
+          frozen INTEGER DEFAULT 0,
+          description TEXT,
+          createTime TEXT,
+          updateTime TEXT,
+          FOREIGN KEY (parentId) REFERENCES subjects(id)
+        );
+
+        -- 部门表
+        CREATE TABLE IF NOT EXISTS departments (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          parentId TEXT,
+          level INTEGER DEFAULT 1,
+          enabled INTEGER DEFAULT 1,
+          description TEXT,
+          createTime TEXT,
+          updateTime TEXT,
+          FOREIGN KEY (parentId) REFERENCES departments(id)
+        );
+
+        -- 项目表
+        CREATE TABLE IF NOT EXISTS projects (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          description TEXT,
+          enabled INTEGER DEFAULT 1,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 币别表
+        CREATE TABLE IF NOT EXISTS currencies (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          symbol TEXT,
+          exchangeRate REAL DEFAULT 1.0,
+          enabled INTEGER DEFAULT 1,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 往来单位表
+        CREATE TABLE IF NOT EXISTS partners (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          type TEXT DEFAULT 'customer',
+          contact TEXT,
+          phone TEXT,
+          email TEXT,
+          address TEXT,
+          taxNo TEXT,
+          bankAccount TEXT,
+          enabled INTEGER DEFAULT 1,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 凭证模板表
+        CREATE TABLE IF NOT EXISTS voucherTemplates (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          description TEXT,
+          entries TEXT,
+          validations TEXT,
+          variables TEXT,
+          isSystem INTEGER DEFAULT 0,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 常用摘要表
+        CREATE TABLE IF NOT EXISTS commonSummaries (
+          id TEXT PRIMARY KEY,
+          content TEXT,
+          frequency INTEGER DEFAULT 0,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 用户偏好表
+        CREATE TABLE IF NOT EXISTS userPreferences (
+          id TEXT PRIMARY KEY,
+          userId TEXT,
+          type TEXT,
+          key TEXT,
+          value TEXT,
+          createTime TEXT,
+          updateTime TEXT
+        );
+
+        -- 审计日志表
+        CREATE TABLE IF NOT EXISTS auditLogs (
+          id TEXT PRIMARY KEY,
+          type TEXT,
+          entityType TEXT,
+          entityId TEXT,
+          details TEXT,
+          userId TEXT,
+          timestamp TEXT
+        );
+
+        -- 核销关系表
+        CREATE TABLE IF NOT EXISTS recRelations (
+          id TEXT PRIMARY KEY,
+          recRefNo TEXT,
+          debitEntryId TEXT,
+          creditEntryId TEXT,
+          amount REAL,
+          recDate TEXT,
+          partnerName TEXT,
+          createTime TEXT,
+          updateTime TEXT,
+          FOREIGN KEY (debitEntryId) REFERENCES entries(id),
+          FOREIGN KEY (creditEntryId) REFERENCES entries(id)
+        );
+      `;
+
+      db.exec(tables);
+
+      // 创建索引
+      const indexes = `
+        CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(date);
+        CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status);
+        CREATE INDEX IF NOT EXISTS idx_vouchers_voucherNo ON vouchers(voucherNo);
+        CREATE INDEX IF NOT EXISTS idx_entries_voucherId ON entries(voucherId);
+        CREATE INDEX IF NOT EXISTS idx_entries_subjectCode ON entries(subjectCode);
+        CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
+        CREATE INDEX IF NOT EXISTS idx_entries_recRefNo ON entries(recRefNo);
+        CREATE INDEX IF NOT EXISTS idx_subjects_code ON subjects(code);
+        CREATE INDEX IF NOT EXISTS idx_subjects_parentId ON subjects(parentId);
+        CREATE INDEX IF NOT EXISTS idx_partners_code ON partners(code);
+        CREATE INDEX IF NOT EXISTS idx_recRelations_recRefNo ON recRelations(recRefNo);
+      `;
+
+      db.exec(indexes);
+
+      // 保存数据库到 OPFS（优先使用，无需用户交互）
+      let finalStorageType: 'fsa' | 'opfs' | 'local' = 'local';
+      let handle: FileSystemFileHandle | null = null;
+
+      if (FileHandleManager.isOPFSSupported()) {
+        try {
+          const opfsRoot = await (navigator.storage as any).getDirectory();
+          handle = await opfsRoot.getFileHandle(dbFileName, { create: true });
+          const writable = await handle.createWritable();
+          await writable.write(db.export());
+          await writable.close();
+          finalStorageType = 'opfs';
+
+          // 保存句柄到 IndexedDB
+          await fileHandleManager.saveHandle(
+            accountSetId,
+            formData.name,
+            dbFileName,
+            handle,
+            'opfs'
+          );
+        } catch (opfsError) {
+          console.error('OPFS save failed:', opfsError);
+        }
+      }
+
+      // 创建账套记录
+      await addAccountSet({
+        ...formData,
+        dbFileName,
+        dbStorageType: finalStorageType,
+        dbFileSize: 0,
+        dbLastModified: Date.now()
+      });
+
+      const storageTypeName = finalStorageType === 'opfs' ? 'OPFS存储' : '内存模式';
+      showToast('success', `账套创建成功 (${storageTypeName})`);
+      setShowCreateDialog(false);
+      resetFormData();
+
+      // 重新加载账套信息
+      const infos = await fileHandleManager.getAllAccountSets();
+      const infoMap = new Map<string, AccountSetHandleInfo>();
+      for (const info of infos) {
+        infoMap.set(info.accountSetId, info);
+      }
+      setAccountSetDbInfos(infoMap);
+
+    } catch (error) {
+      console.error('Create account set failed:', error);
+      showToast('error', '创建账套失败: ' + (error as Error).message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // 编辑账套 - 打开对话框
+  const handleEdit = (accountSet: AccountSet) => {
     setSelectedSet(accountSet);
+    fillFormData(accountSet);
     setShowEditDialog(true);
-  };
-
-  // 验证表单数据
-  const validateFormData = (data: AccountSetFormData): boolean => {
-    if (!data.code.trim()) {
-      showToast('error', '请输入账套编码');
-      return false;
-    }
-    if (!data.name.trim()) {
-      showToast('error', '请输入账套名称');
-      return false;
-    }
-    if (!data.unifiedSocialCreditCode.trim()) {
-      showToast('error', '请输入统一社会信用代码');
-      return false;
-    }
-    if (!data.address.trim()) {
-      showToast('error', '请输入公司地址');
-      return false;
-    }
-    if (!data.startDate) {
-      showToast('error', '请选择账套开始日期');
-      return false;
-    }
-    if (!data.enableDate) {
-      showToast('error', '请选择账套启用年月');
-      return false;
-    }
-    return true;
-  };
-
-  // 确认新增
-  const confirmCreate = () => {
-    if (!validateFormData(formData)) return;
-
-    addAccountSet({
-      code: formData.code,
-      name: formData.name,
-      unifiedSocialCreditCode: formData.unifiedSocialCreditCode,
-      address: formData.address,
-      baseCurrency: formData.baseCurrency,
-      currentPeriod: formData.enableDate,
-      startDate: formData.startDate,
-      accountingStandard: formData.accountingStandard,
-      enableDate: formData.enableDate,
-      status: 'active'
-    });
-
-    setShowCreateDialog(false);
-    resetFormData();
-    showToast('success', '账套创建成功');
   };
 
   // 确认编辑
   const confirmEdit = () => {
-    if (!validateFormData(formData)) return;
     if (!selectedSet) return;
 
     updateAccountSet(selectedSet.id, {
-      code: formData.code,
-      name: formData.name,
-      unifiedSocialCreditCode: formData.unifiedSocialCreditCode,
-      address: formData.address,
-      baseCurrency: formData.baseCurrency,
-      startDate: formData.startDate,
-      accountingStandard: formData.accountingStandard,
-      enableDate: formData.enableDate,
-      lastVoucherNo: formData.lastVoucherNo
+      ...formData
     });
 
     setShowEditDialog(false);
     setSelectedSet(prev => prev ? {
       ...prev,
-      code: formData.code,
-      name: formData.name,
-      unifiedSocialCreditCode: formData.unifiedSocialCreditCode,
-      address: formData.address,
-      baseCurrency: formData.baseCurrency,
-      startDate: formData.startDate,
-      accountingStandard: formData.accountingStandard,
-      enableDate: formData.enableDate,
-      lastVoucherNo: formData.lastVoucherNo
+      ...formData
     } : null);
     showToast('success', '账套更新成功');
   };
 
-  const confirmBackup = () => {
-    setShowBackupDialog(false);
-    showToast('success', '账套配置备份成功');
+  // 管理数据库位置
+  const handleManageDbLocation = (accountSet: AccountSet) => {
+    setSelectedSet(accountSet);
+    setShowDbLocationDialog(true);
   };
 
-  const confirmCopy = () => {
-    setShowCopyDialog(false);
-    showToast('success', `账套 ${selectedSet?.name} 复制成功`);
-  };
-
-  const confirmYearEnd = () => {
-    setShowYearEndDialog(false);
-    showToast('success', `账套 ${selectedSet?.name} 年结处理完成`);
-  };
-
-  const confirmDelete = () => {
+  // 确认删除
+  const confirmDelete = async () => {
     if (!selectedSet) return;
-    deleteAccountSet(selectedSet.id);
-    setSelectedSet(null);
-    setShowDeleteDialog(false);
-    showToast('success', `账套 ${selectedSet.name} 删除成功`);
-  };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return { label: '运行中', color: 'bg-green-100 text-green-800' };
-      case 'closed':
-        return { label: '已关闭', color: 'bg-gray-100 text-gray-800' };
-      case 'archived':
-        return { label: '已归档', color: 'bg-blue-100 text-blue-800' };
-      default:
-        return { label: '未知', color: 'bg-gray-100 text-gray-800' };
+    try {
+      // 删除数据库文件
+      await accountSetDbManager.deleteAccountSetDatabase(selectedSet.id);
+
+      deleteAccountSet(selectedSet.id);
+      setSelectedSet(null);
+      setShowDeleteDialog(false);
+      showToast('success', '账套删除成功');
+    } catch (error) {
+      console.error('Delete account set failed:', error);
+      showToast('error', '删除账套失败');
     }
   };
 
-  const getAccountingStandardLabel = (standard: string) => {
-    switch (standard) {
-      case 'small-enterprise':
-        return '小企业会计准则';
-      case 'enterprise':
-        return '企业会计准则';
-      case 'other':
-        return '其他';
-      default:
-        return '未知';
+  // 切换账套
+  const handleSwitchAccountSet = async (accountSet: AccountSet) => {
+    try {
+      setCurrentAccountSet(accountSet.id);
+      showToast('success', `已切换到账套: ${accountSet.name}`);
+    } catch (error) {
+      console.error('Switch account set failed:', error);
+      showToast('error', '切换账套失败');
     }
+  };
+
+  // 获取账套凭证数量
+  const getVoucherCount = (accountSetId: string): number => {
+    return 0; // TODO: 从数据库获取凭证数量
+  };
+
+  // 格式化日期
+  const formatDate = (dateStr: string): string => {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleDateString('zh-CN');
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* 标题栏 */}
+      {/* 页面头部 */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">账套管理</h1>
-        <p className="text-slate-600 mt-1">管理多个账套，设置期初余额和会计期间</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">账套管理</h1>
+            <p className="text-slate-600 mt-1">创建和管理多个独立的账套数据库</p>
+          </div>
+          <Button onClick={handleCreate} className="gap-2">
+            <Plus className="h-4 w-4" />
+            新建账套
+          </Button>
+        </div>
       </div>
 
-      {/* 快速操作 */}
-      <Card className="mb-6 border-slate-200">
-        <CardHeader>
-          <CardTitle>快速操作</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button variant="outline" className="w-full justify-start" onClick={handleRefresh}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            刷新数据
-          </Button>
-          <Button variant="outline" className="w-full justify-start" onClick={handleBackup}>
-            <Settings className="h-4 w-4 mr-2" />
-            备份配置
-          </Button>
-          <Button variant="outline" className="w-full justify-start" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            导出配置
-          </Button>
-          <Button variant="outline" className="w-full justify-start" onClick={handleImport}>
-            <Upload className="h-4 w-4 mr-2" />
-            导入配置
-          </Button>
-          <Button variant="outline" className="w-full justify-start" onClick={() => {
-            if (selectedSet) {
-              handleYearEnd();
-            } else {
-              showToast('warning', '请先选择账套');
-            }
-          }}>
-            <Calendar className="h-4 w-4 mr-2" />
-            年结处理
-          </Button>
-        </CardContent>
-      </Card>
+      {/* 当前账套信息 */}
+      {getCurrentAccountSet() && (
+        <Card className="mb-6 bg-blue-50 border-blue-200">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Building2 className="h-5 w-5 text-blue-600" />
+                <div>
+                  <p className="text-sm text-slate-600">当前账套</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {getCurrentAccountSet()?.name}
+                  </p>
+                </div>
+              </div>
+              <DbStatusIndicator
+                accountSetId={getCurrentAccountSet()!.id}
+                showDetails={true}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 账套列表 */}
-      <Card className="border-slate-200">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>账套列表</CardTitle>
-            <div className="flex gap-2">
-              <Button size="sm" variant="default" onClick={handleCreate}>
-                <Plus className="h-4 w-4 mr-2" />
-                新建账套
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {accountSets.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              <FolderKanban className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-              <p>暂无账套数据</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={handleCreate}
-              >
-                创建第一个账套
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {accountSets.map((accountSet) => {
-                const statusBadge = getStatusBadge(accountSet.status);
-                return (
-                  <div
-                    key={accountSet.id}
-                    onClick={() => {
-                      setSelectedSet(accountSet);
-                      setCurrentAccountSet(accountSet.id);
-                    }}
-                    className={`p-5 border rounded-lg cursor-pointer transition-all relative ${
-                      currentAccountSetId === accountSet.id
-                        ? 'bg-blue-50 border-blue-300'
-                        : 'bg-white border-slate-200 hover:border-blue-300'
-                    }`}
-                  >
-                    {/* 当前账套标记 */}
-                    {currentAccountSetId === accountSet.id && (
-                      <div className="absolute top-0 right-0">
-                        <div className="bg-green-600 text-white text-xs px-3 py-1 rounded-bl-lg rounded-tr-lg">
-                          当前账套
-                        </div>
-                      </div>
-                    )}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {accountSets.map((accountSet) => {
+          const dbInfo = accountSetDbInfos.get(accountSet.id);
+          const isSelected = currentAccountSetId === accountSet.id;
 
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-3">
-                          <Building2 className="h-6 w-6 text-slate-500" />
-                          <h3 className="font-semibold text-lg">{accountSet.name}</h3>
-                          <Badge variant="outline" className="text-xs">{accountSet.code}</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground font-mono">
-                          {accountSet.unifiedSocialCreditCode}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => handleEdit(e, accountSet)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        {accountSet.isInitialized && (
-                          <CheckCircle className="h-5 w-5 text-green-500" />
-                        )}
-                      </div>
+          return (
+            <Card
+              key={accountSet.id}
+              className={`transition-all hover:shadow-lg ${
+                isSelected ? 'ring-2 ring-blue-500' : ''
+              }`}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg">{accountSet.name}</CardTitle>
+                    <p className="text-sm text-slate-600 mt-1">
+                      编码: {accountSet.code}
+                    </p>
+                  </div>
+                  {isSelected && (
+                    <Badge className="bg-blue-600">当前</Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {/* 账套信息 */}
+                  <div className="text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">启用日期:</span>
+                      <span className="font-medium">{formatDate(accountSet.enableDate)}</span>
                     </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
-                      <div>
-                        <p className="text-muted-foreground">公司地址</p>
-                        <p className="font-medium text-xs truncate" title={accountSet.address}>
-                          {accountSet.address}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">会计准则</p>
-                        <Badge variant="outline">
-                          {getAccountingStandardLabel(accountSet.accountingStandard)}
-                        </Badge>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">账套开始日期</p>
-                        <p className="font-medium">{accountSet.startDate}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">启用年月</p>
-                        <p className="font-medium">{accountSet.enableDate}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">当前期间</p>
-                        <p className="font-medium">{accountSet.currentPeriod}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">凭证数量</p>
-                        <p className="font-medium">{vouchers.length}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">最后凭证号</p>
-                        <p className="font-medium font-mono">
-                          {accountSet.lastVoucherNo ? `记-${new Date().toISOString().slice(0, 4)}${new Date().toISOString().slice(5, 7)}-${String(accountSet.lastVoucherNo).padStart(3, '0')}` : '未设置'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">创建日期</p>
-                        <p className="font-medium">{accountSet.createdDate}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">状态</p>
-                        <Badge className={statusBadge.color}>{statusBadge.label}</Badge>
-                      </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">会计准则:</span>
+                      <span className="font-medium">
+                        {accountSet.accountingStandard === 'small-enterprise' && '小企业会计准则'}
+                        {accountSet.accountingStandard === 'enterprise' && '企业会计准则'}
+                        {accountSet.accountingStandard === 'other' && '其他'}
+                      </span>
                     </div>
-
-                    <div className="flex items-center justify-between pt-3 border-t">
-                      <p className="text-xs text-muted-foreground">
-                        最后修改：{accountSet.lastModifiedDate}
-                      </p>
-                      <div className="flex gap-2">
-                        {accountSet.status === 'archived' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => showToast('info', '归档账套只能查看，无法操作')}
-                          >
-                            <AlertCircle className="h-3 w-3 mr-1" />
-                            只读
-                          </Button>
-                        )}
-                        {accountSet.status !== 'archived' && (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handleCopy}
-                              disabled={!selectedSet}
-                            >
-                              <Copy className="h-3 w-3 mr-1" />
-                              复制
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={handleDelete}
-                              disabled={!selectedSet || selectedSet.id !== accountSet.id || accountSets.length <= 1}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" />
-                              删除
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">凭证数量:</span>
+                      <span className="font-medium">{getVoucherCount(accountSet.id)}</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* 新建账套对话框 */}
+                  {/* 数据库状态 */}
+                  {dbInfo && (
+                    <div className="pt-2 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-slate-600">数据库存储:</span>
+                        <StorageTypeBadge storageType={dbInfo.storageType} />
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">
+                        {dbInfo.fileName}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 操作按钮 */}
+                  <div className="flex gap-2 pt-2">
+                    {!isSelected && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSwitchAccountSet(accountSet)}
+                        className="flex-1"
+                      >
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        切换
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleEdit(accountSet)}
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleManageDbLocation(accountSet)}
+                      title="管理数据库位置"
+                    >
+                      <HardDrive className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setSelectedSet(accountSet);
+                        setShowDeleteDialog(true);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3 text-red-500" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* 空状态 */}
+      {accountSets.length === 0 && (
+        <Card>
+          <CardContent className="pt-12 pb-12 text-center">
+            <FolderKanban className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              还没有账套
+            </h3>
+            <p className="text-slate-600 mb-6">
+              创建一个账套来开始管理您的财务数据
+            </p>
+            <Button onClick={handleCreate} className="gap-2">
+              <Plus className="h-4 w-4" />
+              创建第一个账套
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 创建账套对话框 */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>新建账套</DialogTitle>
             <DialogDescription>
-              创建新的账套，请填写以下信息
+              创建一个新的独立账套数据库，每个账套的数据完全隔离
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto pr-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+
+          <div className="space-y-4 py-4">
+            {/* 存储说明 */}
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <HardDrive className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-blue-900">自动存储</p>
+                  <p className="text-xs text-blue-800 mt-1">
+                    数据库将自动保存到浏览器存储中（OPFS），文件名为：
+                    <code className="bg-blue-100 px-1 py-0.5 rounded">{formData.code || 'SET001'}_timestamp.db</code>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 表单字段 */}
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label required>账套编码</Label>
                 <Input
-                  placeholder="请输入账套编码，如 SET001"
                   value={formData.code}
                   onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                  placeholder="SET001"
                 />
               </div>
               <div className="space-y-2">
                 <Label required>账套名称</Label>
                 <Input
-                  placeholder="请输入公司名称"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="示例公司"
                 />
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label required>统一社会信用代码</Label>
-                <Input
-                  placeholder="请输入18位统一社会信用代码"
-                  value={formData.unifiedSocialCreditCode}
-                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label required>公司地址</Label>
-                <Input
-                  placeholder="请输入公司详细地址"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                />
-              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label required>账套开始日期</Label>
+                <Label required>启用日期</Label>
                 <Input
                   type="date"
                   value={formData.startDate}
@@ -561,49 +735,73 @@ export default function SetsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label required>账套启用年月</Label>
+                <Label required>启用年月</Label>
                 <Input
                   type="month"
                   value={formData.enableDate}
                   onChange={(e) => setFormData({ ...formData, enableDate: e.target.value })}
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>本位币</Label>
-                <Select
-                  value={formData.baseCurrency}
-                  onChange={(value) => setFormData({ ...formData, baseCurrency: value })}
-                  options={[
-                    { value: '人民币', label: '人民币' },
-                    { value: '美元', label: '美元' },
-                    { value: '欧元', label: '欧元' },
-                    { value: '港币', label: '港币' }
-                  ]}
+                <Label>统一社会信用代码</Label>
+                <Input
+                  value={formData.unifiedSocialCreditCode}
+                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value })}
+                  placeholder="91110000XXXXXXXXXX"
                 />
               </div>
               <div className="space-y-2">
-                <Label required>会计准则</Label>
-                <Select
-                  value={formData.accountingStandard}
-                  onChange={(value) => setFormData({ ...formData, accountingStandard: value as any })}
-                  options={[
-                    { value: 'small-enterprise', label: '小企业会计准则' },
-                    { value: 'enterprise', label: '企业会计准则' },
-                    { value: 'other', label: '其他' }
-                  ]}
+                <Label>公司地址</Label>
+                <Input
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="北京市朝阳区..."
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>本位币</Label>
+                <select
+                  value={formData.baseCurrency}
+                  onChange={(e) => setFormData({ ...formData, baseCurrency: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md"
+                >
+                  <option value="人民币">人民币 (CNY)</option>
+                  <option value="美元">美元 (USD)</option>
+                  <option value="欧元">欧元 (EUR)</option>
+                  <option value="港币">港币 (HKD)</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>会计准则</Label>
+                <select
+                  value={formData.accountingStandard}
+                  onChange={(e) => setFormData({ ...formData, accountingStandard: e.target.value as any })}
+                  className="w-full px-3 py-2 border rounded-md"
+                >
+                  <option value="small-enterprise">小企业会计准则</option>
+                  <option value="enterprise">企业会计准则</option>
+                  <option value="other">其他</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <DialogFooter className="gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={() => {
-              setShowCreateDialog(false);
-              resetFormData();
-            }}>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCreateDialog(false)}
+              disabled={isCreating}
+            >
               取消
             </Button>
-            <Button onClick={confirmCreate}>
-              创建账套
+            <Button onClick={confirmCreate} disabled={isCreating}>
+              {isCreating ? '创建中...' : '创建账套'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -611,19 +809,19 @@ export default function SetsPage() {
 
       {/* 编辑账套对话框 */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>编辑账套</DialogTitle>
             <DialogDescription>
-              修改账套信息
+              修改账套的基本信息
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto pr-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label required>账套编码</Label>
                 <Input
-                  placeholder="请输入账套编码，如 SET001"
                   value={formData.code}
                   onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                 />
@@ -631,180 +829,84 @@ export default function SetsPage() {
               <div className="space-y-2">
                 <Label required>账套名称</Label>
                 <Input
-                  placeholder="请输入公司名称"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label required>统一社会信用代码</Label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>统一社会信用代码</Label>
                 <Input
-                  placeholder="请输入18位统一社会信用代码"
                   value={formData.unifiedSocialCreditCode}
                   onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value })}
                 />
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label required>公司地址</Label>
+              <div className="space-y-2">
+                <Label>公司地址</Label>
                 <Input
-                  placeholder="请输入公司详细地址"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 />
               </div>
-              <div className="space-y-2">
-                <Label required>账套开始日期</Label>
-                <Input
-                  type="date"
-                  value={formData.startDate}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label required>账套启用年月</Label>
-                <Input
-                  type="month"
-                  value={formData.enableDate}
-                  onChange={(e) => setFormData({ ...formData, enableDate: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>本位币</Label>
-                <Select
-                  value={formData.baseCurrency}
-                  onChange={(value) => setFormData({ ...formData, baseCurrency: value })}
-                  options={[
-                    { value: '人民币', label: '人民币' },
-                    { value: '美元', label: '美元' },
-                    { value: '欧元', label: '欧元' },
-                    { value: '港币', label: '港币' }
-                  ]}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label required>会计准则</Label>
-                <Select
-                  value={formData.accountingStandard}
-                  onChange={(value) => setFormData({ ...formData, accountingStandard: value as any })}
-                  options={[
-                    { value: 'small-enterprise', label: '小企业会计准则' },
-                    { value: 'enterprise', label: '企业会计准则' },
-                    { value: 'other', label: '其他' }
-                  ]}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label required>最后凭证号</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="999"
-                  placeholder="请输入最后凭证号（0-999）"
-                  value={formData.lastVoucherNo || ''}
-                  onChange={(e) => setFormData({ ...formData, lastVoucherNo: parseInt(e.target.value) || 0 })}
-                />
-              </div>
             </div>
           </div>
-          <DialogFooter className="gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={() => {
-              setShowEditDialog(false);
-              resetFormData();
-            }}>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowEditDialog(false)}
+            >
               取消
             </Button>
             <Button onClick={confirmEdit}>
-              保存修改
+              保存
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* 备份确认对话框 */}
-      <Dialog open={showBackupDialog} onOpenChange={setShowBackupDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>备份账套配置</DialogTitle>
-            <DialogDescription>
-              确定要备份当前账套的所有配置数据吗？
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowBackupDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={confirmBackup}>
-              确定备份
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 复制账套确认对话框 */}
-      <Dialog open={showCopyDialog} onOpenChange={setShowCopyDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>复制账套</DialogTitle>
-            <DialogDescription>
-              确定要复制账套 "{selectedSet?.name}" 吗？
-              <br />
-              复制后将创建一个相同配置的新账套。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowCopyDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={confirmCopy}>
-              确定复制
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 年结处理确认对话框 */}
-      <Dialog open={showYearEndDialog} onOpenChange={setShowYearEndDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>年结处理</DialogTitle>
-            <DialogDescription>
-              确定要对账套 "{selectedSet?.name}" 进行年结处理吗？
-              <br />
-              年结后当前会计年度将被锁定，无法再录入凭证。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowYearEndDialog(false)}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={confirmYearEnd}>
-              确定年结
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 删除账套确认对话框 */}
+      {/* 删除确认对话框 */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>删除账套</DialogTitle>
             <DialogDescription>
               确定要删除账套 "{selectedSet?.name}" 吗？
-              <br />
-              <span className="text-red-500">此操作不可逆，请谨慎操作！</span>
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+
+          <div className="py-4">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <p className="text-center text-sm text-slate-600">
+              此操作将删除账套及其所有数据，且不可恢复。
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+            >
               取消
             </Button>
-            <Button variant="destructive" onClick={confirmDelete} disabled={accountSets.length <= 1}>
-              {accountSets.length <= 1 ? '至少保留一个账套' : '确定删除'}
+            <Button variant="destructive" onClick={confirmDelete}>
+              确认删除
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 数据库位置管理对话框 */}
+      {selectedSet && (
+        <DatabaseLocationDialog
+          open={showDbLocationDialog}
+          onOpenChange={setShowDbLocationDialog}
+          accountSetId={selectedSet.id}
+          accountSetName={selectedSet.name}
+        />
+      )}
     </div>
   );
 }

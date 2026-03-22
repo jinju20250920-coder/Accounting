@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { RecRelation, OutstandingItem, VoucherEntry, Voucher } from '@/types';
@@ -39,7 +41,8 @@ async function createAndSaveClearingRelation(
     recRefNo,
     recDate: new Date().toISOString().split('T')[0],
     createdBy: 'current-user',
-    createdAt: new Date().toISOString()
+    createTime: new Date().toISOString(),
+    updateTime: new Date().toISOString()
   };
 
   await getCurrentService().saveRecRelation(relation);

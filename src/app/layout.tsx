@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { GlobalErrorProvider } from "@/components/error-boundary";
 import { ToastProvider } from "@/components/ui/toast";
 import { DatabaseSyncWrapper } from "@/components/DatabaseSyncWrapper";
+import { FirstTimeWrapper } from "@/components/database/first-time-wrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,8 +22,6 @@ export const metadata: Metadata = {
   description: "现代化的Web会计凭证录入系统",
 };
 
-export const dynamic = 'force-dynamic';
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,13 +34,15 @@ export default function RootLayout({
       >
         <ToastProvider>
           <GlobalErrorProvider>
-            <DatabaseSyncWrapper />
-            <div className="flex h-screen bg-slate-50">
-              <Sidebar />
-              <div className="flex-1 overflow-auto">
-                {children}
+            <FirstTimeWrapper>
+              <DatabaseSyncWrapper />
+              <div className="flex h-screen bg-slate-50">
+                <Sidebar />
+                <div className="flex-1 overflow-auto">
+                  {children}
+                </div>
               </div>
-            </div>
+            </FirstTimeWrapper>
           </GlobalErrorProvider>
         </ToastProvider>
       </body>

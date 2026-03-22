@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { Department } from '@/lib/database/service';
@@ -391,9 +393,12 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
+      const now = new Date().toISOString();
       const departmentsWithIds = DEFAULT_DEPARTMENTS.map(d => ({
         ...d,
         id: generateId(),
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       }));
 

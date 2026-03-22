@@ -1,10 +1,12 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { CommonSummary, RecentSummary } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
 // 默认常用摘要
-const defaultCommonSummaries: Omit<CommonSummary, 'id' | 'createdAt' | 'accountSetId'>[] = [
+const defaultCommonSummaries: Omit<CommonSummary, 'id' | 'createTime' | 'updateTime' | 'accountSetId'>[] = [
   {
     text: '报销差旅费',
     sortOrder: 1
@@ -89,7 +91,8 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
       const initializedSummaries = defaultCommonSummaries.map((summary, index) => ({
         ...summary,
         id: `summary_${index}`,
-        createdAt: now,
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       }));
 
@@ -112,7 +115,8 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
         id: Date.now().toString(),
         text: text.trim(),
         sortOrder: state.commonSummaries.length + 1,
-        createdAt: new Date().toISOString(),
+        createTime: new Date().toISOString(),
+        updateTime: new Date().toISOString(),
         accountSetId: currentAccountSet?.id
       };
 
@@ -249,7 +253,8 @@ export const useSummaryStore = create<SummaryStore>((set, get) => ({
           id: Date.now().toString() + '_' + index,
           text: String(text).trim(),
           sortOrder: state.commonSummaries.length + success + 1,
-          createdAt: new Date().toISOString(),
+          createTime: new Date().toISOString(),
+          updateTime: new Date().toISOString(),
           accountSetId: currentAccountSet?.id
         });
         success++;

@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -36,6 +38,14 @@ export interface AccountSet {
   licensedCount?: number; // 授权的凭证数量（可选）
   lastVoucherNo?: number; // 最后一个凭证号（序号部分）
   lastVoucherFullNo?: string; // 完整的最后一个凭证号（含前缀）
+
+  // 数据库文件相关字段
+  dbFileName?: string;           // 数据库文件名
+  dbFilePath?: string;           // 数据库文件路径
+  dbFileSize?: number;           // 文件大小（字节）
+  dbLastModified?: number;       // 文件最后修改时间
+  dbStorageType?: 'fsa' | 'opfs' | 'local';  // 存储类型
+  dbHandleId?: string;           // 文件句柄ID
 }
 
 // 授权信息类型

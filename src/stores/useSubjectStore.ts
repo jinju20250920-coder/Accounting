@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { Subject } from '@/lib/database/service';
@@ -449,6 +451,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           subjectType = 'Profit/Loss'; // 默认值
         }
 
+        const now = new Date().toISOString();
         return {
           ...subject,
           id: subject.code, // 使用科目代码作为 ID，确保 parentId 能正确匹配
@@ -461,6 +464,8 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
           enableCashFlow: subject.enableCashFlow || false,
           accountSetId: currentAccountSet?.id,
+          createTime: now,
+          updateTime: now,
         };
       });
       await getCurrentService().saveSubjects(initializedSubjects);
@@ -539,6 +544,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           subjectType = 'Profit/Loss'; // 默认值
         }
 
+        const now = new Date().toISOString();
         return {
           ...subject,
           id: subject.code, // 使用科目代码作为 ID，确保 parentId 能正确匹配
@@ -551,6 +557,8 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
           enableCashFlow: subject.enableCashFlow || false,
           accountSetId: currentAccountSet?.id,
+          createTime: now,
+          updateTime: now,
         };
       });
 

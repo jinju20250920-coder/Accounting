@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import type { AgingResult, AgingDetail, AgingMode, AgingConfig } from '@/lib/accounting';
 

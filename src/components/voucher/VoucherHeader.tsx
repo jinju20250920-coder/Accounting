@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -189,11 +189,54 @@ export function VoucherHeader() {
   // Status display
   if (!currentVoucher) {
     return (
-      <Card className="m-6">
-        <CardHeader>
-          <CardTitle className="text-slate-500">请选择或创建凭证</CardTitle>
-        </CardHeader>
-      </Card>
+      <div className="border-b border-slate-200 bg-white">
+        {/* Breadcrumb */}
+        <div className="px-6 py-3 text-sm text-slate-500">
+          记账凭证 / 新建凭证
+        </div>
+
+        {/* Main Header Content */}
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Voucher Info */}
+            <div className="flex-1">
+              <div className="flex items-center gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">
+                    新凭证
+                  </h1>
+                  <div className="text-sm text-slate-600 mt-1">
+                    <input
+                      type="date"
+                      value={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => updateVoucherDate(e.target.value)}
+                      className="bg-transparent border-b border-slate-300 hover:border-slate-500 focus:outline-none focus:border-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Status Badge */}
+                <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                  <FileText className="w-4 h-4 mr-1" />
+                  草稿
+                </Badge>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              {/* New Voucher */}
+              <Button
+                onClick={() => createVoucher()}
+                size="sm"
+              >
+                <PlusCircle className="w-4 h-4 mr-2" />
+                新建凭证
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
     )
   }
 

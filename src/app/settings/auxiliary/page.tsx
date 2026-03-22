@@ -258,7 +258,7 @@ export default function AuxiliaryDataPage() {
       '银行账号': partner.bankAccount || '',
       '开户银行': partner.bankName || '',
       '冻结状态': partner.frozen ? '是' : '否',
-      '创建时间': partner.createdAt
+      '创建时间': partner.createTime
     }));
 
     exportToExcel(exportData, '往来单位数据');

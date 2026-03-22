@@ -13,7 +13,16 @@ export interface AccountingSet {
   lastVoucherFullNo: string;  // 完整的最后一个凭证号（含前缀）
   isInitialized: boolean;
   isClosed: boolean;
-  createdAt: string;
+  createTime: string;
+  updateTime: string;
+
+  // 数据库文件相关字段（新增）
+  dbFileName?: string;           // 数据库文件名
+  dbFilePath?: string;           // 数据库文件路径
+  dbFileSize?: number;           // 文件大小（字节）
+  dbLastModified?: number;       // 最后修改时间戳
+  dbStorageType?: 'fsa' | 'opfs' | 'local'; // 存储类型：File System Access API / OPFS / localStorage
+  dbHandleId?: string;           // IndexedDB 中的句柄 ID
 }
 
 // 科目
@@ -48,8 +57,8 @@ export interface Voucher {
   status: 'draft' | 'review' | 'posted' | 'reversed';
   voucherType: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
   createdBy: string;
-  createdAt: string;
-  updatedAt?: string;
+  createTime: string;
+  updateTime?: string;
   accountSetId?: string; // 新增字段：所属账套ID
 }
 
@@ -95,11 +104,14 @@ export interface SubjectBalance {
 export interface VoucherTemplate {
   id: string;
   name: string;
-  type: 'fixed' | 'variable' | 'ratio';
+  voucherType?: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
   description?: string;
-  entries: TemplateEntry[];
-  createdAt: string;
-  updatedAt: string;
+  entries: VoucherTemplateEntry[];
+  validations?: any[];
+  variables?: any[];
+  isSystem?: boolean;
+  createTime: string;
+  updateTime: string;
   accountSetId?: string; // 新增字段：所属账套ID
 }
 
@@ -164,7 +176,8 @@ export interface ExchangeRate {
   toCurrency: string;
   rate: number;
   isManual: boolean;
-  createdAt: string;
+  createTime: string;
+  updateTime: string;
 }
 
 // 汇兑损益
@@ -256,7 +269,8 @@ export interface StatementImport {
   mappedEntries: MappedEntry[];
   voucherEntries: VoucherEntry[];
   status: 'pending' | 'reviewed' | 'completed';
-  createdAt: string;
+  createTime: string;
+  updateTime: string;
 }
 
 export interface MappedEntry {
@@ -288,7 +302,8 @@ export interface UserPreference {
   newSubject: string;
   operationType: 'subject_correction';
   count: number;
-  createdAt: string;
+  createTime: string;
+  updateTime: string;
 }
 
 // 核销关系表
@@ -300,7 +315,8 @@ export interface RecRelation {
   recRefNo: string;            // 核销单号
   recDate: string;             // 核销日期
   createdBy: string;           // 创建人
-  createdAt: string;           // 创建时间
+  createTime: string;          // 创建时间
+  updateTime: string;          // 更新时间
   accountSetId?: string;       // 所属账套ID
 }
 
@@ -398,9 +414,9 @@ export interface Currency {
   gainLossSubjectName: string;
   isBase: boolean;
   disabled: boolean;
-  createdAt: string;
+  createTime: string;
   accountSetId?: string; // 新增字段：所属账套ID
-  updatedAt: string;
+  updateTime: string;
 }
 
 // 常用摘要
@@ -408,7 +424,8 @@ export interface CommonSummary {
   id: string;
   text: string;
   sortOrder: number;
-  createdAt: string;
+  createTime: string;
+  updateTime: string;
   accountSetId?: string; // 新增字段：所属账套ID
 }
 
@@ -426,8 +443,8 @@ export interface VoucherFullTemplate {
   description?: string;
   voucherType: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
   entries: VoucherTemplateEntry[];
-  createdAt: string;
-  updatedAt: string;
+  createTime: string;
+  updateTime: string;
   accountSetId?: string; // 新增字段：所属账套ID
 }
 
@@ -464,7 +481,8 @@ export interface Partner {
   bankAccount?: string; // 银行账号
   bankName?: string; // 开户银行
   frozen: boolean;
-  createdAt: string;
+  createTime: string;
+  updateTime: string;
   // 合并相关字段
   mergedFrom?: string[]; // 从哪些ID合并而来
   parentId?: string; // 关联的集团ID（用于合并到集团）

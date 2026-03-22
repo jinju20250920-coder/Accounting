@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -88,6 +88,12 @@ function SortableItem({ column, onToggleVisibility }: { column: ColumnItem; onTo
 }
 
 export function ColumnSort({ columns, onReorder, onToggleVisibility }: ColumnSortProps) {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -107,6 +113,44 @@ export function ColumnSort({ columns, onReorder, onToggleVisibility }: ColumnSor
     }
   }
 
+  if (!isClient) {
+    // Render a static version on server to avoid hydration mismatch
+    return (
+      <div className="space-y-2">
+        {columns.map((column) => (
+          <div
+            key={column.id}
+            className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 mb-2"
+          >
+            <div className="flex items-center gap-3">
+              <button className="w-5 h-5 text-gray-400">
+                <GripVertical className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                <span className="font-medium">{column.label}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onToggleVisibility(column.id)}
+                className={column.visible ? "text-blue-600 hover:bg-blue-50" : "text-gray-400 hover:bg-gray-100"}
+              >
+                {column.visible ? "显示" : "隐藏"}
+              </Button>
+              <Button variant="ghost" size="sm">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Render the interactive dnd version on client
   return (
     <DndContext
       sensors={sensors}

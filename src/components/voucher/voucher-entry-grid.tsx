@@ -66,9 +66,9 @@ import { Partner } from '@/types';
 
 // 模拟往来单位数据（与 settings/auxiliary 页面保持一致）
 const MOCK_PARTNERS: Partner[] = [
-  { id: 'p1', code: 'ABC001', name: '上海科技有限公司', isCustomer: true, isSupplier: false, isEmployee: false, frozen: false, createdAt: '2024-01-01' },
-  { id: 'p2', code: 'XYZ001', name: '北京商贸有限公司', isCustomer: true, isSupplier: true, isEmployee: false, frozen: false, createdAt: '2024-02-01' },
-  { id: 'p3', code: 'SUP001', name: '广州电子科技有限公司', isCustomer: false, isSupplier: true, isEmployee: false, frozen: false, createdAt: '2024-01-15' },
+  { id: 'p1', code: 'ABC001', name: '上海科技有限公司', isCustomer: true, isSupplier: false, isEmployee: false, frozen: false, createTime: '2024-01-01', updateTime: '2024-01-01' },
+  { id: 'p2', code: 'XYZ001', name: '北京商贸有限公司', isCustomer: true, isSupplier: true, isEmployee: false, frozen: false, createTime: '2024-02-01', updateTime: '2024-02-01' },
+  { id: 'p3', code: 'SUP001', name: '广州电子科技有限公司', isCustomer: false, isSupplier: true, isEmployee: false, frozen: false, createTime: '2024-01-15', updateTime: '2024-01-15' },
 ];
 
 // 显示行数

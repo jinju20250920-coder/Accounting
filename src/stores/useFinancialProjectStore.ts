@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { Project } from '@/lib/database/service';
@@ -400,7 +402,20 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
       const projects = await getCurrentService().getAllProjects();
 
       if (projects.length > 0) {
-        set({ projects });
+        // 确保没有重复的项目代码
+        const uniqueProjects = [];
+        const seenCodes = new Set<string>();
+
+        for (const project of projects) {
+          if (!seenCodes.has(project.code)) {
+            seenCodes.add(project.code);
+            uniqueProjects.push(project);
+          } else {
+            console.warn(`Duplicate project code detected: ${project.code}`);
+          }
+        }
+
+        set({ projects: uniqueProjects });
         return;
       }
 
@@ -408,9 +423,12 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
+      const now = new Date().toISOString();
       const projectsWithIds = DEFAULT_PROJECTS.map(p => ({
         ...p,
         id: generateId(),
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       }));
 

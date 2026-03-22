@@ -396,7 +396,7 @@ export default function TemplatesSettingsPage() {
               filteredTemplates
                 .sort(
                   (a, b) =>
-                    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                    new Date(a.createTime).getTime() - new Date(b.createTime).getTime()
                 )
                 .map((template) => (
                   <div
@@ -421,8 +421,8 @@ export default function TemplatesSettingsPage() {
                           )}
                           <div className="text-xs text-slate-500">
                             <p>分录数：{template.entries.length}</p>
-                            <p>创建时间：{new Date(template.createdAt).toLocaleString()}</p>
-                            <p>更新时间：{new Date(template.updatedAt).toLocaleString()}</p>
+                            <p>创建时间：{new Date(template.createTime).toLocaleString()}</p>
+                            <p>更新时间：{new Date(template.updateTime).toLocaleString()}</p>
                           </div>
                         </div>
                       </div>

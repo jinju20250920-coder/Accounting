@@ -185,7 +185,7 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, cu
       {/* 创建信息 */}
       <div className="flex justify-between text-sm text-slate-500">
         <span>创建人: {voucher.createdBy}</span>
-        <span>创建时间: {new Date(voucher.createdAt).toLocaleString('zh-CN')}</span>
+        <span>创建时间: {new Date(voucher.createTime).toLocaleString('zh-CN')}</span>
       </div>
 
       {/* 操作按钮 */}
@@ -453,7 +453,7 @@ export default function VoucherListPage() {
         Array.from(projectNames).join('; '),
         Array.from(cashFlowItems).join('; '),
         v.createdBy || '',
-        v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN') : '',
+        v.createTime ? new Date(v.createTime).toLocaleString('zh-CN') : '',
         statusConfig[v.status as keyof typeof statusConfig].label,
         typeConfig[v.voucherType as keyof typeof typeConfig],
         debitTotal.toFixed(2),
@@ -756,7 +756,7 @@ export default function VoucherListPage() {
                               })()}
                             </td>
                             <td className="p-3 border-b text-xs">{voucher.createdBy || '-'}</td>
-                            <td className="p-3 border-b text-xs">{voucher.createdAt ? new Date(voucher.createdAt).toLocaleString('zh-CN') : '-'}</td>
+                            <td className="p-3 border-b text-xs">{voucher.createTime ? new Date(voucher.createTime).toLocaleString('zh-CN') : '-'}</td>
                             <td className="p-3 border-b">
                               {typeConfig[voucher.voucherType as keyof typeof typeConfig]}
                             </td>

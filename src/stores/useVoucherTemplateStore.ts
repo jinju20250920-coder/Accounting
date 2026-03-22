@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { VoucherFullTemplate, VoucherTemplateEntry } from '@/types';
@@ -16,7 +18,7 @@ interface VoucherTemplateStore {
   templates: VoucherFullTemplate[];
 
   // 模版操作
-  addTemplate: (template: Omit<VoucherFullTemplate, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  addTemplate: (template: Omit<VoucherFullTemplate, 'id' | 'createTime' | 'updateTime'>) => Promise<void>;
   updateTemplate: (id: string, template: Partial<VoucherFullTemplate>) => Promise<void>;
   deleteTemplate: (id: string) => Promise<void>;
   getTemplate: (id: string) => VoucherFullTemplate | undefined;
@@ -73,8 +75,8 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
                 credit: 3000
               }
             ],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            createTime: new Date().toISOString(),
+            updateTime: new Date().toISOString()
           },
           {
             id: 'tpl002',
@@ -101,8 +103,8 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
                 deptCode: 'DEPT02'
               }
             ],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            createTime: new Date().toISOString(),
+            updateTime: new Date().toISOString()
           }
         ];
 
@@ -137,8 +139,8 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
         id: Date.now().toString(),
         ...templateData,
         voucherType: templateData.voucherType || 'general',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createTime: new Date().toISOString(),
+        updateTime: new Date().toISOString(),
         accountSetId: currentAccountSet?.id
       };
 
@@ -157,7 +159,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
       const state = get();
       const updatedTemplates = state.templates.map(template =>
         template.id === id
-          ? { ...template, ...templateData, updatedAt: new Date().toISOString() }
+          ? { ...template, ...templateData, updateTime: new Date().toISOString() }
           : template
       );
       await getCurrentService().saveVoucherTemplates(updatedTemplates);
@@ -225,8 +227,8 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
         description: template.description || '',
         voucherType: template.voucherType || 'general',
         entries: template.entries || [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createTime: new Date().toISOString(),
+        updateTime: new Date().toISOString(),
         accountSetId: currentAccountSet?.id
       }));
 
@@ -373,8 +375,8 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
           description: templateDescription || '',
           voucherType: voucherType || 'general',
           entries,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createTime: new Date().toISOString(),
+          updateTime: new Date().toISOString(),
           accountSetId: currentAccountSet?.id
         };
 

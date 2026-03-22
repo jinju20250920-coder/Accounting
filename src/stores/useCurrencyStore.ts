@@ -14,8 +14,8 @@ interface CurrencyStore {
   selectedCurrencyId: string | null;
 
   // CRUD 操作
-  addCurrency: (currency: Omit<Currency, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
-  updateCurrency: (id: string, updates: Partial<Omit<Currency, 'id' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
+  addCurrency: (currency: Omit<Currency, 'id' | 'createTime' | 'updateTime'>) => Promise<void>;
+  updateCurrency: (id: string, updates: Partial<Omit<Currency, 'id' | 'createTime' | 'updateTime'>>) => Promise<void>;
   deleteCurrency: (id: string) => Promise<void>;
   toggleCurrencyDisabled: (id: string) => Promise<void>;
   setBaseCurrency: (id: string) => Promise<void>;
@@ -34,7 +34,7 @@ interface CurrencyStore {
   initializeCurrencies: () => Promise<void>;
 
   // 批量操作
-  importCurrencies: (currencies: Omit<Currency, 'id' | 'createdAt' | 'updatedAt'>[]) => Promise<void>;
+  importCurrencies: (currencies: Omit<Currency, 'id' | 'createTime' | 'updateTime'>[]) => Promise<void>;
   exportCurrencies: () => string;
   resetToDefault: () => Promise<void>;
 }
@@ -43,7 +43,7 @@ interface CurrencyStore {
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
 // 默认币别数据
-const defaultCurrencies: Omit<Currency, 'id' | 'createdAt' | 'updatedAt'>[] = [
+const defaultCurrencies: Omit<Currency, 'id' | 'createTime' | 'updateTime'>[] = [
   {
     code: 'CNY',
     name: '人民币',
@@ -133,8 +133,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const newCurrency: Currency = {
         ...currency,
         id: generateId(),
-        createdAt: now,
-        updatedAt: now,
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       };
 
@@ -174,7 +174,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         const now = new Date().toISOString();
         const updatedCurrencies = state.currencies.map(c => {
           if (c.id === id) {
-            return { ...c, ...updates, isBase: true, updatedAt: now };
+            return { ...c, ...updates, isBase: true, updateTime: now };
           }
           return { ...c, isBase: false };
         });
@@ -185,7 +185,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         });
       } else {
         const now = new Date().toISOString();
-        const updatedCurrency = { ...current, ...updates, updatedAt: now };
+        const updatedCurrency = { ...current, ...updates, updateTime: now };
         const updatedCurrencies = state.currencies.map(c =>
           c.id === id ? updatedCurrency : c
         );
@@ -246,7 +246,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       }
 
       const now = new Date().toISOString();
-      const updatedCurrency = { ...currency, disabled: !currency.disabled, updatedAt: now };
+      const updatedCurrency = { ...currency, disabled: !currency.disabled, updateTime: now };
       const updatedCurrencies = state.currencies.map(c =>
         c.id === id ? updatedCurrency : c
       );
@@ -282,7 +282,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const updatedCurrencies = state.currencies.map(c => ({
         ...c,
         isBase: c.id === id,
-        updatedAt: c.id === id ? now : c.updatedAt
+        updateTime: c.id === id ? now : c.updateTime
       }));
       await getCurrentService().saveCurrencies(updatedCurrencies);
 
@@ -363,8 +363,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const initializedCurrencies: Currency[] = defaultCurrencies.map((currency, index) => ({
         ...currency,
         id: `currency_${index}`,
-        createdAt: now,
-        updatedAt: now,
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       }));
 
@@ -395,8 +395,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
           validCurrencies.push({
             ...currency,
             id: generateId(),
-            createdAt: now,
-            updatedAt: now,
+            createTime: now,
+            updateTime: now,
             accountSetId: currentAccountSet?.id
           });
           existingCodes.push(currency.code);
@@ -447,8 +447,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const initializedCurrencies: Currency[] = defaultCurrencies.map((currency, index) => ({
         ...currency,
         id: `currency_${index}`,
-        createdAt: now,
-        updatedAt: now,
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       }));
 

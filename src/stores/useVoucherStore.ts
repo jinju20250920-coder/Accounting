@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { Voucher } from '@/lib/database/service';
@@ -292,8 +294,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       ...voucher,
       entries: state.currentEntries,
       status,
-      updatedAt: now,
-      createdAt: voucher.createdAt || now
+      updateTime: now,
+      createTime: voucher.createTime || now
     };
 
     // 保存到数据库
@@ -552,8 +554,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       status: 'draft',
       voucherType: 'general',
       createdBy: 'system',
-      createdAt: now,
-      updatedAt: now
+      createTime: now,
+      updateTime: now
     };
 
     // 保存到数据库
@@ -599,8 +601,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       status: 'draft',
       voucherType: 'general',
       createdBy: 'user',
-      createdAt: now,
-      updatedAt: now
+      createTime: now,
+      updateTime: now
     };
 
     // 保存到数据库
@@ -633,8 +635,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       voucherNo: generateVoucherNo(voucher.date),
       summary: voucher.summary + ' (副本)',
       status: 'draft',
-      createdAt: now,
-      updatedAt: now,
+      createTime: now,
+      updateTime: now,
       entries: voucher.entries.map(entry => ({
         ...entry
       }))
@@ -674,7 +676,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         ...state.currentVoucher,
         entries: state.currentEntries,
         status: 'draft',
-        updatedAt: now
+        updateTime: now
       };
 
       // 保存到数据库
@@ -696,8 +698,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         status: 'draft',
         voucherType: 'general',
         createdBy: 'user',
-        createdAt: now,
-        updatedAt: now
+        createTime: now,
+        updateTime: now
       };
 
       // 保存新凭证到数据库
@@ -806,8 +808,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
       status: 'draft',
       voucherType: 'general',
       createdBy: 'user',
-      createdAt: now,
-      updatedAt: now
+      createTime: now,
+      updateTime: now
     };
 
     // Save to database

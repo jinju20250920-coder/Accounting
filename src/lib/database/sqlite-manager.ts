@@ -1,16 +1,63 @@
 import initSqlJs from 'sql.js';
 
+// File System Access API types
+interface FileSystemHandleHelper {
+  getFile(): Promise<File>;
+  createWritable(): Promise<FileSystemWritableFileStream>;
+  isSameEntry: (other: FileSystemHandle) => Promise<boolean>;
+  queryPermission: (mode: FileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+  requestPermission: (mode: FileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+}
+
+interface HandleStorageData {
+  handle: FileSystemHandleHelper;
+  lastModified: number;
+}
+
 class SQLiteManager {
   private static instance: SQLiteManager;
   private db: any = null;
   private currentAccountSetId: string | null = null;
   private initPromise: Promise<void> | null = null;
+  private autoSaveInterval: NodeJS.Timeout | null = null;
+  private DB_STORAGE_KEY = 'sqljs-finance-db';
+  private DB_FILE_NAME = 'finance-assistant.db';
+  private isElectron: boolean = false;
+  private dbPath: string | null = null;
+  private opfsHandle: FileSystemHandleHelper | null = null;
+  private useOPFS: boolean = false;
+  private useFileSystemAccess: boolean = false; // 使用 File System Access API
+  private HANDLE_STORAGE_KEY = 'sqlite-db-handle'; // IndexedDB 存储键
+  private dbHandle: FileSystemHandleHelper | null = null; // 持久化的文件句柄
 
   static getInstance(): SQLiteManager {
     if (!SQLiteManager.instance) {
       SQLiteManager.instance = new SQLiteManager();
     }
     return SQLiteManager.instance;
+  }
+
+  constructor() {
+    // 检测是否是 Electron 环境
+    this.isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron?.();
+
+    // 检测是否支持 File System Access API (Chrome 86+, Edge 86+, Opera 72+)
+    // Firefox 需要设置 about:config 中的 dom.fs.enabled = true
+    if (typeof window !== 'undefined' && !this.isElectron) {
+      this.useFileSystemAccess = 'showSaveFilePicker' in window && 'showOpenFilePicker' in window;
+
+      if (this.useFileSystemAccess) {
+        console.log('File System Access API is supported, database can be stored on disk');
+      } else {
+        // 后备方案：检测 OPFS
+        this.useOPFS = 'storage' in navigator && 'getDirectory' in (navigator.storage as any);
+        if (this.useOPFS) {
+          console.log('OPFS is supported, database will be stored in persistent file storage');
+        } else {
+          console.warn('File System Access API and OPFS not supported, falling back to localStorage');
+        }
+      }
+    }
   }
 
   async init(): Promise<void> {
@@ -27,17 +74,316 @@ class SQLiteManager {
         locateFile: (file: string) => `/sqljs/${file}`,
       });
 
-      // Create in-memory database (we'll persist to file later)
-      this.db = new SQL.Database();
+      if (this.isElectron) {
+        // Electron 环境 - 尝试加载或创建磁盘文件数据库
+        await this.initializeElectronDatabase(SQL);
+      } else if (this.useOPFS) {
+        // 浏览器环境 - 使用 OPFS 文件存储
+        await this.initializeOPFSDatabase(SQL);
+      } else {
+        // 浏览器环境 - 使用 localStorage (后备方案)
+        this.initializeBrowserDatabase(SQL);
+      }
 
-      // Create tables
-      this.createTables();
-
-      console.log('SQLite database initialized successfully');
+      // Start auto-save timer
+      this.startAutoSave();
     } catch (error) {
       console.error('SQLite initialization failed:', error);
-      throw new Error('Failed to initialize SQLite database');
+      // Fallback to new database
+      const SQL = await initSqlJs({
+        locateFile: (file: string) => `/sqljs/${file}`,
+      });
+      this.db = new SQL.Database();
+      this.createTables();
+      console.log('SQLite database initialized with fallback');
     }
+  }
+
+  private async initializeElectronDatabase(SQL: any): Promise<void> {
+    // 首先尝试获取已保存的数据库路径或使用默认路径
+    let dbPath = await window.electronAPI.getDbPath();
+
+    if (!dbPath) {
+      // 检查是否有默认路径的文件
+      const defaultPath = await window.electronAPI.getDefaultDbPath();
+      const fileExists = await window.electronAPI.fileExists(defaultPath);
+
+      if (fileExists) {
+        dbPath = defaultPath;
+        await window.electronAPI.setDbPath(defaultPath);
+        console.log(`Using default database at: ${defaultPath}`);
+      } else {
+        // 没有找到数据库，创建新的默认数据库
+        console.log(`Creating new database at: ${defaultPath}`);
+        this.db = new SQL.Database();
+        this.createTables();
+        this.dbPath = defaultPath;
+        await window.electronAPI.setDbPath(defaultPath);
+        await this.saveDatabase(); // 保存新数据库
+        return;
+      }
+    }
+
+    // 尝试加载数据库
+    try {
+      const loadedData = await window.electronAPI.loadDb();
+      if (loadedData) {
+        this.db = new SQL.Database(new Uint8Array(loadedData));
+        this.dbPath = dbPath;
+        console.log('SQLite database loaded from disk successfully');
+      } else {
+        // 没有找到数据库，创建新的
+        this.db = new SQL.Database();
+        this.createTables();
+        this.dbPath = dbPath;
+        console.log('SQLite database initialized successfully (new database)');
+        await this.saveDatabase(); // 保存新数据库
+      }
+    } catch (error) {
+      console.error('Failed to load database from disk:', error);
+      // 加载失败，创建新数据库
+      this.db = new SQL.Database();
+      this.createTables();
+      this.dbPath = dbPath;
+      console.log('SQLite database initialized with fallback');
+    }
+  }
+
+  private async initializeOPFSDatabase(SQL: any): Promise<void> {
+    try {
+      // 获取 OPFS 根目录
+      const opfsRoot = await (navigator.storage as any).getDirectory();
+
+      // 尝试打开现有数据库文件
+      let dbExists = false;
+      try {
+        // 检查文件是否存在
+        await opfsRoot.getFileHandle(this.DB_FILE_NAME);
+        dbExists = true;
+        console.log('Existing OPFS database file found');
+      } catch {
+        console.log('No existing OPFS database file, will create new one');
+      }
+
+      if (dbExists) {
+        // 打开现有文件并加载数据
+        this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME);
+        const file = await this.opfsHandle.getFile();
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (uint8Array.length > 0) {
+          this.db = new SQL.Database(uint8Array);
+          console.log('SQLite database loaded from OPFS successfully');
+        } else {
+          // 文件为空，创建新数据库
+          this.db = new SQL.Database();
+          this.createTables();
+          console.log('SQLite database initialized (new OPFS database)');
+        }
+      } else {
+        // 创建新数据库文件
+        this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME, { create: true });
+        this.db = new SQL.Database();
+        this.createTables();
+        console.log('SQLite database initialized successfully (new OPFS database)');
+        // 立即保存新创建的数据库
+        await this.saveOPFSDatabase();
+      }
+    } catch (error) {
+      console.error('OPFS initialization failed, falling back to localStorage:', error);
+      this.useOPFS = false;
+      this.initializeBrowserDatabase(SQL);
+    }
+  }
+
+  private initializeBrowserDatabase(SQL: any): void {
+    const savedDb = this.loadDatabase();
+
+    if (savedDb) {
+      // Load existing database
+      this.db = new SQL.Database(savedDb);
+      console.log('SQLite database loaded from storage successfully');
+    } else {
+      // Create new database
+      this.db = new SQL.Database();
+      this.createTables();
+      console.log('SQLite database initialized successfully (new database)');
+    }
+  }
+
+
+  private async saveDatabase(): Promise<void> {
+    try {
+      if (this.db) {
+        const data = this.db.export();
+
+        if (this.isElectron) {
+          // Electron 环境 - 保存到磁盘文件
+          await window.electronAPI.saveDb(Array.from(new Uint8Array(data)));
+          console.log('Database saved to disk');
+        } else if (this.useOPFS) {
+          // 浏览器环境 - 使用 OPFS 文件存储
+          await this.saveOPFSDatabase();
+        } else {
+          // 浏览器环境 - 使用 localStorage (后备方案)
+          try {
+            const uint8Data = new Uint8Array(data);
+            // 使用循环而不是 spread 操作符来避免栈溢出
+            let binaryString = '';
+            const chunkSize = 0x8000; // 32KB chunks
+            for (let i = 0; i < uint8Data.length; i += chunkSize) {
+              const chunk = uint8Data.subarray(i, i + chunkSize);
+              binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+            }
+            const base64 = btoa(binaryString);
+            localStorage.setItem(this.DB_STORAGE_KEY, base64);
+          } catch (storageError) {
+            console.error('LocalStorage save failed:', storageError);
+            // 数据太大，localStorage 无法存储
+            console.warn('Database too large for localStorage. Consider using OPFS or Electron mode.');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save database:', error);
+    }
+  }
+
+  private async saveOPFSDatabase(): Promise<void> {
+    if (!this.db || !this.opfsHandle) return;
+
+    try {
+      const data = this.db.export();
+      const writable = await this.opfsHandle.createWritable();
+      await writable.write(data);
+      await writable.close();
+
+      // 如果支持 sync()，调用它确保数据写入磁盘
+      if ('sync' in this.opfsHandle && typeof this.opfsHandle.sync === 'function') {
+        await this.opfsHandle.sync();
+      }
+
+      console.log('Database saved to OPFS file');
+    } catch (error) {
+      console.error('Failed to save database to OPFS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 清理损坏的数据库数据
+   */
+  async clearCorruptedData(): Promise<void> {
+    try {
+      if (this.useOPFS) {
+        const opfsRoot = await (navigator.storage as any).getDirectory();
+        // @ts-ignore - removeEntry 是 OPFS API
+        await opfsRoot.removeEntry(this.DB_FILE_NAME);
+        this.opfsHandle = null;
+        console.log('Corrupted OPFS database file cleared');
+      } else {
+        localStorage.removeItem(this.DB_STORAGE_KEY);
+        console.log('Corrupted database data cleared from localStorage');
+      }
+    } catch (error) {
+      console.error('Failed to clear corrupted data:', error);
+    }
+  }
+
+  private loadDatabase(): Uint8Array | null {
+    try {
+      const saved = localStorage.getItem(this.DB_STORAGE_KEY);
+      if (saved) {
+        // Fixed: Decode entire base64 string at once
+        try {
+          const binaryString = atob(saved);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          return bytes;
+        } catch (base64Error) {
+          console.error('Base64 decoding failed, clearing corrupted data:', base64Error);
+          this.clearCorruptedData();
+          return null;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load database, clearing corrupted data:', error);
+      this.clearCorruptedData();
+    }
+    return null;
+  }
+
+  /**
+   * 估算 OPFS 存储空间使用情况
+   */
+  async getOPFSUsage(): Promise<{ usage: number; quota: number } | null> {
+    if (!this.useOPFS) {
+      return null;
+    }
+
+    try {
+      const estimate = await (navigator.storage as any).estimate();
+      return {
+        usage: estimate.usage || 0,
+        quota: estimate.quota || 0
+      };
+    } catch (error) {
+      console.error('Failed to get OPFS usage:', error);
+      return null;
+    }
+  }
+
+  private startAutoSave(): void {
+    // Auto-save every 5 seconds
+    this.autoSaveInterval = setInterval(() => {
+      this.saveDatabase();
+    }, 5000);
+
+    if (!this.isElectron && !this.useOPFS) {
+      // 仅在 localStorage 环境中使用页面事件 (OPFS 和 Electron 数据已持久化)
+      const handleBeforeUnload = () => {
+        this.saveDatabase();
+      };
+
+      const handlePageHide = () => {
+        this.saveDatabase();
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('pagehide', handlePageHide);
+
+      // Cleanup on instance destruction (if needed)
+      // For now, we'll just keep the listeners active
+    }
+  }
+
+  // Manually trigger save
+  save(): void {
+    this.saveDatabase();
+  }
+
+  // Clear corrupted data
+  clearData(): void {
+    this.clearCorruptedData();
+  }
+
+  // Export database for download
+  exportDatabase(): Uint8Array {
+    return this.db.export();
+  }
+
+  // Import database from file
+  async importDatabase(data: Uint8Array): Promise<void> {
+    const SQL = await initSqlJs({
+      locateFile: (file: string) => `/sqljs/${file}`,
+    });
+    this.db = new SQL.Database(data);
+    this.saveDatabase();
+    console.log('Database imported successfully');
   }
 
   private createTables(): void {
@@ -304,10 +650,25 @@ class SQLiteManager {
     return this.currentAccountSetId;
   }
 
+  async getDatabaseAsync(): Promise<any> {
+    if (!this.db) {
+      console.warn('SQLite database not initialized, attempting to initialize...');
+      try {
+        await this.init();
+      } catch (error) {
+        console.error('SQLite automatic initialization failed:', error);
+        throw new Error('Failed to initialize SQLite database');
+      }
+    }
+    return this.db;
+  }
+
+  // 同步版本 - 必须在调用前先调用 init()
   getDatabase(): any {
     if (!this.db) {
       console.warn('SQLite database not initialized, attempting to initialize...');
-      throw new Error('SQLite database not initialized');
+      // 不在这里做复杂的异步操作
+      // 只是记录警告，让调用者知道问题
     }
     return this.db;
   }
@@ -323,23 +684,14 @@ class SQLiteManager {
     return this.db !== null;
   }
 
-  // Database file operations
-  async exportDatabase(): Promise<Uint8Array> {
-    return this.db.export();
+  // 同步获取数据库，如果未初始化则抛出错误
+  getDatabaseSync(): any {
+    if (!this.db) {
+      throw new Error('Database not initialized. Call init() first.');
+    }
+    return this.db;
   }
 
-  async importDatabase(data: Uint8Array): Promise<void> {
-    try {
-      const SQL = await initSqlJs({
-        locateFile: (file: string) => `/sqljs/${file}`,
-      });
-      this.db = new SQL.Database(data);
-      console.log('Database imported successfully');
-    } catch (error) {
-      console.error('Failed to import database:', error);
-      throw new Error('Failed to import database');
-    }
-  }
 
   // Export as JSON (for compatibility with IndexedDB)
   async exportData(): Promise<any> {
@@ -449,7 +801,15 @@ class SQLiteManager {
       columns.forEach((col: string, idx: number) => {
         summary[col] = row[idx];
       });
-      return summary;
+      // Map DB fields to type fields for export
+      return {
+        id: summary.id,
+        text: summary.content,
+        sortOrder: summary.frequency,
+        createTime: summary.createTime,
+        updateTime: summary.updateTime,
+        accountSetId: summary.accountSetId
+      };
     }) || [];
 
     const preferencesResult = db.exec(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [accountSetId]);
@@ -719,15 +1079,14 @@ class SQLiteManager {
           const templateWithAccountSet = { ...template, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO voucherTemplates (
-              id, name, type, description, entries, validations, variables,
+              id, name, description, entries, validations, variables,
               isSystem, accountSetId, createTime, updateTime
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           stmt.run([
             templateWithAccountSet.id,
             templateWithAccountSet.name,
-            templateWithAccountSet.type,
-            templateWithAccountSet.description,
+            templateWithAccountSet.description || '',
             JSON.stringify(templateWithAccountSet.entries || []),
             JSON.stringify(templateWithAccountSet.validations || []),
             JSON.stringify(templateWithAccountSet.variables || []),
@@ -751,8 +1110,8 @@ class SQLiteManager {
           `);
           stmt.run([
             summaryWithAccountSet.id,
-            summaryWithAccountSet.content,
-            summaryWithAccountSet.frequency || 0,
+            summaryWithAccountSet.text || summaryWithAccountSet.content, // Handle both field names
+            summaryWithAccountSet.sortOrder || summaryWithAccountSet.frequency || 0, // Handle both field names
             summaryWithAccountSet.accountSetId,
             summaryWithAccountSet.createTime,
             summaryWithAccountSet.updateTime
@@ -834,6 +1193,111 @@ class SQLiteManager {
       }
     } catch (error) {
       console.error('Import data failed:', error);
+      throw error;
+    }
+  }
+
+  // ========== OPFS 辅助方法 ==========
+
+  /**
+   * 检查是否正在使用 OPFS 存储
+   */
+  isUsingOPFS(): boolean {
+    return this.useOPFS;
+  }
+
+  /**
+   * 获取数据库文件信息（仅 OPFS 环境）
+   */
+  async getDatabaseFileInfo(): Promise<{ name: string; size: number; lastModified: number } | null> {
+    if (!this.useOPFS || !this.opfsHandle) {
+      return null;
+    }
+
+    try {
+      const file = await this.opfsHandle.getFile();
+      return {
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified
+      };
+    } catch (error) {
+      console.error('Failed to get database file info:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 下载数据库文件（用于手动备份）
+   */
+  async downloadDatabase(): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      const data = this.db.export();
+      const blob = new Blob([data], { type: 'application/x-sqlite3' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `finance-assistant-${new Date().toISOString().split('T')[0]}.db`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      console.log('Database file downloaded');
+    } catch (error) {
+      console.error('Failed to download database:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 从文件上传并导入数据库
+   */
+  async uploadDatabase(file: File): Promise<void> {
+    try {
+      const SQL = await initSqlJs({
+        locateFile: (file: string) => `/sqljs/${file}`,
+      });
+
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      this.db = new SQL.Database(uint8Array);
+      await this.saveDatabase();
+
+      console.log('Database file uploaded and imported successfully');
+    } catch (error) {
+      console.error('Failed to upload database:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 删除 OPFS 数据库文件并重置
+   */
+  async resetDatabase(): Promise<void> {
+    try {
+      if (this.useOPFS) {
+        const opfsRoot = await (navigator.storage as any).getDirectory();
+        // 使用 removeEntry 删除文件
+        // @ts-ignore - removeEntry 是 OPFS API
+        await opfsRoot.removeEntry(this.DB_FILE_NAME);
+        this.opfsHandle = null;
+      } else {
+        localStorage.removeItem(this.DB_STORAGE_KEY);
+      }
+
+      // 重新初始化
+      this.db = null;
+      this.initPromise = null;
+      await this.init();
+
+      console.log('Database reset successfully');
+    } catch (error) {
+      console.error('Failed to reset database:', error);
       throw error;
     }
   }

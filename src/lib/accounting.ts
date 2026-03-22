@@ -506,18 +506,29 @@ export function formatMoney(amount: number): string {
 // 计算账龄数据
 export function calculateAgingData(
   entries: VoucherEntry[],
-  config: AgingConfig
+  config: AgingConfig,
+  partners: Array<{ code: string; name: string; isCustomer: boolean; isSupplier: boolean }> = []
 ): AgingResult[] {
   // 1. 按往来单位分组
   const partnerMap = new Map<string, VoucherEntry[]>();
 
   entries.forEach(entry => {
-    const partner = entry.customerName || entry.supplierName;
-    if (partner) {
-      if (!partnerMap.has(partner)) {
-        partnerMap.set(partner, []);
+    let partnerName = entry.customerName || entry.supplierName;
+
+    // 如果没有直接的客户/供应商名称，尝试从辅助核算中获取代码并转换为名称
+    if (!partnerName) {
+      const partnerCode = entry.auxiliary?.customer || entry.auxiliary?.supplier;
+      if (partnerCode) {
+        const partner = partners.find(p => p.code === partnerCode);
+        partnerName = partner?.name || partnerCode;
       }
-      partnerMap.get(partner)!.push(entry);
+    }
+
+    if (partnerName) {
+      if (!partnerMap.has(partnerName)) {
+        partnerMap.set(partnerName, []);
+      }
+      partnerMap.get(partnerName)!.push(entry);
     }
   });
 
@@ -570,7 +581,8 @@ export function getAgingDetails(
   config: AgingConfig & { bucket?: string; partner?: string },
   isAccountsReceivable: boolean = true,
   vouchers?: any[], // 新增：可选的凭证列表参数，用于获取真正的凭证号
-  recRelations?: any[] // 新增：可选的核销关系，用于计算剩余金额
+  recRelations?: any[], // 新增：可选的核销关系，用于计算剩余金额
+  partners: Array<{ code: string; name: string; isCustomer: boolean; isSupplier: boolean }> = []
 ): AgingDetail[] {
   const details: AgingDetail[] = [];
 
@@ -583,10 +595,19 @@ export function getAgingDetails(
   };
 
   entries.forEach(entry => {
-    const partner = entry.customerName || entry.supplierName;
+    let partnerName = entry.customerName || entry.supplierName;
+
+    // 如果没有直接的客户/供应商名称，尝试从辅助核算中获取代码并转换为名称
+    if (!partnerName) {
+      const partnerCode = entry.auxiliary?.customer || entry.auxiliary?.supplier;
+      if (partnerCode) {
+        const partner = partners.find(p => p.code === partnerCode);
+        partnerName = partner?.name || partnerCode;
+      }
+    }
 
     // 按合作伙伴筛选
-    if (config.partner && partner !== config.partner) {
+    if (config.partner && partnerName !== config.partner) {
       return;
     }
 
@@ -648,7 +669,7 @@ export function getAgingDetails(
       remainingAmount: remainingAmount,
       daysOverdue: days,
       bucket,
-      partnerName: partner,
+      partnerName: partnerName,
       isWriteOff: isWriteOff,
       subjectCode: entry.subjectCode,
       subjectName: entry.subjectName,

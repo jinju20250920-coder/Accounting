@@ -1,10 +1,12 @@
+'use client';
+
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { Partner } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
 // 默认数据
-const defaultPartners: Omit<Partner, 'id' | 'createdAt' | 'accountSetId'>[] = [
+const defaultPartners: Omit<Partner, 'id' | 'createTime' | 'updateTime' | 'accountSetId'>[] = [
   {
     code: 'ABC001',
     name: '上海科技有限公司',
@@ -74,7 +76,7 @@ interface PartnerStore {
   selectedPartnerId: string | null;
 
   // CRUD 操作
-  addPartner: (partner: Omit<Partner, 'id' | 'createdAt'>) => Promise<void>;
+  addPartner: (partner: Omit<Partner, 'id' | 'createTime' | 'updateTime'>) => Promise<void>;
   updatePartner: (id: string, updates: Partial<Partner>) => Promise<void>;
   deletePartner: (id: string) => Promise<void>;
   toggleFrozen: (id: string) => Promise<void>;
@@ -87,7 +89,7 @@ interface PartnerStore {
   getAllPartners: () => Partner[];
 
   // 导入导出
-  importPartners: (partners: Omit<Partner, 'id' | 'createdAt'>[]) => Promise<void>;
+  importPartners: (partners: Omit<Partner, 'id' | 'createTime' | 'updateTime'>[]) => Promise<void>;
   exportPartners: () => string;
 
   // 批量操作
@@ -124,7 +126,8 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         ...partnerData,
         id: `partner_${Date.now()}`,
         frozen: partnerData.frozen || false,
-        createdAt: new Date().toISOString().split('T')[0],
+        createTime: new Date().toISOString(),
+        updateTime: new Date().toISOString(),
         accountSetId: currentAccountSet?.id
       };
 
@@ -274,7 +277,8 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
             ...partnerData,
             id: `partner_${Date.now()}_${Math.random()}`,
             frozen: partnerData.frozen || false,
-            createdAt: new Date().toISOString().split('T')[0],
+            createTime: new Date().toISOString(),
+            updateTime: new Date().toISOString(),
             accountSetId: currentAccountSet?.id
           });
         }
@@ -327,11 +331,13 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
+      const now = new Date().toISOString();
       const initializedPartners = defaultPartners.map(partnerData => ({
         ...partnerData,
         id: `partner_${Date.now()}_${Math.random()}`,
         frozen: partnerData.frozen || false,
-        createdAt: new Date().toISOString().split('T')[0],
+        createTime: now,
+        updateTime: now,
         accountSetId: currentAccountSet?.id
       }));
 
