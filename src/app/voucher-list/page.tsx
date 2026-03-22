@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Search,
@@ -21,7 +21,8 @@ import {
   Filter,
   ArrowUpDown,
   CheckSquare,
-  Square
+  Square,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -231,6 +232,7 @@ export default function VoucherListPage() {
   const { getCurrentAccountSet } = useAccountSetStore();
   const { showToast } = useToast();
   const currentAccountSet = getCurrentAccountSet();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
@@ -428,6 +430,34 @@ export default function VoucherListPage() {
     showToast('info', '冲销功能需要调用完整的会计引擎');
   };
 
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // 重新初始化 voucher store
+      const { useVoucherStore } = await import('@/stores/useVoucherStore');
+      const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+
+      // 确保 accountSetId 正确设置
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      if (currentAccountSet) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+        console.log('[Refresh] 设置 accountSetId 为:', currentAccountSet.id);
+      }
+
+      // 重新加载 vouchers
+      await useVoucherStore.getState().initialize();
+      showToast('success', '数据已刷新');
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      showToast('error', '刷新失败');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [showToast]);
+
   const handleExport = () => {
     // 导出为CSV
     const headers = ['凭证号', '日期', '摘要', '业务单据号', '往来单位', '部门', '项目', '现金流量', '创建人', '创建时间', '状态', '类型', '借方合计', '贷方合计'];
@@ -521,6 +551,10 @@ export default function VoucherListPage() {
               批量打印 ({selectedVoucherIds.size})
             </Button>
           )}
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            刷新数据
+          </Button>
           <DatabaseManager />
           <Button onClick={() => router.push('/voucher-entry-page')}>
             <Plus className="w-4 h-4 mr-2" />

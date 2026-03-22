@@ -393,7 +393,7 @@ class SQLiteService {
       deleteStmt.free();
 
       // Save new entries
-      console.log('[saveVoucher] 保存凭证', voucher.voucherNo, '共有', voucher.entries?.length || 0, '条分录');
+      console.log('[saveVoucher] 保存凭证', voucher.voucherNo, 'id:', voucher.id, 'accountSetId:', this.accountSetId, '共有', voucher.entries?.length || 0, '条分录');
       for (const entry of voucher.entries) {
         const entryWithAccountSet = {
           ...entry,
@@ -401,7 +401,7 @@ class SQLiteService {
           voucherId: voucher.id
         } as any;
 
-        console.log('[saveVoucher] 保存分录:', {
+        console.log('[saveVoucher] 保存分录 id:', entryWithAccountSet.id, 'voucherId:', entryWithAccountSet.voucherId, '数据:', {
           subjectCode: entryWithAccountSet.subjectCode,
           subjectName: entryWithAccountSet.subjectName,
           debit: entryWithAccountSet.debit,
@@ -497,7 +497,17 @@ class SQLiteService {
 
         console.log('[getAllVouchers] 凭证', voucher.voucherNo, 'id:', voucher.id, '有', entries.length, '条分录');
         if (entries.length > 0) {
-          console.log('[getAllVouchers] 第一条分录:', entries[0]);
+          console.log('[getAllVouchers] 第一条分录详情:', {
+            id: entries[0].id,
+            voucherId: entries[0].voucherId,
+            subjectCode: entries[0].subjectCode,
+            subjectName: entries[0].subjectName,
+            debit: entries[0].debit,
+            credit: entries[0].credit,
+            accountSetId: entries[0].accountSetId
+          });
+        } else {
+          console.warn('[getAllVouchers] 凭证', voucher.voucherNo, '没有分录！这可能表示数据保存时出现问题');
         }
 
         return {
