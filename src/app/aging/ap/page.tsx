@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useClearingStore } from '@/stores/useClearingStore';
+import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useToast } from '@/components/ui/toast';
 import { calculateAgingData, getAgingDetails, type AgingMode, type AgingConfig, formatMoney } from '@/lib/accounting';
 import { AgingReport } from '../components/aging-report';
@@ -24,7 +25,15 @@ export default function APReportPage() {
   const voucherStore = useVoucherStore();
   const subjectStore = useSubjectStore();
   const clearingStore = useClearingStore();
+  const partnerStore = usePartnerStore();
   const { showToast } = useToast();
+
+  // 确保 partnerStore 被初始化
+  useEffect(() => {
+    if (partnerStore.partners.length === 0) {
+      partnerStore.initializePartners();
+    }
+  }, [partnerStore.partners.length]);
 
   // 批量核销处理函数
   const handleBatchWriteOff = async (selectedIds: string[]) => {
@@ -124,7 +133,7 @@ export default function APReportPage() {
   // 获取应付账款相关的凭证分录
   const apEntries = useMemo(() => {
     return voucherStore.vouchers
-      .filter(v => v.status === 'posted' || v.status === 'reversed')
+      .filter(v => v.status === 'posted') // 仅显示已记账的凭证
       .flatMap(v => v.entries)
       .filter(entry => {
         const subject = subjectStore.subjects.find(s => s.code === entry.subjectCode);
@@ -142,8 +151,8 @@ export default function APReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return calculateAgingData(apEntries, config);
-  }, [apEntries, mode, asOfDate, useCustomBuckets, customBuckets]);
+    return calculateAgingData(apEntries, config, partnerStore.partners);
+  }, [apEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners]);
 
   // 获取明细数据
   const agingDetails = useMemo(() => {
@@ -157,8 +166,8 @@ export default function APReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return getAgingDetails(apEntries, config, false, voucherStore.vouchers, clearingStore.recRelations);
-  }, [apEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations]);
+    return getAgingDetails(apEntries, config, false, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners);
+  }, [apEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners]);
 
   return (
     <div className="space-y-6">

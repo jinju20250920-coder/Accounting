@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { useVoucherStore } from './useVoucherStore';
 import { getCurrentService } from '@/lib/database';
@@ -177,12 +179,13 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
     // 收集所有分录（包括已记账和当前未记账的）
     const allEntries: any[] = [];
 
-    // 添加已记账凭证的分录
+    // 添加已记账凭证的分录（包括所有状态，除了已完全删除的）
     vouchers.forEach(voucher => {
-      if (voucher.status === 'posted' || voucher.status === 'review' || voucher.status === 'draft') {
+      if (voucher.status === 'posted' || voucher.status === 'review' || voucher.status === 'draft' || voucher.status === 'reversed') {
         voucher.entries.forEach(entry => {
           allEntries.push({
             ...entry,
+            voucherStatus: voucher.status,
             isPosted: voucher.status === 'posted'
           });
         });
@@ -193,19 +196,33 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
     currentEntries.forEach(entry => {
       allEntries.push({
         ...entry,
+        voucherStatus: 'draft',
         isPosted: false
       });
     });
 
     // 过滤该往来单位的所有分录 - 支持多种匹配方式
     const partnerEntries = allEntries.filter(entry => {
+      // 尝试多种匹配方式
       const matches =
         entry.customerName === partnerName ||
         entry.supplierName === partnerName ||
         (entry.auxiliary?.customer === partnerName) ||
-        (entry.auxiliary?.supplier === partnerName);
+        (entry.auxiliary?.supplier === partnerName) ||
+        (typeof entry.auxiliary === 'string' && entry.auxiliary === partnerName);
       return matches;
     });
+
+    // 调试日志
+    if (partnerEntries.length > 0) {
+      console.log(`Partner "${partnerName}" entries:`, partnerEntries.map(e => ({
+        subjectCode: e.subjectCode,
+        debit: e.debit,
+        credit: e.credit,
+        customerName: e.customerName,
+        auxiliary: e.auxiliary
+      })));
+    }
 
     // 计算每个分录的已核销金额（从数据库获取）
     // 注意：这里应该从数据库查询，但为了简化，我们暂时假设已核销金额为0
@@ -229,7 +246,10 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
       .filter(entry => entry.credit > 0)
       .reduce((sum, entry) => sum + entry.remainingAmount, 0);
 
-    return debitSum - creditSum;
+    const balance = debitSum - creditSum;
+    console.log(`Partner "${partnerName}" balance: ${balance} (debit: ${debitSum}, credit: ${creditSum})`);
+
+    return balance;
   },
 
   // 获取未结清单据

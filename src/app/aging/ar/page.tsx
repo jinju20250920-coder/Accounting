@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useClearingStore } from '@/stores/useClearingStore';
+import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useToast } from '@/components/ui/toast';
 import { calculateAgingData, getAgingDetails, type AgingMode, type AgingConfig, formatMoney } from '@/lib/accounting';
 import { AgingReport } from '../components/aging-report';
@@ -24,7 +25,15 @@ export default function ARReportPage() {
   const voucherStore = useVoucherStore();
   const subjectStore = useSubjectStore();
   const clearingStore = useClearingStore();
+  const partnerStore = usePartnerStore();
   const { showToast } = useToast();
+
+  // 确保 partnerStore 被初始化
+  useEffect(() => {
+    if (partnerStore.partners.length === 0) {
+      partnerStore.initializePartners();
+    }
+  }, [partnerStore.partners.length]);
 
   // 确保 clearingStore 被初始化
   const ensureClearingInitialized = async () => {
@@ -133,10 +142,10 @@ export default function ARReportPage() {
     }
   };
 
-  // 获取应收账款相关的凭证分录
+  // 获取应收账款相关的凭证分录（仅包括已记账的凭证）
   const arEntries = useMemo(() => {
     return voucherStore.vouchers
-      .filter(v => v.status === 'posted' || v.status === 'reversed')
+      .filter(v => v.status === 'posted') // 仅显示已记账的凭证
       .flatMap(v => v.entries)
       .filter(entry => {
         const subject = subjectStore.subjects.find(s => s.code === entry.subjectCode);
@@ -154,8 +163,8 @@ export default function ARReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return calculateAgingData(arEntries, config);
-  }, [arEntries, mode, asOfDate, useCustomBuckets, customBuckets]);
+    return calculateAgingData(arEntries, config, partnerStore.partners);
+  }, [arEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners]);
 
   // 获取明细数据
   const agingDetails = useMemo(() => {
@@ -169,8 +178,8 @@ export default function ARReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return getAgingDetails(arEntries, config, true, voucherStore.vouchers, clearingStore.recRelations);
-  }, [arEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations]);
+    return getAgingDetails(arEntries, config, true, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners);
+  }, [arEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners]);
 
   return (
     <div className="space-y-6">

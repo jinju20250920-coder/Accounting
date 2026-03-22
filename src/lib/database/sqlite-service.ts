@@ -1,4 +1,4 @@
-import { sqliteManager } from './sqlite-manager';
+import { accountSetDbManager } from './account-set-db-manager';
 import type {
   Voucher as _Voucher,
   VoucherEntry as _VoucherEntry,
@@ -37,35 +37,206 @@ export interface AuditLog {
 }
 
 class SQLiteService {
-  private get db(): any {
-    return sqliteManager.getDatabase();
+  private dbInstance: any = null;
+  private _accountSetId: string = 'default'; // 当前账套ID
+
+  // 设置当前账套ID
+  setAccountSetId(accountSetId: string) {
+    this._accountSetId = accountSetId;
+    this.dbInstance = null; // 清除缓存的数据库实例
   }
 
-  private get accountSetId(): string {
-    const id = sqliteManager.getCurrentAccountSetId();
-    if (!id) {
-      return 'default-account-set';
+  // 获取当前账套ID
+  get accountSetId(): string {
+    return this._accountSetId;
+  }
+
+  private async getDb(): Promise<any> {
+    // 如果有缓存的实例，直接返回
+    if (this.dbInstance) {
+      return this.dbInstance;
     }
-    return id;
+
+    // 优先使用多账套管理器
+    if (this._accountSetId !== 'default') {
+      let db = accountSetDbManager.getDatabase(this._accountSetId);
+
+      // 如果数据库未打开，尝试打开
+      if (!db) {
+        try {
+          db = await accountSetDbManager.openAccountSetDatabase(this._accountSetId);
+          console.log(`Account set database opened for ${this._accountSetId}`);
+        } catch (error) {
+          console.warn(`Failed to open account set database for ${this._accountSetId}:`, error);
+
+          // 检查是否有文件句柄记录
+          const { fileHandleManager } = await import('./file-handle-manager');
+          const dbInfo = await fileHandleManager.getAccountSetInfo(this._accountSetId);
+
+          if (!dbInfo) {
+            // 没有文件句柄记录，可能是旧数据迁移场景
+            // 检查 sqliteManager 中是否有数据，如果有则使用旧数据库
+            const { sqliteManager } = await import('./sqlite-manager');
+            await sqliteManager.init();
+            const oldDb = sqliteManager.getDatabase();
+
+            if (oldDb) {
+              // 检查旧数据库中是否有数据
+              const result = oldDb.exec(`SELECT COUNT(*) as count FROM vouchers`);
+              const voucherCount = result[0]?.values[0]?.[0] || 0;
+
+              if (voucherCount > 0) {
+                console.log(`Found ${voucherCount} vouchers in legacy database, using sqliteManager for ${this._accountSetId}`);
+                console.warn('Please migrate your data to the new multi-account set system. Use the database location dialog to initialize the account set database.');
+                this.dbInstance = oldDb;
+                return oldDb;
+              }
+            }
+
+            // 如果旧数据库也没有数据，创建新的账套数据库
+            try {
+              const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
+              const accountSetStore = useAccountSetStore.getState();
+              const accountSet = accountSetStore.getAccountSetById(this._accountSetId);
+
+              if (accountSet) {
+                console.log(`Creating new database for account set ${this._accountSetId}`);
+                // 创建新数据库（使用 OPFS 作为默认存储）
+                await accountSetDbManager.createAccountSetDatabase(
+                  this._accountSetId,
+                  accountSet.name,
+                  'opfs' // 默认使用 OPFS
+                );
+                // 再次打开
+                db = await accountSetDbManager.openAccountSetDatabase(this._accountSetId);
+                console.log(`Account set database created and opened for ${this._accountSetId}`);
+              } else {
+                throw new Error(`Account set ${this._accountSetId} not found`);
+              }
+            } catch (createError) {
+              console.error(`Failed to create account set database for ${this._accountSetId}:`, createError);
+              // 最后的降级方案：使用全局 sqliteManager
+              const { sqliteManager } = await import('./sqlite-manager');
+              await sqliteManager.init();
+              db = sqliteManager.getDatabase();
+            }
+          } else {
+            // 有文件句柄但无法打开，可能是文件损坏
+            console.error('Database file exists but cannot be opened. It may be corrupted.');
+            const { sqliteManager } = await import('./sqlite-manager');
+            await sqliteManager.init();
+            db = sqliteManager.getDatabase();
+          }
+        }
+      }
+
+      this.dbInstance = db;
+      return db;
+    }
+
+    // 降级到全局 sqliteManager（默认账套或未设置账套时）
+    const { sqliteManager } = await import('./sqlite-manager');
+    await sqliteManager.init();
+    const db = sqliteManager.getDatabase();
+    this.dbInstance = db;
+    return db;
   }
 
-  // Helper to execute a query and return results
-  private querySingle<T>(sql: string, params: any[] = []): T | null {
-    const stmt = this.db.prepare(sql);
+  // 确保数据库已初始化的辅助方法
+  private async ensureInitialized(): Promise<void> {
+    if (!this.dbInstance) {
+      await this.getDb();
+    }
+    if (!this.dbInstance) {
+      throw new Error('Failed to initialize SQLite database');
+    }
+  }
+
+  // Helper to execute a query and return results (async version)
+  private async querySingleAsync<T>(sql: string, params: any[] = []): Promise<T | null> {
+    await this.ensureInitialized();
+
+    // 确保所有参数都不是 undefined 或 null
+    const safeParams = params.map(param =>
+      param === undefined || param === null ? '' : param
+    );
+
+    const stmt = this.dbInstance.prepare(sql);
     try {
-      const result = stmt.getAsObject(params);
-      return result as T;
+      stmt.bind(safeParams);
+      if (stmt.step()) {
+        const result = stmt.getAsObject();
+        return result as T;
+      }
+      return null;
     } finally {
       stmt.free();
     }
   }
 
-  // Helper to execute a query and return multiple results
-  private queryAll<T>(sql: string, params: any[] = []): T[] {
-    const stmt = this.db.prepare(sql);
+  // Helper to execute a query and return results (sync version for backward compatibility - not recommended)
+  private querySingle<T>(sql: string, params: any[] = []): T | null {
+    if (!this.dbInstance) {
+      console.error('Database not initialized - use async methods instead');
+      return null;
+    }
+
+    // 确保所有参数都不是 undefined 或 null
+    const safeParams = params.map(param =>
+      param === undefined || param === null ? '' : param
+    );
+
+    const stmt = this.dbInstance.prepare(sql);
+    try {
+      stmt.bind(safeParams);
+      if (stmt.step()) {
+        const result = stmt.getAsObject();
+        return result as T;
+      }
+      return null;
+    } finally {
+      stmt.free();
+    }
+  }
+
+  // Helper to execute a query and return multiple results (async version)
+  private async queryAllAsync<T>(sql: string, params: any[] = []): Promise<T[]> {
+    await this.ensureInitialized();
+
+    // 确保所有参数都不是 undefined 或 null
+    const safeParams = params.map(param =>
+      param === undefined || param === null ? '' : param
+    );
+
+    const stmt = this.dbInstance.prepare(sql);
     try {
       const results: T[] = [];
-      stmt.bind(params);
+      stmt.bind(safeParams);
+      while (stmt.step()) {
+        results.push(stmt.getAsObject());
+      }
+      return results;
+    } finally {
+      stmt.free();
+    }
+  }
+
+  // Helper to execute a query and return multiple results (sync version for backward compatibility - not recommended)
+  private queryAll<T>(sql: string, params: any[] = []): T[] {
+    if (!this.dbInstance) {
+      console.error('Database not initialized - use async methods instead');
+      return [];
+    }
+
+    // 确保所有参数都不是 undefined 或 null
+    const safeParams = params.map(param =>
+      param === undefined || param === null ? '' : param
+    );
+
+    const stmt = this.dbInstance.prepare(sql);
+    try {
+      const results: T[] = [];
+      stmt.bind(safeParams);
       while (stmt.step()) {
         results.push(stmt.getAsObject());
       }
@@ -79,13 +250,14 @@ class SQLiteService {
 
   async saveVoucher(voucher: Voucher): Promise<void> {
     try {
+      await this.ensureInitialized();
       // Save voucher
       const voucherWithAccountSet = {
         ...voucher,
         accountSetId: this.accountSetId
       };
 
-      const stmt = this.db.prepare(`
+      const stmt = this.dbInstance.prepare(`
         INSERT OR REPLACE INTO vouchers (
           id, voucherNo, date, status, summary, creator, reviewer, poster,
           reverseVoucherId, referenceNumber, attachmentCount, accountSetId,
@@ -93,25 +265,25 @@ class SQLiteService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run([
-        voucherWithAccountSet.id,
-        voucherWithAccountSet.voucherNo,
-        voucherWithAccountSet.date,
-        voucherWithAccountSet.status,
-        voucherWithAccountSet.summary,
-        (voucherWithAccountSet as any).creator || (voucherWithAccountSet as any).createdBy,
-        (voucherWithAccountSet as any).reviewer,
-        (voucherWithAccountSet as any).poster,
-        (voucherWithAccountSet as any).reverseVoucherId,
-        (voucherWithAccountSet as any).referenceNumber,
+        voucherWithAccountSet.id || '',
+        voucherWithAccountSet.voucherNo || '',
+        voucherWithAccountSet.date || new Date().toISOString().split('T')[0],
+        voucherWithAccountSet.status || 'draft',
+        voucherWithAccountSet.summary || '',
+        (voucherWithAccountSet as any).creator || (voucherWithAccountSet as any).createdBy || 'user',
+        (voucherWithAccountSet as any).reviewer || '',
+        (voucherWithAccountSet as any).poster || '',
+        (voucherWithAccountSet as any).reverseVoucherId || '',
+        (voucherWithAccountSet as any).referenceNumber || '',
         (voucherWithAccountSet as any).attachmentCount || 0,
-        voucherWithAccountSet.accountSetId,
-        (voucherWithAccountSet as any).createdAt || new Date().toISOString(),
-        (voucherWithAccountSet as any).updatedAt || new Date().toISOString()
+        voucherWithAccountSet.accountSetId || '',
+        (voucherWithAccountSet as any).createTime || new Date().toISOString(),
+        (voucherWithAccountSet as any).updateTime || new Date().toISOString()
       ]);
       stmt.free();
 
       // Delete existing entries for this voucher
-      const deleteStmt = this.db.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
+      const deleteStmt = this.dbInstance.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
       deleteStmt.run([voucher.id, this.accountSetId]);
       deleteStmt.free();
 
@@ -123,7 +295,7 @@ class SQLiteService {
           voucherId: voucher.id
         } as any;
 
-        const entryStmt = this.db.prepare(`
+        const entryStmt = this.dbInstance.prepare(`
           INSERT INTO entries (
             id, voucherId, subjectCode, subjectName, direction, debit, credit,
             summary, customerName, supplierName, auxiliary, recRefNo,
@@ -135,27 +307,27 @@ class SQLiteService {
         entryStmt.run([
           entryWithAccountSet.id,
           entryWithAccountSet.voucherId,
-          entryWithAccountSet.subjectCode,
-          entryWithAccountSet.subjectName,
+          entryWithAccountSet.subjectCode || '',
+          entryWithAccountSet.subjectName || '',
           entryWithAccountSet.debit > 0 ? 'debit' : 'credit',
-          entryWithAccountSet.debit,
-          entryWithAccountSet.credit,
-          entryWithAccountSet.summary,
-          entryWithAccountSet.customerName,
-          entryWithAccountSet.supplierName,
+          entryWithAccountSet.debit || 0,
+          entryWithAccountSet.credit || 0,
+          entryWithAccountSet.summary || '',
+          entryWithAccountSet.customerName || '',
+          entryWithAccountSet.supplierName || '',
           JSON.stringify(entryWithAccountSet.auxiliary || {}),
-          entryWithAccountSet.recRefNo,
-          entryWithAccountSet.departmentCode || entryWithAccountSet.deptCode,
-          entryWithAccountSet.departmentName,
-          entryWithAccountSet.projectCode,
-          entryWithAccountSet.projectName,
-          entryWithAccountSet.currencyCode,
-          entryWithAccountSet.exchangeRate,
-          entryWithAccountSet.originalAmount,
-          entryWithAccountSet.date,
+          entryWithAccountSet.recRefNo || '',
+          entryWithAccountSet.departmentCode || entryWithAccountSet.deptCode || '',
+          entryWithAccountSet.departmentName || '',
+          entryWithAccountSet.projectCode || '',
+          entryWithAccountSet.projectName || '',
+          entryWithAccountSet.currencyCode || '',
+          entryWithAccountSet.exchangeRate || 0,
+          entryWithAccountSet.originalAmount || 0,
+          entryWithAccountSet.date || new Date().toISOString().split('T')[0],
           entryWithAccountSet.accountSetId,
-          entryWithAccountSet.createTime,
-          entryWithAccountSet.updateTime
+          entryWithAccountSet.createTime || new Date().toISOString(),
+          entryWithAccountSet.updateTime || new Date().toISOString()
         ]);
         entryStmt.free();
       }
@@ -166,7 +338,8 @@ class SQLiteService {
   }
 
   async getVoucher(id: string): Promise<Voucher | undefined> {
-    const voucher = this.querySingle<any>(
+    await this.ensureInitialized();
+    const voucher = await this.querySingleAsync<any>(
       `SELECT * FROM vouchers WHERE id = ? AND accountSetId = ?`,
       [id, this.accountSetId]
     );
@@ -175,87 +348,90 @@ class SQLiteService {
       return undefined;
     }
 
-    const entries = this.queryAll<any>(
+    const entries = await this.queryAllAsync<any>(
       `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
       [id, this.accountSetId]
-    ).map((entry: any) => ({
-      ...entry,
-      auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-    }));
+    );
 
     return {
       ...voucher,
-      entries
+      entries: entries.map((entry: any) => ({
+        ...entry,
+        auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
+      }))
     };
   }
 
   async getAllVouchers(): Promise<Voucher[]> {
-    const vouchers = this.queryAll<any>(
+    await this.ensureInitialized();
+    const vouchers = await this.queryAllAsync<any>(
       `SELECT * FROM vouchers WHERE accountSetId = ? ORDER BY date DESC`,
       [this.accountSetId]
     );
 
     return Promise.all(
       vouchers.map(async (voucher: any) => {
-        const entries = this.queryAll<any>(
+        const entries = await this.queryAllAsync<any>(
           `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
           [voucher.id, this.accountSetId]
-        ).map((entry: any) => ({
-          ...entry,
-          auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-        }));
+        );
 
         return {
           ...voucher,
-          entries
+          entries: entries.map((entry: any) => ({
+            ...entry,
+            auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
+          }))
         };
       })
     );
   }
 
   async getVouchersByDateRange(startDate: string, endDate: string): Promise<Voucher[]> {
-    const vouchers = this.queryAll<any>(
+    await this.ensureInitialized();
+    const vouchers = await this.queryAllAsync<any>(
       `SELECT * FROM vouchers WHERE accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
       [this.accountSetId, startDate, endDate]
     );
 
     return Promise.all(
       vouchers.map(async (voucher: any) => {
-        const entries = this.queryAll<any>(
+        const entries = await this.queryAllAsync<any>(
           `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
           [voucher.id, this.accountSetId]
-        ).map((entry: any) => ({
-          ...entry,
-          auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-        }));
+        );
 
         return {
           ...voucher,
-          entries
+          entries: entries.map((entry: any) => ({
+            ...entry,
+            auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
+          }))
         };
       })
     );
   }
 
   async getVouchersByStatus(status: 'draft' | 'review' | 'posted' | 'reversed'): Promise<Voucher[]> {
-    const vouchers = this.queryAll<any>(
+    await this.ensureInitialized();
+    const vouchers = await this.queryAllAsync<any>(
       `SELECT * FROM vouchers WHERE accountSetId = ? AND status = ? ORDER BY date DESC`,
       [this.accountSetId, status]
     );
 
     return Promise.all(
       vouchers.map(async (voucher: any) => {
-        const entries = this.queryAll<any>(
+        const entries = await this.queryAllAsync<any>(
           `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
           [voucher.id, this.accountSetId]
-        ).map((entry: any) => ({
-          ...entry,
-          auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-        }));
+        );
 
         return {
           ...voucher,
-          entries
+          entries: entries.map((entry: any) => ({
+            ...entry,
+            auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
+          }))
         };
       })
     );
@@ -263,13 +439,14 @@ class SQLiteService {
 
   async deleteVoucher(id: string): Promise<void> {
     try {
+      await this.ensureInitialized();
       // Delete entries first
-      const deleteEntriesStmt = this.db.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
+      const deleteEntriesStmt = this.dbInstance.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
       deleteEntriesStmt.run([id, this.accountSetId]);
       deleteEntriesStmt.free();
 
       // Delete voucher
-      const deleteVoucherStmt = this.db.prepare(`DELETE FROM vouchers WHERE id = ? AND accountSetId = ?`);
+      const deleteVoucherStmt = this.dbInstance.prepare(`DELETE FROM vouchers WHERE id = ? AND accountSetId = ?`);
       deleteVoucherStmt.run([id, this.accountSetId]);
       deleteVoucherStmt.free();
     } catch (error) {
@@ -282,9 +459,11 @@ class SQLiteService {
 
   async saveSubjects(subjects: Subject[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const subject of subjects) {
         const subjectWithAccountSet = { ...subject, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO subjects (
             id, code, name, parentId, level, type, direction, balance,
             enabled, frozen, description, accountSetId, createTime, updateTime
@@ -296,15 +475,17 @@ class SQLiteService {
           subjectWithAccountSet.name,
           subjectWithAccountSet.parentId,
           subjectWithAccountSet.level || 1,
-          subjectWithAccountSet.type,
+          subjectWithAccountSet.subjectType || subjectWithAccountSet.type || '',
           subjectWithAccountSet.direction,
           subjectWithAccountSet.balance || 0,
-          subjectWithAccountSet.enabled !== undefined ? Number(subjectWithAccountSet.enabled) : 1,
-          subjectWithAccountSet.frozen !== undefined ? Number(subjectWithAccountSet.frozen) : 0,
-          subjectWithAccountSet.description,
+          subjectWithAccountSet.disabled !== undefined ? Number(!subjectWithAccountSet.disabled) :
+            (subjectWithAccountSet.enabled !== undefined ? Number(subjectWithAccountSet.enabled) : 1),
+          subjectWithAccountSet.block !== undefined ? Number(subjectWithAccountSet.block) :
+            (subjectWithAccountSet.frozen !== undefined ? Number(subjectWithAccountSet.frozen) : 0),
+          subjectWithAccountSet.description || '',
           subjectWithAccountSet.accountSetId,
-          subjectWithAccountSet.createTime,
-          subjectWithAccountSet.updateTime
+          subjectWithAccountSet.createTime || now,
+          subjectWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -315,14 +496,38 @@ class SQLiteService {
   }
 
   async getAllSubjects(): Promise<Subject[]> {
-    return this.queryAll<Subject>(
+    await this.ensureInitialized();
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM subjects WHERE accountSetId = ? ORDER BY code`,
       [this.accountSetId]
     );
+
+    return results.map(result => ({
+      id: result.id,
+      code: result.code,
+      name: result.name,
+      parentId: result.parentId,
+      level: result.level,
+      direction: result.direction,
+      enableDept: false,
+      enableProject: false,
+      enableForeign: false,
+      isCustomer: false,
+      isSupplier: false,
+      isEmployee: false,
+      enableCashFlow: false,
+      disabled: result.enabled === 0,
+      block: result.frozen === 1,
+      subjectType: result.type,
+      createTime: result.createTime,
+      updateTime: result.updateTime,
+      accountSetId: result.accountSetId
+    }));
   }
 
   async getSubjectByCode(code: string): Promise<Subject | undefined> {
-    return this.querySingle<Subject>(
+    await this.ensureInitialized();
+    return await this.querySingleAsync<Subject>(
       `SELECT * FROM subjects WHERE accountSetId = ? AND code = ?`,
       [this.accountSetId, code]
     );
@@ -332,9 +537,11 @@ class SQLiteService {
 
   async saveDepartments(departments: Department[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const dept of departments) {
         const deptWithAccountSet = { ...dept, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO departments (
             id, code, name, parentId, level, enabled, description,
             accountSetId, createTime, updateTime
@@ -347,10 +554,10 @@ class SQLiteService {
           deptWithAccountSet.parentId,
           deptWithAccountSet.level || 1,
           deptWithAccountSet.enabled !== undefined ? Number(deptWithAccountSet.enabled) : 1,
-          deptWithAccountSet.description,
+          deptWithAccountSet.description || '',
           deptWithAccountSet.accountSetId,
-          deptWithAccountSet.createTime,
-          deptWithAccountSet.updateTime
+          deptWithAccountSet.createTime || now,
+          deptWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -361,14 +568,16 @@ class SQLiteService {
   }
 
   async getAllDepartments(): Promise<Department[]> {
-    return this.queryAll<Department>(
+    await this.ensureInitialized();
+    return await this.queryAllAsync<Department>(
       `SELECT * FROM departments WHERE accountSetId = ? ORDER BY code`,
       [this.accountSetId]
     );
   }
 
   async getDepartmentByCode(code: string): Promise<Department | undefined> {
-    return this.querySingle<Department>(
+    await this.ensureInitialized();
+    return await this.querySingleAsync<Department>(
       `SELECT * FROM departments WHERE accountSetId = ? AND code = ?`,
       [this.accountSetId, code]
     );
@@ -378,9 +587,11 @@ class SQLiteService {
 
   async saveProjects(projects: Project[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const project of projects) {
         const projectWithAccountSet = { ...project, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO projects (
             id, code, name, description, enabled, accountSetId, createTime, updateTime
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -389,11 +600,11 @@ class SQLiteService {
           projectWithAccountSet.id,
           projectWithAccountSet.code,
           projectWithAccountSet.name,
-          projectWithAccountSet.description,
-          projectWithAccountSet.enabled !== undefined ? Number(projectWithAccountSet.enabled) : 1,
+          projectWithAccountSet.description || '',
+          projectWithAccountSet.frozen !== undefined ? Number(!projectWithAccountSet.frozen) : 1,
           projectWithAccountSet.accountSetId,
-          projectWithAccountSet.createTime,
-          projectWithAccountSet.updateTime
+          projectWithAccountSet.createTime || now,
+          projectWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -404,14 +615,32 @@ class SQLiteService {
   }
 
   async getAllProjects(): Promise<Project[]> {
-    return this.queryAll<Project>(
+    await this.ensureInitialized();
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM projects WHERE accountSetId = ? ORDER BY code`,
       [this.accountSetId]
     );
+
+    return results.map(result => ({
+      id: result.id,
+      code: result.code,
+      name: result.name,
+      description: result.description,
+      type: 'income' as Project['type'], // Default value
+      parentId: null, // Default value
+      level: 1, // Default value
+      startDate: '', // Default value
+      endDate: '', // Default value
+      frozen: result.enabled === 0, // Map enabled to frozen
+      createTime: result.createTime,
+      updateTime: result.updateTime,
+      accountSetId: result.accountSetId
+    }));
   }
 
   async getProjectByCode(code: string): Promise<Project | undefined> {
-    return this.querySingle<Project>(
+    await this.ensureInitialized();
+    return await this.querySingleAsync<Project>(
       `SELECT * FROM projects WHERE accountSetId = ? AND code = ?`,
       [this.accountSetId, code]
     );
@@ -421,9 +650,11 @@ class SQLiteService {
 
   async saveCurrencies(currencies: Currency[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const currency of currencies) {
         const currencyWithAccountSet = { ...currency, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO currencies (
             id, code, name, symbol, exchangeRate, enabled, accountSetId, createTime, updateTime
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -436,8 +667,8 @@ class SQLiteService {
           currencyWithAccountSet.exchangeRate || 1.0,
           currencyWithAccountSet.enabled !== undefined ? Number(currencyWithAccountSet.enabled) : 1,
           currencyWithAccountSet.accountSetId,
-          currencyWithAccountSet.createTime,
-          currencyWithAccountSet.updateTime
+          currencyWithAccountSet.createTime || now,
+          currencyWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -448,14 +679,16 @@ class SQLiteService {
   }
 
   async getAllCurrencies(): Promise<Currency[]> {
-    return this.queryAll<Currency>(
+    await this.ensureInitialized();
+    return await this.queryAllAsync<Currency>(
       `SELECT * FROM currencies WHERE accountSetId = ? ORDER BY code`,
       [this.accountSetId]
     );
   }
 
   async getCurrencyByCode(code: string): Promise<Currency | undefined> {
-    return this.querySingle<Currency>(
+    await this.ensureInitialized();
+    return await this.querySingleAsync<Currency>(
       `SELECT * FROM currencies WHERE accountSetId = ? AND code = ?`,
       [this.accountSetId, code]
     );
@@ -465,9 +698,24 @@ class SQLiteService {
 
   async savePartners(partners: Partner[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const partner of partners) {
         const partnerWithAccountSet = { ...partner, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+
+        // Convert booleans to type string for DB
+        let typeValue = 'other';
+        if (partnerWithAccountSet.isCustomer && !partnerWithAccountSet.isSupplier && !partnerWithAccountSet.isEmployee) {
+          typeValue = 'customer';
+        } else if (!partnerWithAccountSet.isCustomer && partnerWithAccountSet.isSupplier && !partnerWithAccountSet.isEmployee) {
+          typeValue = 'supplier';
+        } else if (!partnerWithAccountSet.isCustomer && !partnerWithAccountSet.isSupplier && partnerWithAccountSet.isEmployee) {
+          typeValue = 'employee';
+        } else if (partnerWithAccountSet.isCustomer && partnerWithAccountSet.isSupplier) {
+          typeValue = 'both';
+        }
+
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO partners (
             id, code, name, type, contact, phone, email, address, taxNo,
             bankAccount, enabled, accountSetId, createTime, updateTime
@@ -477,17 +725,17 @@ class SQLiteService {
           partnerWithAccountSet.id,
           partnerWithAccountSet.code,
           partnerWithAccountSet.name,
-          partnerWithAccountSet.type || 'customer',
-          partnerWithAccountSet.contact,
-          partnerWithAccountSet.phone,
-          partnerWithAccountSet.email,
-          partnerWithAccountSet.address,
-          partnerWithAccountSet.taxNo,
-          partnerWithAccountSet.bankAccount,
-          partnerWithAccountSet.enabled !== undefined ? Number(partnerWithAccountSet.enabled) : 1,
+          typeValue,
+          partnerWithAccountSet.contact || '',
+          partnerWithAccountSet.phone || '',
+          partnerWithAccountSet.email || '',
+          partnerWithAccountSet.address || '',
+          partnerWithAccountSet.taxNumber || partnerWithAccountSet.taxNo || '',
+          partnerWithAccountSet.bankAccount || '',
+          partnerWithAccountSet.frozen !== undefined ? Number(!partnerWithAccountSet.frozen) : 1,
           partnerWithAccountSet.accountSetId,
-          partnerWithAccountSet.createTime,
-          partnerWithAccountSet.updateTime
+          partnerWithAccountSet.createTime || now,
+          partnerWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -498,14 +746,42 @@ class SQLiteService {
   }
 
   async getAllPartners(): Promise<Partner[]> {
-    return this.queryAll<Partner>(
+    await this.ensureInitialized();
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM partners WHERE accountSetId = ? ORDER BY code`,
       [this.accountSetId]
     );
+
+    return results.map(result => {
+      // Convert type string to booleans for Type
+      const isCustomer = result.type === 'customer' || result.type === 'both';
+      const isSupplier = result.type === 'supplier' || result.type === 'both';
+      const isEmployee = result.type === 'employee';
+
+      return {
+        id: result.id,
+        code: result.code,
+        name: result.name,
+        isCustomer,
+        isSupplier,
+        isEmployee,
+        contact: result.contact,
+        phone: result.phone,
+        email: result.email,
+        address: result.address,
+        taxNumber: result.taxNo,
+        bankAccount: result.bankAccount,
+        frozen: result.enabled === 0,
+        createTime: result.createTime,
+        updateTime: result.updateTime,
+        accountSetId: result.accountSetId
+      };
+    });
   }
 
   async getPartnerByCode(code: string): Promise<Partner | undefined> {
-    return this.querySingle<Partner>(
+    await this.ensureInitialized();
+    return await this.querySingleAsync<Partner>(
       `SELECT * FROM partners WHERE accountSetId = ? AND code = ?`,
       [this.accountSetId, code]
     );
@@ -515,26 +791,27 @@ class SQLiteService {
 
   async saveVoucherTemplates(templates: VoucherTemplate[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const template of templates) {
         const templateWithAccountSet = { ...template, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO voucherTemplates (
-            id, name, type, description, entries, validations, variables,
+            id, name, description, entries, validations, variables,
             isSystem, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run([
           templateWithAccountSet.id,
           templateWithAccountSet.name,
-          templateWithAccountSet.type,
-          templateWithAccountSet.description,
+          templateWithAccountSet.description || '',
           JSON.stringify(templateWithAccountSet.entries || []),
           JSON.stringify(templateWithAccountSet.validations || []),
           JSON.stringify(templateWithAccountSet.variables || []),
           templateWithAccountSet.isSystem !== undefined ? Number(templateWithAccountSet.isSystem) : 0,
           templateWithAccountSet.accountSetId,
-          templateWithAccountSet.createTime,
-          templateWithAccountSet.updateTime
+          templateWithAccountSet.createTime || now,
+          templateWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -545,7 +822,8 @@ class SQLiteService {
   }
 
   async getAllVoucherTemplates(): Promise<VoucherTemplate[]> {
-    const templates = this.queryAll<any>(
+    await this.ensureInitialized();
+    const templates = await this.queryAllAsync<any>(
       `SELECT * FROM voucherTemplates WHERE accountSetId = ?`,
       [this.accountSetId]
     );
@@ -559,7 +837,8 @@ class SQLiteService {
   }
 
   async getVoucherTemplateById(id: string): Promise<VoucherTemplate | undefined> {
-    const template = this.querySingle<any>(
+    await this.ensureInitialized();
+    const template = await this.querySingleAsync<any>(
       `SELECT * FROM voucherTemplates WHERE id = ? AND accountSetId = ?`,
       [id, this.accountSetId]
     );
@@ -577,20 +856,22 @@ class SQLiteService {
 
   async saveCommonSummaries(summaries: CommonSummary[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const summary of summaries) {
         const summaryWithAccountSet = { ...summary, accountSetId: this.accountSetId } as any;
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO commonSummaries (
             id, content, frequency, accountSetId, createTime, updateTime
           ) VALUES (?, ?, ?, ?, ?, ?)
         `);
         stmt.run([
           summaryWithAccountSet.id,
-          summaryWithAccountSet.content,
-          summaryWithAccountSet.frequency || 0,
+          summaryWithAccountSet.text || summaryWithAccountSet.content || '',
+          summaryWithAccountSet.sortOrder || summaryWithAccountSet.frequency || 0,
           summaryWithAccountSet.accountSetId,
-          summaryWithAccountSet.createTime,
-          summaryWithAccountSet.updateTime
+          summaryWithAccountSet.createTime || now,
+          summaryWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -601,18 +882,30 @@ class SQLiteService {
   }
 
   async getAllCommonSummaries(): Promise<CommonSummary[]> {
-    return this.queryAll<CommonSummary>(
+    await this.ensureInitialized();
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM commonSummaries WHERE accountSetId = ? ORDER BY frequency DESC`,
       [this.accountSetId]
     );
+
+    return results.map(result => ({
+      id: result.id,
+      text: result.content, // Map DB content to type text
+      sortOrder: result.frequency, // Map DB frequency to type sortOrder
+      createTime: result.createTime,
+      updateTime: result.updateTime,
+      accountSetId: result.accountSetId
+    }));
   }
 
   // ========== 用户偏好操作 ==========
 
   async savePreference(preference: UserPreference): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       const prefWithAccountSet = { ...preference, accountSetId: this.accountSetId } as any;
-      const stmt = this.db.prepare(`
+      const stmt = this.dbInstance.prepare(`
         INSERT OR REPLACE INTO userPreferences (
           id, userId, type, key, value, accountSetId, createTime, updateTime
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -624,8 +917,8 @@ class SQLiteService {
         prefWithAccountSet.key,
         JSON.stringify(prefWithAccountSet.value),
         prefWithAccountSet.accountSetId,
-        prefWithAccountSet.createTime,
-        prefWithAccountSet.updateTime
+        prefWithAccountSet.createTime || now,
+        prefWithAccountSet.updateTime || now
       ]);
       stmt.free();
     } catch (error) {
@@ -635,7 +928,8 @@ class SQLiteService {
   }
 
   async getPreferencesByUser(userId: string): Promise<UserPreference[]> {
-    const prefs = this.queryAll<any>(
+    await this.ensureInitialized();
+    const prefs = await this.queryAllAsync<any>(
       `SELECT * FROM userPreferences WHERE accountSetId = ? AND userId = ?`,
       [this.accountSetId, userId]
     );
@@ -649,8 +943,9 @@ class SQLiteService {
 
   async addAuditLog(log: AuditLog): Promise<void> {
     try {
+      await this.ensureInitialized();
       const logWithAccountSet = { ...log, accountSetId: this.accountSetId };
-      const stmt = this.db.prepare(`
+      const stmt = this.dbInstance.prepare(`
         INSERT INTO auditLogs (
           id, type, entityType, entityId, details, userId, timestamp, accountSetId
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -673,7 +968,8 @@ class SQLiteService {
   }
 
   async getAuditLogs(limit = 100): Promise<AuditLog[]> {
-    const logs = this.queryAll<any>(
+    await this.ensureInitialized();
+    const logs = await this.queryAllAsync<any>(
       `SELECT * FROM auditLogs WHERE accountSetId = ? ORDER BY timestamp DESC LIMIT ?`,
       [this.accountSetId, limit]
     );
@@ -686,11 +982,76 @@ class SQLiteService {
   // ========== 数据导出/导入 ==========
 
   async exportData() {
-    return sqliteManager.exportData();
+    await this.ensureInitialized();
+    const db = this.dbInstance;
+    const data: any = {};
+
+    // 导出 vouchers
+    const vouchers = await this.queryAllAsync<any>(`SELECT * FROM vouchers WHERE accountSetId = ?`, [this._accountSetId]);
+    data.vouchers = vouchers;
+
+    // 导出 entries
+    const entries = await this.queryAllAsync<any>(`SELECT * FROM entries WHERE accountSetId = ?`, [this._accountSetId]);
+    data.entries = entries;
+
+    // 导出其他表
+    data.subjects = await this.queryAllAsync<any>(`SELECT * FROM subjects WHERE accountSetId = ?`, [this._accountSetId]);
+    data.departments = await this.queryAllAsync<any>(`SELECT * FROM departments WHERE accountSetId = ?`, [this._accountSetId]);
+    data.projects = await this.queryAllAsync<any>(`SELECT * FROM projects WHERE accountSetId = ?`, [this._accountSetId]);
+    data.currencies = await this.queryAllAsync<any>(`SELECT * FROM currencies WHERE accountSetId = ?`, [this._accountSetId]);
+    data.partners = await this.queryAllAsync<any>(`SELECT * FROM partners WHERE accountSetId = ?`, [this._accountSetId]);
+    data.voucherTemplates = await this.queryAllAsync<any>(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [this._accountSetId]);
+    data.commonSummaries = await this.queryAllAsync<any>(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [this._accountSetId]);
+    data.userPreferences = await this.queryAllAsync<any>(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [this._accountSetId]);
+    data.auditLogs = await this.queryAllAsync<any>(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [this._accountSetId]);
+    data.recRelations = await this.queryAllAsync<any>(`SELECT * FROM recRelations WHERE accountSetId = ?`, [this._accountSetId]);
+
+    return data;
   }
 
   async importData(data: any) {
-    return sqliteManager.importData(data);
+    await this.ensureInitialized();
+    const db = this.dbInstance;
+
+    // 清空当前账套的旧数据
+    await this.clearAllData();
+
+    // 导入 vouchers
+    if (data.vouchers && Array.isArray(data.vouchers)) {
+      for (const voucher of data.vouchers) {
+        if (voucher.accountSetId === this._accountSetId) {
+          await this.saveVoucher(voucher);
+        }
+      }
+    }
+
+    // 导入其他表数据
+    if (data.subjects && Array.isArray(data.subjects)) {
+      await this.saveSubjects(data.subjects.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.departments && Array.isArray(data.departments)) {
+      await this.saveDepartments(data.departments.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.projects && Array.isArray(data.projects)) {
+      await this.saveProjects(data.projects.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.currencies && Array.isArray(data.currencies)) {
+      await this.saveCurrencies(data.currencies.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.partners && Array.isArray(data.partners)) {
+      await this.savePartners(data.partners.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.voucherTemplates && Array.isArray(data.voucherTemplates)) {
+      await this.saveVoucherTemplates(data.voucherTemplates.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.commonSummaries && Array.isArray(data.commonSummaries)) {
+      await this.saveCommonSummaries(data.commonSummaries.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.recRelations && Array.isArray(data.recRelations)) {
+      await this.saveRecRelations(data.recRelations.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+
+    console.log('Data imported successfully for account set:', this._accountSetId);
   }
 
   // ========== 数据同步与恢复 ==========
@@ -747,9 +1108,11 @@ class SQLiteService {
 
   async saveRecRelations(relations: any[]): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       for (const relation of relations) {
         const relationWithAccountSet = { ...relation, accountSetId: this.accountSetId };
-        const stmt = this.db.prepare(`
+        const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO recRelations (
             id, recRefNo, debitEntryId, creditEntryId, amount, recDate,
             partnerName, accountSetId, createTime, updateTime
@@ -757,15 +1120,15 @@ class SQLiteService {
         `);
         stmt.run([
           relationWithAccountSet.id,
-          relationWithAccountSet.recRefNo,
+          relationWithAccountSet.recRefNo || '',
           relationWithAccountSet.debitEntryId,
           relationWithAccountSet.creditEntryId,
-          relationWithAccountSet.amount,
-          relationWithAccountSet.recDate,
-          relationWithAccountSet.partnerName,
+          relationWithAccountSet.amount || 0,
+          relationWithAccountSet.recDate || new Date().toISOString().split('T')[0],
+          relationWithAccountSet.partnerName || '',
           relationWithAccountSet.accountSetId,
-          relationWithAccountSet.createTime,
-          relationWithAccountSet.updateTime
+          relationWithAccountSet.createTime || now,
+          relationWithAccountSet.updateTime || now
         ]);
         stmt.free();
       }
@@ -777,8 +1140,10 @@ class SQLiteService {
 
   async saveRecRelation(relation: any): Promise<void> {
     try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
       const relationWithAccountSet = { ...relation, accountSetId: this.accountSetId };
-      const stmt = this.db.prepare(`
+      const stmt = this.dbInstance.prepare(`
         INSERT OR REPLACE INTO recRelations (
           id, recRefNo, debitEntryId, creditEntryId, amount, recDate,
           partnerName, accountSetId, createTime, updateTime
@@ -786,15 +1151,15 @@ class SQLiteService {
       `);
       stmt.run([
         relationWithAccountSet.id,
-        relationWithAccountSet.recRefNo,
+        relationWithAccountSet.recRefNo || '',
         relationWithAccountSet.debitEntryId,
         relationWithAccountSet.creditEntryId,
-        relationWithAccountSet.amount,
-        relationWithAccountSet.recDate,
-        relationWithAccountSet.partnerName,
+        relationWithAccountSet.amount || 0,
+        relationWithAccountSet.recDate || new Date().toISOString().split('T')[0],
+        relationWithAccountSet.partnerName || '',
         relationWithAccountSet.accountSetId,
-        relationWithAccountSet.createTime,
-        relationWithAccountSet.updateTime
+        relationWithAccountSet.createTime || now,
+        relationWithAccountSet.updateTime || now
       ]);
       stmt.free();
     } catch (error) {
@@ -804,7 +1169,8 @@ class SQLiteService {
   }
 
   async getRecRelations(): Promise<any[]> {
-    return this.queryAll<any>(
+    await this.ensureInitialized();
+    return await this.queryAllAsync<any>(
       `SELECT * FROM recRelations WHERE accountSetId = ?`,
       [this.accountSetId]
     );
@@ -812,7 +1178,8 @@ class SQLiteService {
 
   async updateEntryRecRefNo(entryId: string, recRefNo: string): Promise<void> {
     try {
-      const stmt = this.db.prepare(
+      await this.ensureInitialized();
+      const stmt = this.dbInstance.prepare(
         `UPDATE entries SET recRefNo = ? WHERE id = ? AND accountSetId = ?`
       );
       stmt.run([recRefNo, entryId, this.accountSetId]);
@@ -824,18 +1191,20 @@ class SQLiteService {
   }
 
   async getRecRelationsByRecRefNo(recRefNo: string): Promise<any[]> {
-    return this.queryAll<any>(
+    await this.ensureInitialized();
+    return await this.queryAllAsync<any>(
       `SELECT * FROM recRelations WHERE recRefNo = ? AND accountSetId = ?`,
       [recRefNo, this.accountSetId]
     );
   }
 
   async getRecRelationsByEntryId(entryId: string): Promise<any[]> {
-    const debitRelations = this.queryAll<any>(
+    await this.ensureInitialized();
+    const debitRelations = await this.queryAllAsync<any>(
       `SELECT * FROM recRelations WHERE debitEntryId = ? AND accountSetId = ?`,
       [entryId, this.accountSetId]
     );
-    const creditRelations = this.queryAll<any>(
+    const creditRelations = await this.queryAllAsync<any>(
       `SELECT * FROM recRelations WHERE creditEntryId = ? AND accountSetId = ?`,
       [entryId, this.accountSetId]
     );
@@ -849,7 +1218,8 @@ class SQLiteService {
       return [];
     }
 
-    const allEntries = this.queryAll<any>(
+    await this.ensureInitialized();
+    const allEntries = await this.queryAllAsync<any>(
       `SELECT * FROM entries WHERE accountSetId = ?`,
       [this.accountSetId]
     );
@@ -930,6 +1300,7 @@ class SQLiteService {
   }
 
   async calculatePartnerBalance(partnerName: string): Promise<number> {
+    await this.ensureInitialized();
     const outstandingItems = await this.getOutstandingItems({
       partnerName,
       subjectCode: '',
@@ -952,19 +1323,20 @@ class SQLiteService {
   // ========== 数据完整性检查 ==========
 
   async checkDataIntegrity() {
+    await this.ensureInitialized();
     const counts: any = {};
-    counts.vouchers = this.queryAll<any>(`SELECT * FROM vouchers WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.entries = this.queryAll<any>(`SELECT * FROM entries WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.subjects = this.queryAll<any>(`SELECT * FROM subjects WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.departments = this.queryAll<any>(`SELECT * FROM departments WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.projects = this.queryAll<any>(`SELECT * FROM projects WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.currencies = this.queryAll<any>(`SELECT * FROM currencies WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.partners = this.queryAll<any>(`SELECT * FROM partners WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.voucherTemplates = this.queryAll<any>(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.commonSummaries = this.queryAll<any>(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.userPreferences = this.queryAll<any>(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.auditLogs = this.queryAll<any>(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [this.accountSetId]).length;
-    counts.recRelations = this.queryAll<any>(`SELECT * FROM recRelations WHERE accountSetId = ?`, [this.accountSetId]).length;
+    counts.vouchers = (await this.queryAllAsync<any>(`SELECT * FROM vouchers WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.entries = (await this.queryAllAsync<any>(`SELECT * FROM entries WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.subjects = (await this.queryAllAsync<any>(`SELECT * FROM subjects WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.departments = (await this.queryAllAsync<any>(`SELECT * FROM departments WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.projects = (await this.queryAllAsync<any>(`SELECT * FROM projects WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.currencies = (await this.queryAllAsync<any>(`SELECT * FROM currencies WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.partners = (await this.queryAllAsync<any>(`SELECT * FROM partners WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.voucherTemplates = (await this.queryAllAsync<any>(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.commonSummaries = (await this.queryAllAsync<any>(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.userPreferences = (await this.queryAllAsync<any>(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.auditLogs = (await this.queryAllAsync<any>(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [this.accountSetId])).length;
+    counts.recRelations = (await this.queryAllAsync<any>(`SELECT * FROM recRelations WHERE accountSetId = ?`, [this.accountSetId])).length;
 
     console.log('Data integrity check:', counts);
     return counts;
@@ -974,12 +1346,13 @@ class SQLiteService {
 
   async clearAllData() {
     try {
+      await this.ensureInitialized();
       // Clear vouchers and entries
-      const deleteEntriesStmt = this.db.prepare(`DELETE FROM entries WHERE accountSetId = ?`);
+      const deleteEntriesStmt = this.dbInstance.prepare(`DELETE FROM entries WHERE accountSetId = ?`);
       deleteEntriesStmt.run([this.accountSetId]);
       deleteEntriesStmt.free();
 
-      const deleteVouchersStmt = this.db.prepare(`DELETE FROM vouchers WHERE accountSetId = ?`);
+      const deleteVouchersStmt = this.dbInstance.prepare(`DELETE FROM vouchers WHERE accountSetId = ?`);
       deleteVouchersStmt.run([this.accountSetId]);
       deleteVouchersStmt.free();
 
@@ -989,7 +1362,7 @@ class SQLiteService {
                      'auditLogs', 'recRelations'];
 
       for (const table of tables) {
-        const stmt = this.db.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
+        const stmt = this.dbInstance.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
         stmt.run([this.accountSetId]);
         stmt.free();
       }

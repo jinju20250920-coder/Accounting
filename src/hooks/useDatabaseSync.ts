@@ -31,14 +31,35 @@ export function useDatabaseSync() {
         const manager = getCurrentManager();
         await manager.init();
 
-        // 2. 设置当前账套
+        // 2. 设置当前账套并打开其数据库
         const accountSetStore = useAccountSetStore.getState();
         const currentAccountSet = accountSetStore.getCurrentAccountSet();
         if (currentAccountSet) {
           manager.setCurrentAccountSet(currentAccountSet.id);
+
+          // 对于 SQLite，需要打开账套数据库
+          const { accountSetDbManager } = await import('@/lib/database/account-set-db-manager');
+          const { fileHandleManager } = await import('@/lib/database/file-handle-manager');
+
+          try {
+            await accountSetDbManager.openAccountSetDatabase(currentAccountSet.id);
+            console.log('Account set database opened:', currentAccountSet.id);
+          } catch (error) {
+            console.warn('Failed to open account set database:', error);
+            // 数据库可能不存在，检查是否需要创建
+            const dbInfo = await fileHandleManager.getAccountSetInfo(currentAccountSet.id);
+            if (!dbInfo) {
+              console.log('Account set database does not exist, will be created on first save');
+            }
+          }
+
+          // 重要：同时更新 sqliteService 的账套ID
+          const { sqliteService } = await import('@/lib/database/sqlite-service');
+          sqliteService.setAccountSetId(currentAccountSet.id);
+          console.log('Database sync: Set account set ID to', currentAccountSet.id);
         }
 
-        // 3. 从 IndexedDB 加载数据到各个 store（使用 getState 避免订阅）
+        // 3. 从 SQLite 加载数据到各个 store（使用 getState 避免订阅）
         await Promise.all([
           useSubjectStore.getState().initializeSubjects(),
           useDepartmentStore.getState().initializeDepartments(),
