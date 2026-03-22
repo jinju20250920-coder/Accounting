@@ -277,6 +277,17 @@ export function VoucherHeader() {
     const results: ImportResult[] = []
 
     try {
+      // 确保使用正确的账套ID - 在导入前设置
+      const { useAccountSetStore } = await import('@/stores/useAccountSetStore')
+      const { sqliteService } = await import('@/lib/database/sqlite-service')
+      const accountSetStore = useAccountSetStore.getState()
+      const currentAccountSet = accountSetStore.getCurrentAccountSet()
+
+      if (currentAccountSet) {
+        sqliteService.setAccountSetId(currentAccountSet.id)
+        console.log('[Import] 设置 accountSetId 为:', currentAccountSet.id)
+      }
+
       for (const voucherData of importPreview) {
         const result: ImportResult = {
           voucherNo: voucherData.voucherNo,

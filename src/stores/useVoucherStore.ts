@@ -216,6 +216,17 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   initialize: async () => {
     set({ isLoading: true });
     try {
+      // 确保使用正确的账套ID
+      const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      if (currentAccountSet) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+        console.log('[VoucherStore.initialize] 设置 accountSetId 为:', currentAccountSet.id);
+      }
+
       // 初始化数据库
       await getCurrentManager().init();
       const vouchers = await getCurrentService().getAllVouchers();

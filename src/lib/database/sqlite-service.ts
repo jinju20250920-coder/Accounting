@@ -353,11 +353,14 @@ class SQLiteService {
   async saveVoucher(voucher: Voucher): Promise<void> {
     try {
       await this.ensureInitialized();
+      console.log('[saveVoucher] 当前 accountSetId:', this.accountSetId);
       // Save voucher
       const voucherWithAccountSet = {
         ...voucher,
         accountSetId: this.accountSetId
       };
+
+      console.log('[saveVoucher] 保存凭证:', voucher.voucherNo, 'accountSetId:', voucherWithAccountSet.accountSetId);
 
       const stmt = this.dbInstance.prepare(`
         INSERT OR REPLACE INTO vouchers (
@@ -483,7 +486,7 @@ class SQLiteService {
       [this.accountSetId]
     );
 
-    console.log('[getAllVouchers] 从数据库读取到', vouchers.length, '张凭证');
+    console.log('[getAllVouchers] accountSetId:', this.accountSetId, '从数据库读取到', vouchers.length, '张凭证');
 
     return Promise.all(
       vouchers.map(async (voucher: any) => {
@@ -492,7 +495,10 @@ class SQLiteService {
           [voucher.id, this.accountSetId]
         );
 
-        console.log('[getAllVouchers] 凭证', voucher.voucherNo, '有', entries.length, '条分录');
+        console.log('[getAllVouchers] 凭证', voucher.voucherNo, 'id:', voucher.id, '有', entries.length, '条分录');
+        if (entries.length > 0) {
+          console.log('[getAllVouchers] 第一条分录:', entries[0]);
+        }
 
         return {
           ...voucher,
