@@ -409,9 +409,6 @@ export function VoucherHeader() {
       // 清空预览数据
       setImportPreview([])
       setImportFile(null)
-
-      // 创建新凭证准备继续录入
-      createVoucher()
     } catch (error) {
       showToast('error', error instanceof Error ? error.message : "未知错误")
     } finally {
