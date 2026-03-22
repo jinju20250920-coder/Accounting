@@ -236,12 +236,13 @@ export default function VoucherListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'all' | 'subject'>('all'); // 搜索模式：全部或科目
   // 从 URL 参数获取初始状态，如果URL有status参数则使用该参数
+  // 默认显示草稿状态，因为导入的凭证是草稿状态
   const [selectedStatus, setSelectedStatus] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      return params.get('status') || 'posted_reversed';
+      return params.get('status') || 'draft';
     }
-    return 'posted_reversed';
+    return 'draft';
   });
   const [selectedType, setSelectedType] = useState<string>('all');
   const [startMonth, setStartMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
@@ -262,13 +263,13 @@ export default function VoucherListPage() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const statusParam = params.get('status');
-      if (statusParam) {
+      if (statusParam && statusParam !== selectedStatus) {
         setSelectedStatus(statusParam);
         // 清除 URL 参数，避免影响后续操作
         window.history.replaceState({}, '', '/voucher-list');
       }
     }
-  }, []);
+  }); // 依赖 selectedStatus，确保状态同步
 
   const handleEndMonthChange = (value: string) => {
     setEndMonth(value);
