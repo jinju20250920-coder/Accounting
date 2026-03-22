@@ -124,6 +124,10 @@ export const useClearingStore = create<ClearingStore>((set, get) => ({
 
       console.log('科目分组:', Array.from(subjectGroups.entries()));
 
+      // 判断是应收还是应付（通过第一个分录的科目判断）
+      const firstEntry = entries.find(e => e.id === entryIds[0]);
+      const isAccountsReceivable = firstEntry?.customerName ? true : false;
+
       // 处理每个科目分组
       for (const [subjectCode, groupEntryIds] of subjectGroups.entries()) {
         // 如果科目相同，可以直接相互核销
@@ -138,48 +142,92 @@ export const useClearingStore = create<ClearingStore>((set, get) => ({
             console.log('检查分录对:', entry1Id, entry2Id, entry1, entry2);
 
             if (entry1 && entry2) {
-              // 使用共享函数计算净额
-              const entry1Amount = calculateEntryNetAmount(entry1);
-              const entry2Amount = calculateEntryNetAmount(entry2);
+              // 计算带符号的金额
+              let entry1Amount = 0;
+              let entry2Amount = 0;
+
+              if (isAccountsReceivable) {
+                // 应收账款：借方正数，贷方负数
+                entry1Amount = entry1.debit > 0 ? entry1.debit : -entry1.credit;
+                entry2Amount = entry2.debit > 0 ? entry2.debit : -entry2.credit;
+              } else {
+                // 应付账款：贷方正数，借方负数
+                entry1Amount = entry1.credit > 0 ? entry1.credit : -entry1.debit;
+                entry2Amount = entry2.credit > 0 ? entry2.credit : -entry2.debit;
+              }
 
               console.log('金额方向:', entry1Amount, entry2Amount);
 
+              // 只有异号才能核销
               if (entry1Amount * entry2Amount < 0) {
-                // 使用现有工具函数计算已核销金额和剩余金额
+                // 获取已核销金额
                 const entry1Relations = get().getClearingItems(entry1Id);
                 const entry1Cleared = calculateClearedAmount(entry1Relations);
 
                 const entry2Relations = get().getClearingItems(entry2Id);
                 const entry2Cleared = calculateClearedAmount(entry2Relations);
 
-                const entry1Total = Math.abs(entry1Amount);
-                const entry2Total = Math.abs(entry2Amount);
-                const entry1Remaining = calculateRemainingAmount(entry1Total, entry1Cleared);
-                const entry2Remaining = calculateRemainingAmount(entry2Total, entry2Cleared);
+                // 计算剩余金额（考虑正负方向）
+                let entry1Remaining = 0;
+                let entry2Remaining = 0;
+
+                if (entry1Amount > 0) {
+                  // 正数分录：剩余 = 原始 - 已核销
+                  entry1Remaining = entry1Amount - entry1Cleared;
+                  // 剩余不足0.01则跳过
+                  if (entry1Remaining < 0.01) {
+                    console.log('分录1已完全核销，跳过:', entry1Id, entry1Remaining);
+                    continue;
+                  }
+                } else {
+                  // 负数分录：剩余 = 原始 + 已核销（因为cleared是正数）
+                  entry1Remaining = entry1Amount + entry1Cleared;
+                  // 剩余大于-0.01则跳过（已完全核销）
+                  if (entry1Remaining > -0.01) {
+                    console.log('分录1已完全核销，跳过:', entry1Id, entry1Remaining);
+                    continue;
+                  }
+                  // 负数剩余取绝对值用于计算核销金额
+                  entry1Remaining = Math.abs(entry1Remaining);
+                }
+
+                if (entry2Amount > 0) {
+                  entry2Remaining = entry2Amount - entry2Cleared;
+                  if (entry2Remaining < 0.01) {
+                    console.log('分录2已完全核销，跳过:', entry2Id, entry2Remaining);
+                    continue;
+                  }
+                } else {
+                  entry2Remaining = entry2Amount + entry2Cleared;
+                  if (entry2Remaining > -0.01) {
+                    console.log('分录2已完全核销，跳过:', entry2Id, entry2Remaining);
+                    continue;
+                  }
+                  entry2Remaining = Math.abs(entry2Remaining);
+                }
 
                 console.log('剩余金额:', entry1Remaining, entry2Remaining);
 
-                if (entry1Remaining > 0 && entry2Remaining > 0) {
-                  const minAmount = Math.min(entry1Remaining, entry2Remaining);
+                // 取较小值作为核销金额
+                const minAmount = Math.min(entry1Remaining, entry2Remaining);
 
-                  const debitEntryId = entry1Amount > 0 ? entry1Id : entry2Id;
-                  const creditEntryId = entry1Amount < 0 ? entry1Id : entry2Id;
+                const debitEntryId = entry1Amount > 0 ? entry1Id : entry2Id;
+                const creditEntryId = entry1Amount < 0 ? entry1Id : entry2Id;
 
-                  console.log('保存核销关系:', { debitEntryId, creditEntryId, amount: minAmount, recRefNo });
+                console.log('保存核销关系:', { debitEntryId, creditEntryId, amount: minAmount, recRefNo });
 
-                  try {
-                    // 使用共享函数创建并保存核销关系
-                    await createAndSaveClearingRelation(
-                      debitEntryId,
-                      creditEntryId,
-                      minAmount,
-                      recRefNo
-                    );
+                try {
+                  // 使用共享函数创建并保存核销关系
+                  await createAndSaveClearingRelation(
+                    debitEntryId,
+                    creditEntryId,
+                    minAmount,
+                    recRefNo
+                  );
 
-                    clearedEntries.push(entry1Id, entry2Id);
-                  } catch (dbError) {
-                    console.error('保存核销关系失败:', dbError);
-                  }
+                  clearedEntries.push(entry1Id, entry2Id);
+                } catch (dbError) {
+                  console.error('保存核销关系失败:', dbError);
                 }
               }
             }

@@ -508,7 +508,8 @@ export function calculateAgingData(
   entries: VoucherEntry[],
   config: AgingConfig,
   partners: Array<{ code: string; name: string; isCustomer: boolean; isSupplier: boolean }> = [],
-  recRelations: Array<{ debitEntryId: string; creditEntryId: string; amount: number }> = []
+  recRelations: Array<{ debitEntryId: string; creditEntryId: string; amount: number }> = [],
+  isAccountsReceivable: boolean = true // 新增：区分应收/应付
 ): AgingResult[] {
   // 1. 按往来单位分组
   const partnerMap = new Map<string, VoucherEntry[]>();
@@ -554,13 +555,32 @@ export function calculateAgingData(
       );
       const recAmount = relatedRecs.reduce((sum, rel) => sum + rel.amount, 0);
 
-      // 计算剩余金额（原始金额 - 已核销金额）
-      const totalAmount = entry.debit > 0 ? entry.debit : entry.credit;
-      const remainingAmount = Math.max(0, totalAmount - recAmount);
+      // 计算原始金额（带正负方向）
+      let amount = 0;
+      if (isAccountsReceivable) {
+        // 应收账款：借方正数，贷方负数
+        amount = entry.debit > 0 ? entry.debit : -entry.credit;
+      } else {
+        // 应付账款：贷方正数，借方负数
+        amount = entry.credit > 0 ? entry.credit : -entry.debit;
+      }
 
-      // 如果已全部核销，跳过该分录
-      if (remainingAmount <= 0.01) {
-        return;
+      // 计算剩余金额
+      let remainingAmount = 0;
+      if (amount > 0) {
+        // 借方/贷方金额：剩余金额 = 总金额 - 已核销金额
+        remainingAmount = amount - recAmount;
+        // 如果已全部核销，跳过该分录
+        if (remainingAmount <= 0.01) {
+          return;
+        }
+      } else {
+        // 贷方/借方金额：剩余金额 = 总金额 + 已核销金额（因为已核销金额是正数）
+        remainingAmount = amount + recAmount;
+        // 如果已全部核销，跳过该分录
+        if (remainingAmount >= -0.01) {
+          return;
+        }
       }
 
       const days = calculateDaysDifference(entry.date, config.asOfDate);

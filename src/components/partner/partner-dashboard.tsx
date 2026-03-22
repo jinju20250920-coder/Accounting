@@ -9,6 +9,7 @@ import { Search, Download, Filter, ArrowRight, Building, Building2, User, Users,
 import { usePartnerStore } from '@/stores';
 import { useAccountStore } from '@/stores/useAccountStore';
 import { useVoucherStore } from '@/stores';
+import { useClearingStore } from '@/stores/useClearingStore';
 import type { Partner } from '@/types';
 import { PartnerDetail } from './partner-detail';
 import { formatMoney } from '@/lib/accounting';
@@ -21,7 +22,8 @@ export function PartnerDashboard() {
   const [partnerTab, setPartnerTab] = useState<'all' | 'supplier' | 'customer' | 'employee'>('all');
 
   const { partners } = usePartnerStore();
-  const { getPartnerBalance } = useAccountStore();
+  const { getPartnerBalance, getPartnerMonthlyAmount, getPartnerMonthlyClearing } = useAccountStore();
+  const clearingStore = useClearingStore();
 
   const [summaryData, setSummaryData] = useState({
     totalPartners: 0,
@@ -30,15 +32,27 @@ export function PartnerDashboard() {
     overdueCount: 0
   });
 
+  // 确保 clearingStore 被初始化
+  useEffect(() => {
+    clearingStore.ensureInitialized();
+  }, []);
+
   useEffect(() => {
     const loadSummaryData = async () => {
       const totalPartners = partners.length;
       let totalOutstanding = 0;
+      let totalRecAmount = 0;
       let overdueCount = 0;
+
+      const currentYearMonth = new Date().toISOString().slice(0, 7);
 
       for (const partner of partners) {
         const balance = getPartnerBalance(partner.name);
         totalOutstanding += balance;
+
+        // 累加本月核销金额（取绝对值，因为可能是正数或负数）
+        const monthlyClearing = getPartnerMonthlyClearing(partner.name, currentYearMonth);
+        totalRecAmount += Math.abs(monthlyClearing);
 
         if (balance > 0) {
           overdueCount++;
@@ -48,13 +62,13 @@ export function PartnerDashboard() {
       setSummaryData({
         totalPartners,
         totalOutstanding,
-        totalRecAmount: 0,
+        totalRecAmount,
         overdueCount
       });
     };
 
     loadSummaryData();
-  }, [partners, getPartnerBalance]);
+  }, [partners, getPartnerBalance]); // 移除函数引用，只保留数据依赖
 
   // 根据tab和搜索条件过滤往来单位
   const filteredPartners = partners.filter(partner => {
@@ -228,8 +242,12 @@ export function PartnerDashboard() {
                   <td className="p-2 text-right border-r border-slate-300">
                     {formatMoney(getPartnerBalance(partner.name))}
                   </td>
-                  <td className="p-2 text-right border-r border-slate-300">{formatMoney(0)}</td>
-                  <td className="p-2 text-right border-r border-slate-300">{formatMoney(0)}</td>
+                  <td className="p-2 text-right border-r border-slate-300">
+                    {formatMoney(getPartnerMonthlyAmount(partner.name, new Date().toISOString().slice(0, 7)))}
+                  </td>
+                  <td className="p-2 text-right border-r border-slate-300">
+                    {formatMoney(getPartnerMonthlyClearing(partner.name, new Date().toISOString().slice(0, 7)))}
+                  </td>
                   <td className="p-2 text-right border-r border-slate-300">
                     {formatMoney(getPartnerBalance(partner.name))}
                   </td>

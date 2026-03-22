@@ -50,6 +50,8 @@ interface AccountStore {
   clearBalances: () => void;
   // 往来核销相关操作
   getPartnerBalance: (partnerName: string) => number;
+  getPartnerMonthlyAmount: (partnerName: string, yearMonth: string) => number;
+  getPartnerMonthlyClearing: (partnerName: string, yearMonth: string) => number;
   getOutstandingItems: (query: OutstandingQuery) => Promise<OutstandingItem[]>;
 }
 
@@ -248,5 +250,80 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
       console.error('Failed to get outstanding items:', error);
       return [];
     }
+  },
+
+  // 获取往来单位本月发生额
+  getPartnerMonthlyAmount: (partnerName: string, yearMonth: string): number => {
+    const { vouchers } = useVoucherStore.getState();
+
+    let monthlyTotal = 0;
+
+    vouchers.forEach(voucher => {
+      // 只计算已记账凭证，且日期在指定月份
+      if (voucher.status === 'posted' && voucher.date.startsWith(yearMonth)) {
+        voucher.entries.forEach(entry => {
+          // 检查是否是该往来单位
+          const isMatch =
+            entry.customerName === partnerName ||
+            entry.supplierName === partnerName ||
+            entry.auxiliary?.customer === partnerName ||
+            entry.auxiliary?.supplier === partnerName;
+
+          if (isMatch) {
+            // 应收账款：借方为正，贷方为负
+            // 应付账款：贷方为正，借方为负
+            // 这里简化处理：借方-贷方
+            monthlyTotal += (entry.debit - entry.credit);
+          }
+        });
+      }
+    });
+
+    return monthlyTotal;
+  },
+
+  // 获取往来单位本月核销额
+  getPartnerMonthlyClearing: (partnerName: string, yearMonth: string): number => {
+    const { vouchers } = useVoucherStore.getState();
+    const { recRelations } = useClearingStore.getState();
+
+    let monthlyClearing = 0;
+
+    // 获取该往来单位在本月的所有分录ID
+    const monthlyEntryIds = new Set<string>();
+    vouchers.forEach(voucher => {
+      if (voucher.status === 'posted' && voucher.date.startsWith(yearMonth)) {
+        voucher.entries.forEach(entry => {
+          const isMatch =
+            entry.customerName === partnerName ||
+            entry.supplierName === partnerName ||
+            entry.auxiliary?.customer === partnerName ||
+            entry.auxiliary?.supplier === partnerName;
+
+          if (isMatch) {
+            monthlyEntryIds.add(entry.id);
+          }
+        });
+      }
+    });
+
+    // 统计涉及这些分录的核销金额（只计算一次，避免重复）
+    const countedRelations = new Set<string>();
+    recRelations.forEach(rel => {
+      // 检查核销关系是否涉及本月的分录
+      const involvesMonthlyEntry =
+        monthlyEntryIds.has(rel.debitEntryId) ||
+        monthlyEntryIds.has(rel.creditEntryId);
+
+      // 检查核销日期是否在本月
+      const isInMonth = rel.recDate && rel.recDate.startsWith(yearMonth);
+
+      if (involvesMonthlyEntry && isInMonth && !countedRelations.has(rel.id)) {
+        monthlyClearing += rel.amount;
+        countedRelations.add(rel.id);
+      }
+    });
+
+    return monthlyClearing;
   }
 }));

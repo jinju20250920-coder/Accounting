@@ -11,7 +11,7 @@ import { AgingReport } from '../components/aging-report';
 import { AgingFilter } from '../components/aging-filter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Download, Printer, Filter } from 'lucide-react';
+import { Download, Printer, Filter, TrendingUp, AlertTriangle, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function APReportPage() {
@@ -21,6 +21,7 @@ export default function APReportPage() {
   const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
   const [useCustomBuckets, setUseCustomBuckets] = useState<boolean>(false);
   const [customBuckets, setCustomBuckets] = useState<number[]>([30, 90, 180, 365, 730]);
+  const [isClearingReady, setIsClearingReady] = useState(false);
 
   const voucherStore = useVoucherStore();
   const subjectStore = useSubjectStore();
@@ -34,6 +35,19 @@ export default function APReportPage() {
       partnerStore.initializePartners();
     }
   }, [partnerStore.partners.length]);
+
+  // 确保 clearingStore 被初始化
+  useEffect(() => {
+    let mounted = true;
+    const init = async () => {
+      await clearingStore.ensureInitialized();
+      if (mounted) {
+        setIsClearingReady(true);
+      }
+    };
+    init();
+    return () => { mounted = false; };
+  }, []); // 只在组件挂载时执行一次
 
   // 批量核销处理函数
   const handleBatchWriteOff = async (selectedIds: string[]) => {
@@ -74,7 +88,7 @@ export default function APReportPage() {
           '2期': formatMoney(item.buckets.overdue2),
           '3期': formatMoney(item.buckets.overdue3),
           '6期以上': formatMoney(item.buckets.overdue6),
-          '合计': formatMoney(item.totalAmount)
+          '余额': formatMoney(item.totalAmount)
         };
         return entry;
       });
@@ -143,6 +157,7 @@ export default function APReportPage() {
 
   // 计算账龄数据
   const agingData = useMemo(() => {
+    if (!isClearingReady) return [];
     const config: AgingConfig = {
       mode,
       asOfDate,
@@ -151,11 +166,12 @@ export default function APReportPage() {
       useCustomBuckets,
       customBuckets
     };
-    return calculateAgingData(apEntries, config, partnerStore.partners, clearingStore.recRelations);
-  }, [apEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners, clearingStore.recRelations]);
+    return calculateAgingData(apEntries, config, partnerStore.partners, clearingStore.recRelations, false); // false = 应付账款
+  }, [isClearingReady, apEntries, mode, asOfDate, useCustomBuckets, customBuckets, partnerStore.partners, clearingStore.recRelations]);
 
   // 获取明细数据
   const agingDetails = useMemo(() => {
+    if (!isClearingReady) return [];
     const config: AgingConfig & { bucket?: string; partner?: string } = {
       mode,
       asOfDate,
@@ -167,7 +183,24 @@ export default function APReportPage() {
       customBuckets
     };
     return getAgingDetails(apEntries, config, false, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners);
-  }, [apEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners]);
+  }, [isClearingReady, apEntries, mode, asOfDate, selectedBucket, selectedPartner, useCustomBuckets, customBuckets, voucherStore.vouchers, clearingStore.recRelations, partnerStore.partners]);
+
+  // 计算汇总统计数据
+  const summaryStats = useMemo(() => {
+    if (!isClearingReady || agingData.length === 0) {
+      return { totalBalance: 0, current: 0, overdue1: 0, overdue2: 0, overdue3: 0, overdue6: 0, partnerCount: 0 };
+    }
+
+    return agingData.reduce((acc, item) => ({
+      totalBalance: acc.totalBalance + item.totalAmount,
+      current: acc.current + item.buckets.current,
+      overdue1: acc.overdue1 + item.buckets.overdue1,
+      overdue2: acc.overdue2 + item.buckets.overdue2,
+      overdue3: acc.overdue3 + item.buckets.overdue3,
+      overdue6: acc.overdue6 + item.buckets.overdue6,
+      partnerCount: acc.partnerCount + 1
+    }), { totalBalance: 0, current: 0, overdue1: 0, overdue2: 0, overdue3: 0, overdue6: 0, partnerCount: 0 });
+  }, [isClearingReady, agingData]);
 
   return (
     <div className="space-y-6">
@@ -200,6 +233,75 @@ export default function APReportPage() {
         onCustomBucketsChange={setCustomBuckets}
       />
 
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">总余额</CardTitle>
+            <TrendingUp className="w-4 h-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold">{formatMoney(summaryStats.totalBalance)}</div>
+            <p className="text-xs text-slate-500 mt-1">共 {summaryStats.partnerCount} 个供应商</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">当前</CardTitle>
+            <Clock className="w-4 h-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-green-600">{formatMoney(summaryStats.current)}</div>
+            <p className="text-xs text-slate-500 mt-1">未逾期</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">1期</CardTitle>
+            <AlertTriangle className="w-4 h-4 text-yellow-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-yellow-600">{formatMoney(summaryStats.overdue1)}</div>
+            <p className="text-xs text-slate-500 mt-1">逾期1期内</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">2期</CardTitle>
+            <AlertTriangle className="w-4 h-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-orange-600">{formatMoney(summaryStats.overdue2)}</div>
+            <p className="text-xs text-slate-500 mt-1">逾期2期内</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">3期</CardTitle>
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-red-600">{formatMoney(summaryStats.overdue3)}</div>
+            <p className="text-xs text-slate-500 mt-1">逾期3期内</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">6期以上</CardTitle>
+            <AlertTriangle className="w-4 h-4 text-red-700" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-red-700">{formatMoney(summaryStats.overdue6)}</div>
+            <p className="text-xs text-slate-500 mt-1">严重逾期</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card id="aging-report-content">
         <CardHeader>
           <CardTitle>账龄分析汇总</CardTitle>
@@ -214,6 +316,7 @@ export default function APReportPage() {
             useCustomBuckets={useCustomBuckets}
             customBuckets={customBuckets}
             onBatchWriteOff={handleBatchWriteOff}
+            summaryStats={summaryStats}
           />
         </CardContent>
       </Card>

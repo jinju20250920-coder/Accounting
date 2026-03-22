@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import * as XLSX from 'xlsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -19,6 +20,14 @@ interface AgingReportProps {
   useCustomBuckets?: boolean;
   customBuckets?: number[];
   onBatchWriteOff?: (selectedIds: string[]) => Promise<void>;
+  summaryStats?: {
+    totalBalance: number;
+    current: number;
+    overdue1: number;
+    overdue2: number;
+    overdue3: number;
+    overdue6: number;
+  };
 }
 
 function getBucketColor(index: number): string {
@@ -91,7 +100,8 @@ export function AgingReport({
   onPartnerClick,
   useCustomBuckets = false,
   customBuckets = [30, 90, 180, 365],
-  onBatchWriteOff
+  onBatchWriteOff,
+  summaryStats
 }: AgingReportProps) {
   const bucketLabels = getBucketLabels(mode, useCustomBuckets, customBuckets);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -148,6 +158,34 @@ export function AgingReport({
     }
   };
 
+  // 导出明细数据到 Excel
+  const handleExportDetails = () => {
+    try {
+      const exportData = details.map(detail => ({
+        '凭证号': detail.voucherNo,
+        '单据号': detail.docNo,
+        '日期': detail.date,
+        '摘要': detail.summary,
+        '科目代码': detail.subjectCode,
+        '科目名称': detail.subjectName,
+        '金额': detail.amount,
+        '剩余金额': detail.remainingAmount,
+        '账龄': formatAging(detail.daysOverdue, mode),
+        '状态': Math.abs(detail.remainingAmount) < 0.01 ? '已核销' :
+               Math.abs(detail.remainingAmount - detail.amount) >= 0.01 ? '部分核销' : '未核销'
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, `账龄明细-${selectedPartnerName}`);
+
+      const fileName = `账龄明细_${selectedPartnerName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+    } catch (error) {
+      console.error('导出明细失败:', error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* 汇总表 */}
@@ -156,12 +194,12 @@ export function AgingReport({
           <thead className="bg-gray-50">
             <tr>
               <th className="p-2 text-left text-sm font-medium">往来单位</th>
+              <th className="p-2 text-right text-sm font-medium">余额</th>
               <th className="p-2 text-right text-sm font-medium">{bucketLabels.current}</th>
               <th className="p-2 text-right text-sm font-medium">{bucketLabels.overdue1}</th>
               <th className="p-2 text-right text-sm font-medium">{bucketLabels.overdue2}</th>
               <th className="p-2 text-right text-sm font-medium">{bucketLabels.overdue3}</th>
               <th className="p-2 text-right text-sm font-medium">{bucketLabels.overdue6}</th>
-              <th className="p-2 text-right text-sm font-medium">合计</th>
               <th className="p-2 text-center text-sm font-medium">账龄分布</th>
             </tr>
           </thead>
@@ -175,6 +213,9 @@ export function AgingReport({
                   >
                     {item.partner}
                   </button>
+                </td>
+                <td className="p-2 text-right font-medium">
+                  {formatMoney(item.totalAmount)}
                 </td>
                 <td className="p-2 text-right">
                   <button
@@ -216,9 +257,6 @@ export function AgingReport({
                     {formatMoney(item.buckets.overdue6)}
                   </button>
                 </td>
-                <td className="p-2 text-right font-medium">
-                  {formatMoney(item.totalAmount)}
-                </td>
                 <td className="p-2">
                   <div className="flex gap-1 h-4">
                     {item.agingDistribution.map((percent, index) => (
@@ -233,6 +271,36 @@ export function AgingReport({
                 </td>
               </tr>
             ))}
+            {/* 汇总行 */}
+            {summaryStats && (
+              <tr className="border-b-2 border-slate-300 bg-slate-100 font-bold">
+                <td className="p-2">合计</td>
+                <td className="p-2 text-right">{formatMoney(summaryStats.totalBalance)}</td>
+                <td className="p-2 text-right">{formatMoney(summaryStats.current)}</td>
+                <td className="p-2 text-right">{formatMoney(summaryStats.overdue1)}</td>
+                <td className="p-2 text-right">{formatMoney(summaryStats.overdue2)}</td>
+                <td className="p-2 text-right">{formatMoney(summaryStats.overdue3)}</td>
+                <td className="p-2 text-right">{formatMoney(summaryStats.overdue6)}</td>
+                <td className="p-2">
+                  <div className="flex gap-1 h-4">
+                    {summaryStats.totalBalance > 0 ? [
+                      summaryStats.current / summaryStats.totalBalance,
+                      summaryStats.overdue1 / summaryStats.totalBalance,
+                      summaryStats.overdue2 / summaryStats.totalBalance,
+                      summaryStats.overdue3 / summaryStats.totalBalance,
+                      summaryStats.overdue6 / summaryStats.totalBalance
+                    ].map((percent, index) => (
+                      <div
+                        key={index}
+                        className={`h-full rounded ${getBucketColor(index)}`}
+                        style={{ width: `${Math.max(0, percent * 100)}%` }}
+                        title={`${(Math.max(0, percent * 100)).toFixed(0)}%`}
+                      />
+                    )): null}
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -250,13 +318,23 @@ export function AgingReport({
                 共 {details.length} 条记录
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleCloseDetailsDialog}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportDetails}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                导出
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCloseDetailsDialog}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </DialogHeader>
 
           <div className="flex-1 overflow-auto p-4">
