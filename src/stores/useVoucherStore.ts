@@ -224,7 +224,6 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
 
       if (currentAccountSet) {
         sqliteService.setAccountSetId(currentAccountSet.id);
-        console.log('[VoucherStore.initialize] 设置 accountSetId 为:', currentAccountSet.id);
       }
 
       // 初始化数据库

@@ -285,7 +285,6 @@ export function VoucherHeader() {
 
       if (currentAccountSet) {
         sqliteService.setAccountSetId(currentAccountSet.id)
-        console.log('[Import] 设置 accountSetId 为:', currentAccountSet.id)
       }
 
       for (const voucherData of importPreview) {

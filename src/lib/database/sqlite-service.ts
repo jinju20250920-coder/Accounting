@@ -353,14 +353,11 @@ class SQLiteService {
   async saveVoucher(voucher: Voucher): Promise<void> {
     try {
       await this.ensureInitialized();
-      console.log('[saveVoucher] 当前 accountSetId:', this.accountSetId);
       // Save voucher
       const voucherWithAccountSet = {
         ...voucher,
         accountSetId: this.accountSetId
       };
-
-      console.log('[saveVoucher] 保存凭证:', voucher.voucherNo, 'accountSetId:', voucherWithAccountSet.accountSetId);
 
       const stmt = this.dbInstance.prepare(`
         INSERT OR REPLACE INTO vouchers (
@@ -400,13 +397,6 @@ class SQLiteService {
           accountSetId: this.accountSetId,
           voucherId: voucher.id
         } as any;
-
-        console.log('[saveVoucher] 保存分录 id:', entryWithAccountSet.id, 'voucherId:', entryWithAccountSet.voucherId, '数据:', {
-          subjectCode: entryWithAccountSet.subjectCode,
-          subjectName: entryWithAccountSet.subjectName,
-          debit: entryWithAccountSet.debit,
-          credit: entryWithAccountSet.credit
-        });
 
         const entryStmt = this.dbInstance.prepare(`
           INSERT INTO entries (
@@ -495,19 +485,8 @@ class SQLiteService {
           [voucher.id, this.accountSetId]
         );
 
-        console.log('[getAllVouchers] 凭证', voucher.voucherNo, 'id:', voucher.id, '有', entries.length, '条分录');
-        if (entries.length > 0) {
-          console.log('[getAllVouchers] 第一条分录详情:', {
-            id: entries[0].id,
-            voucherId: entries[0].voucherId,
-            subjectCode: entries[0].subjectCode,
-            subjectName: entries[0].subjectName,
-            debit: entries[0].debit,
-            credit: entries[0].credit,
-            accountSetId: entries[0].accountSetId
-          });
-        } else {
-          console.warn('[getAllVouchers] 凭证', voucher.voucherNo, '没有分录！这可能表示数据保存时出现问题');
+        if (entries.length === 0) {
+          console.warn('[getAllVouchers] 凭证', voucher.voucherNo, '没有分录！数据可能未正确保存');
         }
 
         return {

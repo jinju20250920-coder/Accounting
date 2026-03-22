@@ -24,10 +24,7 @@ export function ClearingCell({
 }: ClearingCellProps) {
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);
 
-  console.log('ClearingCell rendered:', { entryId, partnerName, recRefNo });
-
   const handleSelect = (items: OutstandingItem[]) => {
-    console.log('ClearingCell handleSelect:', items);
     if (items.length > 0) {
       // 生成核销单号
       const clearingNo = `REC-${Date.now().toString(36).toUpperCase()}`;
@@ -42,7 +39,6 @@ export function ClearingCell({
   };
 
   const handleButtonClick = () => {
-    console.log('Search button clicked!', { partnerName });
     setIsSelectorOpen(true);
   };
 

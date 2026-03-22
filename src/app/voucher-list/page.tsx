@@ -446,7 +446,6 @@ export default function VoucherListPage() {
 
       if (currentAccountSet) {
         sqliteService.setAccountSetId(currentAccountSet.id);
-        console.log('[Refresh] 设置 accountSetId 为:', currentAccountSet.id);
       }
 
       // 重新加载 vouchers
