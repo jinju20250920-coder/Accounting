@@ -704,6 +704,7 @@ class AccountSetDbManager {
         reverseVoucherId TEXT,
         referenceNumber TEXT,
         attachmentCount INTEGER DEFAULT 0,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -730,6 +731,7 @@ class AccountSetDbManager {
         exchangeRate REAL DEFAULT 1.0,
         originalAmount REAL DEFAULT 0,
         date TEXT,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT,
         FOREIGN KEY (voucherId) REFERENCES vouchers(id)
@@ -748,6 +750,7 @@ class AccountSetDbManager {
         enabled INTEGER DEFAULT 1,
         frozen INTEGER DEFAULT 0,
         description TEXT,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT,
         FOREIGN KEY (parentId) REFERENCES subjects(id)
@@ -762,6 +765,7 @@ class AccountSetDbManager {
         level INTEGER DEFAULT 1,
         enabled INTEGER DEFAULT 1,
         description TEXT,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT,
         FOREIGN KEY (parentId) REFERENCES departments(id)
@@ -774,6 +778,7 @@ class AccountSetDbManager {
         name TEXT,
         description TEXT,
         enabled INTEGER DEFAULT 1,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -786,6 +791,7 @@ class AccountSetDbManager {
         symbol TEXT,
         exchangeRate REAL DEFAULT 1.0,
         enabled INTEGER DEFAULT 1,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -803,6 +809,7 @@ class AccountSetDbManager {
         taxNo TEXT,
         bankAccount TEXT,
         enabled INTEGER DEFAULT 1,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -816,6 +823,7 @@ class AccountSetDbManager {
         validations TEXT,
         variables TEXT,
         isSystem INTEGER DEFAULT 0,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -825,6 +833,7 @@ class AccountSetDbManager {
         id TEXT PRIMARY KEY,
         content TEXT,
         frequency INTEGER DEFAULT 0,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -836,6 +845,7 @@ class AccountSetDbManager {
         type TEXT,
         key TEXT,
         value TEXT,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT
       );
@@ -848,7 +858,8 @@ class AccountSetDbManager {
         entityId TEXT,
         details TEXT,
         userId TEXT,
-        timestamp TEXT
+        timestamp TEXT,
+        accountSetId TEXT
       );
 
       -- 核销关系表
@@ -860,6 +871,7 @@ class AccountSetDbManager {
         amount REAL,
         recDate TEXT,
         partnerName TEXT,
+        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT,
         FOREIGN KEY (debitEntryId) REFERENCES entries(id),
@@ -871,16 +883,31 @@ class AccountSetDbManager {
 
     // 创建索引
     const indexes = `
+      CREATE INDEX IF NOT EXISTS idx_vouchers_accountSetId ON vouchers(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(date);
       CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status);
       CREATE INDEX IF NOT EXISTS idx_vouchers_voucherNo ON vouchers(voucherNo);
+      CREATE INDEX IF NOT EXISTS idx_entries_accountSetId ON entries(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_entries_voucherId ON entries(voucherId);
       CREATE INDEX IF NOT EXISTS idx_entries_subjectCode ON entries(subjectCode);
       CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
       CREATE INDEX IF NOT EXISTS idx_entries_recRefNo ON entries(recRefNo);
+      CREATE INDEX IF NOT EXISTS idx_subjects_accountSetId ON subjects(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_subjects_code ON subjects(code);
       CREATE INDEX IF NOT EXISTS idx_subjects_parentId ON subjects(parentId);
+      CREATE INDEX IF NOT EXISTS idx_departments_accountSetId ON departments(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_departments_code ON departments(code);
+      CREATE INDEX IF NOT EXISTS idx_projects_accountSetId ON projects(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_projects_code ON projects(code);
+      CREATE INDEX IF NOT EXISTS idx_currencies_accountSetId ON currencies(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_currencies_code ON currencies(code);
+      CREATE INDEX IF NOT EXISTS idx_partners_accountSetId ON partners(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_partners_code ON partners(code);
+      CREATE INDEX IF NOT EXISTS idx_voucherTemplates_accountSetId ON voucherTemplates(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_commonSummaries_accountSetId ON commonSummaries(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_userPreferences_accountSetId ON userPreferences(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_auditLogs_accountSetId ON auditLogs(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_recRelations_accountSetId ON recRelations(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_recRelations_recRefNo ON recRelations(recRefNo);
     `;
 

@@ -39,16 +39,23 @@ export interface AuditLog {
 class SQLiteService {
   private dbInstance: any = null;
   private _accountSetId: string = 'default'; // 当前账套ID
+  private _usingAccountSetDb: boolean = false; // 是否使用账套数据库
 
   // 设置当前账套ID
   setAccountSetId(accountSetId: string) {
     this._accountSetId = accountSetId;
+    this._usingAccountSetDb = (accountId !== 'default');
     this.dbInstance = null; // 清除缓存的数据库实例
   }
 
   // 获取当前账套ID
   get accountSetId(): string {
     return this._accountSetId;
+  }
+
+  // 是否使用账套数据库（每个账套一个独立文件，不需要accountSetId字段）
+  get usingAccountSetDb(): boolean {
+    return this._usingAccountSetDb;
   }
 
   private async getDb(): Promise<any> {
@@ -149,6 +156,49 @@ class SQLiteService {
     }
     if (!this.dbInstance) {
       throw new Error('Failed to initialize SQLite database');
+    }
+
+    // 迁移：检查并添加 accountSetId 列（如果不存在）
+    await this.migrateAddAccountSetIdColumns();
+  }
+
+  /**
+   * 迁移：为现有数据库添加 accountSetId 列
+   * 这是为了兼容性，处理使用 accountSetDbManager 创建的旧数据库
+   */
+  private async migrateAddAccountSetColumns(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 检查 vouchers 表是否有 accountSetId 列
+      const pragma = this.dbInstance.exec("PRAGMA table_info(vouchers)");
+      const hasAccountSetId = pragma[0]?.values?.some((row: any[]) => row[1] === 'accountSetId');
+
+      if (!hasAccountSetId && this._usingAccountSetDb) {
+        console.log('Migrating database: adding accountSetId columns to existing tables...');
+        const alterTables = `
+          ALTER TABLE vouchers ADD COLUMN accountSetId TEXT;
+          ALTER TABLE entries ADD COLUMN accountSetId TEXT;
+          ALTER TABLE subjects ADD COLUMN accountSetId TEXT;
+          ALTER TABLE departments ADD COLUMN accountSetId TEXT;
+          ALTER TABLE projects ADD COLUMN accountSetId TEXT;
+          ALTER TABLE currencies ADD COLUMN accountSetId TEXT;
+          ALTER TABLE partners ADD COLUMN accountSetId TEXT;
+          ALTER TABLE voucherTemplates ADD COLUMN accountSetId TEXT;
+          ALTER TABLE commonSummaries ADD COLUMN accountSetId TEXT;
+          ALTER TABLE userPreferences ADD COLUMN accountSetId TEXT;
+          ALTER TABLE auditLogs ADD COLUMN accountSetId TEXT;
+          ALTER TABLE recRelations ADD COLUMN accountSetId TEXT;
+        `;
+
+        this.dbInstance.exec(alterTables);
+        console.log('Database migration completed successfully');
+      }
+    } catch (error) {
+      // 如果是 "duplicate column name" 错误，说明列已存在，可以忽略
+      if (!error.message?.includes('duplicate column name')) {
+        console.warn('Database migration warning:', error);
+      }
     }
   }
 
