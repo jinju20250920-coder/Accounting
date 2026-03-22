@@ -185,8 +185,11 @@ export function VoucherHeader() {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
 
+      console.log('Excel 原始数据:', jsonData)
+
       // 解析Excel数据为凭证格式
       const vouchers = parseExcelToVouchers(jsonData)
+      console.log('解析后的凭证数据:', vouchers)
       setImportPreview(vouchers)
 
       showToast('success', `共解析到 ${vouchers.length} 张凭证`)
@@ -312,8 +315,24 @@ export function VoucherHeader() {
         }
       })
 
-      return Array.from(groupedVouchers.values()).filter(v => v.entries.length > 0)
+      const parsedVouchers = Array.from(groupedVouchers.values()).filter(v => v.entries.length > 0)
+      console.log('解析结果 - 第二种方式:', parsedVouchers.map(v => ({
+        voucherNo: v.voucherNo,
+        entriesCount: v.entries.length,
+        debitTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0),
+        creditTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0),
+        entries: v.entries.map((e: any) => ({ debit: e.debit, credit: e.credit, debitType: typeof e.debit }))
+      })))
+      return parsedVouchers
     }
+
+    console.log('解析结果 - 第一种方式:', vouchers.map(v => ({
+      voucherNo: v.voucherNo,
+      entriesCount: v.entries.length,
+      debitTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0),
+      creditTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0),
+      entries: v.entries.map((e: any) => ({ debit: e.debit, credit: e.credit, debitType: typeof e.debit }))
+    })))
 
     return vouchers.filter(v => v.entries.length > 0)
   }
