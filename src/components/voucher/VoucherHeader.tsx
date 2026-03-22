@@ -16,12 +16,15 @@ import {
   CheckCircle,
   XCircle,
   FileText,
-  Trash2
+  Trash2,
+  Upload,
+  Download
 } from 'lucide-react'
 import { useVoucherStore } from '@/stores/useVoucherStore'
 import { useVoucherTemplateStore } from '@/stores/useVoucherTemplateStore'
 import { useToast } from '@/hooks/use-toast'
 import { calculateVoucherStatus } from '@/lib/accounting'
+import { getCurrentService } from '@/lib/database'
 
 export function VoucherHeader() {
   const {
@@ -32,7 +35,8 @@ export function VoucherHeader() {
     vouchers,
     setActiveVoucher,
     updateVoucherDate,
-    currentEntries
+    currentEntries,
+    initialize
   } = useVoucherStore()
 
   const { addTemplate } = useVoucherTemplateStore()
@@ -43,6 +47,10 @@ export function VoucherHeader() {
   const [showSaveAsTemplateDialog, setShowSaveAsTemplateDialog] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [importPreview, setImportPreview] = useState<any[]>([])
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
 
   // 保存为凭证模版
   const handleSaveAsTemplate = async () => {
@@ -132,21 +140,6 @@ export function VoucherHeader() {
     }
   }
 
-  // Handle Smart Paste
-  const handleSmartPaste = () => {
-    const pasteArea = document.getElementById('voucher-main-content')
-    if (pasteArea) {
-      // Trigger paste event that will be handled by layout
-      const pasteEvent = new Event('paste', { bubbles: true })
-      pasteArea.dispatchEvent(pasteEvent)
-
-      toast({
-        title: "智能粘贴",
-        description: "请在表格中粘贴Excel数据",
-      })
-    }
-  }
-
   // Handle Delete
   const handleDelete = async () => {
     if (!currentVoucher) return
@@ -184,6 +177,267 @@ export function VoucherHeader() {
     } else {
       document.exitFullscreen()
     }
+  }
+
+  // Handle Import Excel
+  const handleImportExcel = async (file: File) => {
+    setImportFile(file)
+    setIsImporting(true)
+
+    try {
+      const XLSX = await import('xlsx')
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+
+      // 解析Excel数据为凭证格式
+      const vouchers = parseExcelToVouchers(jsonData)
+      setImportPreview(vouchers)
+
+      toast({
+        title: "文件解析成功",
+        description: `共解析到 ${vouchers.length} 张凭证`,
+      })
+    } catch (error) {
+      toast({
+        title: "文件解析失败",
+        description: error instanceof Error ? error.message : "请检查文件格式",
+        variant: "destructive"
+      })
+      setImportPreview([])
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  // 解析Excel数据为凭证
+  const parseExcelToVouchers = (data: any[]): any[] => {
+    const vouchers: any[] = []
+    let currentVoucher: any = null
+    let currentEntries: any[] = []
+    let currentVoucherNo = ''
+    let currentDate = ''
+    let currentSummary = ''
+
+    data.forEach((row: any, index: number) => {
+      // 检查是否是凭证头部行（包含凭证号、日期、摘要）
+      if (row['凭证号'] || row['凭证字号']) {
+        // 保存上一个凭证
+        if (currentVoucher && currentEntries.length > 0) {
+          vouchers.push({
+            ...currentVoucher,
+            entries: currentEntries
+          })
+        }
+
+        // 创建新凭证
+        currentVoucherNo = row['凭证号'] || row['凭证字号'] || ''
+        currentDate = row['日期'] || new Date().toISOString().split('T')[0]
+        currentSummary = row['摘要'] || ''
+
+        currentVoucher = {
+          voucherNo: currentVoucherNo,
+          date: currentDate,
+          summary: currentSummary,
+          status: 'draft',
+          voucherType: 'general'
+        }
+        currentEntries = []
+      }
+
+      // 检查是否是分录行（包含科目代码或借贷金额）
+      if (row['科目代码'] || row['科目'] || row['借方金额'] || row['贷方金额'] || row['借方'] || row['贷方']) {
+        const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
+        const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
+
+        // 只有科目代码或金额不为0时才添加分录
+        if (row['科目代码'] || row['科目'] || debit > 0 || credit > 0) {
+          currentEntries.push({
+            id: `entry_${Date.now()}_${currentEntries.length}`,
+            summary: row['分录摘要'] || currentSummary || '',
+            subjectCode: row['科目代码'] || row['科目'] || '',
+            subjectName: row['科目名称'] || '',
+            debit: debit,
+            credit: credit,
+            deptCode: row['部门代码'] || row['部门'] || '',
+            projectCode: row['项目代码'] || row['项目'] || '',
+            docNo: row['单据号'] || ''
+          })
+        }
+      }
+    })
+
+    // 保存最后一个凭证
+    if (currentVoucher && currentEntries.length > 0) {
+      vouchers.push({
+        ...currentVoucher,
+        entries: currentEntries
+      })
+    }
+
+    // 如果Excel格式是每行一张凭证的分录
+    if (vouchers.length === 0 && data.length > 0) {
+      // 尝试按行解析：每行是一个分录，相同凭证号的分录归为同一凭证
+      const groupedVouchers = new Map<string, any>()
+
+      data.forEach((row: any) => {
+        const voucherNo = row['凭证号'] || row['凭证字号'] || '记-001'
+        const date = row['日期'] || new Date().toISOString().split('T')[0]
+        const summary = row['摘要'] || ''
+        const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
+        const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
+
+        if (!groupedVouchers.has(voucherNo)) {
+          groupedVouchers.set(voucherNo, {
+            voucherNo,
+            date,
+            summary,
+            status: 'draft' as const,
+            voucherType: 'general' as const,
+            entries: []
+          })
+        }
+
+        const voucher = groupedVouchers.get(voucherNo)!
+        if (row['科目代码'] || row['科目'] || debit > 0 || credit > 0) {
+          voucher.entries.push({
+            id: `entry_${Date.now()}_${voucher.entries.length}`,
+            summary: row['分录摘要'] || summary,
+            subjectCode: row['科目代码'] || row['科目'] || '',
+            subjectName: row['科目名称'] || '',
+            debit,
+            credit,
+            deptCode: row['部门代码'] || row['部门'] || '',
+            projectCode: row['项目代码'] || row['项目'] || '',
+            docNo: row['单据号'] || ''
+          })
+        }
+      })
+
+      return Array.from(groupedVouchers.values()).filter(v => v.entries.length > 0)
+    }
+
+    return vouchers.filter(v => v.entries.length > 0)
+  }
+
+  // 确认导入
+  const handleConfirmImport = async () => {
+    if (importPreview.length === 0) {
+      toast({
+        title: "没有可导入的凭证",
+        description: "请先上传Excel文件",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setIsImporting(true)
+    let successCount = 0
+    let errorCount = 0
+    const savedVouchers: any[] = []
+
+    try {
+      for (const voucherData of importPreview) {
+        try {
+          // 检查借贷平衡
+          const debitTotal = voucherData.entries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0)
+          const creditTotal = voucherData.entries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0)
+
+          if (Math.abs(debitTotal - creditTotal) > 0.01) {
+            console.warn(`凭证 ${voucherData.voucherNo} 借贷不平衡，跳过`)
+            errorCount++
+            continue
+          }
+
+          // 创建新凭证
+          const now = new Date().toISOString()
+          const newVoucher = {
+            ...voucherData,
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            entries: voucherData.entries.map((entry: any, idx: number) => ({
+              ...entry,
+              id: `entry_${Date.now()}_${idx}`,
+              date: voucherData.date,
+              auxiliary: {
+                department: entry.deptCode || '',
+                project: entry.projectCode || ''
+              }
+            })),
+            createdBy: 'import',
+            createTime: now,
+            updateTime: now
+          }
+
+          // 直接保存到数据库
+          await getCurrentService().saveVoucher(newVoucher)
+          savedVouchers.push(newVoucher)
+          successCount++
+        } catch (error) {
+          console.error('导入凭证失败:', voucherData.voucherNo, error)
+          errorCount++
+        }
+      }
+
+      // 重新加载凭证列表
+      await initialize()
+
+      toast({
+        title: "导入完成",
+        description: `成功导入 ${successCount} 张凭证${errorCount > 0 ? `，失败 ${errorCount} 张` : ''}`,
+      })
+
+      setShowImportDialog(false)
+      setImportPreview([])
+      setImportFile(null)
+
+      // 创建新凭证准备继续录入
+      createVoucher()
+    } catch (error) {
+      toast({
+        title: "导入失败",
+        description: error instanceof Error ? error.message : "未知错误",
+        variant: "destructive"
+      })
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  // 下载导入模板
+  const handleDownloadTemplate = async () => {
+    const template = [
+      {
+        '凭证号': '记-202503-001',
+        '日期': '2025-03-22',
+        '摘要': '收到货款',
+        '科目代码': '1002',
+        '科目名称': '银行存款',
+        '借方': 10000,
+        '贷方': 0,
+        '部门代码': '',
+        '项目代码': '',
+        '单据号': ''
+      },
+      {
+        '凭证号': '记-202503-001',
+        '日期': '2025-03-22',
+        '摘要': '收到货款',
+        '科目代码': '1122',
+        '科目名称': '应收账款',
+        '借方': 0,
+        '贷方': 10000,
+        '部门代码': '',
+        '项目代码': '',
+        '单据号': ''
+      }
+    ]
+
+    const XLSX = await import('xlsx')
+    const worksheet = XLSX.utils.json_to_sheet(template)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, '凭证导入模板')
+    XLSX.writeFile(workbook, '凭证导入模板.xlsx')
   }
 
   // Status display
@@ -321,12 +575,11 @@ export function VoucherHeader() {
             {/* Smart Paste */}
             <Button
               variant="outline"
-              onClick={handleSmartPaste}
-              disabled={currentVoucher.status !== 'draft'}
+              onClick={() => setShowImportDialog(true)}
               size="sm"
             >
-              <Copy className="w-4 h-4 mr-2" />
-              智能粘贴
+              <Upload className="w-4 h-4 mr-2" />
+              导入凭证
             </Button>
 
             {/* Save & Next */}
@@ -413,6 +666,127 @@ export function VoucherHeader() {
             </Button>
             <Button onClick={handleSaveAsTemplate}>
               保存
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导入凭证对话框 */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>批量导入凭证</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto py-4">
+            {!importFile ? (
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+                <Upload className="w-12 h-12 mx-auto text-slate-400 mb-4" />
+                <p className="text-lg font-medium text-slate-900 mb-2">上传Excel文件</p>
+                <p className="text-sm text-slate-500 mb-4">支持 .xlsx, .xls 格式的凭证文件</p>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      handleImportExcel(file)
+                    }
+                  }}
+                  className="hidden"
+                  id="import-file-input"
+                />
+                <div className="flex justify-center gap-3">
+                  <Button
+                    onClick={() => document.getElementById('import-file-input')?.click()}
+                    disabled={isImporting}
+                  >
+                    选择文件
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadTemplate}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    下载模板
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">已选择文件:</span>
+                    <span className="text-sm text-slate-600">{importFile.name}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setImportFile(null)
+                      setImportPreview([])
+                    }}
+                  >
+                    重新选择
+                  </Button>
+                </div>
+
+                {importPreview.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="text-sm font-medium">
+                      共解析到 {importPreview.length} 张凭证
+                    </div>
+
+                    <div className="border rounded-lg max-h-60 overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium">凭证号</th>
+                            <th className="px-3 py-2 text-left font-medium">日期</th>
+                            <th className="px-3 py-2 text-left font-medium">摘要</th>
+                            <th className="px-3 py-2 text-left font-medium">分录数</th>
+                            <th className="px-3 py-2 text-right font-medium">借方合计</th>
+                            <th className="px-3 py-2 text-right font-medium">贷方合计</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importPreview.map((voucher, idx) => {
+                            const debitTotal = voucher.entries.reduce((sum: number, e: any) => sum + (e.debit || 0), 0)
+                            const creditTotal = voucher.entries.reduce((sum: number, e: any) => sum + (e.credit || 0), 0)
+                            return (
+                              <tr key={idx} className="border-t">
+                                <td className="px-3 py-2 font-mono">{voucher.voucherNo}</td>
+                                <td className="px-3 py-2">{voucher.date}</td>
+                                <td className="px-3 py-2">{voucher.summary}</td>
+                                <td className="px-3 py-2 text-center">{voucher.entries.length}</td>
+                                <td className="px-3 py-2 text-right font-mono">{debitTotal.toFixed(2)}</td>
+                                <td className="px-3 py-2 text-right font-mono">{creditTotal.toFixed(2)}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowImportDialog(false)
+                setImportFile(null)
+                setImportPreview([])
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={handleConfirmImport}
+              disabled={importPreview.length === 0 || isImporting}
+            >
+              {isImporting ? '导入中...' : '确认导入'}
             </Button>
           </div>
         </DialogContent>
