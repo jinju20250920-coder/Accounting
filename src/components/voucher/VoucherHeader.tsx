@@ -205,12 +205,38 @@ export function VoucherHeader() {
 
   // 解析Excel数据为凭证 - 始终按凭证号分组
   const parseExcelToVouchers = (data: any[]): any[] => {
+    // 辅助函数：解析Excel日期（支持字符串和序列号）
+    const parseExcelDate = (dateValue: any): string => {
+      if (!dateValue) return new Date().toISOString().split('T')[0]
+
+      // 如果是数字（Excel日期序列号）
+      if (typeof dateValue === 'number') {
+        // Excel日期序列号从1900-01-01开始计算
+        const excelEpoch = new Date(1900, 0, 1).getTime()
+        const daysOffset = dateValue - 1 // Excel从1开始计数
+        const date = new Date(excelEpoch + daysOffset * 24 * 60 * 60 * 1000)
+        return date.toISOString().split('T')[0]
+      }
+
+      // 如果是字符串，直接使用
+      const dateStr = String(dateValue)
+      // 处理可能的 YYYYMMDD 格式（如 20260322）
+      if (/^\d{8}$/.test(dateStr)) {
+        const year = dateStr.substring(0, 4)
+        const month = dateStr.substring(4, 6)
+        const day = dateStr.substring(6, 8)
+        return `${year}-${month}-${day}`
+      }
+      // 处理可能的 YYYY-M-D 或 YYYY-MM-DD 格式
+      return dateStr
+    }
+
     // 按凭证号分组所有分录
     const groupedVouchers = new Map<string, any>()
 
     data.forEach((row: any) => {
       const voucherNo = row['凭证号'] || row['凭证字号'] || '记-001'
-      const date = row['日期'] || new Date().toISOString().split('T')[0]
+      const date = parseExcelDate(row['日期'])
       const summary = row['摘要'] || ''
       const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
       const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
