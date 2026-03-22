@@ -842,7 +842,7 @@ export function VoucherHeader() {
           router.push('/voucher-list?status=draft')
         }
       }}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
           {/* Header with gradient background */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-6 py-5">
             <div className="flex items-center justify-between">
