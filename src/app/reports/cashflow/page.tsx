@@ -15,10 +15,12 @@ import {
   TrendingDown,
   Wallet,
   Landmark,
-  Users
+  Users,
+  Printer
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores';
 import { useSubjectStore } from '@/stores';
+import { useAccountSetStore } from '@/stores';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel } from '@/lib/excel-utils';
 
@@ -82,6 +84,8 @@ export default function CashflowPage() {
   const { showToast } = useToast();
   const { vouchers, ledgerEntries } = useVoucherStore();
   const { subjects, initializeSubjects } = useSubjectStore();
+  const accountSetStore = useAccountSetStore();
+  const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
   const [period, setPeriod] = useState({
     startDate: `${new Date().getFullYear()}-01-01`,
@@ -231,6 +235,104 @@ export default function CashflowPage() {
     showToast('success', '现金流量表导出成功');
   };
 
+  const handlePrint = () => {
+    document.body.classList.add('printing-cashflow-sheet');
+
+    const printStyle = document.createElement('style');
+    printStyle.setAttribute('id', 'print-styles-temp');
+    printStyle.innerHTML = `
+      @media print {
+        @page {
+          margin: 0.5cm;
+          size: A4 portrait;
+        }
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body.printing-cashflow-sheet > * {
+          visibility: hidden;
+        }
+        body.printing-cashflow-sheet #cashflow-sheet-content {
+          visibility: visible;
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          padding: 0.5cm;
+          box-sizing: border-box;
+        }
+        body.printing-cashflow-sheet #cashflow-sheet-content > * {
+          visibility: visible;
+        }
+        /* 隐藏不需要打印的元素 */
+        body.printing-cashflow-sheet .no-print {
+          display: none !important;
+        }
+        /* 只显示现金流量表Card (第4个子元素) */
+        body.printing-cashflow-sheet #cashflow-sheet-content > div:nth-child(1),
+        body.printing-cashflow-sheet #cashflow-sheet-content > div:nth-child(2),
+        body.printing-cashflow-sheet #cashflow-sheet-content > div:nth-child(3) {
+          display: none !important;
+        }
+        /* 表格样式 */
+        body.printing-cashflow-sheet table {
+          font-size: 9pt !important;
+          width: 100% !important;
+          border-collapse: collapse !important;
+        }
+        body.printing-cashflow-sheet th,
+        body.printing-cashflow-sheet td {
+          padding: 2px 4px !important;
+          border: 1px solid #000 !important;
+        }
+        body.printing-cashflow-sheet thead th {
+          background: #f5f5f5 !important;
+          -webkit-print-color-adjust: exact !important;
+        }
+        /* 移除Card样式 */
+        body.printing-cashflow-sheet .Card {
+          border: none !important;
+          box-shadow: none !important;
+        }
+        body.printing-cashflow-sheet .CardHeader,
+        body.printing-cashflow-sheet .CardContent {
+          padding: 0 !important;
+        }
+        /* 打印标题 */
+        body.printing-cashflow-sheet .print-title {
+          text-align: center;
+          font-size: 18px;
+          font-weight: bold;
+          margin-bottom: 12px;
+        }
+        body.printing-cashflow-sheet .print-info-row {
+          display: flex !important;
+          justify-content: space-between;
+          font-size: 12px;
+          margin-bottom: 12px;
+        }
+        /* 隐藏说明区域 */
+        body.printing-cashflow-sheet .mt-6 {
+          display: none !important;
+        }
+      }
+    `;
+    document.head.appendChild(printStyle);
+
+    const cleanup = () => {
+      document.body.classList.remove('printing-cashflow-sheet');
+      const style = document.getElementById('print-styles-temp');
+      if (style && document.head.contains(style)) {
+        document.head.removeChild(style);
+      }
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    window.print();
+  };
+
   const formatAmount = (amount: number, type?: string) => {
     const num = type === 'outflow' ? Math.abs(amount) : amount;
     return num.toLocaleString('zh-CN', {
@@ -266,9 +368,9 @@ export default function CashflowPage() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto" id="cashflow-sheet-content">
       {/* 标题栏 */}
-      <div className="mb-6">
+      <div className="mb-6 no-print">
         <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
           <Landmark className="h-8 w-8 text-blue-600" />
           现金流量表
@@ -279,7 +381,7 @@ export default function CashflowPage() {
       </div>
 
       {/* 筛选栏 */}
-      <Card className="mb-6">
+      <Card className="mb-4 no-print">
         <CardContent className="pt-6">
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
@@ -307,12 +409,16 @@ export default function CashflowPage() {
               <Download className="h-4 w-4 mr-2" />
               导出Excel
             </Button>
+            <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Printer className="h-4 w-4 mr-2" />
+              打印
+            </Button>
           </div>
         </CardContent>
       </Card>
 
       {/* 概览卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 no-print">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -362,13 +468,25 @@ export default function CashflowPage() {
 
       {/* 现金流量表主体 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <span>现金流量表</span>
-            <Badge variant="outline" className="ml-2">
-              {period.startDate} 至 {period.endDate}
-            </Badge>
-          </CardTitle>
+        <CardHeader className="print-header">
+          {/* 打印时的标题区域 */}
+          <div className="hidden print:flex flex-col print:block">
+            <h1 className="print-title">现金流量表</h1>
+            <div className="print-info-row">
+              <div className="print-info-left">制表单位：{currentAccountSet?.name || ''}</div>
+              <div className="print-info-center">报告期间：{period.startDate} 至 {period.endDate}</div>
+              <div className="print-info-right">单位：元</div>
+            </div>
+          </div>
+          {/* 屏幕显示时的标题区域 */}
+          <div className="print:hidden">
+            <CardTitle className="flex items-center gap-2">
+              <span>现金流量表</span>
+              <Badge variant="outline" className="ml-2">
+                {period.startDate} 至 {period.endDate}
+              </Badge>
+            </CardTitle>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -397,7 +515,7 @@ export default function CashflowPage() {
           </div>
 
           {/* 说明 */}
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+          <div className="mt-6 p-4 bg-blue-50 rounded-lg no-print">
             <h4 className="font-medium text-blue-800 mb-2">说明</h4>
             <ul className="text-sm text-blue-700 space-y-1">
               <li>• 现金流量表数据基于已记账凭证自动计算生成</li>

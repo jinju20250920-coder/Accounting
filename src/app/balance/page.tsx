@@ -22,6 +22,7 @@ import { useVoucherStore } from '@/stores';
 import { useSubjectStore } from '@/stores';
 import { useRouter } from 'next/navigation';
 import { formatMoney } from '@/lib/accounting';
+import * as XLSX from 'xlsx';
 
 interface SubjectBalanceRow {
   subjectCode: string;
@@ -181,6 +182,14 @@ export default function BalancePage() {
     return amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   };
 
+  // 格式化金额但不带货币符号（用于明细账和导出）
+  const formatMoneyWithoutSymbol = (amount: number): string => {
+    if (amount === 0) return '0.00';
+    const absAmount = Math.abs(amount);
+    const formatted = absAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return amount < 0 ? `(${formatted})` : formatted;
+  };
+
   // 计算明细账数据
   const ledgerEntries = useMemo(() => {
     if (!selectedSubject) return [];
@@ -258,6 +267,74 @@ export default function BalancePage() {
   const handleCloseLedgerDialog = () => {
     setShowLedgerDialog(false);
     setSelectedSubject(null);
+  };
+
+  // 导出明细账到Excel
+  const handleExportLedger = () => {
+    if (!selectedSubject || ledgerEntries.length === 0) return;
+
+    try {
+      const exportData = ledgerEntries.map(entry => ({
+        '日期': entry.date,
+        '凭证号': entry.voucherNo,
+        '摘要': entry.summary,
+        '借方': entry.debit > 0 ? formatMoneyWithoutSymbol(entry.debit) : '',
+        '贷方': entry.credit > 0 ? formatMoneyWithoutSymbol(entry.credit) : '',
+        '余额': formatMoneyWithoutSymbol(entry.balance)
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, `${selectedSubject.name}_明细账`);
+
+      const fileName = `${selectedSubject.name}_明细账_${startMonth}_至_${endMonth}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+    } catch (error) {
+      console.error('导出明细账失败:', error);
+    }
+  };
+
+  // 打印明细账
+  const handlePrintLedger = () => {
+    const content = document.querySelector('.ledger-dialog-content');
+    if (content) {
+      const printStyle = document.createElement('style');
+      printStyle.innerHTML = `
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .ledger-dialog-content, .ledger-dialog-content * {
+            visibility: visible;
+          }
+          .ledger-dialog-content {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white;
+            padding: 1cm;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-header {
+            display: block !important;
+          }
+          @page {
+            margin: 1.5cm;
+          }
+          table {
+            font-size: 10pt;
+          }
+        }
+      `;
+      document.head.appendChild(printStyle);
+      window.print();
+      setTimeout(() => {
+        document.head.removeChild(printStyle);
+      }, 100);
+    }
   };
 
   return (
@@ -527,24 +604,52 @@ export default function BalancePage() {
         if (!open) handleCloseLedgerDialog();
         setShowLedgerDialog(open);
       }}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col ledger-dialog-content">
           <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
             <div>
               <DialogTitle className="text-lg">
-                {selectedSubject?.subjectName} ({selectedSubject?.code})
+                {selectedSubject?.name} 明细账 ({selectedSubject?.code})
               </DialogTitle>
               <p className="text-sm text-slate-500 mt-1">
-                明细账 · {startMonth} 至 {endMonth}
+                期间：{startMonth} 至 {endMonth}
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleCloseLedgerDialog}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleExportLedger()}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                导出
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePrintLedger()}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                打印
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCloseLedgerDialog}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </DialogHeader>
+
+          {/* 打印标题区域（仅打印时显示） */}
+          <div className="print-header hidden print:block">
+            <div className="text-center mb-4">
+              <h2 className="text-xl font-bold">{selectedSubject?.name} 明细账</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                账套：演示公司 | 期间：{startMonth} 至 {endMonth}
+              </p>
+            </div>
+          </div>
 
           <div className="flex-1 overflow-auto p-4">
             {ledgerEntries.length === 0 ? (
@@ -574,20 +679,20 @@ export default function BalancePage() {
                       <td className="px-4 py-2 text-sm border border-slate-200">{entry.summary}</td>
                       <td className="px-4 py-2 text-sm text-right font-mono border border-slate-200">
                         {entry.debit > 0 ? (
-                          <span className="text-blue-600">{formatMoney(entry.debit)}</span>
+                          <span className="text-blue-600">{formatMoneyWithoutSymbol(entry.debit)}</span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm text-right font-mono border border-slate-200">
                         {entry.credit > 0 ? (
-                          <span className="text-green-600">{formatMoney(entry.credit)}</span>
+                          <span className="text-green-600">{formatMoneyWithoutSymbol(entry.credit)}</span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm text-right font-mono font-semibold border border-slate-200">
-                        {formatMoney(entry.balance)}
+                        {formatMoneyWithoutSymbol(entry.balance)}
                       </td>
                     </tr>
                   ))}
