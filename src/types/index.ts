@@ -488,3 +488,505 @@ export interface Partner {
   parentId?: string; // 关联的集团ID（用于合并到集团）
   accountSetId?: string; // 新增字段：所属账套ID
 }
+
+// ============================================
+// 固定资产模块类型定义
+// ============================================
+
+// 折旧方法类型
+export type DepreciationMethod = 'straight_line' | 'double_declining' | 'sum_of_years' | 'units_of_production';
+
+// 资产状态
+export type AssetStatus = 'active' | 'disposed' | 'fully_depreciated';
+
+// 资产分类类型
+export type AssetCategoryType = 'fixed' | 'intangible';
+
+// 资产分类
+export interface AssetCategory {
+  id: string;
+  code: string;
+  name: string;
+  assetType: AssetCategoryType;
+  defaultUsefulLifeYears: number;
+  defaultDepreciationMethod: DepreciationMethod;
+  defaultSalvageRate: number; // 默认残值率（如0.05表示5%）
+  assetSubjectCode: string;
+  depreciationSubjectCode: string;
+  expenseSubjectCode: string;
+  description?: string;
+  sortOrder: number;
+  enabled: boolean;
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 固定资产卡片
+export interface FixedAsset {
+  id: string;
+  assetCode: string; // 资产编码
+  assetName: string; // 资产名称
+  categoryId?: string; // 分类ID
+  categoryName?: string; // 分类名称
+  specification?: string; // 规格型号
+  unit?: string; // 计量单位
+  quantity: number; // 数量
+
+  // 财务数据
+  originalValue: number; // 原值
+  salvageValue: number; // 残值
+  depreciableValue: number; // 应计折旧额 = 原值 - 残值
+  accumulatedDepreciation: number; // 累计折旧
+  netValue: number; // 净值 = 原值 - 累计折旧
+
+  // 折旧设置
+  depreciationMethod: DepreciationMethod;
+  usefulLifeYears: number; // 使用年限
+  usefulLifeMonths: number; // 使用月数
+  totalUnits?: number; // 总工作量（工作量法）
+  unitsUsed?: number; // 已使用工作量
+
+  // 日期
+  acquisitionDate: string; // 购置日期
+  depreciationStartDate?: string; // 折旧开始日期
+  lastDepreciationDate?: string; // 最后折旧日期
+  disposalDate?: string; // 处置日期
+
+  // 状态
+  status: AssetStatus;
+  location?: string; // 存放地点
+  departmentCode?: string; // 使用部门代码
+  departmentName?: string; // 使用部门名称
+
+  // 科目映射
+  assetSubjectCode: string; // 资产科目（如1501）
+  assetSubjectName?: string;
+  depreciationSubjectCode: string; // 累计折旧科目（如1502）
+  depreciationSubjectName?: string;
+  expenseSubjectCode: string; // 费用科目（如660204）
+  expenseSubjectName?: string;
+
+  // 其他信息
+  supplierName?: string; // 供应商
+  invoiceNo?: string; // 发票号
+  notes?: string; // 备注
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 折旧记录
+export interface DepreciationRecord {
+  id: string;
+  assetId: string;
+  assetCode?: string;
+  assetName?: string;
+
+  // 期间
+  period: string; // 格式：YYYY-MM
+  depreciationDate: string; // 折旧日期
+
+  // 金额
+  periodDepreciation: number; // 本期折旧额
+  accumulatedDepreciation: number; // 累计折旧（含本期）
+  netValueAfter: number; // 折旧后净值
+
+  // 工作量法专用
+  unitsThisPeriod?: number; // 本期工作量
+  unitDepreciationRate?: number; // 单位折旧额
+
+  // 凭证关联
+  voucherId?: string; // 生成的凭证ID
+  voucherNo?: string; // 凭证号
+
+  // 状态
+  status: 'draft' | 'posted'; // 草稿/已记账
+  notes?: string;
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 折旧计算输入
+export interface DepreciationCalculationInput {
+  originalValue: number;
+  salvageValue: number;
+  usefulLifeYears: number;
+  usefulLifeMonths: number;
+  acquisitionDate: string;
+  depreciationStartDate: string;
+  accumulatedDepreciation: number;
+  method: DepreciationMethod;
+  totalUnits?: number;
+  unitsUsed?: number;
+  asOfDate: string;
+}
+
+// 折旧计算结果
+export interface DepreciationResult {
+  periodDepreciation: number; // 本期折旧额
+  accumulatedDepreciation: number; // 累计折旧
+  netValue: number; // 净值
+  remainingLife: number; // 剩余使用月数
+  isFullyDepreciated: boolean; // 是否已提足折旧
+  calculationDetails: string; // 计算说明
+}
+
+// 批量折旧结果
+export interface BatchDepreciationResult {
+  records: DepreciationRecord[];
+  totalDepreciation: number;
+  assetCount: number;
+  period: string;
+  errors: Array<{ assetId: string; assetName: string; error: string }>;
+}
+
+// ============================================
+// 无形资产与待摊费用模块类型定义
+// ============================================
+
+// 摊销方法类型
+export type AmortizationMethod = 'straight_line' | 'units_of_production';
+
+// 无形资产类型
+export type IntangibleAssetType = 'patent' | 'trademark' | 'software' | 'copyright' | 'goodwill' | 'other';
+
+// 无形资产摊销状态
+export type AmortizationStatus = 'active' | 'fully_amortized' | 'disposed';
+
+// 待摊费用类型
+export type PrepaidExpenseType = 'rent' | 'insurance' | 'subscription' | 'maintenance' | 'advertising' | 'other';
+
+// 无形资产
+export interface IntangibleAsset {
+  id: string;
+  assetCode: string; // 资产编码
+  assetName: string; // 资产名称
+  assetType: IntangibleAssetType; // 资产类型
+
+  // 财务数据
+  originalValue: number; // 原值
+  residualValue: number; // 残值
+  accumulatedAmortization: number; // 累计摊销
+  netValue: number; // 净值
+
+  // 摊销设置
+  amortizationMethod: AmortizationMethod;
+  usefulLifeYears: number; // 使用年限
+  usefulLifeMonths: number; // 使用月数
+  totalUnits?: number; // 总产量（产量法）
+  unitsUsed?: number; // 已使用产量
+
+  // 日期
+  acquisitionDate: string; // 购置日期
+  amortizationStartDate?: string; // 摊销开始日期
+  lastAmortizationDate?: string; // 最后摊销日期
+  expiryDate?: string; // 到期日期
+
+  // 状态
+  status: AmortizationStatus;
+
+  // 科目映射
+  assetSubjectCode: string; // 资产科目（如1701）
+  assetSubjectName?: string;
+  amortizationSubjectCode: string; // 累计摊销科目（如1702）
+  amortizationSubjectName?: string;
+  expenseSubjectCode: string; // 费用科目
+  expenseSubjectName?: string;
+
+  // 其他信息
+  registrationNo?: string; // 登记号（专利号、商标注册号）
+  legalLifeYears?: number; // 法定保护年限
+  departmentCode?: string;
+  departmentName?: string;
+  notes?: string;
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 待摊费用
+export interface PrepaidExpense {
+  id: string;
+  expenseCode: string; // 费用编码
+  expenseName: string; // 费用名称
+  expenseType: PrepaidExpenseType; // 费用类型
+
+  // 财务数据
+  originalAmount: number; // 原始金额
+  amortizedAmount: number; // 已摊销金额
+  remainingAmount: number; // 剩余金额
+
+  // 摊销设置
+  amortizationMethod: AmortizationMethod;
+  amortizationPeriods: number; // 摊销总期数
+  amortizedPeriods: number; // 已摊销期数
+  periodAmount: number; // 每期金额
+
+  // 日期
+  paymentDate: string; // 支付日期
+  startDate: string; // 服务开始日期
+  endDate: string; // 服务结束日期
+  lastAmortizationDate?: string; // 最后摊销日期
+
+  // 状态
+  status: AmortizationStatus;
+
+  // 科目映射
+  prepaidSubjectCode: string; // 待摊科目（如1801或1811）
+  prepaidSubjectName?: string;
+  expenseSubjectCode: string; // 费用科目
+  expenseSubjectName?: string;
+
+  // 其他信息
+  supplierName?: string; // 供应商
+  invoiceNo?: string; // 发票号
+  contractNo?: string; // 合同号
+  departmentCode?: string;
+  departmentName?: string;
+  notes?: string;
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 摊销记录（统一用于无形资产和待摊费用）
+export interface AmortizationRecord {
+  id: string;
+  entityType: 'intangible' | 'prepaid'; // 实体类型
+  entityId: string; // 实体ID
+  entityCode?: string; // 实体编码
+  entityName?: string; // 实体名称
+
+  // 期间
+  period: string; // 格式：YYYY-MM
+  amortizationDate: string; // 摊销日期
+
+  // 金额
+  periodAmortization: number; // 本期摊销额
+  accumulatedAmortization: number; // 累计摊销
+  remainingAmount: number; // 剩余金额
+
+  // 产量法专用
+  unitsThisPeriod?: number; // 本期产量
+
+  // 凭证关联
+  voucherId?: string; // 生成的凭证ID
+  voucherNo?: string; // 凭证号
+
+  // 状态
+  status: 'draft' | 'posted'; // 草稿/已记账
+  notes?: string;
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 摊销计算输入
+export interface AmortizationCalculationInput {
+  originalValue: number;
+  residualValue: number;
+  usefulLifeMonths: number;
+  amortizedAmount: number;
+  acquisitionDate: string;
+  amortizationStartDate: string;
+  method: AmortizationMethod;
+  totalUnits?: number;
+  unitsUsed?: number;
+  asOfDate: string;
+}
+
+// 摊销计算结果
+export interface AmortizationResult {
+  periodAmortization: number; // 本期摊销额
+  accumulatedAmortization: number; // 累计摊销
+  remainingAmount: number; // 剩余金额
+  remainingLife: number; // 剩余期数
+  isFullyAmortized: boolean; // 是否已摊销完毕
+  calculationDetails: string; // 计算说明
+}
+
+// 批量摊销结果
+export interface BatchAmortizationResult {
+  records: AmortizationRecord[];
+  totalAmortization: number;
+  entityCount: number;
+  period: string;
+  errors: Array<{ entityId: string; entityName: string; error: string }>;
+}
+
+// ============================================
+// 资产导入相关类型
+// ============================================
+
+// 解析后的固定资产数据
+export interface ParsedFixedAsset {
+  rowNumber: number;
+  assetCode?: string;
+  assetName?: string;
+  categoryName?: string;
+  specification?: string;
+  originalValue?: number;
+  salvageValue?: number;
+  depreciationMethod?: string;
+  usefulLifeYears?: number;
+  acquisitionDate?: string;
+  location?: string;
+  departmentCode?: string;
+  expenseSubjectCode?: string;
+  supplierName?: string;
+  invoiceNo?: string;
+  notes?: string;
+}
+
+// 解析后的无形资产数据
+export interface ParsedIntangibleAsset {
+  rowNumber: number;
+  assetCode?: string;
+  assetName?: string;
+  assetType?: string;
+  originalValue?: number;
+  residualValue?: number;
+  amortizationMethod?: string;
+  usefulLifeYears?: number;
+  acquisitionDate?: string;
+  registrationNo?: string;
+  departmentCode?: string;
+  expenseSubjectCode?: string;
+  notes?: string;
+}
+
+// 解析后的待摊费用数据
+export interface ParsedPrepaidExpense {
+  rowNumber: number;
+  expenseCode?: string;
+  expenseName?: string;
+  expenseType?: string;
+  originalAmount?: number;
+  paymentDate?: string;
+  startDate?: string;
+  endDate?: string;
+  amortizationPeriods?: number;
+  prepaidSubjectCode?: string;
+  expenseSubjectCode?: string;
+  supplierName?: string;
+  invoiceNo?: string;
+  departmentCode?: string;
+  notes?: string;
+}
+
+// 资产筛选条件
+export interface AssetFilter {
+  category?: string;
+  status?: string;
+  dateRange?: [string, string];
+  searchQuery?: string;
+  departmentCode?: string;
+}
+
+// 资产报表数据项
+export interface AssetReportItem {
+  code: string;
+  name: string;
+  category: string;
+  originalValue: number;
+  accumulatedDepreciation: number;
+  netValue: number;
+  acquisitionDate: string;
+  usefulLife: string;
+  status: string;
+  location?: string;
+  department?: string;
+}
+
+// 折旧/摊销报表数据项
+export interface DepreciationReportItem {
+  period: string;
+  assetCode: string;
+  assetName: string;
+  beginningNetValue: number;
+  periodAmount: number;
+  endingNetValue: number;
+  method: string;
+  voucherNo?: string;
+}
+
+// ==================== 发票管理相关类型 ====================
+
+// 发票类型
+export type InvoiceType = 'input' | 'output'; // 进项/销项
+
+// 发票收付款状态
+export type InvoicePaymentStatus = 'unpaid' | 'partial' | 'paid';
+
+// 发票
+export interface Invoice {
+  id: string;
+  invoiceType: InvoiceType;         // 发票类型: input(进项)/output(销项)
+  invoiceCode: string;              // 发票号码
+  invoiceDate: string;              // 开票日期
+  sellerName: string;               // 销售方名称
+  sellerTaxNo?: string;             // 销售方税号
+  buyerName: string;                // 购买方名称
+  buyerTaxNo?: string;              // 购买方税号
+  goodsName?: string;               // 货物或服务名称
+  specification?: string;           // 规格型号
+  unit?: string;                    // 单位
+  quantity?: number;                // 数量
+  unitPrice?: number;               // 单价
+  amount: number;                   // 金额(不含税)
+  taxRate?: number;                 // 税率
+  taxAmount?: number;               // 税额
+  totalAmount: number;              // 价税合计
+  paymentStatus: InvoicePaymentStatus; // 收付款状态
+  paidAmount: number;               // 已收/已付金额
+  voucherId?: string;               // 关联凭证ID
+  voucherNo?: string;               // 关联凭证号
+  partnerId?: string;               // 关联往来单位ID
+  partnerName?: string;             // 往来单位名称
+  notes?: string;                   // 备注
+  accountSetId: string;             // 账套ID
+  createTime: string;               // 创建时间
+  updateTime: string;               // 更新时间
+}
+
+// 发票核销记录
+export interface InvoiceReconciliation {
+  id: string;
+  invoiceId: string;                // 发票ID
+  voucherId?: string;               // 凭证ID
+  entryId?: string;                 // 凭证分录ID
+  amount: number;                   // 核销金额
+  reconcileDate: string;            // 核销日期
+  notes?: string;                   // 备注
+  accountSetId: string;             // 账套ID
+  createTime: string;               // 创建时间
+}
+
+// 发票筛选条件
+export interface InvoiceFilter {
+  invoiceType?: InvoiceType;
+  startDate?: string;
+  endDate?: string;
+  partnerId?: string;
+  paymentStatus?: InvoicePaymentStatus;
+  hasVoucher?: boolean;
+  searchQuery?: string;
+}
+
+// 发票资金一览表项
+export interface InvoiceSummaryItem {
+  partnerId?: string;
+  partnerName: string;
+  totalInputAmount: number;         // 进项发票总额
+  totalOutputAmount: number;        // 销项发票总额
+  paidInputAmount: number;          // 已付进项金额
+  receivedOutputAmount: number;     // 已收销项金额
+  unpaidInputAmount: number;        // 未付进项金额
+  unreceivedOutputAmount: number;   // 未收销项金额
+  inputInvoiceCount: number;        // 进项发票数量
+  outputInvoiceCount: number;       // 销项发票数量
+  hasVoucherInputCount: number;     // 已生成凭证的进项发票数
+  hasVoucherOutputCount: number;    // 已生成凭证的销项发票数
+}

@@ -885,6 +885,225 @@ class AccountSetDbManager {
         FOREIGN KEY (debitEntryId) REFERENCES entries(id),
         FOREIGN KEY (creditEntryId) REFERENCES entries(id)
       );
+
+      -- 资产分类表
+      CREATE TABLE IF NOT EXISTS assetCategories (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE,
+        name TEXT NOT NULL,
+        assetType TEXT NOT NULL,
+        defaultUsefulLifeYears INTEGER,
+        defaultDepreciationMethod TEXT,
+        defaultSalvageRate REAL DEFAULT 0.05,
+        assetSubjectCode TEXT,
+        depreciationSubjectCode TEXT,
+        expenseSubjectCode TEXT,
+        description TEXT,
+        sortOrder INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 固定资产卡片表
+      CREATE TABLE IF NOT EXISTS fixedAssets (
+        id TEXT PRIMARY KEY,
+        assetCode TEXT UNIQUE,
+        assetName TEXT NOT NULL,
+        categoryId TEXT,
+        categoryName TEXT,
+        specification TEXT,
+        unit TEXT,
+        quantity INTEGER DEFAULT 1,
+        originalValue REAL NOT NULL,
+        salvageValue REAL DEFAULT 0,
+        depreciableValue REAL,
+        accumulatedDepreciation REAL DEFAULT 0,
+        netValue REAL,
+        depreciationMethod TEXT NOT NULL,
+        usefulLifeYears INTEGER,
+        usefulLifeMonths INTEGER,
+        totalUnits REAL,
+        unitsUsed REAL DEFAULT 0,
+        acquisitionDate TEXT NOT NULL,
+        depreciationStartDate TEXT,
+        lastDepreciationDate TEXT,
+        disposalDate TEXT,
+        status TEXT DEFAULT 'active',
+        location TEXT,
+        departmentCode TEXT,
+        departmentName TEXT,
+        assetSubjectCode TEXT,
+        assetSubjectName TEXT,
+        depreciationSubjectCode TEXT,
+        depreciationSubjectName TEXT,
+        expenseSubjectCode TEXT,
+        expenseSubjectName TEXT,
+        supplierName TEXT,
+        invoiceNo TEXT,
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 折旧记录表
+      CREATE TABLE IF NOT EXISTS depreciationRecords (
+        id TEXT PRIMARY KEY,
+        assetId TEXT NOT NULL,
+        assetCode TEXT,
+        assetName TEXT,
+        period TEXT NOT NULL,
+        depreciationDate TEXT NOT NULL,
+        periodDepreciation REAL NOT NULL,
+        accumulatedDepreciation REAL,
+        netValueAfter REAL,
+        unitsThisPeriod REAL,
+        unitDepreciationRate REAL,
+        voucherId TEXT,
+        voucherNo TEXT,
+        status TEXT DEFAULT 'draft',
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 无形资产表
+      CREATE TABLE IF NOT EXISTS intangibleAssets (
+        id TEXT PRIMARY KEY,
+        assetCode TEXT UNIQUE,
+        assetName TEXT NOT NULL,
+        assetType TEXT NOT NULL,
+        originalValue REAL NOT NULL,
+        residualValue REAL DEFAULT 0,
+        accumulatedAmortization REAL DEFAULT 0,
+        netValue REAL,
+        amortizationMethod TEXT NOT NULL,
+        usefulLifeYears INTEGER,
+        usefulLifeMonths INTEGER,
+        totalUnits REAL,
+        unitsUsed REAL DEFAULT 0,
+        acquisitionDate TEXT NOT NULL,
+        amortizationStartDate TEXT,
+        lastAmortizationDate TEXT,
+        expiryDate TEXT,
+        status TEXT DEFAULT 'active',
+        assetSubjectCode TEXT,
+        assetSubjectName TEXT,
+        amortizationSubjectCode TEXT,
+        amortizationSubjectName TEXT,
+        expenseSubjectCode TEXT,
+        expenseSubjectName TEXT,
+        registrationNo TEXT,
+        legalLifeYears INTEGER,
+        departmentCode TEXT,
+        departmentName TEXT,
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 待摊费用表
+      CREATE TABLE IF NOT EXISTS prepaidExpenses (
+        id TEXT PRIMARY KEY,
+        expenseCode TEXT UNIQUE,
+        expenseName TEXT NOT NULL,
+        expenseType TEXT NOT NULL,
+        originalAmount REAL NOT NULL,
+        amortizedAmount REAL DEFAULT 0,
+        remainingAmount REAL,
+        amortizationMethod TEXT DEFAULT 'straight_line',
+        amortizationPeriods INTEGER,
+        amortizedPeriods INTEGER DEFAULT 0,
+        periodAmount REAL,
+        paymentDate TEXT NOT NULL,
+        startDate TEXT NOT NULL,
+        endDate TEXT NOT NULL,
+        lastAmortizationDate TEXT,
+        status TEXT DEFAULT 'active',
+        prepaidSubjectCode TEXT,
+        prepaidSubjectName TEXT,
+        expenseSubjectCode TEXT,
+        expenseSubjectName TEXT,
+        supplierName TEXT,
+        invoiceNo TEXT,
+        contractNo TEXT,
+        departmentCode TEXT,
+        departmentName TEXT,
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 摊销记录表（统一用于无形资产和待摊费用）
+      CREATE TABLE IF NOT EXISTS amortizationRecords (
+        id TEXT PRIMARY KEY,
+        entityType TEXT NOT NULL,
+        entityId TEXT NOT NULL,
+        entityCode TEXT,
+        entityName TEXT,
+        period TEXT NOT NULL,
+        amortizationDate TEXT NOT NULL,
+        periodAmortization REAL NOT NULL,
+        accumulatedAmortization REAL,
+        remainingAmount REAL,
+        unitsThisPeriod REAL,
+        voucherId TEXT,
+        voucherNo TEXT,
+        status TEXT DEFAULT 'draft',
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 发票表
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        invoiceType TEXT NOT NULL,
+        invoiceCode TEXT NOT NULL,
+        invoiceDate TEXT NOT NULL,
+        sellerName TEXT,
+        sellerTaxNo TEXT,
+        buyerName TEXT,
+        buyerTaxNo TEXT,
+        goodsName TEXT,
+        specification TEXT,
+        unit TEXT,
+        quantity REAL,
+        unitPrice REAL,
+        amount REAL NOT NULL,
+        taxRate REAL,
+        taxAmount REAL,
+        totalAmount REAL NOT NULL,
+        paymentStatus TEXT DEFAULT 'unpaid',
+        paidAmount REAL DEFAULT 0,
+        voucherId TEXT,
+        voucherNo TEXT,
+        partnerId TEXT,
+        partnerName TEXT,
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      -- 发票核销记录表
+      CREATE TABLE IF NOT EXISTS invoiceReconciliations (
+        id TEXT PRIMARY KEY,
+        invoiceId TEXT NOT NULL,
+        voucherId TEXT,
+        entryId TEXT,
+        amount REAL NOT NULL,
+        reconcileDate TEXT NOT NULL,
+        notes TEXT,
+        accountSetId TEXT,
+        createTime TEXT
+      );
     `;
 
     db.exec(tables);
@@ -917,6 +1136,43 @@ class AccountSetDbManager {
       CREATE INDEX IF NOT EXISTS idx_auditLogs_accountSetId ON auditLogs(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_recRelations_accountSetId ON recRelations(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_recRelations_recRefNo ON recRelations(recRefNo);
+
+      -- Asset indexes
+      CREATE INDEX IF NOT EXISTS idx_assetCategories_accountSetId ON assetCategories(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_assetCategories_code ON assetCategories(code);
+      CREATE INDEX IF NOT EXISTS idx_assetCategories_assetType ON assetCategories(assetType);
+      CREATE INDEX IF NOT EXISTS idx_fixedAssets_accountSetId ON fixedAssets(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_fixedAssets_assetCode ON fixedAssets(assetCode);
+      CREATE INDEX IF NOT EXISTS idx_fixedAssets_categoryId ON fixedAssets(categoryId);
+      CREATE INDEX IF NOT EXISTS idx_fixedAssets_status ON fixedAssets(status);
+      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_accountSetId ON depreciationRecords(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_assetId ON depreciationRecords(assetId);
+      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_period ON depreciationRecords(period);
+      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_status ON depreciationRecords(status);
+      CREATE INDEX IF NOT EXISTS idx_intangibleAssets_accountSetId ON intangibleAssets(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_intangibleAssets_assetCode ON intangibleAssets(assetCode);
+      CREATE INDEX IF NOT EXISTS idx_intangibleAssets_status ON intangibleAssets(status);
+      CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_accountSetId ON prepaidExpenses(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_expenseCode ON prepaidExpenses(expenseCode);
+      CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_status ON prepaidExpenses(status);
+      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_accountSetId ON amortizationRecords(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_entityId ON amortizationRecords(entityId);
+      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_period ON amortizationRecords(period);
+      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_status ON amortizationRecords(status);
+
+      -- Invoice indexes
+      CREATE INDEX IF NOT EXISTS idx_invoices_accountSetId ON invoices(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_invoices_invoiceType ON invoices(invoiceType);
+      CREATE INDEX IF NOT EXISTS idx_invoices_invoiceCode ON invoices(invoiceCode);
+      CREATE INDEX IF NOT EXISTS idx_invoices_invoiceDate ON invoices(invoiceDate);
+      CREATE INDEX IF NOT EXISTS idx_invoices_partnerId ON invoices(partnerId);
+      CREATE INDEX IF NOT EXISTS idx_invoices_voucherId ON invoices(voucherId);
+      CREATE INDEX IF NOT EXISTS idx_invoices_paymentStatus ON invoices(paymentStatus);
+
+      -- Invoice Reconciliation indexes
+      CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_accountSetId ON invoiceReconciliations(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_invoiceId ON invoiceReconciliations(invoiceId);
+      CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
     `;
 
     db.exec(indexes);
