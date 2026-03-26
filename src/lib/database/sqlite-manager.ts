@@ -394,6 +394,7 @@ class SQLiteManager {
         id TEXT PRIMARY KEY,
         code TEXT UNIQUE,
         name TEXT,
+        taxNo TEXT,
         description TEXT,
         createTime TEXT,
         updateTime TEXT
@@ -790,6 +791,7 @@ class SQLiteManager {
         id TEXT PRIMARY KEY,
         invoiceType TEXT NOT NULL,
         invoiceCode TEXT NOT NULL,
+        digitalInvoiceNo TEXT,
         invoiceDate TEXT NOT NULL,
         sellerName TEXT,
         sellerTaxNo TEXT,

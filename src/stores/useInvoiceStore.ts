@@ -85,17 +85,17 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
     db.run(
       `INSERT INTO invoices (
-        id, invoiceType, invoiceCode, invoiceDate, sellerName, sellerTaxNo,
+        id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
         buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
         amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
         voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.invoiceDate,
-        invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName, invoice.buyerTaxNo,
-        invoice.goodsName, invoice.specification, invoice.unit, invoice.quantity,
-        invoice.unitPrice, invoice.amount, invoice.taxRate, invoice.taxAmount,
-        invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
+        invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
+        invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
+        invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
+        invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
+        invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
         invoice.voucherId, invoice.voucherNo, invoice.partnerId, invoice.partnerName,
         invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime
       ]
@@ -167,6 +167,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
     const errors: string[] = [];
     let success = 0;
+    const addedInvoices: Invoice[] = [];
 
     for (const data of invoicesData) {
       try {
@@ -185,11 +186,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           id: generateId(),
           invoiceType,
           invoiceCode: data.invoiceCode || '',
+          digitalInvoiceNo: data.digitalInvoiceNo, // 数电发票号码
           invoiceDate: data.invoiceDate || '',
           sellerName: data.sellerName || '',
-          sellerTaxNo: data.sellerTaxNo,
+          sellerTaxNo: data.sellerTaxNo, // 销方识别号
           buyerName: data.buyerName || '',
-          buyerTaxNo: data.buyerTaxNo,
+          buyerTaxNo: data.buyerTaxNo, // 购方识别号
           goodsName: data.goodsName,
           specification: data.specification,
           unit: data.unit,
@@ -210,30 +212,35 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
         db.run(
           `INSERT INTO invoices (
-            id, invoiceType, invoiceCode, invoiceDate, sellerName, sellerTaxNo,
+            id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
             buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
             amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
             voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.invoiceDate,
-            invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName, invoice.buyerTaxNo,
-            invoice.goodsName, invoice.specification, invoice.unit, invoice.quantity,
-            invoice.unitPrice, invoice.amount, invoice.taxRate, invoice.taxAmount,
-            invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
+            invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
+            invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
+            invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
+            invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
+            invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
             invoice.voucherId, invoice.voucherNo, invoice.partnerId, invoice.partnerName,
             invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime
           ]
         );
 
         success++;
+        addedInvoices.push(invoice);
       } catch (error) {
         errors.push(`导入发票 ${data.invoiceCode || '未知'} 失败: ${error}`);
       }
     }
 
-    // 重新加载发票
-    await get().initialize();
+    // 直接将新增的发票添加到状态中，而不是重新初始化
+    if (addedInvoices.length > 0) {
+      set((state) => ({
+        invoices: [...addedInvoices, ...state.invoices],
+      }));
+    }
 
     return { success, errors };
   },

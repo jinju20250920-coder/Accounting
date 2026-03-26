@@ -142,6 +142,10 @@ export class CodeRuleManager {
 
   // 从localStorage加载规则
   loadRules(): void {
+    // 检查是否在浏览器环境
+    if (typeof window === 'undefined') {
+      return;
+    }
     try {
       const stored = localStorage.getItem('codeRules');
       if (stored) {
@@ -157,6 +161,10 @@ export class CodeRuleManager {
 
   // 保存规则到localStorage
   saveRules(): void {
+    // 检查是否在浏览器环境
+    if (typeof window === 'undefined') {
+      return;
+    }
     try {
       const rules = Array.from(this.rules.values());
       localStorage.setItem('codeRules', JSON.stringify(rules));

@@ -163,7 +163,19 @@
       "Bash(export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/)",
       "Bash(export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/)",
       "Bash(npx eslint:*)",
-      "mcp__zai-mcp-server__analyze_image"
+      "mcp__zai-mcp-server__analyze_image",
+      "Bash(powershell -Command \"\ncd 'D:\\\\AI\\\\ai-finance-assistant'\n\\\\$xlsx = 'D:\\\\昆山安洁装修工程有限公司\\\\9月份资产负责表,利润表.xlsx'\nCopy-Item \\\\$xlsx 'report_template.xlsx' -Force\n\")",
+      "Bash(claude:*)",
+      "Bash(find ~/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/ -name *.json -type f)",
+      "Bash(rm -rf brainstorming dispatching-parallel-agents executing-plans finishing-a-development-branch receiving-code-review requesting-code-review subagent-driven-development systematic-debugging test-driven-development using-git-worktrees using-superpowers verification-before-completion writing-plans writing-skills)",
+      "Bash(for skill:*)",
+      "Bash(do)",
+      "Bash(cp -r ~/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/$skill $skill)",
+      "Bash(done)",
+      "Bash(find D:AIai-finance-assistantsrcappreports -type f -name *.tsx)",
+      "Bash(find D:AIai-finance-assistantsrc -name *aging* -o -name *partner*)",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force .next\")",
+      "Bash(powershell -Command \"if \\(Test-Path ''.next\\\\dev\\\\lock''\\) { Remove-Item -Path ''.next\\\\dev\\\\lock'' -Force }\")"
     ]
   }
 }

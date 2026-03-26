@@ -40,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select } from '@/components/ui/select';
+import { SimpleSelect } from '@/components/ui/select';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useRouter } from 'next/navigation';
@@ -65,6 +65,12 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [mounted, setMounted] = useState(false);
+
+  // 确保只在客户端渲染图表
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // 计算真实的核心指标
   const coreMetrics = useMemo(() => {
@@ -342,6 +348,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-64">
+              {mounted && (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData}>
                   <defs>
@@ -383,6 +390,7 @@ export default function Dashboard() {
                   <Legend />
                 </AreaChart>
               </ResponsiveContainer>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -436,6 +444,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-64">
+              {mounted && (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={agingData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -450,6 +459,7 @@ export default function Dashboard() {
                   <Bar dataKey="current" name="当前金额" fill="#3b82f6" />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -516,7 +526,7 @@ export default function Dashboard() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Select
+              <SimpleSelect
                 value={selectedStatus}
                 onChange={setSelectedStatus}
                 options={[
@@ -526,6 +536,7 @@ export default function Dashboard() {
                   { value: 'posted', label: '已记账' },
                   { value: 'reversed', label: '已冲销' }
                 ]}
+                showCode={false}
               />
             </div>
             <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@ export interface AccountingSet {
   id: string;
   code: string;
   name: string;
+  taxNo?: string;               // 公司税号（纳税人识别号）
   baseCurrency: string;
   baseCurrencyName: string;
   startDate: string;
@@ -925,6 +926,7 @@ export interface Invoice {
   id: string;
   invoiceType: InvoiceType;         // 发票类型: input(进项)/output(销项)
   invoiceCode: string;              // 发票号码
+  digitalInvoiceNo?: string;        // 数电发票号码（全电发票专用）
   invoiceDate: string;              // 开票日期
   sellerName: string;               // 销售方名称
   sellerTaxNo?: string;             // 销售方税号

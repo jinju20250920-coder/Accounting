@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectOption } from '@/components/ui/select';
+import { SimpleSelect, SelectOption } from '@/components/ui/select';
 import { SubjectSearch } from './subject-search';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ColumnSettings } from './ColumnSettings';
@@ -1241,7 +1241,7 @@ export function VoucherEntryGrid() {
                         const isDeptDisabled = !subjectMetadataDept?.enableDept;
                         return (
                           <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
-                            <Select
+                            <SimpleSelect
                               variant="excel"
                               data-entry-id={entry.id}
                               data-field="deptCode"
@@ -1266,7 +1266,7 @@ export function VoucherEntryGrid() {
                         const isProjectDisabled = !subjectMetadataProject?.enableProject;
                         return (
                           <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
-                            <Select
+                            <SimpleSelect
                               variant="excel"
                               data-entry-id={entry.id}
                               data-field="projectCode"
@@ -1289,7 +1289,7 @@ export function VoucherEntryGrid() {
                       case 'customerSupplier':
                         return (
                           <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
-                            <Select
+                            <SimpleSelect
                               variant="excel"
                               data-entry-id={entry.id}
                               data-field="partnerCode"

@@ -37,6 +37,7 @@ export function FirstTimeWizard({ open, onOpenChange, onComplete }: FirstTimeWiz
     code: 'SET001',
     name: '',
     unifiedSocialCreditCode: '',
+    taxNo: '',
     address: '',
     baseCurrency: '人民币',
     startDate: new Date().toISOString().split('T')[0],
@@ -235,7 +236,16 @@ export function FirstTimeWizard({ open, onOpenChange, onComplete }: FirstTimeWiz
                 <Input
                   placeholder="18位统一社会信用代码"
                   value={formData.unifiedSocialCreditCode}
-                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value, taxNo: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>纳税人识别号</Label>
+                <Input
+                  placeholder="与统一社会信用代码相同"
+                  value={formData.taxNo}
+                  onChange={(e) => setFormData({ ...formData, taxNo: e.target.value })}
                 />
               </div>
 

@@ -58,6 +58,11 @@ class SQLiteService {
     return this._usingAccountSetDb;
   }
 
+  // 公开方法：获取数据库实例（带完整初始化和降级逻辑）
+  async getDatabase(): Promise<any> {
+    return this.getDb();
+  }
+
   private async getDb(): Promise<any> {
     // 如果有缓存的实例，直接返回
     if (this.dbInstance) {
@@ -85,7 +90,7 @@ class SQLiteService {
             // 检查 sqliteManager 中是否有数据，如果有则使用旧数据库
             const { sqliteManager } = await import('./sqlite-manager');
             await sqliteManager.init();
-            const oldDb = sqliteManager.getDatabase();
+            const oldDb = await sqliteManager.getDatabaseSafe();
 
             if (oldDb) {
               // 检查旧数据库中是否有数据
@@ -125,7 +130,7 @@ class SQLiteService {
               // 最后的降级方案：使用全局 sqliteManager
               const { sqliteManager } = await import('./sqlite-manager');
               await sqliteManager.init();
-              db = sqliteManager.getDatabase();
+              db = await sqliteManager.getDatabaseSafe();
             }
           } else {
             // 有文件句柄但无法打开，可能是文件损坏
@@ -258,6 +263,11 @@ class SQLiteService {
   private async querySingleAsync<T>(sql: string, params: any[] = []): Promise<T | null> {
     await this.ensureInitialized();
 
+    // Double-check that dbInstance is actually available
+    if (!this.dbInstance) {
+      throw new Error('Database instance is null after initialization');
+    }
+
     // 确保所有参数都不是 undefined 或 null
     const safeParams = params.map(param =>
       param === undefined || param === null ? '' : param
@@ -304,6 +314,11 @@ class SQLiteService {
   // Helper to execute a query and return multiple results (async version)
   private async queryAllAsync<T>(sql: string, params: any[] = []): Promise<T[]> {
     await this.ensureInitialized();
+
+    // Double-check that dbInstance is actually available
+    if (!this.dbInstance) {
+      throw new Error('Database instance is null after initialization');
+    }
 
     // 确保所有参数都不是 undefined 或 null
     const safeParams = params.map(param =>
@@ -353,6 +368,11 @@ class SQLiteService {
   async saveVoucher(voucher: Voucher): Promise<void> {
     try {
       await this.ensureInitialized();
+
+      if (!this.dbInstance) {
+        throw new Error('Database instance is null after initialization');
+      }
+
       // Save voucher
       const voucherWithAccountSet = {
         ...voucher,

@@ -207,56 +207,100 @@ function ImportDialog({
   open,
   onOpenChange,
   onImport,
+  accountSetTaxNo,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImport: (invoices: Partial<Invoice>[]) => Promise<{ success: number; errors: string[] }>;
+  accountSetTaxNo?: string; // 当前账套的税号
 }) {
   const { showToast } = useToast();
   const [importing, setImporting] = useState(false);
   const [previewData, setPreviewData] = useState<Partial<Invoice>[]>([]);
-  const [step, setStep] = useState<'upload' | 'preview'>('upload');
+  const [step, setStep] = useState<'upload' | 'preview' | 'warning'>('upload');
+  const [taxNoMismatch, setTaxNoMismatch] = useState(false);
+  const [mismatchDetails, setMismatchDetails] = useState<string[]>([]);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 对话框打开/关闭时重置状态
+  useEffect(() => {
+    if (!open) {
+      setPreviewData([]);
+      setStep('upload');
+      setTaxNoMismatch(false);
+      setMismatchDetails([]);
+      setImporting(false);
+    }
+  }, [open]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    // 立即重置input的值，允许再次选择同一个文件
+    e.target.value = '';
 
-      // 映射字段（税务局Excel格式）
-      const invoices: Partial<Invoice>[] = jsonData.map((row: any) => ({
-        invoiceCode: row['发票号码'] || row['发票代码'] || '',
-        invoiceDate: row['开票日期'] || row['日期'] || '',
-        sellerName: row['销方名称'] || row['销售方名称'] || '',
-        sellerTaxNo: row['销方税号'] || row['销售方纳税人识别号'] || '',
-        buyerName: row['购方名称'] || row['购买方名称'] || '',
-        buyerTaxNo: row['购方税号'] || row['购买方纳税人识别号'] || '',
-        goodsName: row['货物或应税劳务名称'] || row['商品名称'] || '',
-        specification: row['规格型号'] || '',
-        unit: row['单位'] || '',
-        quantity: parseFloat(row['数量']) || 0,
-        unitPrice: parseFloat(row['单价']) || 0,
-        amount: parseFloat(row['金额'] || row['不含税金额']) || 0,
-        taxRate: parseFloat(row['税率']) / 100 || 0.13,
-        taxAmount: parseFloat(row['税额']) || 0,
-        totalAmount: parseFloat(row['价税合计'] || row['合计金额']) || 0,
-        partnerName: row['销方名称'] || row['销售方名称'] || '',
-      }));
+    // 使用Promise包装来避免message channel问题
+    const processFile = async () => {
+      try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-      setPreviewData(invoices);
-      setStep('preview');
-    } catch (error) {
-      showToast('error', '解析Excel文件失败');
-      console.error(error);
-    }
+        // 映射字段（税务局Excel格式 - 支持数电发票）
+        const invoices: Partial<Invoice>[] = jsonData.map((row: any) => ({
+          invoiceCode: row['发票号码'] || row['发票代码'] || '',
+          digitalInvoiceNo: row['数电发票号码'] || row['全电发票号码'] || row['电子发票号码'] || '',
+          invoiceDate: row['开票日期'] || row['日期'] || '',
+          sellerName: row['销方名称'] || row['销售方名称'] || '',
+          sellerTaxNo: row['销方识别号'] || row['销方税号'] || row['销售方纳税人识别号'] || '',
+          buyerName: row['购方名称'] || row['购买方名称'] || '',
+          buyerTaxNo: row['购方识别号'] || row['购方税号'] || row['购买方纳税人识别号'] || '',
+          goodsName: row['货物或应税劳务名称'] || row['商品名称'] || '',
+          specification: row['规格型号'] || '',
+          unit: row['单位'] || '',
+          quantity: parseFloat(row['数量']) || 0,
+          unitPrice: parseFloat(row['单价']) || 0,
+          amount: parseFloat(row['金额'] || row['不含税金额']) || 0,
+          taxRate: parseFloat(row['税率']) / 100 || 0.13,
+          taxAmount: parseFloat(row['税额']) || 0,
+          totalAmount: parseFloat(row['价税合计'] || row['合计金额']) || 0,
+          partnerName: row['销方名称'] || row['销售方名称'] || '',
+        }));
+
+        // 检查购方识别号是否与账套税号一致
+        if (accountSetTaxNo) {
+          const mismatches: string[] = [];
+          invoices.forEach((inv, idx) => {
+            if (inv.buyerTaxNo && inv.buyerTaxNo !== accountSetTaxNo) {
+              mismatches.push(`第${idx + 1}行: 购方识别号 ${inv.buyerTaxNo} 与账套税号 ${accountSetTaxNo} 不一致`);
+            }
+          });
+
+          if (mismatches.length > 0) {
+            setMismatchDetails(mismatches);
+            setTaxNoMismatch(true);
+            setPreviewData(invoices);
+            setStep('warning');
+            return;
+          }
+        }
+
+        setPreviewData(invoices);
+        setTaxNoMismatch(false);
+        setStep('preview');
+      } catch (error) {
+        showToast('error', '解析Excel文件失败');
+        console.error(error);
+      }
+    };
+
+    // 异步处理，但不直接在事件处理器中返回Promise
+    processFile();
   };
 
-  const handleImport = async () => {
+  const handleConfirmImport = async () => {
     setImporting(true);
     try {
       const result = await onImport(previewData);
@@ -269,11 +313,27 @@ function ImportDialog({
       onOpenChange(false);
       setPreviewData([]);
       setStep('upload');
+      setTaxNoMismatch(false);
+      setMismatchDetails([]);
     } catch (error) {
       showToast('error', '导入失败');
     } finally {
       setImporting(false);
     }
+  };
+
+  const handleCancel = () => {
+    onOpenChange(false);
+    setPreviewData([]);
+    setStep('upload');
+    setTaxNoMismatch(false);
+    setMismatchDetails([]);
+  };
+
+  const handleContinueAnyway = () => {
+    // 用户确认继续导入（即使税号不匹配）
+    setStep('preview');
+    setTaxNoMismatch(false);
   };
 
   return (
@@ -294,6 +354,33 @@ function ImportDialog({
                 onChange={handleFileChange}
                 className="max-w-sm mx-auto"
               />
+            </div>
+          </div>
+        )}
+
+        {step === 'warning' && (
+          <div className="py-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 text-yellow-800 font-medium mb-2">
+                <AlertCircle className="h-5 w-5" />
+                购方识别号与账套税号不一致
+              </div>
+              <p className="text-yellow-700 text-sm mb-2">
+                以下发票的购方识别号与当前账套的税号不一致，请确认文件是否正确：
+              </p>
+              <div className="max-h-48 overflow-y-auto text-sm text-yellow-700 bg-yellow-100 rounded p-2">
+                {mismatchDetails.map((detail, idx) => (
+                  <div key={idx}>{detail}</div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={handleCancel}>
+                取消导入
+              </Button>
+              <Button onClick={handleContinueAnyway}>
+                确认继续导入
+              </Button>
             </div>
           </div>
         )}
@@ -341,11 +428,11 @@ function ImportDialog({
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={handleCancel}>
             取消
           </Button>
           {step === 'preview' && (
-            <Button onClick={handleImport} disabled={importing}>
+            <Button onClick={handleConfirmImport} disabled={importing}>
               {importing ? '导入中...' : '确认导入'}
             </Button>
           )}
@@ -376,6 +463,9 @@ export default function InputInvoicePage() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
 
   const currentAccountSetId = useAccountSetStore((state) => state.currentAccountSetId);
+  const { getCurrentAccountSet } = useAccountSetStore();
+  const currentAccountSet = getCurrentAccountSet();
+  const accountSetTaxNo = currentAccountSet?.taxNo;
 
   // 初始化
   useEffect(() => {
@@ -606,6 +696,7 @@ export default function InputInvoicePage() {
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
         onImport={handleImport}
+        accountSetTaxNo={accountSetTaxNo}
       />
 
       {/* 详情对话框 */}

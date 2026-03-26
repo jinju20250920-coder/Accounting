@@ -1066,11 +1066,12 @@ class AccountSetDbManager {
         id TEXT PRIMARY KEY,
         invoiceType TEXT NOT NULL,
         invoiceCode TEXT NOT NULL,
+        digitalInvoiceNo TEXT, -- 数电发票号码
         invoiceDate TEXT NOT NULL,
         sellerName TEXT,
-        sellerTaxNo TEXT,
+        sellerTaxNo TEXT, -- 销方识别号
         buyerName TEXT,
-        buyerTaxNo TEXT,
+        buyerTaxNo TEXT, -- 购方识别号
         goodsName TEXT,
         specification TEXT,
         unit TEXT,

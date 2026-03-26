@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Select, SelectOption as SelectOptionType } from '@/components/ui/select';
+import { SimpleSelect, SelectOption as SelectOptionType } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
@@ -600,7 +600,7 @@ export default function VoucherListPage() {
           <div className="flex flex-wrap gap-4 items-end">
             <div className="flex-1 min-w-[300px]">
               <div className="flex items-center gap-2">
-                <Select
+                <SimpleSelect
                   value={searchMode}
                   onChange={(value) => setSearchMode(value as 'all' | 'subject')}
                   options={[
@@ -621,7 +621,7 @@ export default function VoucherListPage() {
             </div>
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-slate-400" />
-              <Select
+              <SimpleSelect
                 value={selectedStatus}
                 onChange={setSelectedStatus}
                 options={[
@@ -635,7 +635,7 @@ export default function VoucherListPage() {
               />
             </div>
             <div>
-              <Select
+              <SimpleSelect
                 value={selectedType}
                 onChange={setSelectedType}
                 options={[

@@ -1,0 +1,739 @@
+'use client';
+
+import { create } from 'zustand';
+import { getCurrentManager } from '@/lib/database';
+import { useAccountSetStore } from './useAccountSetStore';
+import {
+  calculateAmortization,
+  getAmortizationMethodName,
+  parseAmortizationMethod,
+} from '@/lib/amortization';
+import type {
+  IntangibleAsset,
+  AmortizationRecord,
+  AmortizationResult,
+  BatchAmortizationResult,
+  AmortizationMethod,
+  IntangibleAssetType,
+} from '@/types';
+
+interface IntangibleAssetStore {
+  // 状态
+  assets: IntangibleAsset[];
+  amortizationRecords: AmortizationRecord[];
+  loading: boolean;
+  error: string | null;
+  selectedAssetId: string | null;
+
+  // CRUD
+  addAsset: (asset: Omit<IntangibleAsset, 'id' | 'createTime' | 'updateTime'>) => Promise<IntangibleAsset>;
+  updateAsset: (id: string, updates: Partial<IntangibleAsset>) => Promise<void>;
+  deleteAsset: (id: string) => Promise<void>;
+  getAssetById: (id: string) => IntangibleAsset | undefined;
+  getAssetByCode: (code: string) => IntangibleAsset | undefined;
+
+  // 摊销
+  calculateAmortizationForAsset: (assetId: string, asOfDate: string, unitsThisPeriod?: number) => AmortizationResult | null;
+  batchCalculateAmortization: (assetIds: string[], period: string, unitsMap?: Record<string, number>) => BatchAmortizationResult;
+  saveAmortizationRecords: (records: AmortizationRecord[]) => Promise<void>;
+  postAmortizationRecords: (recordIds: string[]) => Promise<void>;
+
+  // 查询
+  getActiveAssets: () => IntangibleAsset[];
+  getAmortizationHistory: (assetId: string) => AmortizationRecord[];
+  getAssetsByType: (type: IntangibleAssetType) => IntangibleAsset[];
+
+  // 导入导出
+  importFromExcel: (assets: Partial<IntangibleAsset>[]) => Promise<{ success: number; errors: string[] }>;
+  exportToExcel: () => IntangibleAsset[];
+
+  // 凭证生成
+  generateAmortizationVoucher: (recordIds: string[], voucherDate: string) => Promise<{ voucherId: string; voucherNo: string } | null>;
+
+  // 状态管理
+  setSelectedAssetId: (id: string | null) => void;
+  clearError: () => void;
+  initialize: () => Promise<void>;
+}
+
+// 生成唯一ID
+const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+
+export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) => ({
+  // 初始状态
+  assets: [],
+  amortizationRecords: [],
+  loading: false,
+  error: null,
+  selectedAssetId: null,
+
+  // 添加资产
+  addAsset: async (assetData) => {
+    const state = get();
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+    // 检查编码是否重复
+    if (state.assets.some(a => a.assetCode === assetData.assetCode)) {
+      const error = '资产编码已存在';
+      set({ error });
+      throw new Error(error);
+    }
+
+    const now = new Date().toISOString();
+    const newAsset: IntangibleAsset = {
+      ...assetData,
+      id: generateId(),
+      netValue: assetData.originalValue - (assetData.accumulatedAmortization || 0),
+      status: assetData.status || 'active',
+      accountSetId: currentAccountSet?.id,
+      createTime: now,
+      updateTime: now,
+    };
+
+    try {
+      const db = await getCurrentManager().getDatabase();
+      db.run(
+        `INSERT INTO intangibleAssets (
+          id, assetCode, assetName, assetType, originalValue, residualValue,
+          accumulatedAmortization, netValue, amortizationMethod, usefulLifeYears, usefulLifeMonths,
+          totalUnits, unitsUsed, acquisitionDate, amortizationStartDate, lastAmortizationDate, expiryDate,
+          status, assetSubjectCode, assetSubjectName, amortizationSubjectCode, amortizationSubjectName,
+          expenseSubjectCode, expenseSubjectName, registrationNo, legalLifeYears,
+          departmentCode, departmentName, notes, accountSetId, createTime, updateTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.assetType,
+          newAsset.originalValue, newAsset.residualValue,
+          newAsset.accumulatedAmortization, newAsset.netValue,
+          newAsset.amortizationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
+          newAsset.totalUnits, newAsset.unitsUsed,
+          newAsset.acquisitionDate, newAsset.amortizationStartDate,
+          newAsset.lastAmortizationDate, newAsset.expiryDate,
+          newAsset.status, newAsset.assetSubjectCode, newAsset.assetSubjectName,
+          newAsset.amortizationSubjectCode, newAsset.amortizationSubjectName,
+          newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
+          newAsset.registrationNo, newAsset.legalLifeYears,
+          newAsset.departmentCode, newAsset.departmentName,
+          newAsset.notes, newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
+        ]
+      );
+
+      set((state) => ({
+        assets: [...state.assets, newAsset],
+        error: null,
+      }));
+
+      return newAsset;
+    } catch (error: any) {
+      set({ error: error.message || '添加资产失败' });
+      throw error;
+    }
+  },
+
+  // 更新资产
+  updateAsset: async (id, updates) => {
+    const state = get();
+    const asset = state.assets.find(a => a.id === id);
+    if (!asset) {
+      set({ error: '资产不存在' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const updatedAsset: IntangibleAsset = {
+      ...asset,
+      ...updates,
+      updateTime: now,
+    };
+
+    // 重新计算净值
+    if (updates.originalValue !== undefined || updates.accumulatedAmortization !== undefined) {
+      updatedAsset.netValue = updatedAsset.originalValue - updatedAsset.accumulatedAmortization;
+    }
+
+    try {
+      const db = await getCurrentManager().getDatabase();
+      db.run(
+        `UPDATE intangibleAssets SET
+          assetName=?, assetType=?, originalValue=?, residualValue=?,
+          accumulatedAmortization=?, netValue=?, amortizationMethod=?,
+          usefulLifeYears=?, usefulLifeMonths=?, totalUnits=?, unitsUsed=?,
+          acquisitionDate=?, amortizationStartDate=?, lastAmortizationDate=?, expiryDate=?,
+          status=?, assetSubjectCode=?, assetSubjectName=?,
+          amortizationSubjectCode=?, amortizationSubjectName=?,
+          expenseSubjectCode=?, expenseSubjectName=?,
+          registrationNo=?, legalLifeYears=?,
+          departmentCode=?, departmentName=?, notes=?, updateTime=?
+        WHERE id=?`,
+        [
+          updatedAsset.assetName, updatedAsset.assetType,
+          updatedAsset.originalValue, updatedAsset.residualValue,
+          updatedAsset.accumulatedAmortization, updatedAsset.netValue,
+          updatedAsset.amortizationMethod,
+          updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
+          updatedAsset.totalUnits, updatedAsset.unitsUsed,
+          updatedAsset.acquisitionDate, updatedAsset.amortizationStartDate,
+          updatedAsset.lastAmortizationDate, updatedAsset.expiryDate,
+          updatedAsset.status, updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
+          updatedAsset.amortizationSubjectCode, updatedAsset.amortizationSubjectName,
+          updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
+          updatedAsset.registrationNo, updatedAsset.legalLifeYears,
+          updatedAsset.departmentCode, updatedAsset.departmentName,
+          updatedAsset.notes, updatedAsset.updateTime, id,
+        ]
+      );
+
+      set((state) => ({
+        assets: state.assets.map(a => a.id === id ? updatedAsset : a),
+        error: null,
+      }));
+    } catch (error: any) {
+      set({ error: error.message || '更新资产失败' });
+      throw error;
+    }
+  },
+
+  // 删除资产
+  deleteAsset: async (id) => {
+    const state = get();
+    const asset = state.assets.find(a => a.id === id);
+    if (!asset) {
+      set({ error: '资产不存在' });
+      return;
+    }
+
+    // 检查是否有未记账的摊销记录
+    const hasUnpostedRecords = state.amortizationRecords.some(
+      r => r.entityId === id && r.entityType === 'intangible' && r.status === 'draft'
+    );
+    if (hasUnpostedRecords) {
+      set({ error: '该资产有未记账的摊销记录，无法删除' });
+      return;
+    }
+
+    try {
+      const db = await getCurrentManager().getDatabase();
+      // 删除摊销记录
+      db.run('DELETE FROM amortizationRecords WHERE entityId = ? AND entityType = ?', [id, 'intangible']);
+      // 删除资产
+      db.run('DELETE FROM intangibleAssets WHERE id = ?', [id]);
+
+      set((state) => ({
+        assets: state.assets.filter(a => a.id !== id),
+        amortizationRecords: state.amortizationRecords.filter(
+          r => !(r.entityId === id && r.entityType === 'intangible')
+        ),
+        error: null,
+      }));
+    } catch (error: any) {
+      set({ error: error.message || '删除资产失败' });
+      throw error;
+    }
+  },
+
+  // 按ID获取资产
+  getAssetById: (id) => {
+    return get().assets.find(a => a.id === id);
+  },
+
+  // 按编码获取资产
+  getAssetByCode: (code) => {
+    return get().assets.find(a => a.assetCode === code);
+  },
+
+  // 计算单个资产的摊销
+  calculateAmortizationForAsset: (assetId, asOfDate, unitsThisPeriod) => {
+    const asset = get().assets.find(a => a.id === assetId);
+    if (!asset || asset.status !== 'active') return null;
+
+    const result = calculateAmortization(
+      asset.amortizationMethod,
+      {
+        method: asset.amortizationMethod,
+        originalValue: asset.originalValue,
+        residualValue: asset.residualValue,
+        usefulLifeMonths: asset.usefulLifeMonths,
+        acquisitionDate: asset.acquisitionDate,
+        amortizationStartDate: asset.amortizationStartDate || asset.acquisitionDate,
+        amortizedAmount: asset.accumulatedAmortization,
+        totalUnits: asset.totalUnits,
+        unitsUsed: asset.unitsUsed,
+        asOfDate,
+      },
+      unitsThisPeriod
+    );
+
+    return result;
+  },
+
+  // 批量计算摊销
+  batchCalculateAmortization: (assetIds, period, unitsMap) => {
+    const state = get();
+    const records: AmortizationRecord[] = [];
+    const errors: Array<{ entityId: string; entityName: string; error: string }> = [];
+    let totalAmortization = 0;
+
+    for (const assetId of assetIds) {
+      const asset = state.assets.find(a => a.id === assetId);
+      if (!asset) {
+        errors.push({ entityId: assetId, entityName: '未知', error: '资产不存在' });
+        continue;
+      }
+
+      if (asset.status !== 'active') {
+        errors.push({ entityId: assetId, entityName: asset.assetName, error: '资产状态不是在用' });
+        continue;
+      }
+
+      const result = calculateAmortization(
+        asset.amortizationMethod,
+        {
+          method: asset.amortizationMethod,
+          originalValue: asset.originalValue,
+          residualValue: asset.residualValue,
+          usefulLifeMonths: asset.usefulLifeMonths,
+          acquisitionDate: asset.acquisitionDate,
+          amortizationStartDate: asset.amortizationStartDate || asset.acquisitionDate,
+          amortizedAmount: asset.accumulatedAmortization,
+          totalUnits: asset.totalUnits,
+          unitsUsed: asset.unitsUsed,
+          asOfDate: `${period}-01`,
+        },
+        unitsMap?.[assetId]
+      );
+
+      if (result.isFullyAmortized || result.periodAmortization <= 0) {
+        continue;
+      }
+
+      const record: AmortizationRecord = {
+        id: generateId(),
+        entityType: 'intangible',
+        entityId: asset.id,
+        entityCode: asset.assetCode,
+        entityName: asset.assetName,
+        period,
+        amortizationDate: `${period}-01`,
+        periodAmortization: result.periodAmortization,
+        accumulatedAmortization: result.accumulatedAmortization,
+        remainingAmount: result.remainingAmount,
+        status: 'draft',
+        accountSetId: asset.accountSetId,
+        createTime: new Date().toISOString(),
+        updateTime: new Date().toISOString(),
+      };
+
+      records.push(record);
+      totalAmortization += result.periodAmortization;
+    }
+
+    return {
+      records,
+      totalAmortization,
+      entityCount: records.length,
+      period,
+      errors,
+    };
+  },
+
+  // 保存摊销记录
+  saveAmortizationRecords: async (records) => {
+    try {
+      const db = await getCurrentManager().getDatabase();
+
+      for (const record of records) {
+        db.run(
+          `INSERT INTO amortizationRecords (
+            id, entityType, entityId, entityCode, entityName,
+            period, amortizationDate, periodAmortization, accumulatedAmortization, remainingAmount,
+            unitsThisPeriod, voucherId, voucherNo, status, notes,
+            accountSetId, createTime, updateTime
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
+            record.period, record.amortizationDate,
+            record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
+            record.unitsThisPeriod, record.voucherId, record.voucherNo,
+            record.status, record.notes,
+            record.accountSetId, record.createTime, record.updateTime,
+          ]
+        );
+      }
+
+      set((state) => ({
+        amortizationRecords: [...state.amortizationRecords, ...records],
+        error: null,
+      }));
+    } catch (error: any) {
+      set({ error: error.message || '保存摊销记录失败' });
+      throw error;
+    }
+  },
+
+  // 记账摊销记录
+  postAmortizationRecords: async (recordIds) => {
+    const state = get();
+    const records = state.amortizationRecords.filter(r => recordIds.includes(r.id));
+
+    try {
+      const db = await getCurrentManager().getDatabase();
+
+      for (const record of records) {
+        // 更新摊销记录状态
+        db.run(
+          'UPDATE amortizationRecords SET status = ?, updateTime = ? WHERE id = ?',
+          ['posted', new Date().toISOString(), record.id]
+        );
+
+        // 更新资产的累计摊销
+        const asset = state.assets.find(a => a.id === record.entityId);
+        if (asset && record.entityType === 'intangible') {
+          const newAccumulated = asset.accumulatedAmortization + record.periodAmortization;
+          const newNetValue = asset.originalValue - newAccumulated;
+
+          db.run(
+            `UPDATE intangibleAssets SET
+              accumulatedAmortization = ?, netValue = ?, lastAmortizationDate = ?, updateTime = ?
+            WHERE id = ?`,
+            [newAccumulated, newNetValue, record.amortizationDate, new Date().toISOString(), asset.id]
+          );
+        }
+      }
+
+      // 更新本地状态
+      set((state) => ({
+        amortizationRecords: state.amortizationRecords.map(r =>
+          recordIds.includes(r.id) ? { ...r, status: 'posted' as const } : r
+        ),
+        assets: state.assets.map(a => {
+          const relatedRecord = records.find(r => r.entityId === a.id && r.entityType === 'intangible');
+          if (relatedRecord) {
+            return {
+              ...a,
+              accumulatedAmortization: a.accumulatedAmortization + relatedRecord.periodAmortization,
+              netValue: a.originalValue - (a.accumulatedAmortization + relatedRecord.periodAmortization),
+              lastAmortizationDate: relatedRecord.amortizationDate,
+              updateTime: new Date().toISOString(),
+            };
+          }
+          return a;
+        }),
+        error: null,
+      }));
+    } catch (error: any) {
+      set({ error: error.message || '记账失败' });
+      throw error;
+    }
+  },
+
+  // 获取在用资产
+  getActiveAssets: () => {
+    return get().assets.filter(a => a.status === 'active');
+  },
+
+  // 获取摊销历史
+  getAmortizationHistory: (assetId) => {
+    return get().amortizationRecords
+      .filter(r => r.entityId === assetId && r.entityType === 'intangible')
+      .sort((a, b) => a.period.localeCompare(b.period));
+  },
+
+  // 按类型获取资产
+  getAssetsByType: (type) => {
+    return get().assets.filter(a => a.assetType === type);
+  },
+
+  // 从Excel导入
+  importFromExcel: async (importedAssets) => {
+    const state = get();
+    const errors: string[] = [];
+    let success = 0;
+
+    for (const item of importedAssets) {
+      try {
+        if (!item.assetName || !item.originalValue || !item.acquisitionDate) {
+          errors.push(`行 ${importedAssets.indexOf(item) + 1}: 缺少必填字段`);
+          continue;
+        }
+
+        if (item.assetCode && state.assets.some(a => a.assetCode === item.assetCode)) {
+          errors.push(`行 ${importedAssets.indexOf(item) + 1}: 资产编码 ${item.assetCode} 已存在`);
+          continue;
+        }
+
+        const method: AmortizationMethod = item.amortizationMethod
+          ? parseAmortizationMethod(item.amortizationMethod)
+          : 'straight_line';
+
+        await get().addAsset({
+          assetCode: item.assetCode || `IA-${Date.now()}`,
+          assetName: item.assetName,
+          assetType: (item.assetType as IntangibleAssetType) || 'other',
+          originalValue: item.originalValue,
+          residualValue: item.residualValue || 0,
+          accumulatedAmortization: 0,
+          netValue: item.originalValue,
+          amortizationMethod: method,
+          usefulLifeYears: item.usefulLifeYears || 10,
+          usefulLifeMonths: (item.usefulLifeYears || 10) * 12,
+          acquisitionDate: item.acquisitionDate,
+          registrationNo: item.registrationNo,
+          departmentCode: item.departmentCode,
+          expenseSubjectCode: item.expenseSubjectCode || '660205',
+          assetSubjectCode: '1701',
+          amortizationSubjectCode: '1702',
+          notes: item.notes,
+          status: 'active',
+        });
+
+        success++;
+      } catch (error: any) {
+        errors.push(`行 ${importedAssets.indexOf(item) + 1}: ${error.message}`);
+      }
+    }
+
+    return { success, errors };
+  },
+
+  // 导出到Excel
+  exportToExcel: () => {
+    return get().assets;
+  },
+
+  // 设置选中的资产ID
+  setSelectedAssetId: (id) => {
+    set({ selectedAssetId: id });
+  },
+
+  // 清除错误
+  clearError: () => {
+    set({ error: null });
+  },
+
+  // 初始化
+  initialize: async () => {
+    set({ loading: true, error: null });
+
+    try {
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      const accountSetId = currentAccountSet?.id;
+
+      // 如果没有当前账套，设置空数据
+      if (!accountSetId) {
+        console.log('No current account set, setting empty data');
+        set({
+          assets: [],
+          amortizationRecords: [],
+          loading: false,
+        });
+        return;
+      }
+
+      // 设置账套ID并获取数据库
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      sqliteService.setAccountSetId(currentAccountSet.id);
+
+      // 使用 sqliteService.getDatabase() 获取数据库（带完整初始化和降级逻辑）
+      const db = await sqliteService.getDatabase();
+
+      if (!db) {
+        console.error('数据库初始化失败');
+        set({
+          assets: [],
+          amortizationRecords: [],
+          loading: false,
+          error: '数据库初始化失败'
+        });
+        return;
+      }
+
+      // 加载资产
+      const assetsResult = db.exec(
+        'SELECT * FROM intangibleAssets WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY createTime DESC',
+        [accountSetId]
+      );
+      const assets: IntangibleAsset[] = assetsResult[0]?.values?.map((row: any[]) => ({
+        id: row[0],
+        assetCode: row[1],
+        assetName: row[2],
+        assetType: row[3],
+        originalValue: row[4],
+        residualValue: row[5],
+        accumulatedAmortization: row[6],
+        netValue: row[7],
+        amortizationMethod: row[8],
+        usefulLifeYears: row[9],
+        usefulLifeMonths: row[10],
+        totalUnits: row[11],
+        unitsUsed: row[12],
+        acquisitionDate: row[13],
+        amortizationStartDate: row[14],
+        lastAmortizationDate: row[15],
+        expiryDate: row[16],
+        status: row[17],
+        assetSubjectCode: row[18],
+        assetSubjectName: row[19],
+        amortizationSubjectCode: row[20],
+        amortizationSubjectName: row[21],
+        expenseSubjectCode: row[22],
+        expenseSubjectName: row[23],
+        registrationNo: row[24],
+        legalLifeYears: row[25],
+        departmentCode: row[26],
+        departmentName: row[27],
+        notes: row[28],
+        accountSetId: row[29],
+        createTime: row[30],
+        updateTime: row[31],
+      })) || [];
+
+      // 加载摊销记录
+      const recordsResult = db.exec(
+        `SELECT * FROM amortizationRecords
+         WHERE (accountSetId = ? OR accountSetId IS NULL) AND entityType = 'intangible'
+         ORDER BY period DESC`,
+        [accountSetId]
+      );
+      const amortizationRecords: AmortizationRecord[] = recordsResult[0]?.values?.map((row: any[]) => ({
+        id: row[0],
+        entityType: row[1],
+        entityId: row[2],
+        entityCode: row[3],
+        entityName: row[4],
+        period: row[5],
+        amortizationDate: row[6],
+        periodAmortization: row[7],
+        accumulatedAmortization: row[8],
+        remainingAmount: row[9],
+        unitsThisPeriod: row[10],
+        voucherId: row[11],
+        voucherNo: row[12],
+        status: row[13],
+        notes: row[14],
+        accountSetId: row[15],
+        createTime: row[16],
+        updateTime: row[17],
+      })) || [];
+
+      set({
+        assets,
+        amortizationRecords,
+        loading: false,
+      });
+    } catch (error: any) {
+      console.error('初始化无形资产Store失败:', error);
+      set({ loading: false, error: error.message || '初始化失败' });
+    }
+  },
+
+  // 生成摊销凭证（无形资产）
+  generateAmortizationVoucher: async (recordIds, voucherDate) => {
+    const state = get();
+    const records = state.amortizationRecords.filter(r => recordIds.includes(r.id));
+
+    if (records.length === 0) {
+      set({ error: '没有找到摊销记录' });
+      return null;
+    }
+
+    try {
+      const db = await getCurrentManager().getDatabase();
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      const accountSetId = currentAccountSet?.id;
+
+      // 生成凭证号
+      const yearMonth = voucherDate.substring(0, 7).replace('-', '');
+      const vouchersResult = db.exec(
+        'SELECT voucherNo FROM vouchers WHERE voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [`记-${yearMonth}-%`]
+      );
+      let lastSeq = 0;
+      if (vouchersResult[0]?.values?.length > 0) {
+        const match = (vouchersResult[0].values[0][0] as string).match(/-(\d{3})$/);
+        if (match) {
+          lastSeq = parseInt(match[1], 10);
+        }
+      }
+      const newSeq = lastSeq + 1;
+      const voucherNo = `记-${yearMonth}-${String(newSeq).padStart(3, '0')}`;
+
+      // 按费用科目分组汇总摊销金额
+      const expenseMap = new Map<string, { code: string; name: string; amount: number }>();
+
+      for (const record of records) {
+        const asset = state.assets.find(a => a.id === record.entityId);
+        if (!asset) continue;
+
+        const expenseCode = asset.expenseSubjectCode || '660205';
+        const expenseName = asset.expenseSubjectName || '管理费用-摊销费';
+
+        const existing = expenseMap.get(expenseCode);
+        if (existing) {
+          existing.amount += record.periodAmortization;
+        } else {
+          expenseMap.set(expenseCode, {
+            code: expenseCode,
+            name: expenseName,
+            amount: record.periodAmortization,
+          });
+        }
+      }
+
+      // 计算总摊销额
+      const totalAmortization = records.reduce((sum, r) => sum + r.periodAmortization, 0);
+
+      // 生成凭证ID
+      const voucherId = generateId();
+      const now = new Date().toISOString();
+
+      // 创建凭证
+      db.run(
+        `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [voucherId, voucherNo, voucherDate, 'draft', '无形资产摊销', 'system', accountSetId, now, now]
+      );
+
+      // 创建分录 - 借方：费用科目（按科目分组）
+      for (const [, expense] of expenseMap) {
+        const entryId = generateId();
+        db.run(
+          `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [entryId, voucherId, voucherDate, '无形资产摊销', expense.code, expense.name, expense.amount, 0, accountSetId]
+        );
+      }
+
+      // 创建分录 - 贷方：累计摊销
+      const creditEntryId = generateId();
+      db.run(
+        `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [creditEntryId, voucherId, voucherDate, '无形资产摊销', '1702', '累计摊销', 0, totalAmortization, accountSetId]
+      );
+
+      // 更新摊销记录，关联凭证
+      for (const record of records) {
+        db.run(
+          'UPDATE amortizationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?',
+          [voucherId, voucherNo, now, record.id]
+        );
+      }
+
+      // 更新本地状态
+      set((state) => ({
+        amortizationRecords: state.amortizationRecords.map(r =>
+          recordIds.includes(r.id) ? { ...r, voucherId, voucherNo } : r
+        ),
+        error: null,
+      }));
+
+      return { voucherId, voucherNo };
+    } catch (error: any) {
+      set({ error: error.message || '生成摊销凭证失败' });
+      throw error;
+    }
+  },
+}));

@@ -38,6 +38,7 @@ interface AccountSetFormData {
   code: string;
   name: string;
   unifiedSocialCreditCode: string;
+  taxNo: string;
   address: string;
   baseCurrency: string;
   startDate: string;
@@ -75,6 +76,7 @@ export default function SetsPage() {
     code: '',
     name: '',
     unifiedSocialCreditCode: '',
+    taxNo: '',
     address: '',
     baseCurrency: '人民币',
     startDate: '',
@@ -116,6 +118,7 @@ export default function SetsPage() {
       code: '',
       name: '',
       unifiedSocialCreditCode: '',
+      taxNo: '',
       address: '',
       baseCurrency: '人民币',
       startDate: '',
@@ -133,6 +136,7 @@ export default function SetsPage() {
       code: accountSet.code,
       name: accountSet.name,
       unifiedSocialCreditCode: accountSet.unifiedSocialCreditCode,
+      taxNo: accountSet.taxNo || accountSet.unifiedSocialCreditCode,
       address: accountSet.address,
       baseCurrency: accountSet.baseCurrency,
       startDate: accountSet.startDate,
@@ -749,10 +753,20 @@ export default function SetsPage() {
                 <Label>统一社会信用代码</Label>
                 <Input
                   value={formData.unifiedSocialCreditCode}
-                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value, taxNo: e.target.value })}
                   placeholder="91110000XXXXXXXXXX"
                 />
               </div>
+              <div className="space-y-2">
+                <Label>纳税人识别号</Label>
+                <Input
+                  value={formData.taxNo}
+                  onChange={(e) => setFormData({ ...formData, taxNo: e.target.value })}
+                  placeholder="与统一社会信用代码相同"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>公司地址</Label>
                 <Input

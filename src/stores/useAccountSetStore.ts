@@ -24,6 +24,7 @@ export interface AccountSet {
   code: string; // 用户自定义编码
   name: string; // 账套名称
   unifiedSocialCreditCode: string; // 统一社会信用代码
+  taxNo: string; // 纳税人识别号
   address: string; // 公司地址
   baseCurrency: string;
   currentPeriod: string;
@@ -212,6 +213,7 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           code: 'SET001',
           name: '上海乐茜信息技术有限公司',
           unifiedSocialCreditCode: '91310000MA1FL3XG12',
+          taxNo: '91310000MA1FL3XG12', // 纳税人识别号（与统一社会信用代码相同）
           address: '上海市浦东新区张江高科技园区博云路2号',
           baseCurrency: '人民币',
           currentPeriod: '2026-03',
