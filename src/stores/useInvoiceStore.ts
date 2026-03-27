@@ -68,6 +68,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 添加发票
   addInvoice: async (invoiceData) => {
     const manager = await getCurrentManager();
+    await manager.init();
     const db = manager.getDatabase();
     if (!db) throw new Error('数据库未初始化');
 
@@ -83,23 +84,24 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       updateTime: now,
     };
 
-    db.run(
+    const stmt = db.prepare(
       `INSERT INTO invoices (
         id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
         buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
         amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
         voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
-        invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
-        invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
-        invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
-        invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
-        invoice.voucherId, invoice.voucherNo, invoice.partnerId, invoice.partnerName,
-        invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime
-      ]
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    stmt.run([
+      invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
+      invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
+      invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
+      invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
+      invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
+      invoice.voucherId, invoice.voucherNo, invoice.partnerId, invoice.partnerName,
+      invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime
+    ]);
+    stmt.free();
 
     set((state) => ({ invoices: [...state.invoices, invoice] }));
     return invoice;
@@ -108,6 +110,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 更新发票
   updateInvoice: async (id, updates) => {
     const manager = await getCurrentManager();
+    await manager.init();
     const db = manager.getDatabase();
     if (!db) throw new Error('数据库未初始化');
 
@@ -116,10 +119,11 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     const fields = Object.keys(updateFields);
     const values = Object.values(updateFields);
 
-    db.run(
-      `UPDATE invoices SET ${fields.map(f => `${f} = ?`).join(', ')} WHERE id = ?`,
-      [...values, id]
+    const stmt = db.prepare(
+      `UPDATE invoices SET ${fields.map(f => `${f} = ?`).join(', ')} WHERE id = ?`
     );
+    stmt.run([...values, id]);
+    stmt.free();
 
     set((state) => ({
       invoices: state.invoices.map((inv) =>
@@ -131,12 +135,18 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 删除发票
   deleteInvoice: async (id) => {
     const manager = await getCurrentManager();
+    await manager.init();
     const db = manager.getDatabase();
     if (!db) throw new Error('数据库未初始化');
 
     // 先删除相关的核销记录
-    db.run('DELETE FROM invoiceReconciliations WHERE invoiceId = ?', [id]);
-    db.run('DELETE FROM invoices WHERE id = ?', [id]);
+    let stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE invoiceId = ?');
+    stmt.run([id]);
+    stmt.free();
+
+    stmt = db.prepare('DELETE FROM invoices WHERE id = ?');
+    stmt.run([id]);
+    stmt.free();
 
     set((state) => ({
       invoices: state.invoices.filter((inv) => inv.id !== id),
@@ -158,88 +168,170 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 批量导入发票
   importInvoicesFromExcel: async (invoicesData, invoiceType) => {
-    const manager = await getCurrentManager();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
-
-    const accountSetId = useAccountSetStore.getState().currentAccountSetId;
-    if (!accountSetId) throw new Error('请先选择账套');
-
     const errors: string[] = [];
     let success = 0;
     const addedInvoices: Invoice[] = [];
 
-    for (const data of invoicesData) {
-      try {
-        // 检查发票号是否已存在
-        const existing = db.exec(
-          'SELECT id FROM invoices WHERE invoiceCode = ? AND invoiceType = ? AND accountSetId = ?',
-          [data.invoiceCode || '', invoiceType, accountSetId]
-        );
-        if (existing.length > 0 && existing[0].values.length > 0) {
-          errors.push(`发票号 ${data.invoiceCode} 已存在，已跳过`);
-          continue;
+    try {
+      const accountSetId = useAccountSetStore.getState().currentAccountSetId;
+      if (!accountSetId) {
+        errors.push('请先选择账套');
+        return { success, errors };
+      }
+
+      // 使用 sqliteService 确保数据库表结构已迁移
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+
+      // 先设置账套ID，再获取数据库（这样迁移会使用正确的账套上下文）
+      sqliteService.setAccountSetId(accountSetId);
+
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        errors.push('数据库未初始化');
+        return { success, errors };
+      }
+
+      console.log('Invoice import: Database initialized, accountSetId:', accountSetId);
+
+      // 按"发票号码 + 数电发票号码"分组汇总
+      const groupedData = new Map<string, {
+        key: string;
+        invoiceCode: string;
+        digitalInvoiceNo: string;
+        firstRow: Partial<Invoice>;
+        totalAmount: number;
+        totalTaxAmount: number;
+        totalTotalAmount: number;
+        totalQuantity: number;
+        goodsNames: string[];
+        rowCount: number;
+      }>();
+
+      for (const data of invoicesData) {
+        const invoiceCode = data.invoiceCode || '';
+        const digitalInvoiceNo = data.digitalInvoiceNo || '';
+        // 按"发票号码 + 数电发票号码"组合作为唯一键
+        const key = `${invoiceCode}|||${digitalInvoiceNo}`;
+
+        if (groupedData.has(key)) {
+          const group = groupedData.get(key)!;
+          group.totalAmount += data.amount || 0;
+          group.totalTaxAmount += data.taxAmount || 0;
+          group.totalTotalAmount += data.totalAmount || 0;
+          group.totalQuantity += data.quantity || 0;
+          if (data.goodsName && !group.goodsNames.includes(data.goodsName)) {
+            group.goodsNames.push(data.goodsName);
+          }
+          group.rowCount++;
+        } else {
+          groupedData.set(key, {
+            key,
+            invoiceCode,
+            digitalInvoiceNo,
+            firstRow: data,
+            totalAmount: data.amount || 0,
+            totalTaxAmount: data.taxAmount || 0,
+            totalTotalAmount: data.totalAmount || 0,
+            totalQuantity: data.quantity || 0,
+            goodsNames: data.goodsName ? [data.goodsName] : [],
+            rowCount: 1,
+          });
         }
+      }
 
-        const now = new Date().toISOString();
-        const invoice: Invoice = {
-          id: generateId(),
-          invoiceType,
-          invoiceCode: data.invoiceCode || '',
-          digitalInvoiceNo: data.digitalInvoiceNo, // 数电发票号码
-          invoiceDate: data.invoiceDate || '',
-          sellerName: data.sellerName || '',
-          sellerTaxNo: data.sellerTaxNo, // 销方识别号
-          buyerName: data.buyerName || '',
-          buyerTaxNo: data.buyerTaxNo, // 购方识别号
-          goodsName: data.goodsName,
-          specification: data.specification,
-          unit: data.unit,
-          quantity: data.quantity,
-          unitPrice: data.unitPrice,
-          amount: data.amount || 0,
-          taxRate: data.taxRate,
-          taxAmount: data.taxAmount,
-          totalAmount: data.totalAmount || 0,
-          paymentStatus: 'unpaid',
-          paidAmount: 0,
-          partnerId: data.partnerId,
-          partnerName: data.partnerName,
-          accountSetId,
-          createTime: now,
-          updateTime: now,
-        };
+      console.log(`Invoice import: Grouped ${invoicesData.length} rows into ${groupedData.size} invoices`);
 
-        db.run(
-          `INSERT INTO invoices (
-            id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
-            buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
-            amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
-            voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
+      // 导入汇总后的发票
+      for (const [key, group] of groupedData) {
+        try {
+          const { invoiceCode, digitalInvoiceNo } = group;
+          const data = group.firstRow;
+
+          // 检查发票号是否已存在 - 发票号码 + 数电发票号码 组合唯一
+          const checkStmt = db.prepare(
+            'SELECT id FROM invoices WHERE invoiceCode = ? AND digitalInvoiceNo = ? AND invoiceType = ? AND accountSetId = ?'
+          );
+          checkStmt.bind([invoiceCode, digitalInvoiceNo, invoiceType, accountSetId]);
+          const exists = checkStmt.step();
+          checkStmt.free();
+
+          if (exists) {
+            const invoiceKey = digitalInvoiceNo
+              ? `${invoiceCode}/${digitalInvoiceNo}`
+              : invoiceCode;
+            errors.push(`发票 ${invoiceKey} 已存在，已跳过`);
+            continue;
+          }
+
+          const now = new Date().toISOString();
+          const invoice: Invoice = {
+            id: generateId(),
+            invoiceType,
+            invoiceCode: invoiceCode,
+            digitalInvoiceNo: digitalInvoiceNo || null,
+            invoiceDate: data.invoiceDate || '',
+            sellerName: data.sellerName || '',
+            sellerTaxNo: data.sellerTaxNo || null,
+            buyerName: data.buyerName || '',
+            buyerTaxNo: data.buyerTaxNo || null,
+            goodsName: group.goodsNames.length > 0 ? group.goodsNames.join('、') : null,
+            specification: data.specification || null,
+            unit: data.unit || null,
+            quantity: group.totalQuantity,
+            unitPrice: data.unitPrice || null,
+            amount: group.totalAmount,
+            taxRate: data.taxRate || null,
+            taxAmount: group.totalTaxAmount,
+            totalAmount: group.totalTotalAmount,
+            paymentStatus: 'unpaid',
+            paidAmount: 0,
+            partnerId: data.partnerId || null,
+            partnerName: data.partnerName || null,
+            accountSetId,
+            createTime: now,
+            updateTime: now,
+          };
+
+          const stmt = db.prepare(
+            `INSERT INTO invoices (
+              id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
+              buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
+              amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
+              voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          );
+          stmt.run([
             invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
             invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
             invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
             invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
             invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
-            invoice.voucherId, invoice.voucherNo, invoice.partnerId, invoice.partnerName,
-            invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime
-          ]
-        );
+            invoice.voucherId || null, invoice.voucherNo || null, invoice.partnerId || null, invoice.partnerName || null,
+            invoice.notes || null, invoice.accountSetId, invoice.createTime, invoice.updateTime
+          ]);
+          stmt.free();
 
-        success++;
-        addedInvoices.push(invoice);
-      } catch (error) {
-        errors.push(`导入发票 ${data.invoiceCode || '未知'} 失败: ${error}`);
+          success++;
+          addedInvoices.push(invoice);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const [invoiceCode, digitalInvoiceNo] = key.split('|||');
+          const invoiceKey = digitalInvoiceNo ? `${invoiceCode}/${digitalInvoiceNo}` : invoiceCode;
+          errors.push(`导入发票 ${invoiceKey} 失败: ${errorMsg}`);
+          console.error('Invoice import error:', error);
+        }
       }
-    }
 
-    // 直接将新增的发票添加到状态中，而不是重新初始化
-    if (addedInvoices.length > 0) {
-      set((state) => ({
-        invoices: [...addedInvoices, ...state.invoices],
-      }));
+      // 直接将新增的发票添加到状态中，而不是重新初始化
+      if (addedInvoices.length > 0) {
+        set((state) => ({
+          invoices: [...addedInvoices, ...state.invoices],
+        }));
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      errors.push(`初始化失败: ${errorMsg}`);
+      console.error('Invoice import initialization error:', error);
     }
 
     return { success, errors };
@@ -248,6 +340,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 添加核销记录
   addReconciliation: async (recData) => {
     const manager = await getCurrentManager();
+    await manager.init();
     const db = manager.getDatabase();
     if (!db) throw new Error('数据库未初始化');
 
@@ -257,15 +350,16 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       createTime: new Date().toISOString(),
     };
 
-    db.run(
+    const stmt = db.prepare(
       `INSERT INTO invoiceReconciliations (
         id, invoiceId, voucherId, entryId, amount, reconcileDate, notes, accountSetId, createTime
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        rec.id, rec.invoiceId, rec.voucherId, rec.entryId, rec.amount,
-        rec.reconcileDate, rec.notes, rec.accountSetId, rec.createTime
-      ]
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    stmt.run([
+      rec.id, rec.invoiceId, rec.voucherId, rec.entryId, rec.amount,
+      rec.reconcileDate, rec.notes, rec.accountSetId, rec.createTime
+    ]);
+    stmt.free();
 
     // 更新发票的已付款金额和状态
     const invoice = get().getInvoiceById(rec.invoiceId);
@@ -288,6 +382,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 删除核销记录
   deleteReconciliation: async (id) => {
     const manager = await getCurrentManager();
+    await manager.init();
     const db = manager.getDatabase();
     if (!db) throw new Error('数据库未初始化');
 
@@ -308,7 +403,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       }
     }
 
-    db.run('DELETE FROM invoiceReconciliations WHERE id = ?', [id]);
+    const stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE id = ?');
+    stmt.run([id]);
+    stmt.free();
 
     set((state) => ({
       reconciliations: state.reconciliations.filter((r) => r.id !== id),
@@ -340,7 +437,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     }
 
     try {
-      const manager = getCurrentManager();
+      const manager = await getCurrentManager();
+      await manager.init();
       const db = manager.getDatabase();
       if (!db) {
         set({ error: '数据库未初始化' });
@@ -438,11 +536,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       }
 
       // 插入凭证
-      db.run(
+      let stmt = db.prepare(
         `INSERT INTO vouchers (id, voucherNo, date, summary, status, voucherType, createdBy, createTime, accountSetId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [voucherId, voucherNo, voucherDate, '', 'draft', 'general', '系统', now, accountSetId]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      stmt.run([voucherId, voucherNo, voucherDate, '', 'draft', 'general', '系统', now, accountSetId]);
+      stmt.free();
 
       // 插入分录
       for (let i = 0; i < entryData.length; i++) {
@@ -450,11 +549,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         const entryId = `${voucherId}-${i + 1}`;
         const entryNo = `${voucherNo}-${i + 1}`;
 
-        db.run(
+        stmt = db.prepare(
           `INSERT INTO entries (id, entryNo, voucherNo, voucherId, entryDate, summary, subjectCode, subjectName, debit, credit, partnerName, docNo, entryTime, writeOffFlag, correction, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [entryId, entryNo, voucherNo, voucherId, voucherDate, entry.summary, entry.subjectCode, entry.subjectName, entry.debit, entry.credit, partnerName, docNo, now, false, false, accountSetId]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
+        stmt.run([entryId, entryNo, voucherNo, voucherId, voucherDate, entry.summary, entry.subjectCode, entry.subjectName, entry.debit, entry.credit, partnerName, docNo, now, false, false, accountSetId]);
+        stmt.free();
       }
 
       // 更新发票的凭证信息
@@ -574,8 +674,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      const manager = await getCurrentManager();
-      const db = manager.getDatabase();
+      // 使用 sqliteService 确保数据库表结构已迁移
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       if (!db) {
         set({ loading: false, invoices: [], reconciliations: [] });
         return;
@@ -587,10 +688,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         return;
       }
 
+      // 设置账套ID
+      sqliteService.setAccountSetId(accountSetId);
+
       // 加载发票
       const invoiceResult = db.exec(
-        'SELECT * FROM invoices WHERE accountSetId = ? ORDER BY invoiceDate DESC, createTime DESC',
-        [accountSetId]
+        `SELECT * FROM invoices WHERE accountSetId = '${accountSetId}' ORDER BY invoiceDate DESC, createTime DESC`
       );
 
       const invoices: Invoice[] = [];
@@ -607,8 +710,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
       // 加载核销记录
       const recResult = db.exec(
-        'SELECT * FROM invoiceReconciliations WHERE accountSetId = ? ORDER BY reconcileDate DESC',
-        [accountSetId]
+        `SELECT * FROM invoiceReconciliations WHERE accountSetId = '${accountSetId}' ORDER BY reconcileDate DESC`
       );
 
       const reconciliations: InvoiceReconciliation[] = [];

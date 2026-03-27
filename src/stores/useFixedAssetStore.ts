@@ -81,6 +81,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     assetSubjectCode: '1501',
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
+    description: '包括电脑、打印机、复印机、投影仪等办公电子设备',
     sortOrder: 1,
     enabled: true,
   },
@@ -94,6 +95,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     assetSubjectCode: '1501',
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
+    description: '包括公司车辆、货车、摩托车等交通工具',
     sortOrder: 2,
     enabled: true,
   },
@@ -107,6 +109,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     assetSubjectCode: '1501',
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
+    description: '包括办公桌椅、文件柜、会议桌等家具',
     sortOrder: 3,
     enabled: true,
   },
@@ -120,6 +123,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     assetSubjectCode: '1501',
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '410502',
+    description: '包括生产设备、机器工具、仪器仪表等',
     sortOrder: 4,
     enabled: true,
   },
@@ -133,6 +137,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     assetSubjectCode: '1501',
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
+    description: '包括厂房、办公楼、仓库等建筑物',
     sortOrder: 5,
     enabled: true,
   },
@@ -350,12 +355,22 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           description, sortOrder, enabled, accountSetId, createTime, updateTime
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
-          newCategory.id, newCategory.code, newCategory.name, newCategory.assetType,
-          newCategory.defaultUsefulLifeYears, newCategory.defaultDepreciationMethod,
-          newCategory.defaultSalvageRate, newCategory.assetSubjectCode,
-          newCategory.depreciationSubjectCode, newCategory.expenseSubjectCode,
-          newCategory.description, newCategory.sortOrder, newCategory.enabled ? 1 : 0,
-          newCategory.accountSetId, newCategory.createTime, newCategory.updateTime,
+          newCategory.id,
+          newCategory.code,
+          newCategory.name,
+          newCategory.assetType,
+          newCategory.defaultUsefulLifeYears ?? 5,
+          newCategory.defaultDepreciationMethod ?? 'straight_line',
+          newCategory.defaultSalvageRate ?? 0.05,
+          newCategory.assetSubjectCode ?? '1501',
+          newCategory.depreciationSubjectCode ?? '1502',
+          newCategory.expenseSubjectCode ?? '660204',
+          newCategory.description ?? '',
+          newCategory.sortOrder ?? 0,
+          newCategory.enabled ? 1 : 0,
+          newCategory.accountSetId ?? '',
+          newCategory.createTime,
+          newCategory.updateTime,
         ]
       );
 
@@ -914,13 +929,47 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
   // 初始化默认分类
   initializeDefaultCategories: async () => {
-    for (const category of DEFAULT_CATEGORIES) {
-      try {
-        await get().addCategory(category);
-      } catch (error) {
-        console.error('添加默认分类失败:', error);
-      }
+    console.log('开始初始化默认分类...');
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+    if (!currentAccountSet?.id) {
+      console.warn('没有当前账套，跳过初始化默认分类');
+      return;
     }
+
+    try {
+      const db = await getCurrentManager().getDatabase();
+
+      for (const category of DEFAULT_CATEGORIES) {
+        // 检查分类是否已存在
+        const existingResult = db.exec(
+          'SELECT id FROM assetCategories WHERE code = ? AND accountSetId = ?',
+          [category.code, currentAccountSet.id]
+        );
+
+        if (existingResult[0]?.values?.length > 0) {
+          console.log('分类已存在，跳过:', category.code);
+          continue;
+        }
+
+        try {
+          console.log('正在添加分类:', category.code);
+          await get().addCategory(category);
+        } catch (error) {
+          // 忽略唯一约束错误（分类可能已存在）
+          if (String(error).includes('UNIQUE constraint')) {
+            console.log('分类已存在:', category.code);
+          } else {
+            console.error('添加默认分类失败:', category.code, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('初始化默认分类时出错:', error);
+    }
+
+    console.log('默认分类初始化完成');
   },
 
   // 生成折旧凭证

@@ -25,6 +25,7 @@ export function useDatabaseSync() {
         const { useVoucherTemplateStore } = await import('@/stores/useVoucherTemplateStore');
         const { useSummaryStore } = await import('@/stores/useSummaryStore');
         const { usePartnerStore } = await import('@/stores/usePartnerStore');
+        const { useFixedAssetStore } = await import('@/stores/useFixedAssetStore');
         const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
 
         // 1. 初始化当前配置的数据库
@@ -68,7 +69,8 @@ export function useDatabaseSync() {
           useVoucherTemplateStore.getState().initializeTemplates(),
           useSummaryStore.getState().initializeSummaries(),
           usePartnerStore.getState().initializePartners(),
-          useVoucherStore.getState().initialize()
+          useVoucherStore.getState().initialize(),
+          useFixedAssetStore.getState().initialize()
         ]);
 
         setIsInitialized(true);

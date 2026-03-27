@@ -60,7 +60,8 @@ class SQLiteService {
 
   // 公开方法：获取数据库实例（带完整初始化和降级逻辑）
   async getDatabase(): Promise<any> {
-    return this.getDb();
+    await this.ensureInitialized();
+    return this.dbInstance;
   }
 
   private async getDb(): Promise<any> {
@@ -69,97 +70,44 @@ class SQLiteService {
       return this.dbInstance;
     }
 
-    // 优先使用多账套管理器
-    if (this._accountSetId !== 'default') {
-      let db = accountSetDbManager.getDatabaseById(this._accountSetId);
+    let db: any = null;
 
-      // 如果数据库未打开，尝试打开
-      if (!db) {
-        try {
-          db = await accountSetDbManager.openAccountSetDatabase(this._accountSetId);
-          console.log(`Account set database opened for ${this._accountSetId}`);
-        } catch (error) {
-          console.warn(`Failed to open account set database for ${this._accountSetId}:`, error);
-
-          // 检查是否有文件句柄记录
-          const { fileHandleManager } = await import('./file-handle-manager');
-          const dbInfo = await fileHandleManager.getAccountSetInfo(this._accountSetId);
-
-          if (!dbInfo) {
-            // 没有文件句柄记录，可能是旧数据迁移场景
-            // 检查 sqliteManager 中是否有数据，如果有则使用旧数据库
-            const { sqliteManager } = await import('./sqlite-manager');
-            await sqliteManager.init();
-            const oldDb = await sqliteManager.getDatabaseSafe();
-
-            if (oldDb) {
-              // 检查旧数据库中是否有数据
-              const result = oldDb.exec(`SELECT COUNT(*) as count FROM vouchers`);
-              const voucherCount = result[0]?.values[0]?.[0] || 0;
-
-              if (voucherCount > 0) {
-                console.log(`Found ${voucherCount} vouchers in legacy database, using sqliteManager for ${this._accountSetId}`);
-                console.warn('Please migrate your data to the new multi-account set system. Use the database location dialog to initialize the account set database.');
-                this.dbInstance = oldDb;
-                return oldDb;
-              }
-            }
-
-            // 如果旧数据库也没有数据，创建新的账套数据库
-            try {
-              const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
-              const accountSetStore = useAccountSetStore.getState();
-              const accountSet = accountSetStore.getAccountSetById(this._accountSetId);
-
-              if (accountSet) {
-                console.log(`Creating new database for account set ${this._accountSetId}`);
-                // 创建新数据库（使用 OPFS 作为默认存储）
-                await accountSetDbManager.createAccountSetDatabase(
-                  this._accountSetId,
-                  accountSet.name,
-                  'opfs' // 默认使用 OPFS
-                );
-                // 再次打开
-                db = await accountSetDbManager.openAccountSetDatabase(this._accountSetId);
-                console.log(`Account set database created and opened for ${this._accountSetId}`);
-              } else {
-                throw new Error(`Account set ${this._accountSetId} not found`);
-              }
-            } catch (createError) {
-              console.error(`Failed to create account set database for ${this._accountSetId}:`, createError);
-              // 最后的降级方案：使用全局 sqliteManager
-              const { sqliteManager } = await import('./sqlite-manager');
-              await sqliteManager.init();
-              db = await sqliteManager.getDatabaseSafe();
-            }
-          } else {
-            // 有文件句柄但无法打开，可能是文件损坏
-            console.error('Database file exists but cannot be opened. It may be corrupted.');
-            const { sqliteManager } = await import('./sqlite-manager');
-            await sqliteManager.init();
-            db = sqliteManager.getDatabase();
-          }
-        }
+    // 直接使用全局 sqliteManager，跳过账套数据库的复杂逻辑
+    try {
+      const { sqliteManager } = await import('./sqlite-manager');
+      await sqliteManager.init();
+      db = await sqliteManager.getDatabaseSafe();
+      if (db) {
+        this.dbInstance = db;
+        return db;
       }
-
-      this.dbInstance = db;
-      return db;
+    } catch (error) {
+      console.error('Failed to initialize sqliteManager:', error);
     }
 
-    // 降级到全局 sqliteManager（默认账套或未设置账套时）
-    const { sqliteManager } = await import('./sqlite-manager');
-    await sqliteManager.init();
-    const db = sqliteManager.getDatabase();
-    this.dbInstance = db;
-    return db;
+    // 如果 sqliteManager 也失败了，尝试创建一个临时的内存数据库
+    try {
+      const SQL = await (await import('sql.js')).default({
+        locateFile: (file: string) => `/sqljs/${file}`,
+      });
+      db = new SQL.Database();
+      console.warn('Using in-memory database as last resort');
+      this.dbInstance = db;
+      return db;
+    } catch (error) {
+      console.error('Failed to create in-memory database:', error);
+    }
+
+    throw new Error('All database initialization methods failed');
   }
 
   // 确保数据库已初始化的辅助方法
   private async ensureInitialized(): Promise<void> {
     if (!this.dbInstance) {
-      await this.getDb();
+      this.dbInstance = await this.getDb();
     }
     if (!this.dbInstance) {
+      console.error('Failed to initialize SQLite database');
       throw new Error('Failed to initialize SQLite database');
     }
 
@@ -167,6 +115,321 @@ class SQLiteService {
     await this.migrateAddAccountSetIdColumns();
     // 迁移：检查并添加 subjects 表的新列（如果不存在）
     await this.migrateAddSubjectColumns();
+    // 迁移：检查并创建固定资产相关表（如果不存在）
+    await this.migrateCreateFixedAssetTables();
+  }
+
+  /**
+   * 迁移：创建固定资产相关表（如果不存在）
+   * 这是为了兼容旧版本数据库
+   */
+  private async migrateCreateFixedAssetTables(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 检查 assetCategories 表是否存在
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='assetCategories'"
+      );
+
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating fixed asset tables...');
+
+        const createTables = `
+          -- 资产分类表
+          CREATE TABLE IF NOT EXISTS assetCategories (
+            id TEXT PRIMARY KEY,
+            code TEXT UNIQUE,
+            name TEXT NOT NULL,
+            assetType TEXT NOT NULL,
+            defaultUsefulLifeYears INTEGER,
+            defaultDepreciationMethod TEXT,
+            defaultSalvageRate REAL DEFAULT 0.05,
+            assetSubjectCode TEXT,
+            depreciationSubjectCode TEXT,
+            expenseSubjectCode TEXT,
+            description TEXT,
+            sortOrder INTEGER DEFAULT 0,
+            enabled INTEGER DEFAULT 1,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 固定资产卡片表
+          CREATE TABLE IF NOT EXISTS fixedAssets (
+            id TEXT PRIMARY KEY,
+            assetCode TEXT UNIQUE,
+            assetName TEXT NOT NULL,
+            categoryId TEXT,
+            categoryName TEXT,
+            specification TEXT,
+            unit TEXT,
+            quantity INTEGER DEFAULT 1,
+            originalValue REAL NOT NULL,
+            salvageValue REAL DEFAULT 0,
+            depreciableValue REAL,
+            accumulatedDepreciation REAL DEFAULT 0,
+            netValue REAL,
+            depreciationMethod TEXT NOT NULL,
+            usefulLifeYears INTEGER,
+            usefulLifeMonths INTEGER,
+            totalUnits REAL,
+            unitsUsed REAL DEFAULT 0,
+            acquisitionDate TEXT NOT NULL,
+            depreciationStartDate TEXT,
+            lastDepreciationDate TEXT,
+            disposalDate TEXT,
+            status TEXT DEFAULT 'active',
+            location TEXT,
+            departmentCode TEXT,
+            departmentName TEXT,
+            assetSubjectCode TEXT,
+            assetSubjectName TEXT,
+            depreciationSubjectCode TEXT,
+            depreciationSubjectName TEXT,
+            expenseSubjectCode TEXT,
+            expenseSubjectName TEXT,
+            supplierName TEXT,
+            invoiceNo TEXT,
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (categoryId) REFERENCES assetCategories(id),
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 折旧记录表
+          CREATE TABLE IF NOT EXISTS depreciationRecords (
+            id TEXT PRIMARY KEY,
+            assetId TEXT NOT NULL,
+            assetCode TEXT,
+            assetName TEXT,
+            period TEXT NOT NULL,
+            depreciationDate TEXT NOT NULL,
+            periodDepreciation REAL NOT NULL,
+            accumulatedDepreciation REAL,
+            netValueAfter REAL,
+            unitsThisPeriod REAL,
+            unitDepreciationRate REAL,
+            voucherId TEXT,
+            voucherNo TEXT,
+            status TEXT DEFAULT 'draft',
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (assetId) REFERENCES fixedAssets(id),
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id),
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 无形资产表
+          CREATE TABLE IF NOT EXISTS intangibleAssets (
+            id TEXT PRIMARY KEY,
+            assetCode TEXT UNIQUE,
+            assetName TEXT NOT NULL,
+            assetType TEXT NOT NULL,
+            originalValue REAL NOT NULL,
+            residualValue REAL DEFAULT 0,
+            accumulatedAmortization REAL DEFAULT 0,
+            netValue REAL,
+            amortizationMethod TEXT NOT NULL,
+            usefulLifeYears INTEGER,
+            usefulLifeMonths INTEGER,
+            totalUnits REAL,
+            unitsUsed REAL DEFAULT 0,
+            acquisitionDate TEXT NOT NULL,
+            amortizationStartDate TEXT,
+            lastAmortizationDate TEXT,
+            expiryDate TEXT,
+            status TEXT DEFAULT 'active',
+            assetSubjectCode TEXT,
+            assetSubjectName TEXT,
+            amortizationSubjectCode TEXT,
+            amortizationSubjectName TEXT,
+            expenseSubjectCode TEXT,
+            expenseSubjectName TEXT,
+            registrationNo TEXT,
+            legalLifeYears INTEGER,
+            departmentCode TEXT,
+            departmentName TEXT,
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 待摊费用表
+          CREATE TABLE IF NOT EXISTS prepaidExpenses (
+            id TEXT PRIMARY KEY,
+            expenseCode TEXT UNIQUE,
+            expenseName TEXT NOT NULL,
+            expenseType TEXT NOT NULL,
+            originalAmount REAL NOT NULL,
+            amortizedAmount REAL DEFAULT 0,
+            remainingAmount REAL,
+            amortizationMethod TEXT DEFAULT 'straight_line',
+            amortizationPeriods INTEGER,
+            amortizedPeriods INTEGER DEFAULT 0,
+            periodAmount REAL,
+            paymentDate TEXT NOT NULL,
+            startDate TEXT NOT NULL,
+            endDate TEXT NOT NULL,
+            lastAmortizationDate TEXT,
+            status TEXT DEFAULT 'active',
+            prepaidSubjectCode TEXT,
+            prepaidSubjectName TEXT,
+            expenseSubjectCode TEXT,
+            expenseSubjectName TEXT,
+            supplierName TEXT,
+            invoiceNo TEXT,
+            contractNo TEXT,
+            departmentCode TEXT,
+            departmentName TEXT,
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 摊销记录表（统一用于无形资产和待摊费用）
+          CREATE TABLE IF NOT EXISTS amortizationRecords (
+            id TEXT PRIMARY KEY,
+            entityType TEXT NOT NULL,
+            entityId TEXT NOT NULL,
+            entityCode TEXT,
+            entityName TEXT,
+            period TEXT NOT NULL,
+            amortizationDate TEXT NOT NULL,
+            periodAmortization REAL NOT NULL,
+            accumulatedAmortization REAL,
+            remainingAmount REAL,
+            unitsThisPeriod REAL,
+            voucherId TEXT,
+            voucherNo TEXT,
+            status TEXT DEFAULT 'draft',
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id),
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 发票表
+          CREATE TABLE IF NOT EXISTS invoices (
+            id TEXT PRIMARY KEY,
+            invoiceType TEXT NOT NULL,
+            invoiceCode TEXT NOT NULL,
+            digitalInvoiceNo TEXT,
+            invoiceDate TEXT NOT NULL,
+            sellerName TEXT,
+            sellerTaxNo TEXT,
+            buyerName TEXT,
+            buyerTaxNo TEXT,
+            goodsName TEXT,
+            specification TEXT,
+            unit TEXT,
+            quantity REAL,
+            unitPrice REAL,
+            amount REAL NOT NULL,
+            taxRate REAL,
+            taxAmount REAL,
+            totalAmount REAL NOT NULL,
+            paymentStatus TEXT DEFAULT 'unpaid',
+            paidAmount REAL DEFAULT 0,
+            voucherId TEXT,
+            voucherNo TEXT,
+            partnerId TEXT,
+            partnerName TEXT,
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id),
+            FOREIGN KEY (partnerId) REFERENCES partners(id),
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- 发票核销记录表
+          CREATE TABLE IF NOT EXISTS invoiceReconciliations (
+            id TEXT PRIMARY KEY,
+            invoiceId TEXT NOT NULL,
+            voucherId TEXT,
+            entryId TEXT,
+            amount REAL NOT NULL,
+            reconcileDate TEXT NOT NULL,
+            notes TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            FOREIGN KEY (invoiceId) REFERENCES invoices(id),
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id),
+            FOREIGN KEY (entryId) REFERENCES entries(id),
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
+          -- Asset Categories indexes
+          CREATE INDEX IF NOT EXISTS idx_assetCategories_accountSetId ON assetCategories(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_assetCategories_code ON assetCategories(code);
+          CREATE INDEX IF NOT EXISTS idx_assetCategories_assetType ON assetCategories(assetType);
+
+          -- Fixed Assets indexes
+          CREATE INDEX IF NOT EXISTS idx_fixedAssets_accountSetId ON fixedAssets(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_fixedAssets_assetCode ON fixedAssets(assetCode);
+          CREATE INDEX IF NOT EXISTS idx_fixedAssets_categoryId ON fixedAssets(categoryId);
+          CREATE INDEX IF NOT EXISTS idx_fixedAssets_status ON fixedAssets(status);
+
+          -- Depreciation Records indexes
+          CREATE INDEX IF NOT EXISTS idx_depreciationRecords_accountSetId ON depreciationRecords(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_depreciationRecords_assetId ON depreciationRecords(assetId);
+          CREATE INDEX IF NOT EXISTS idx_depreciationRecords_period ON depreciationRecords(period);
+          CREATE INDEX IF NOT EXISTS idx_depreciationRecords_voucherId ON depreciationRecords(voucherId);
+
+          -- Intangible Assets indexes
+          CREATE INDEX IF NOT EXISTS idx_intangibleAssets_accountSetId ON intangibleAssets(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_intangibleAssets_assetCode ON intangibleAssets(assetCode);
+          CREATE INDEX IF NOT EXISTS idx_intangibleAssets_assetType ON intangibleAssets(assetType);
+          CREATE INDEX IF NOT EXISTS idx_intangibleAssets_status ON intangibleAssets(status);
+
+          -- Prepaid Expenses indexes
+          CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_accountSetId ON prepaidExpenses(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_expenseCode ON prepaidExpenses(expenseCode);
+          CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_expenseType ON prepaidExpenses(expenseType);
+          CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_status ON prepaidExpenses(status);
+
+          -- Amortization Records indexes
+          CREATE INDEX IF NOT EXISTS idx_amortizationRecords_accountSetId ON amortizationRecords(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_amortizationRecords_entityId ON amortizationRecords(entityId);
+          CREATE INDEX IF NOT EXISTS idx_amortizationRecords_entityType ON amortizationRecords(entityType);
+          CREATE INDEX IF NOT EXISTS idx_amortizationRecords_period ON amortizationRecords(period);
+          CREATE INDEX IF NOT EXISTS idx_amortizationRecords_voucherId ON amortizationRecords(voucherId);
+
+          -- Invoice indexes
+          CREATE INDEX IF NOT EXISTS idx_invoices_accountSetId ON invoices(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_invoices_invoiceType ON invoices(invoiceType);
+          CREATE INDEX IF NOT EXISTS idx_invoices_invoiceCode ON invoices(invoiceCode);
+          CREATE INDEX IF NOT EXISTS idx_invoices_invoiceDate ON invoices(invoiceDate);
+          CREATE INDEX IF NOT EXISTS idx_invoices_partnerId ON invoices(partnerId);
+          CREATE INDEX IF NOT EXISTS idx_invoices_voucherId ON invoices(voucherId);
+          CREATE INDEX IF NOT EXISTS idx_invoices_paymentStatus ON invoices(paymentStatus);
+
+          -- Invoice Reconciliation indexes
+          CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_accountSetId ON invoiceReconciliations(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_invoiceId ON invoiceReconciliations(invoiceId);
+          CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
+        `;
+
+        this.dbInstance.exec(createTables);
+        console.log('Fixed asset tables migration completed successfully');
+      }
+    } catch (error) {
+      console.warn('Fixed asset tables migration warning:', error);
+    }
   }
 
   /**
