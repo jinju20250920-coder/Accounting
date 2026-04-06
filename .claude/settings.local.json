@@ -186,7 +186,15 @@
       "Bash(rm:*)",
       "Bash(mkdir -p ~/.cc-connect)",
       "Bash(cc-connect config-example:*)",
-      "Bash(cc-connect weixin:*)"
+      "Bash(cc-connect weixin:*)",
+      "Bash(timeout 10 bash -c \"until curl -s http://localhost:3000 > /dev/null; do sleep 2; done\")",
+      "Bash(pkill -f vite)",
+      "Bash(timeout 5 wmic process where \"name='node.exe'\" call terminate)",
+      "Bash(timeout 10 bash -c \"until curl -s http://localhost:4000 > /dev/null; do sleep 2; done\")",
+      "Bash(findstr :4000)",
+      "Bash(powershell:*)",
+      "Bash(timeout 5 bash -c \"until curl -s http://localhost:4000 > /dev/null; do sleep 2; done\")",
+      "Bash(timeout 10 bash -c \"until curl -s -o /dev/null -w '%{http_code}' http://localhost:4000/ 2>/dev/null; do sleep 2; done\")"
     ]
   }
 }
