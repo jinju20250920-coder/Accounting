@@ -541,7 +541,94 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     });
   },
 
-  // 从交易记录生成凭证
+  // 从银行交易记录生成凭证
+  addVoucherFromBankTransactions: async (bankTransactions: any[], bankAccountId: string) => {
+    const state = get();
+    const now = new Date().toISOString();
+
+    // 为每个银行交易生成一个凭证
+    for (const transaction of bankTransactions) {
+      try {
+        const voucherId = `voucher_${Date.now()}_${transaction.id}`;
+
+        // 生成凭证号
+        const voucherNo = await generateVoucherNo(transaction.date);
+
+        // 确定交易类型（借方或贷方）
+        const isDebit = !!transaction.debit;
+        const amount = transaction.debit || transaction.credit || 0;
+
+        // 获取银行科目信息（简化版）
+        // 在实际应用中，应从 bankAccountId 获取真实的科目代码和名称
+        const bankSubjectCode = '1002';
+        const bankSubjectName = '银行存款';
+
+        // 创建凭证分录
+        const entries: any[] = [];
+
+        // 交易分录（对方科目）
+        const transactionEntry: any = {
+          id: `entry_${voucherId}_0`,
+          voucherId,
+          date: transaction.date,
+          summary: transaction.summary || transaction.notes || '银行交易',
+          subjectCode: transaction.matchedSubject || '6603', // 默认科目
+          subjectName: transaction.matchedSubjectName || '财务费用',
+          debit: isDebit ? 0 : amount,
+          credit: isDebit ? amount : 0,
+          customerName: transaction.counterpartyName,
+          supplierName: transaction.counterpartyName,
+          auxiliary: {
+            customer: transaction.counterpartyName,
+            supplier: transaction.counterpartyName
+          },
+          docNo: transaction.transactionSerialNo,
+          recRefNo: transaction.enterpriseSerialNo
+        };
+        entries.push(transactionEntry);
+
+        // 银行存款分录（平衡分录）
+        const bankEntry: any = {
+          id: `entry_${voucherId}_1`,
+          voucherId,
+          date: transaction.date,
+          summary: '银行存款',
+          subjectCode: bankSubjectCode,
+          subjectName: bankSubjectName,
+          debit: isDebit ? amount : 0,
+          credit: isDebit ? 0 : amount
+        };
+        entries.push(bankEntry);
+
+        // 创建新凭证
+        const newVoucher: Voucher = {
+          id: voucherId,
+          voucherNo,
+          date: transaction.date,
+          summary: transaction.summary || transaction.notes || '银行交易',
+          entries: entries,
+          status: 'draft',
+          voucherType: isDebit ? 'receipt' : 'payment',
+          createdBy: 'system',
+          createTime: now,
+          updateTime: now
+        };
+
+        // 保存到数据库
+        await getCurrentService().saveVoucher(newVoucher);
+
+        // 添加到凭证列表
+        set((prevState) => ({
+          vouchers: [...prevState.vouchers, newVoucher]
+        }));
+      } catch (error) {
+        console.error('Error creating voucher for transaction:', transaction, error);
+        // 继续处理下一个交易，而不是失败整个操作
+      }
+    }
+  },
+
+  // 从交易记录生成凭证（保持旧接口）
   addVoucherFromTransactions: async (transactionData: any) => {
     const state = get();
     const now = new Date().toISOString();
