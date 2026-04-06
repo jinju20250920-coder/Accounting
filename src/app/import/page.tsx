@@ -25,7 +25,7 @@ import { ImportHistory } from '@/components/import-history';
 
 export default function ImportPage() {
   const [activeTab, setActiveTab] = useState<'upload' | 'history'>('upload');
-  const [importType, setImportType] = useState<'bank' | 'tax'>('bank');
+  const [importType, setImportType] = useState<'bank' | 'tax'>('bank'); // Keeping for now, but only showing bank
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -35,35 +35,6 @@ export default function ImportPage() {
         <p className="text-slate-600 mt-1">导入银行流水和税务流水，自动生成记账凭证</p>
       </div>
 
-      {/* 导入类型选择 */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            导入类型
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4">
-            <Button
-              variant={importType === 'bank' ? 'default' : 'outline'}
-              onClick={() => setImportType('bank')}
-              className="flex items-center gap-2"
-            >
-              <Building2 className="h-4 w-4" />
-              银行流水导入
-            </Button>
-            <Button
-              variant={importType === 'tax' ? 'default' : 'outline'}
-              onClick={() => setImportType('tax')}
-              className="flex items-center gap-2"
-            >
-              <Receipt className="h-4 w-4" />
-              税务流水导入
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* 主要内容 */}
       <div className="grid grid-cols-1 gap-6">
