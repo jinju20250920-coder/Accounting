@@ -287,6 +287,48 @@ export interface MappedEntry {
   matchConfidence?: number;
 }
 
+// 银行账户信息
+export interface BankAccountInfo {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  branch?: string;
+  currency?: string;
+}
+
+// 银行交易记录
+export interface BankTransaction {
+  id: string;
+  date: string;
+  transactionTime?: string;
+  voucherType?: string;
+  voucherNo?: string;
+  debit?: number;
+  credit?: number;
+  balance?: number;
+  cashRemitFlag?: string;
+  counterpartyName?: string;
+  counterpartyAccount?: string;
+  summary: string;
+  notes?: string;
+  transactionSerialNo?: string;
+  enterpriseSerialNo?: string;
+  ourAccount?: string;
+  ourAccountName?: string;
+  ourBranch?: string;
+  rowNumber: number;
+}
+
+// 银行流水解析结果
+export interface BankStatementParseResult {
+  fileName: string;
+  type: 'bank';
+  bankInfo: BankAccountInfo;
+  transactions: BankTransaction[];
+  errors: Array<{ row: number; message: string }>;
+  rawData?: any[][];
+}
+
 // 关键词匹配规则
 export interface KeywordRule {
   keywords: string[];
