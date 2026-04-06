@@ -512,6 +512,13 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                           </div>
                         </div>
                       </div>
+                      {/* 备注 */}
+                      {transaction.notes && (
+                        <div className="mt-2 text-sm text-slate-500 bg-slate-50 p-2 rounded">
+                          <span className="text-slate-600 font-medium">备注: </span>
+                          {transaction.notes}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

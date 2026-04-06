@@ -183,7 +183,10 @@
       "Bash(npx tsx:*)",
       "Bash(node -e \":*)",
       "Bash(powershell \"taskkill /F /IM node.exe\")",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(mkdir -p ~/.cc-connect)",
+      "Bash(cc-connect config-example:*)",
+      "Bash(cc-connect weixin:*)"
     ]
   }
 }
