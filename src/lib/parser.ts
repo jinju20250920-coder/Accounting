@@ -26,10 +26,23 @@ export interface ParseResult {
   errors: Array<{ row: number; message: string }>;
 }
 
+import { parseCCBStatement } from './bank-parsers/ccb-parser';
+import type { BankStatementParseResult } from '@/types';
+
 /**
  * 解析银行流水Excel文件
+ * 自动检测银行格式并使用对应解析器
  */
-export async function parseBankStatement(file: File): Promise<ParseResult> {
+export async function parseBankStatement(file: File): Promise<BankStatementParseResult> {
+  // 目前仅支持建设银行格式
+  return parseCCBStatement(file);
+}
+
+/**
+ * 旧版 parseBankStatement 保留兼容性
+ * @deprecated Use parseBankStatement instead
+ */
+export async function parseBankStatementV1(file: File): Promise<ParseResult> {
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer);
   const firstSheet = workbook.Sheets[0];
@@ -51,8 +64,12 @@ export async function parseBankStatement(file: File): Promise<ParseResult> {
   // A: 日期, B: 凭证字号, C: 摘要, D: 科目代码, E: 借方, F: 贷方, G: 对方单位
   const colMap = { 0: 'date', 1: 'voucherNo', 2: 'summary', 3: 'subjectCode', 4: 'debit', 5: 'credit', 6: 'counterparty' };
 
-  for (let rowIndex = 0; rowIndex < firstSheet.data.length; rowIndex++) {
-    const row = firstSheet.data[rowIndex];
+  // 注意：旧版使用 firstSheet.data，但 XLSX 读取方式已改变
+  // 这里保留代码结构，但实际已不再使用
+  const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+
+  for (let rowIndex = 0; rowIndex < jsonData.length; rowIndex++) {
+    const row = jsonData[rowIndex];
 
     if (!row || row.length === 0) continue;
 
@@ -95,7 +112,7 @@ export async function parseBankStatement(file: File): Promise<ParseResult> {
   return {
     fileName: file.name,
     type: 'bank',
-    totalRows: firstSheet.data.length,
+    totalRows: jsonData.length,
     entries: data,
     errors
   };
