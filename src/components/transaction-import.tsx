@@ -478,28 +478,38 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   return (
                     <div key={transaction.id} className="border rounded-lg p-4 hover:bg-gray-50">
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <Calendar className="h-4 w-4 text-gray-400" />
-                          <span className="font-mono text-sm">{transaction.date}</span>
+                        <div className="flex items-center gap-3 flex-1">
+                          <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                          <span className="font-mono text-sm flex-shrink-0">{transaction.date}</span>
                           <span className="flex-1">{transaction.summary || transaction.notes}</span>
                           {transaction.counterpartyName && (
-                            <span className="text-sm text-slate-500">
+                            <span className="text-sm text-slate-500 flex-shrink-0">
                               对方: {transaction.counterpartyName}
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          {transaction.debit && (
-                            <span className="font-medium text-blue-600">
-                              借: ¥{transaction.debit.toLocaleString()}
+                        <div className="flex items-center gap-3 ml-4">
+                          {/* 对方科目列 */}
+                          <div className="text-sm flex-shrink-0">
+                            <span className="text-slate-500">对方科目: </span>
+                            <span className="font-medium text-blue-700">
+                              {transaction.matchedSubject ? `${transaction.matchedSubject} - ${transaction.matchedSubjectName}` : '待匹配'}
                             </span>
-                          )}
-                          {transaction.credit && (
-                            <span className="font-medium text-red-600">
-                              贷: ¥{transaction.credit.toLocaleString()}
-                            </span>
-                          )}
-                          {getStatusBadge(record.status)}
+                          </div>
+                          {/* 金额 */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {transaction.debit && (
+                              <span className="font-medium text-blue-600">
+                                借: ¥{transaction.debit.toLocaleString()}
+                              </span>
+                            )}
+                            {transaction.credit && (
+                              <span className="font-medium text-red-600">
+                                贷: ¥{transaction.credit.toLocaleString()}
+                              </span>
+                            )}
+                            {getStatusBadge(record.status)}
+                          </div>
                         </div>
                       </div>
                     </div>

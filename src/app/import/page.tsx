@@ -31,8 +31,8 @@ export default function ImportPage() {
     <div className="p-6 max-w-7xl mx-auto">
       {/* 标题栏 */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">流水导入</h1>
-        <p className="text-slate-600 mt-1">导入银行流水和税务流水，自动生成记账凭证</p>
+        <h1 className="text-3xl font-bold text-slate-900">银行流水导入</h1>
+        <p className="text-slate-600 mt-1">导入银行流水，自动生成记账凭证</p>
       </div>
 
 
@@ -43,17 +43,13 @@ export default function ImportPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>
-                  {importType === 'bank' ? '银行流水导入' : '税务流水导入'}
-                </CardTitle>
-                <Badge variant="outline">
-                  {importType === 'bank' ? '支持 Excel/CSV' : '支持 Excel'}
-                </Badge>
+                <CardTitle>银行流水导入</CardTitle>
+                <Badge variant="outline">支持 Excel/CSV</Badge>
               </div>
             </CardHeader>
             <CardContent>
               {activeTab === 'upload' && (
-                <TransactionImport importType={importType} />
+                <TransactionImport importType="bank" />
               )}
               {activeTab === 'history' && (
                 <ImportHistory importType={importType} />
@@ -154,10 +150,6 @@ export default function ImportPage() {
                 <Button variant="outline" className="w-full justify-start" size="sm">
                   <Download className="h-4 w-4 mr-2" />
                   下载银行流水模板
-                </Button>
-                <Button variant="outline" className="w-full justify-start" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  下载税务流水模板
                 </Button>
               </div>
             </CardContent>
