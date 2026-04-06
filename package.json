@@ -2,7 +2,7 @@
   "name": "ai-finance-assistant",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Finance Assistant - 基于Web的现代会计凭证录入系统",
+  "description": "金桔财务系统 - 基于Web的现代会计凭证录入系统",
   "main": "electron/main.js",
   "homepage": "./",
   "scripts": {
@@ -73,8 +73,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.ai-finance-assistant.app",
-    "productName": "AI Finance Assistant",
+    "appId": "com.jinju-finance.app",
+    "productName": "金桔财务系统",
     "directories": {
       "buildResources": "build",
       "output": "dist"

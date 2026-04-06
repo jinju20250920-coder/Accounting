@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI 财务 Assistant",
+  title: "金桔财务系统",
   description: "现代化的Web会计凭证录入系统",
 };
 

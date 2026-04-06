@@ -1,5 +1,5 @@
-appId: com.ai-finance-assistant.app
-productName: AI Finance Assistant
+appId: com.jinju-finance.app
+productName: 金桔财务系统
 directories:
   buildResources: build
 files:

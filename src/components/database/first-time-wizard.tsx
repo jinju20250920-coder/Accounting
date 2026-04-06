@@ -170,7 +170,7 @@ export function FirstTimeWizard({ open, onOpenChange, onComplete }: FirstTimeWiz
               </div>
             </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-2">
-              欢迎使用 AI 财务助手
+              欢迎使用 金桔财务系统
             </h2>
             <p className="text-slate-600 mb-8">
               让我们快速设置您的第一个账套
@@ -458,7 +458,7 @@ export function FirstTimeWizard({ open, onOpenChange, onComplete }: FirstTimeWiz
             {currentStep === 'welcome' && '快速设置您的第一个账套'}
             {currentStep === 'account-info' && '填写账套的基本信息'}
             {currentStep === 'database-location' && '选择数据库的存储方式'}
-            {currentStep === 'completed' && '开始使用 AI 财务助手'}
+            {currentStep === 'completed' && '开始使用 金桔财务系统'}
           </DialogDescription>
         </DialogHeader>
 

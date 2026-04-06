@@ -10,7 +10,7 @@ function setMainWindow(window) {
 function createMenu() {
     const template = [
         {
-            label: os.platform() === 'darwin' ? 'AI Finance Assistant' : '文件',
+            label: os.platform() === 'darwin' ? '金桔财务系统' : '文件',
             submenu: [
                 {
                     label: '新建账套',
@@ -127,8 +127,8 @@ function createMenu() {
                     click: () => {
                         dialog.showMessageBox({
                             type: 'info',
-                            title: '关于 AI Finance Assistant',
-                            message: 'AI Finance Assistant v0.1.0',
+                            title: '关于 金桔财务系统',
+                            message: '金桔财务系统 v0.1.0',
                             detail: '基于Web的现代会计凭证录入系统'
                         });
                     }

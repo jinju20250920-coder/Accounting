@@ -343,7 +343,7 @@ export function Sidebar() {
       <div className="p-4 border-b border-slate-700">
         <h1 className="text-xl font-bold flex items-center gap-2">
           <Calculator className="h-6 w-6 text-blue-400" />
-          AI 财务 Assistant
+          金桔财务系统
         </h1>
       </div>
 

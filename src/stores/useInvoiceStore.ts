@@ -29,6 +29,10 @@ interface InvoiceStore {
   getInvoiceById: (id: string) => Invoice | undefined;
   getInvoiceByCode: (code: string, invoiceType: InvoiceType) => Invoice | undefined;
 
+  // 批量操作
+  deleteInvoices: (ids: string[]) => Promise<{ success: number; errors: string[] }>;
+  generateInvoiceVouchers: (ids: string[], voucherDate: string) => Promise<{ success: number; errors: string[] }>;
+
   // 批量导入
   importInvoicesFromExcel: (invoices: Partial<Invoice>[], invoiceType: InvoiceType) => Promise<{ success: number; errors: string[] }>;
 
@@ -568,6 +572,58 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       set({ error: `生成凭证失败: ${error}` });
       return null;
     }
+  },
+
+  // 批量删除发票
+  deleteInvoices: async (ids: string[]): Promise<{ success: number; errors: string[] }> => {
+    const manager = await getCurrentManager();
+    await manager.init();
+    const db = manager.getDatabase();
+    if (!db) throw new Error('数据库未初始化');
+
+    let success = 0;
+    const errors: string[] = [];
+
+    for (const id of ids) {
+      try {
+        const stmt = db.prepare('DELETE FROM invoices WHERE id = ?');
+        stmt.run([id]);
+        stmt.free();
+        success++;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`删除发票 ${id} 失败: ${errorMsg}`);
+        console.error('Invoice delete error:', error);
+      }
+    }
+
+    // 更新状态
+    set((state) => ({
+      invoices: state.invoices.filter((inv) => !ids.includes(inv.id)),
+    }));
+
+    return { success, errors };
+  },
+
+  // 批量生成凭证
+  generateInvoiceVouchers: async (ids: string[], voucherDate: string): Promise<{ success: number; errors: string[] }> => {
+    let success = 0;
+    const errors: string[] = [];
+
+    for (const id of ids) {
+      try {
+        const result = await get().generateInvoiceVoucher(id, voucherDate);
+        if (result) {
+          success++;
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`生成发票 ${id} 凭证失败: ${errorMsg}`);
+        console.error('Invoice voucher generation error:', error);
+      }
+    }
+
+    return { success, errors };
   },
 
   // 获取筛选后的发票

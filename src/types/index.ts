@@ -317,6 +317,15 @@ export interface BankTransaction {
   ourAccountName?: string;
   ourBranch?: string;
   rowNumber: number;
+
+  // UI properties (for matching and display)
+  status?: 'pending' | 'matched' | 'unmatched' | 'error';
+  matchedSubject?: string;
+  matchedSubjectName?: string;
+  confidence?: number;
+  description?: string;
+  amount?: number;
+  type?: 'debit' | 'credit';
 }
 
 // 银行流水解析结果

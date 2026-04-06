@@ -180,7 +180,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
     try {
       // 保存到数据库
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       db.run(
         `INSERT INTO fixedAssets (
           id, assetCode, assetName, categoryId, categoryName, specification, unit, quantity,
@@ -245,7 +246,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       db.run(
         `UPDATE fixedAssets SET
           assetName=?, categoryId=?, categoryName=?, specification=?, unit=?, quantity=?,
@@ -305,7 +307,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       // 删除折旧记录
       db.run('DELETE FROM depreciationRecords WHERE assetId = ?', [id]);
       // 删除资产
@@ -347,7 +350,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     };
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       db.run(
         `INSERT INTO assetCategories (
           id, code, name, assetType, defaultUsefulLifeYears, defaultDepreciationMethod,
@@ -403,7 +407,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     };
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       db.run(
         `UPDATE assetCategories SET
           name=?, assetType=?, defaultUsefulLifeYears=?, defaultDepreciationMethod=?,
@@ -440,7 +445,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       db.run('DELETE FROM assetCategories WHERE id = ?', [id]);
 
       set((state) => ({
@@ -552,7 +558,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
   // 保存折旧记录
   saveDepreciationRecords: async (records) => {
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
 
       for (const record of records) {
         db.run(
@@ -589,7 +596,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const records = state.depreciationRecords.filter(r => recordIds.includes(r.id));
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
 
       for (const record of records) {
         // 更新折旧记录状态
@@ -939,7 +947,14 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      // 使用与 initialize() 相同的方法获取数据库实例
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
+
+      if (!db) {
+        console.error('无法获取数据库实例');
+        return;
+      }
 
       for (const category of DEFAULT_CATEGORIES) {
         // 检查分类是否已存在
@@ -983,7 +998,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;

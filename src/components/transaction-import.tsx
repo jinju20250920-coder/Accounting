@@ -221,41 +221,42 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const handleAutoMatch = () => {
     // 模拟自动匹配
     setTransactions(prev => prev.map(t => {
-      if (t.status === 'pending') {
-        // 简单的匹配逻辑
-        let subject = '';
-        let subjectName = '';
-        let confidence = 0.8;
+      // 简单的匹配逻辑
+      let subject = '';
+      let subjectName = '';
+      let confidence = 0.8;
 
-        if (t.description.includes('收入') || t.description.includes('销售')) {
-          subject = '6001';
-          subjectName = '主营业务收入';
-          confidence = 0.9;
-        } else if (t.description.includes('采购') || t.description.includes('材料')) {
-          subject = '1405';
-          subjectName = '原材料';
-          confidence = 0.85;
-        } else if (t.description.includes('工资')) {
-          subject = '6602';
-          subjectName = '管理费用-工资';
-          confidence = 0.95;
-        } else if (t.description.includes('税')) {
-          subject = '2221';
-          subjectName = '应交税费';
-          confidence = 0.9;
-        }
+      const description = t.summary || t.notes || '';
 
-        if (subject) {
-          return {
-            ...t,
-            matchedSubject: subject,
-            matchedSubjectName: subjectName,
-            confidence,
-            status: 'matched'
-          };
-        }
+      if (description.includes('收入') || description.includes('销售')) {
+        subject = '6001';
+        subjectName = '主营业务收入';
+        confidence = 0.9;
+      } else if (description.includes('采购') || description.includes('材料')) {
+        subject = '1405';
+        subjectName = '原材料';
+        confidence = 0.85;
+      } else if (description.includes('工资')) {
+        subject = '6602';
+        subjectName = '管理费用-工资';
+        confidence = 0.95;
+      } else if (description.includes('税')) {
+        subject = '2221';
+        subjectName = '应交税费';
+        confidence = 0.9;
       }
-      return t;
+
+      if (subject) {
+        return {
+          ...t,
+          matchedSubject: subject,
+          matchedSubjectName: subjectName,
+          confidence,
+          status: 'matched'
+        };
+      }
+
+      return { ...t, status: t.status || 'pending' };
     }));
   };
 
@@ -406,7 +407,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   <div>
                     <p className="text-sm text-muted-foreground">已匹配</p>
                     <p className="text-2xl font-bold text-green-600">
-                      {transactions.filter(t => t.status === 'matched').length}
+                      {transactions.filter(t => (t as any).status === 'matched').length}
                     </p>
                   </div>
                   <CheckCircle className="h-8 w-8 text-green-200" />
@@ -419,7 +420,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   <div>
                     <p className="text-sm text-muted-foreground">待匹配</p>
                     <p className="text-2xl font-bold text-yellow-600">
-                      {transactions.filter(t => t.status === 'pending').length}
+                      {transactions.filter(t => !(t as any).status || (t as any).status === 'pending').length}
                     </p>
                   </div>
                   <AlertCircle className="h-8 w-8 text-yellow-200" />
@@ -432,7 +433,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   <div>
                     <p className="text-sm text-muted-foreground">总金额</p>
                     <p className="text-2xl font-bold">
-                      ¥{transactions.reduce((sum, t) => sum + Math.abs(t.amount), 0).toLocaleString()}
+                      ¥{transactions.reduce((sum, t) => sum + (t.debit || t.credit || 0), 0).toLocaleString()}
                     </p>
                   </div>
                   <DollarSign className="h-8 w-8 text-gray-200" />
@@ -449,7 +450,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
             </Button>
             <Button
               onClick={handleGenerateVouchers}
-              disabled={isProcessing || transactions.filter(t => t.status === 'matched').length === 0}
+              disabled={isProcessing || transactions.filter(t => (t as any).status === 'matched').length === 0}
             >
               {isProcessing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

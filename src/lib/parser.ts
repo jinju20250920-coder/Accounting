@@ -205,7 +205,7 @@ export async function parseTaxStatement(file: File): Promise<ParseResult> {
 export function parseStatement(file: File, type: 'bank' | 'tax' | 'template'): Promise<ParseResult> {
   switch (type) {
     case 'bank':
-      return parseBankStatement(file);
+      return parseBankStatementV1(file);
     case 'tax':
       return parseTaxStatement(file);
     case 'template':

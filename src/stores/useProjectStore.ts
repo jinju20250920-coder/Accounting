@@ -155,7 +155,7 @@ const initialDocuments: ProjectDocument[] = [
   {
     id: 'doc-001',
     title: '系统总体需求',
-    content: '# 系统总体需求\n\n## 项目概述\nAI财务助手是一个基于Web的现代会计凭证录入系统...',
+    content: '# 系统总体需求\n\n## 项目概述\n金桔财务系统是一个基于Web的现代会计凭证录入系统...',
     category: 'requirements',
     version: 'v1.0',
     status: 'approved',

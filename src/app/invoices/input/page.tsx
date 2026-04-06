@@ -32,6 +32,7 @@ import {
   Clock,
   AlertCircle,
   Download,
+  Trash2,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { Invoice, InvoicePaymentStatus } from '@/types';
@@ -749,6 +750,8 @@ export default function InputInvoicePage() {
     importInvoicesFromExcel,
     generateInvoiceVoucher,
     updateInvoice,
+    deleteInvoices,
+    generateInvoiceVouchers,
   } = useInvoiceStore();
 
   // 获取当月日期范围
@@ -833,6 +836,63 @@ export default function InputInvoicePage() {
     return await importInvoicesFromExcel(invoicesData, 'input');
   };
 
+  // 单个删除
+  const handleDelete = async (invoiceId: string) => {
+    const confirmed = window.confirm('确定要删除这条发票吗？');
+    if (!confirmed) return;
+
+    try {
+      const result = await deleteInvoices([invoiceId]);
+      showToast('success', '发票已删除');
+    } catch (error) {
+      console.error('删除失败:', error);
+      showToast('error', '删除失败');
+    }
+  };
+
+  // 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedInvoices.length === 0) return;
+
+    const confirmed = window.confirm(`确定要删除选中的 ${selectedInvoices.length} 条发票吗？`);
+    if (!confirmed) return;
+
+    try {
+      const result = await deleteInvoices(Array.from(selectedIds));
+      showToast('success', `成功删除 ${result.success} 条发票`);
+      if (result.errors.length > 0) {
+        showToast('error', `删除失败 ${result.errors.length} 条发票`);
+        console.error('删除失败:', result.errors);
+      }
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('批量删除失败:', error);
+      showToast('error', '批量删除失败');
+    }
+  };
+
+  // 批量生成凭证
+  const handleBatchGenerateVoucher = async () => {
+    if (selectedInvoices.length === 0) return;
+
+    const confirmed = window.confirm(`确定要为选中的 ${selectedInvoices.length} 条发票生成凭证吗？`);
+    if (!confirmed) return;
+
+    try {
+      // 使用当前日期作为凭证日期
+      const voucherDate = new Date().toISOString().split('T')[0];
+      const result = await generateInvoiceVouchers(Array.from(selectedIds), voucherDate);
+      showToast('success', `成功生成 ${result.success} 条凭证`);
+      if (result.errors.length > 0) {
+        showToast('error', `生成失败 ${result.errors.length} 条凭证`);
+        console.error('生成失败:', result.errors);
+      }
+    } catch (error) {
+      console.error('批量生成凭证失败:', error);
+      showToast('error', '批量生成凭证失败');
+    }
+  };
+
   // 生成凭证
   const handleGenerateVoucher = async (invoiceId: string) => {
     const invoice = invoices.find(inv => inv.id === invoiceId);
@@ -868,10 +928,32 @@ export default function InputInvoicePage() {
           </h1>
           <p className="text-slate-500 mt-1">管理采购发票，生成进项税凭证</p>
         </div>
-        <Button onClick={() => setShowImportDialog(true)}>
-          <Upload className="h-4 w-4 mr-2" />
-          导入Excel
-        </Button>
+        <div className="flex gap-2">
+          {selectedInvoices.length > 0 && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => handleBatchDelete()}
+                disabled={selectedInvoices.length === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                批量删除
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleBatchGenerateVoucher()}
+                disabled={selectedInvoices.length === 0}
+              >
+                <Calculator className="h-4 w-4 mr-2" />
+                批量生成凭证
+              </Button>
+            </>
+          )}
+          <Button onClick={() => setShowImportDialog(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            导入Excel
+          </Button>
+        </div>
       </div>
 
       {/* 统计卡片 */}
@@ -1078,6 +1160,13 @@ export default function InputInvoicePage() {
                               生成凭证
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(invoice.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
