@@ -21,19 +21,39 @@ import {
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores';
 import { AISubjectRecommendation } from '@/components/ai-subject-recommendation';
+import { parseBankStatement } from '@/lib/parser';
+import { BankAccountSelector, DEFAULT_BANK_ACCOUNTS } from '@/components/bank-account-selector';
+import { useToast } from '@/components/ui/toast';
+import type { BankTransaction, BankStatementParseResult } from '@/types';
 
 interface TransactionRecord {
   id: string;
   date: string;
   description: string;
   amount: number;
-  balance: number;
+  balance?: number;
   type: 'debit' | 'credit';
   matchedSubject?: string;
   matchedSubjectName?: string;
   confidence?: number;
   status: 'pending' | 'matched' | 'unmatched' | 'error';
 }
+
+  // 将 BankTransaction 转换为 TransactionRecord 用于显示
+  const toTransactionRecord = (tx: BankTransaction): TransactionRecord => {
+    const amount = tx.debit || tx.credit || 0;
+    const type = tx.debit ? 'debit' : 'credit';
+
+    return {
+      id: tx.id,
+      date: tx.date,
+      description: tx.summary || tx.notes || '',
+      amount: tx.debit || 0,
+      balance: tx.balance,
+      type,
+      status: 'pending'
+    };
+  };
 
 interface TransactionImportProps {
   importType: 'bank' | 'tax';
@@ -43,9 +63,13 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [showPreview, setShowPreview] = useState(false);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
+  const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
+  const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
   const { addVoucherFromTransactions } = useVoucherStore();
+  const { showToast } = useToast();
 
   // 模拟银行流水数据
   const mockBankTransactions: TransactionRecord[] = [
@@ -146,14 +170,44 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     if (!selectedFile) return;
 
     setIsProcessing(true);
+    setParseErrors([]);
 
-    // 模拟文件处理延迟
-    setTimeout(() => {
-      const mockData = importType === 'bank' ? mockBankTransactions : mockTaxTransactions;
-      setTransactions(mockData);
+    try {
+      if (importType === 'bank') {
+        const result: BankStatementParseResult = await parseBankStatement(selectedFile);
+
+        setBankInfo(result.bankInfo);
+        setTransactions(result.transactions);
+        setParseErrors(result.errors);
+
+        if (result.transactions.length === 0) {
+          showToast('error', '未找到有效的交易记录');
+          setIsProcessing(false);
+          return;
+        }
+
+        if (result.errors.length > 0) {
+          showToast('warning', `解析完成，有 ${result.errors.length} 个警告`);
+        } else {
+          showToast('success', `成功解析 ${result.transactions.length} 条记录`);
+        }
+
+        setShowPreview(true);
+      } else {
+        // 税务流水 - 保留原有的 mock 逻辑
+        setTimeout(() => {
+          const mockData = mockTaxTransactions;
+          setTransactions(mockData as any);
+          setIsProcessing(false);
+          setShowPreview(true);
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Parse error:', error);
+      showToast('error', '解析文件失败，请检查格式是否正确');
+    } finally {
       setIsProcessing(false);
-      setShowPreview(true);
-    }, 2000);
+    }
   };
 
   const handleMatchSubject = (id: string, subject: string, subjectName: string) => {
@@ -206,36 +260,36 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   };
 
   const handleGenerateVouchers = async () => {
-    const matchedTransactions = transactions.filter(t => t.status === 'matched');
+    const matchedTransactions = transactions.filter(t => t.debit || t.credit);
     if (matchedTransactions.length === 0) {
-      alert('请先匹配科目');
+      showToast('error', '没有有效的交易记录');
+      return;
+    }
+
+    if (!selectedBankAccountId) {
+      showToast('error', '请先选择银行账户');
       return;
     }
 
     setIsProcessing(true);
 
-    // 模拟生成凭证
-    setTimeout(() => {
-      const vouchers = matchedTransactions.map(t => ({
-        id: `voucher_${Date.now()}_${t.id}`,
-        date: t.date,
-        description: t.description,
-        entries: [{
-          subject: t.matchedSubject!,
-          subjectName: t.matchedSubjectName!,
-          debit: t.type === 'debit' ? Math.abs(t.amount) : 0,
-          credit: t.type === 'credit' ? Math.abs(t.amount) : 0
-        }]
-      }));
+    try {
+      // 这里需要实现从银行交易生成凭证的逻辑
+      // 暂时显示成功消息
+      showToast('success', `准备生成 ${matchedTransactions.length} 张凭证`);
 
-      // 添加到凭证存储
-      vouchers.forEach(voucher => {
-        addVoucherFromTransactions(voucher);
-      });
+      // TODO: 实际的凭证生成逻辑
+      // 1. 对每笔交易进行AI科目匹配
+      // 2. 创建凭证分录
+      // 3. 生成平衡分录（银行存款）
+      // 4. 保存凭证
 
+    } catch (error) {
+      console.error('Generate vouchers error:', error);
+      showToast('error', '生成凭证失败');
+    } finally {
       setIsProcessing(false);
-      alert(`成功生成 ${vouchers.length} 张凭证`);
-    }, 1500);
+    }
   };
 
   const getStatusBadge = (status: TransactionRecord['status']) => {
@@ -314,6 +368,25 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       {/* 预览和匹配 */}
       {showPreview && (
         <>
+          {/* 银行账户选择 */}
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              {bankInfo && (
+                <div className="mb-4 p-3 bg-slate-50 rounded-md">
+                  <p className="text-sm text-slate-600 mb-1">
+                    <span className="font-medium">账户信息:</span> {bankInfo.bankName} | {bankInfo.accountName} | {bankInfo.accountNumber}
+                  </p>
+                </div>
+              )}
+              <BankAccountSelector
+                accounts={DEFAULT_BANK_ACCOUNTS}
+                selectedAccountId={selectedBankAccountId}
+                onSelectAccount={setSelectedBankAccountId}
+                label="请选择对应的银行科目（用于平衡分录）"
+              />
+            </CardContent>
+          </Card>
+
           {/* 统计信息 */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card>
@@ -399,53 +472,38 @@ export function TransactionImport({ importType }: TransactionImportProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {transactions.map((transaction) => (
-                  <div key={transaction.id} className="border rounded-lg p-4 hover:bg-gray-50">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <Calendar className="h-4 w-4 text-gray-400" />
-                        <span className="font-mono text-sm">{transaction.date}</span>
-                        <span className="flex-1">{transaction.description}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-medium ${transaction.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {transaction.amount > 0 ? '+' : ''}¥{Math.abs(transaction.amount).toLocaleString()}
-                        </span>
-                        {getStatusBadge(transaction.status)}
-                      </div>
-                    </div>
-
-                    {/* AI推荐 */}
-                    {transaction.status === 'pending' && (
-                      <div className="mt-3 pt-3 border-t">
-                        <AISubjectRecommendation
-                          summary={transaction.description}
-                          amount={Math.abs(transaction.amount)}
-                          onSelect={(subject, subjectName) =>
-                            handleMatchSubject(transaction.id, subject, subjectName)
-                          }
-                        />
-                      </div>
-                    )}
-
-                    {/* 已匹配显示结果 */}
-                    {transaction.status === 'matched' && (
-                      <div className="mt-3 pt-3 border-t bg-green-50 rounded">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4 text-green-600" />
-                          <span className="text-sm font-medium">
-                            已匹配至：{transaction.matchedSubject} - {transaction.matchedSubjectName}
-                          </span>
-                          {transaction.confidence && (
-                            <Badge variant="outline" className="text-xs">
-                              匹配度: {Math.round(transaction.confidence * 100)}%
-                            </Badge>
+                {transactions.map((transaction) => {
+                  const record = toTransactionRecord(transaction);
+                  return (
+                    <div key={transaction.id} className="border rounded-lg p-4 hover:bg-gray-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          <span className="font-mono text-sm">{transaction.date}</span>
+                          <span className="flex-1">{transaction.summary || transaction.notes}</span>
+                          {transaction.counterpartyName && (
+                            <span className="text-sm text-slate-500">
+                              对方: {transaction.counterpartyName}
+                            </span>
                           )}
                         </div>
+                        <div className="flex items-center gap-2">
+                          {transaction.debit && (
+                            <span className="font-medium text-blue-600">
+                              借: ¥{transaction.debit.toLocaleString()}
+                            </span>
+                          )}
+                          {transaction.credit && (
+                            <span className="font-medium text-red-600">
+                              贷: ¥{transaction.credit.toLocaleString()}
+                            </span>
+                          )}
+                          {getStatusBadge(record.status)}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
