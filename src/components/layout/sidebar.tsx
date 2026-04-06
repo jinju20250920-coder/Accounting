@@ -70,6 +70,7 @@ const menuItems = [
   ]},
   { icon: Building2, label: '账套管理', path: '/sets' },
   { icon: RefreshCw, label: '汇兑损益', path: '/exchange' },
+  { icon: Upload, label: '流水导入', path: '/import' },
   { icon: FileText, label: '发票管理', path: '/invoices', children: [
     { label: '进项发票', path: '/invoices/input' },
     { label: '销项发票', path: '/invoices/output' },
