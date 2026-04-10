@@ -119,6 +119,8 @@ class SQLiteService {
     await this.migrateCreateFixedAssetTables();
     // 迁移：检查并创建银行流水表（如果不存在）
     await this.migrateCreateBankTransactionsTable();
+    // 迁移：创建银行流水匹配规则表
+    await this.migrateCreateBankRulesTable();
   }
 
   /**
@@ -542,6 +544,63 @@ class SQLiteService {
       }
     } catch (error) {
       console.warn('Fixed asset tables migration warning:', error);
+    }
+  }
+
+  /**
+   * 迁移：创建银行流水匹配规则表 + 为 partners 添加默认科目列
+   */
+  private async migrateCreateBankRulesTable(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 创建规则表
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='bankTransactionRules'"
+      );
+
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating bankTransactionRules table...');
+
+        const createTable = `
+          CREATE TABLE IF NOT EXISTS bankTransactionRules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            keyword TEXT NOT NULL,
+            subjectCode TEXT NOT NULL,
+            subjectName TEXT,
+            direction TEXT DEFAULT 'both',
+            priority INTEGER DEFAULT 5,
+            enabled INTEGER DEFAULT 1,
+            isSystem INTEGER DEFAULT 0,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_bankTransactionRules_accountSetId ON bankTransactionRules(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactionRules_enabled ON bankTransactionRules(enabled);
+        `;
+
+        this.dbInstance.exec(createTable);
+        console.log('Bank transaction rules table migration completed');
+      }
+
+      // 为 partners 表添加默认科目列
+      const pragma = this.dbInstance.exec("PRAGMA table_info(partners)");
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+      if (!columns.includes('defaultSubjectCode')) {
+        this.dbInstance.exec(`
+          ALTER TABLE partners ADD COLUMN defaultSubjectCode TEXT;
+          ALTER TABLE partners ADD COLUMN defaultSubjectName TEXT;
+        `);
+        console.log('Partners table: added defaultSubjectCode/defaultSubjectName columns');
+      }
+    } catch (error) {
+      if (!error.message?.includes('duplicate column name')) {
+        console.warn('Bank rules migration warning:', error);
+      }
     }
   }
 
@@ -1310,8 +1369,8 @@ class SQLiteService {
         const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO partners (
             id, code, name, type, contact, phone, email, address, taxNo,
-            bankAccount, enabled, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            bankAccount, enabled, defaultSubjectCode, defaultSubjectName, accountSetId, createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run([
           partnerWithAccountSet.id,
@@ -1325,6 +1384,8 @@ class SQLiteService {
           partnerWithAccountSet.taxNumber || partnerWithAccountSet.taxNo || '',
           partnerWithAccountSet.bankAccount || '',
           partnerWithAccountSet.frozen !== undefined ? Number(!partnerWithAccountSet.frozen) : 1,
+          partnerWithAccountSet.defaultSubjectCode || '',
+          partnerWithAccountSet.defaultSubjectName || '',
           partnerWithAccountSet.accountSetId,
           partnerWithAccountSet.createTime || now,
           partnerWithAccountSet.updateTime || now
@@ -1363,6 +1424,8 @@ class SQLiteService {
         address: result.address,
         taxNumber: result.taxNo,
         bankAccount: result.bankAccount,
+        defaultSubjectCode: result.defaultSubjectCode || undefined,
+        defaultSubjectName: result.defaultSubjectName || undefined,
         frozen: result.enabled === 0,
         createTime: result.createTime,
         updateTime: result.updateTime,

@@ -154,6 +154,105 @@ export function matchSubjectByKeywords(
 }
 
 /**
+ * 银行流水智能匹配 - 四层优先级
+ * 1. 往来单位默认科目（精确匹配对方户名）
+ * 2. 用户自定义规则
+ * 3. 系统默认规则
+ * 4. L2 用户偏好
+ */
+export interface BankMatchInput {
+  summary: string;           // 摘要
+  notes?: string;            // 备注
+  counterpartyName?: string; // 对方户名
+  isDebit: boolean;          // true=流入(借方), false=流出(贷方)
+}
+
+export interface BankMatchRule {
+  keyword: string;
+  subjectCode: string;
+  subjectName: string;
+  direction: 'in' | 'out' | 'both';
+  priority: number;
+}
+
+export interface BankMatchPartner {
+  name: string;
+  defaultSubjectCode?: string;
+  defaultSubjectName?: string;
+}
+
+export interface BankMatchResult {
+  subjectCode: string;
+  subjectName: string;
+  source: 'partner' | 'custom-rule' | 'system-rule' | 'user-preference';
+  confidence: number;
+  partnerName?: string;
+}
+
+export function matchBankTransaction(
+  input: BankMatchInput,
+  rules: BankMatchRule[],
+  partners: BankMatchPartner[],
+  userPrefs: Array<{ summary: string; subject: string; subjectName?: string; timestamp: number }>,
+): BankMatchResult | null {
+  const text = [input.summary, input.notes].filter(Boolean).join(' ');
+  const direction: 'in' | 'out' = input.isDebit ? 'in' : 'out';
+
+  // === 第1层：往来单位默认科目 ===
+  if (input.counterpartyName) {
+    const partner = partners.find(p =>
+      p.name === input.counterpartyName ||
+      input.counterpartyName.includes(p.name) ||
+      p.name.includes(input.counterpartyName)
+    );
+    if (partner?.defaultSubjectCode) {
+      return {
+        subjectCode: partner.defaultSubjectCode,
+        subjectName: partner.defaultSubjectName || '',
+        source: 'partner',
+        confidence: 0.95,
+        partnerName: partner.name,
+      };
+    }
+  }
+
+  // === 第2层+第3层：自定义规则 + 系统规则 ===
+  const enabledRules = rules
+    .filter(r => r.direction === 'both' || r.direction === direction)
+    .sort((a, b) => b.priority - a.priority);
+
+  for (const rule of enabledRules) {
+    if (text.includes(rule.keyword) || rule.keyword.includes(text)) {
+      return {
+        subjectCode: rule.subjectCode,
+        subjectName: rule.subjectName,
+        source: rule.priority >= 9 ? 'system-rule' : 'custom-rule',
+        confidence: 0.5 + rule.priority / 20,
+      };
+    }
+  }
+
+  // === 第4层：L2 用户偏好 ===
+  const l2Matches = userPrefs.filter(pref =>
+    text.includes(pref.summary) ||
+    pref.summary.includes(text) ||
+    text.includes(pref.subject)
+  );
+
+  if (l2Matches.length > 0) {
+    const best = l2Matches.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
+    return {
+      subjectCode: best.subject,
+      subjectName: best.subjectName || '',
+      source: 'user-preference',
+      confidence: Math.min(l2Matches.length * 0.15, 0.85),
+    };
+  }
+
+  return null;
+}
+
+/**
  * AI智能匹配 - Level 1 + Level 2
  * L1（规则先行）: 使用预设的关键词规则
  * L2（上下文学习）: 使用用户历史偏好

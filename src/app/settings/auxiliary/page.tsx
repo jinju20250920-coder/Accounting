@@ -30,6 +30,7 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
 import { usePartnerStore } from '@/stores/usePartnerStore';
+import { SubjectSearch } from '@/components/voucher/subject-search';
 import type { Partner } from '@/types';
 
 export default function AuxiliaryDataPage() {
@@ -67,6 +68,8 @@ export default function AuxiliaryDataPage() {
     taxNumber: '',
     bankAccount: '',
     bankName: '',
+    defaultSubjectCode: '',
+    defaultSubjectName: '',
     frozen: false
   });
 
@@ -155,6 +158,8 @@ export default function AuxiliaryDataPage() {
       taxNumber: partner.taxNumber || '',
       bankAccount: partner.bankAccount || '',
       bankName: partner.bankName || '',
+      defaultSubjectCode: partner.defaultSubjectCode || '',
+      defaultSubjectName: partner.defaultSubjectName || '',
       frozen: partner.frozen
     });
     setShowDialog(true);
@@ -322,6 +327,8 @@ export default function AuxiliaryDataPage() {
       taxNumber: '',
       bankAccount: '',
       bankName: '',
+      defaultSubjectCode: '',
+      defaultSubjectName: '',
       frozen: false
     });
   };
@@ -707,6 +714,38 @@ export default function AuxiliaryDataPage() {
                   value={formData.bankAccount}
                   onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))}
                 />
+              </div>
+            </div>
+
+            {/* 默认科目 */}
+            <div className="grid grid-cols-1 gap-4 pt-2 border-t">
+              <div className="space-y-2">
+                <Label>默认对方科目</Label>
+                <p className="text-xs text-slate-500">
+                  银行流水匹配时，自动使用此科目。供应商建议选"应付账款"，客户建议选"应收账款"
+                </p>
+                <div className="border rounded-md">
+                  <SubjectSearch
+                    value={formData.defaultSubjectCode ? `${formData.defaultSubjectCode} ${formData.defaultSubjectName}` : ''}
+                    onSelect={(code, name) => setFormData(prev => ({ ...prev, defaultSubjectCode: code, defaultSubjectName: name }))}
+                    placeholder="搜索科目代码或名称..."
+                    showDirection={false}
+                    showType={false}
+                  />
+                </div>
+                {formData.defaultSubjectCode && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{formData.defaultSubjectCode} {formData.defaultSubjectName}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFormData(prev => ({ ...prev, defaultSubjectCode: '', defaultSubjectName: '' }))}
+                      className="text-xs text-slate-400 h-6"
+                    >
+                      清除
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 pt-2 border-t">

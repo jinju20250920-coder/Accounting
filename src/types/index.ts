@@ -535,6 +535,8 @@ export interface Partner {
   taxNumber?: string; // 税号
   bankAccount?: string; // 银行账号
   bankName?: string; // 开户银行
+  defaultSubjectCode?: string; // 默认对方科目代码（供应商→应付账款，客户→应收账款）
+  defaultSubjectName?: string; // 默认对方科目名称
   frozen: boolean;
   createTime: string;
   updateTime: string;
@@ -542,6 +544,25 @@ export interface Partner {
   mergedFrom?: string[]; // 从哪些ID合并而来
   parentId?: string; // 关联的集团ID（用于合并到集团）
   accountSetId?: string; // 新增字段：所属账套ID
+}
+
+// ============================================
+// 银行流水匹配规则
+// ============================================
+
+export interface BankTransactionRule {
+  id: string;
+  name: string;              // 规则名称
+  keyword: string;           // 匹配关键词
+  subjectCode: string;       // 对方科目代码
+  subjectName: string;       // 对方科目名称
+  direction: 'in' | 'out' | 'both'; // 流入/流出/双向
+  priority: number;          // 优先级 1-10
+  enabled: boolean;          // 是否启用
+  isSystem: boolean;         // 系统规则不可删除
+  accountSetId?: string;
+  createTime: string;
+  updateTime: string;
 }
 
 // ============================================

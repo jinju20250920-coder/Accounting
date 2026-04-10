@@ -18,14 +18,17 @@ import {
   Loader2,
   BarChart3,
   Zap,
-  RefreshCw
+  RefreshCw,
+  Settings
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores';
 import { parseBankStatement } from '@/lib/parser';
 import { BankAccountSelector, DEFAULT_BANK_ACCOUNTS } from '@/components/bank-account-selector';
 import { useToast } from '@/components/ui/toast';
 import { getCurrentService } from '@/lib/database';
-import { getSmartMatch } from '@/lib/accounting';
+import { matchBankTransaction } from '@/lib/accounting';
+import { BankRulesDialog } from '@/components/bank-rules-dialog';
+import { SubjectSearch } from '@/components/voucher/subject-search';
 import type { BankTransaction, BankStatementParseResult } from '@/types';
 
 interface TransactionRecord {
@@ -69,6 +72,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
   const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
+  const [showRulesDialog, setShowRulesDialog] = useState(false);
+  const [editingSubjectTxId, setEditingSubjectTxId] = useState<string | null>(null);
   const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -206,9 +211,11 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   };
 
   const handleAutoMatch = async () => {
-    // 使用 AI 智能匹配系统（L1关键词规则 + L2用户偏好）
+    // 四层匹配：往来单位默认科目 > 自定义规则 > 系统规则 > 用户偏好
     const { useUserPreferenceStore } = await import('@/stores/useUserPreferenceStore');
     const { useSubjectStore } = await import('@/stores/useSubjectStore');
+    const { usePartnerStore } = await import('@/stores/usePartnerStore');
+    const { useBankRuleStore } = await import('@/stores/useBankRuleStore');
 
     const userPrefs = useUserPreferenceStore.getState().preferences.map(p => ({
       summary: p.summary,
@@ -217,21 +224,42 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       timestamp: p.timestamp || 0
     }));
 
-    const subjects = useSubjectStore.getState().subjects.map(s => ({
-      code: s.code,
-      name: s.name
+    const partners = usePartnerStore.getState().partners.map(p => ({
+      name: p.name,
+      defaultSubjectCode: p.defaultSubjectCode,
+      defaultSubjectName: p.defaultSubjectName,
     }));
 
-    const updatedTransactions = transactions.map(t => {
-      const description = t.summary || t.notes || '';
+    const bankRules = useBankRuleStore.getState().getEnabledRules().map(r => ({
+      keyword: r.keyword,
+      subjectCode: r.subjectCode,
+      subjectName: r.subjectName,
+      direction: r.direction,
+      priority: r.priority,
+    }));
 
-      // 使用 AI 智能匹配
-      const match = getSmartMatch(description, userPrefs, subjects);
+    // 确保规则已初始化
+    if (bankRules.length === 0) {
+      await useBankRuleStore.getState().initialize();
+    }
+
+    const updatedTransactions = transactions.map(t => {
+      const match = matchBankTransaction(
+        {
+          summary: t.summary || '',
+          notes: t.notes || '',
+          counterpartyName: t.counterpartyName || undefined,
+          isDebit: !!t.debit,
+        },
+        bankRules,
+        partners,
+        userPrefs
+      );
 
       if (match) {
         return {
           ...t,
-          matchedSubject: match.subject,
+          matchedSubject: match.subjectCode,
           matchedSubjectName: match.subjectName,
           confidence: match.confidence,
           status: 'matched' as const
@@ -405,6 +433,42 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
     const newSeq = maxSeq + 1;
     return `记-${yearMonth}-${String(newSeq).padStart(3, '0')}`;
+  };
+
+  const handleManualSubjectSelect = async (txId: string, code: string, name: string) => {
+    setTransactions(prev => prev.map(t =>
+      t.id === txId
+        ? { ...t, matchedSubject: code, matchedSubjectName: name, status: 'matched' as const }
+        : t
+    ));
+    setEditingSubjectTxId(null);
+
+    // 更新数据库
+    try {
+      const service = getCurrentService();
+      await service.updateBankTransaction(txId, {
+        matchedSubject: code,
+        matchedSubjectName: name,
+        status: 'matched'
+      });
+    } catch (error) {
+      console.error('更新交易匹配失败:', error);
+    }
+
+    // 记录为 L2 用户偏好
+    try {
+      const tx = transactions.find(t => t.id === txId);
+      if (tx) {
+        const { useUserPreferenceStore } = await import('@/stores/useUserPreferenceStore');
+        useUserPreferenceStore.getState().savePreference(
+          tx.summary || tx.notes || '',
+          code,
+          name
+        );
+      }
+    } catch (error) {
+      console.error('保存用户偏好失败:', error);
+    }
   };
 
   const handleClearTransactions = async () => {
@@ -587,6 +651,10 @@ export function TransactionImport({ importType }: TransactionImportProps) {
               <Zap className="h-4 w-4 mr-2" />
               智能匹配
             </Button>
+            <Button variant="outline" onClick={() => setShowRulesDialog(true)} title="匹配规则设置">
+              <Settings className="h-4 w-4 mr-2" />
+              匹配规则
+            </Button>
             <Button
               onClick={handleGenerateVouchers}
               disabled={isProcessing || transactions.filter(t => t.status === 'matched').length === 0}
@@ -639,9 +707,24 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                           {/* 对方科目列 */}
                           <div className="text-sm flex-shrink-0">
                             <span className="text-slate-500">对方科目: </span>
-                            <span className="font-medium text-blue-700">
-                              {transaction.matchedSubject ? `${transaction.matchedSubject} - ${transaction.matchedSubjectName}` : '待匹配'}
-                            </span>
+                            {editingSubjectTxId === transaction.id ? (
+                              <div className="border rounded-md w-56" onClick={e => e.stopPropagation()}>
+                                <SubjectSearch
+                                  value=""
+                                  onSelect={(code, name) => handleManualSubjectSelect(transaction.id, code, name)}
+                                  placeholder="搜索科目..."
+                                  showDirection={false}
+                                  showType={false}
+                                />
+                              </div>
+                            ) : (
+                              <span
+                                className={`font-medium ${transaction.matchedSubject ? 'text-blue-700' : 'text-slate-400 cursor-pointer hover:text-blue-500 underline decoration-dashed'}`}
+                                onClick={() => setEditingSubjectTxId(transaction.id)}
+                              >
+                                {transaction.matchedSubject ? `${transaction.matchedSubject} - ${transaction.matchedSubjectName}` : '点击选择'}
+                              </span>
+                            )}
                           </div>
                           {/* 金额 */}
                           <div className="flex items-center gap-2 flex-shrink-0">
@@ -681,6 +764,9 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           </Card>
         </>
       )}
+
+      {/* 规则管理弹窗 */}
+      <BankRulesDialog open={showRulesDialog} onOpenChange={setShowRulesDialog} />
     </div>
   );
 }
