@@ -106,6 +106,11 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           if (batchIds.length > 0) {
             setCurrentBatchId(batchIds[0] as string);
           }
+
+          // 自动选择默认银行科目
+          if (!selectedBankAccountId && DEFAULT_BANK_ACCOUNTS.length > 0) {
+            setSelectedBankAccountId(DEFAULT_BANK_ACCOUNTS[0].id);
+          }
         }
       }
     } catch (error) {
@@ -182,6 +187,11 @@ export function TransactionImport({ importType }: TransactionImportProps) {
         }
 
         setShowPreview(true);
+
+        // 自动选择默认银行科目
+        if (!selectedBankAccountId && DEFAULT_BANK_ACCOUNTS.length > 0) {
+          setSelectedBankAccountId(DEFAULT_BANK_ACCOUNTS[0].id);
+        }
       }
     } catch (error) {
       console.error('Parse error:', error);
@@ -578,12 +588,12 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       {/* 预览和匹配 */}
       {showPreview && (
         <>
-          {/* 银行账户选择 */}
-          <Card className="mb-4">
+          {/* 银行信息 + 科目选择（醒目位置） */}
+          <Card className="mb-4 border-blue-200 bg-blue-50">
             <CardContent className="p-4">
               {bankInfo && (
-                <div className="mb-4 p-3 bg-slate-50 rounded-md">
-                  <p className="text-sm text-slate-600 mb-1">
+                <div className="mb-3 p-3 bg-white rounded-md border">
+                  <p className="text-sm text-slate-600">
                     <span className="font-medium">账户信息:</span> {bankInfo.bankName} | {bankInfo.accountName} | {bankInfo.accountNumber}
                   </p>
                 </div>
@@ -592,7 +602,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                 accounts={DEFAULT_BANK_ACCOUNTS}
                 selectedAccountId={selectedBankAccountId}
                 onSelectAccount={setSelectedBankAccountId}
-                label="请选择对应的银行科目（用于平衡分录）"
+                label="选择银行科目（生成凭证时的平衡分录）"
               />
             </CardContent>
           </Card>
