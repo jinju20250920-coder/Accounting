@@ -77,6 +77,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
   const { showToast } = useToast();
 
   // 组件加载时从数据库读取已保存的流水
@@ -213,9 +214,22 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const handleAutoMatch = async () => {
     // 四层匹配：往来单位默认科目 > 自定义规则 > 系统规则 > 用户偏好
     const { useUserPreferenceStore } = await import('@/stores/useUserPreferenceStore');
-    const { useSubjectStore } = await import('@/stores/useSubjectStore');
     const { usePartnerStore } = await import('@/stores/usePartnerStore');
     const { useBankRuleStore } = await import('@/stores/useBankRuleStore');
+
+    // 先确保规则已初始化，再获取
+    const bankRuleStore = useBankRuleStore.getState();
+    if (bankRuleStore.rules.length === 0) {
+      await bankRuleStore.initialize();
+    }
+
+    const bankRules = useBankRuleStore.getState().getEnabledRules().map(r => ({
+      keyword: r.keyword,
+      subjectCode: r.subjectCode,
+      subjectName: r.subjectName,
+      direction: r.direction,
+      priority: r.priority,
+    }));
 
     const userPrefs = useUserPreferenceStore.getState().preferences.map(p => ({
       summary: p.summary,
@@ -229,19 +243,6 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       defaultSubjectCode: p.defaultSubjectCode,
       defaultSubjectName: p.defaultSubjectName,
     }));
-
-    const bankRules = useBankRuleStore.getState().getEnabledRules().map(r => ({
-      keyword: r.keyword,
-      subjectCode: r.subjectCode,
-      subjectName: r.subjectName,
-      direction: r.direction,
-      priority: r.priority,
-    }));
-
-    // 确保规则已初始化
-    if (bankRules.length === 0) {
-      await useBankRuleStore.getState().initialize();
-    }
 
     const updatedTransactions = transactions.map(t => {
       const match = matchBankTransaction(
@@ -290,9 +291,14 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   };
 
   const handleGenerateVouchers = async () => {
-    const matchedTransactions = transactions.filter(t => t.matchedSubject || t.debit || t.credit);
+    // 优先使用勾选的交易，否则使用全部匹配的交易
+    const targetIds = selectedTxIds.size > 0 ? selectedTxIds : null;
+    const matchedTransactions = transactions.filter(t =>
+      (targetIds ? targetIds.has(t.id) : true) &&
+      (t.matchedSubject || t.debit || t.credit)
+    );
     if (matchedTransactions.length === 0) {
-      showToast('error', '没有有效的交易记录');
+      showToast('error', targetIds ? '选中的记录中没有可生成的交易' : '没有有效的交易记录');
       return;
     }
 
@@ -646,7 +652,29 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           </div>
 
           {/* 操作栏 */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
+            <label className="flex items-center gap-2 text-sm cursor-pointer mr-2">
+              <input
+                type="checkbox"
+                checked={selectedTxIds.size > 0 && selectedTxIds.size === transactions.length}
+                ref={el => {
+                  if (el) {
+                    el.indeterminate = selectedTxIds.size > 0 && selectedTxIds.size < transactions.length;
+                  }
+                }}
+                onChange={() => {
+                  if (selectedTxIds.size === transactions.length) {
+                    setSelectedTxIds(new Set());
+                  } else {
+                    setSelectedTxIds(new Set(transactions.map(t => t.id)));
+                  }
+                }}
+                className="rounded border-slate-300"
+              />
+              <span className="text-slate-600">
+                {selectedTxIds.size > 0 ? `已选 ${selectedTxIds.size} 条` : '全选'}
+              </span>
+            </label>
             <Button onClick={handleAutoMatch} disabled={isProcessing}>
               <Zap className="h-4 w-4 mr-2" />
               智能匹配
@@ -664,7 +692,9 @@ export function TransactionImport({ importType }: TransactionImportProps) {
               ) : (
                 <>
                   <FileText className="h-4 w-4 mr-2" />
-                  生成凭证
+                  {selectedTxIds.size > 0
+                    ? `生成凭证 (${selectedTxIds.size}条)`
+                    : '生成凭证 (全部)'}
                 </>
               )}
             </Button>
@@ -691,9 +721,25 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                 {transactions.map((transaction) => {
                   const record = toTransactionRecord(transaction);
                   return (
-                    <div key={transaction.id} className="border rounded-lg p-4 hover:bg-gray-50">
+                    <div key={transaction.id} className={`border rounded-lg p-4 hover:bg-gray-50 ${selectedTxIds.has(transaction.id) ? 'bg-blue-50 border-blue-200' : ''}`}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedTxIds.has(transaction.id)}
+                            onChange={() => {
+                              setSelectedTxIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(transaction.id)) {
+                                  next.delete(transaction.id);
+                                } else {
+                                  next.add(transaction.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            className="rounded border-slate-300"
+                          />
                           <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
                           <span className="font-mono text-sm flex-shrink-0">{transaction.date}</span>
                           <span className="flex-1">{transaction.summary || transaction.notes}</span>
