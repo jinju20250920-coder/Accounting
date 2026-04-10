@@ -383,7 +383,7 @@ if (type === 'sale_invoice') {
 ### 注意事项
 
 1. **数据持久化** - 主数据使用 SQLite 数据库（`sqlite-service.ts`），UI 状态使用 Zustand persist（`persistence-config.ts`）
-2. **日期格式** - 所有日期使用ISO格式（YYYY-MM-DD）
+2. **日期格式** - 存储使用ISO格式（YYYY-MM-DD），UI显示使用中文格式（YYYY年MM月DD日）
 3. **金额精度** - 所有金额保留2位小数，使用Math.round避免浮点误差
 4. **科目验证** - 操作前验证科目是否存在，防止数据错误
 5. **借贷平衡** - 保存前必须平衡，否则提示警告
@@ -446,3 +446,23 @@ draft → review → posted → reversed
 - 类型安全：完整的TypeScript类型定义
 - 组件复用：shadcn/ui组件库保证UI一致性
 - 科目树组件：SubjectTreeNode 组件递归渲染层级结构，使用内联样式动态计算缩进
+
+## Skill routing
+
+When the user's request matches an available skill, ALWAYS invoke it using the Skill
+tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
+The skill has specialized workflows that produce better results than ad-hoc answers.
+
+Key routing rules:
+- Product ideas, "is this worth building", brainstorming → invoke office-hours
+- Bugs, errors, "why is this broken", 500 errors → invoke investigate
+- Ship, deploy, push, create PR → invoke ship
+- QA, test the site, find bugs → invoke qa
+- Code review, check my diff → invoke review
+- Update docs after shipping → invoke document-release
+- Weekly retro → invoke retro
+- Design system, brand → invoke design-consultation
+- Visual audit, design polish → invoke design-review
+- Architecture review → invoke plan-eng-review
+- Save progress, checkpoint, resume → invoke checkpoint
+- Code quality, health check → invoke health
