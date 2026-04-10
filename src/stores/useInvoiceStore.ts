@@ -34,7 +34,7 @@ interface InvoiceStore {
   generateInvoiceVouchers: (ids: string[], voucherDate: string) => Promise<{ success: number; errors: string[] }>;
 
   // 批量导入
-  importInvoicesFromExcel: (invoices: Partial<Invoice>[], invoiceType: InvoiceType) => Promise<{ success: number; errors: string[] }>;
+  importInvoicesFromExcel: (invoices: Partial<Invoice>[], invoiceType: InvoiceType, options?: { autoGenerateVoucher?: boolean }) => Promise<{ success: number; errors: string[]; voucherCount?: number }>;
 
   // 核销
   addReconciliation: (rec: Omit<InvoiceReconciliation, 'id' | 'createTime'>) => Promise<InvoiceReconciliation>;
@@ -171,9 +171,10 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   },
 
   // 批量导入发票
-  importInvoicesFromExcel: async (invoicesData, invoiceType) => {
+  importInvoicesFromExcel: async (invoicesData, invoiceType, options) => {
     const errors: string[] = [];
     let success = 0;
+    let voucherCount = 0;
     const addedInvoices: Invoice[] = [];
 
     try {
@@ -332,13 +333,31 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           invoices: [...addedInvoices, ...state.invoices],
         }));
       }
+
+      // 自动生成凭证
+      if (options?.autoGenerateVoucher && addedInvoices.length > 0) {
+        const today = new Date().toISOString().split('T')[0];
+        for (const invoice of addedInvoices) {
+          try {
+            const result = await get().generateInvoiceVoucher(invoice.id, invoice.invoiceDate || today);
+            if (result) {
+              voucherCount++;
+            }
+          } catch (error) {
+            const invoiceKey = invoice.digitalInvoiceNo
+              ? `${invoice.invoiceCode}/${invoice.digitalInvoiceNo}`
+              : invoice.invoiceCode;
+            errors.push(`发票 ${invoiceKey} 自动生成凭证失败: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       errors.push(`初始化失败: ${errorMsg}`);
       console.error('Invoice import initialization error:', error);
     }
 
-    return { success, errors };
+    return { success, errors, voucherCount };
   },
 
   // 添加核销记录

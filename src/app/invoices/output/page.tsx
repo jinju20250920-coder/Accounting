@@ -213,7 +213,7 @@ function ImportDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImport: (invoices: Partial<Invoice>[]) => Promise<{ success: number; errors: string[] }>;
+  onImport: (invoices: Partial<Invoice>[], options?: { autoGenerateVoucher?: boolean }) => Promise<{ success: number; errors: string[]; voucherCount?: number }>;
 }) {
   const { showToast } = useToast();
   const [importing, setImporting] = useState(false);
@@ -223,6 +223,7 @@ function ImportDialog({
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [sheetDataMap, setSheetDataMap] = useState<Map<string, Partial<Invoice>[]>>(new Map());
   const [previewSelectedIds, setPreviewSelectedIds] = useState<Set<string>>(new Set());
+  const [autoGenerateVoucher, setAutoGenerateVoucher] = useState(true);
 
   // 对话框打开/关闭时重置状态
   useEffect(() => {
@@ -391,9 +392,13 @@ function ImportDialog({
   const handleImport = async () => {
     setImporting(true);
     try {
-      const result = await onImport(previewData);
+      const result = await onImport(previewData, { autoGenerateVoucher });
       if (result.success > 0) {
-        showToast('success', `成功导入 ${result.success} 条发票`);
+        let msg = `成功导入 ${result.success} 条发票`;
+        if (result.voucherCount && result.voucherCount > 0) {
+          msg += `，自动生成 ${result.voucherCount} 张凭证`;
+        }
+        showToast('success', msg);
       }
       if (result.errors.length > 0) {
         result.errors.forEach(err => showToast('warning', err));
@@ -616,7 +621,18 @@ function ImportDialog({
           );
         })()}
 
-        <DialogFooter>
+        <DialogFooter className="flex items-center gap-4">
+          {step === 'preview' && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer mr-auto">
+              <input
+                type="checkbox"
+                checked={autoGenerateVoucher}
+                onChange={(e) => setAutoGenerateVoucher(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              <span className="text-slate-600">导入后自动生成凭证</span>
+            </label>
+          )}
           <Button variant="outline" onClick={handleCancel}>
             取消
           </Button>
@@ -712,8 +728,8 @@ export default function OutputInvoicePage() {
   const filteredInvoices = getFilteredInvoices();
 
   // 处理导入
-  const handleImport = async (invoicesData: Partial<Invoice>[]) => {
-    return await importInvoicesFromExcel(invoicesData, 'output');
+  const handleImport = async (invoicesData: Partial<Invoice>[], options?: { autoGenerateVoucher?: boolean }) => {
+    return await importInvoicesFromExcel(invoicesData, 'output', options);
   };
 
   // 生成凭证

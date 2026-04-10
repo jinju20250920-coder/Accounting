@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-**AI 财务 Assistant** - 基于Web的现代会计凭证录入系统
+**AI 财务 Assistant（金桔财务系统）** - 基于Web的现代会计凭证录入系统
 
-- 框架：Next.js 16 + React 19 + shadcn/ui + Zustand + Tailwind CSS
+- 框架：Next.js + React + shadcn/ui + Zustand + Tailwind CSS
 - 特性：Excel-like网格、凭证导入/流水生成、AI学习功能、凭证冲销、自动化模板引擎、状态机管理
-- 数据存储：SQLite 数据库（默认），支持多账套管理和数据持久化
+- 数据存储：SQLite 数据库（默认，通过 sql.js + OPFS），支持多账套管理和数据持久化
 
 ---
 
@@ -25,12 +25,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Level 2（上下文学习）：利用 `useUserPreferenceStore` 记忆用户偏好
 - 匹配逻辑：`getSmartMatch()` 函数实现，支持双向匹配（摘要包含关键词/关键词包含摘要）
 - 匹配优先级：用户偏好（L2）> 预设规则（L1）
+- 已集成到银行流水智能匹配（`transaction-import.tsx` 的 `handleAutoMatch`）
 
 ### 3. 模板驱动自动化凭证生成
 - 核心思路：使用 `TemplateEngine` 和 VoucherTemplate 而非硬编码逻辑
 - 公式解释器：支持 `{total_amount} * 0.13` 这样的表达式，使用 `FormulaInterpreter` 类
 - 模板类型：系统模板（不可修改）和用户自定义模板
 - 自动匹配：导入数据时根据 `triggerType` 自动选择模板
+
+### 4. 数据持久化架构（双层）
+- **主数据层**：SQLite 数据库（`sqlite-service.ts`），存储凭证、科目、分录、银行流水、发票等所有业务数据
+- **UI状态层**：Zustand persist 中间件（`persistence-config.ts`），仅保存 UI 配置和少量状态
+- **数据库切换**：`lib/database/index.ts` 通过 `getCurrentService()` 返回 `sqliteService`（默认）或 `databaseService`（IndexedDB）
+- **账套隔离**：每个账套通过 `accountSetId` 字段隔离数据
 
 ---
 
@@ -40,13 +47,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **凭证状态机** - 严格的状态管理：draft → review → posted → reversed
 3. **AI智能匹配** - L1关键词规则 + L2用户学习，智能科目推荐
 4. **自动化模板引擎** - 基于模板自动生成凭证，支持公式计算
-5. **流水导入** - 银行/税务流水导入，智能匹配科目，批量生成凭证
-6. **报表查询** - 科目余额表、明细账、资产负债表、损益表、现金流量表
-7. **往来管理** - 应收账款账龄、应付账款账龄分析
-8. **账套管理** - 多账套支持、期初余额录入、期间管理
-9. **基础档案管理** - 科目层级树形显示、新增/编辑/删除/冻结、部门、项目
-10. **汇兑损益** - 外币科目、汇率管理、期末自动调汇
-11. **期末结转** - 损益结转、年结处理
+5. **流水导入** - 银行流水导入，AI智能匹配科目，批量/自动生成凭证
+6. **发票管理** - 进项/销项发票导入，自动生成凭证，核销管理
+7. **报表查询** - 科目余额表、明细账、资产负债表、损益表、现金流量表
+8. **往来管理** - 应收账款账龄、应付账款账龄分析、核销
+9. **账套管理** - 多账套支持、期初余额录入、期间管理、OPFS存储
+10. **基础档案管理** - 科目层级树形显示、新增/编辑/删除/冻结、部门、项目、币别、往来单位
+11. **固定资产管理** - 固定资产卡片、无形资产、待摊费用、折旧/摊销计算
+12. **汇兑损益** - 外币科目、汇率管理、期末自动调汇
+13. **期末结转** - 损益结转、年结处理
 
 ---
 
@@ -56,44 +65,118 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 src/
 ├── app/
 │   ├── layout.tsx
-│   ├── page.tsx
-│   ├── balance/page.tsx
-│   ├── reports/
-│   ├── sets/page.tsx
-│   ├── exchange/page.tsx
-│   ├── import/page.tsx
-│   └── closing/page.tsx
+│   ├── page.tsx                    # 仪表盘首页
+│   ├── balance/page.tsx            # 科目余额表
+│   ├── voucher-entry-page/         # 凭证录入
+│   ├── voucher-list/               # 凭证列表
+│   ├── import/page.tsx             # 银行流水导入
+│   ├── invoices/
+│   │   ├── input/page.tsx          # 进项发票
+│   │   ├── output/page.tsx         # 销项发票
+│   │   └── summary/page.tsx        # 发票汇总
+│   ├── sets/page.tsx               # 账套管理
+│   ├── reports/                    # 报表
+│   │   ├── assets/                 # 资产负债表
+│   │   ├── profit/                 # 损益表
+│   │   └── cashflow/               # 现金流量表
+│   ├── aging/                      # 账龄分析
+│   ├── assets/                     # 固定资产/无形资产/待摊费用
+│   ├── settings/                   # 基础档案设置
+│   │   ├── subjects/               # 科目管理
+│   │   ├── auxiliary/              # 往来单位管理
+│   │   ├── departments/            # 部门管理
+│   │   ├── projects/               # 项目管理
+│   │   ├── currencies/             # 币别管理
+│   │   ├── summaries/              # 常用摘要
+│   │   └── templates/              # 凭证模板
+│   └── partner-dashboard/          # 往来单位详情
 ├── components/
-│   ├── ui/          # shadcn/ui组件
-│   │   ├── badge.tsx
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   ├── dialog.tsx
-│   │   ├── input.tsx
-│   │   ├── label.tsx
-│   │   ├── separator.tsx
-│   │   └── tabs.tsx
-│   ├── layout/      # 布局组件
-│   │   └── sidebar.tsx
-│   └── voucher/     # 凭证相关组件
-│       ├── auxiliary-selector.tsx
-│       └── subject-search.tsx
-├── stores/          # Zustand状态管理
-│   ├── useVoucherStore.ts
-│   ├── useUserPreferenceStore.ts
-│   ├── useAuditStore.ts
-│   └── useSubjectStore.ts  # 科目管理状态
-├── lib/            # 核心业务逻辑
-│   ├── accounting.ts      # 会计引擎核心
-│   ├── ai-learning.ts    # AI学习模块
-│   ├── parser.ts         # Excel解析器
-│   ├── template-engine.ts # 自动化模板引擎
-│   └── data/             # 数据配置
-│       ├── keyword-rules.json  # 关键词匹配规则
-│       ├── subjects.json       # 默认科目
-│       └── templates.json      # 凭证模板
+│   ├── ui/                         # shadcn/ui 组件（16个）
+│   ├── layout/                     # 布局（sidebar, VoucherLayout）
+│   ├── voucher/                    # 凭证相关组件（15个）
+│   │   ├── voucher-entry-grid.tsx  # Excel-like 凭证录入网格
+│   │   ├── subject-search.tsx      # 科目搜索
+│   │   ├── smart-subject-selector.tsx # AI智能科目选择
+│   │   ├── auxiliary-selector.tsx  # 辅助核算选择器
+│   │   ├── clearing-manager.tsx    # 核销管理
+│   │   ├── TemplateSelector.tsx    # 模板选择器
+│   │   └── ...
+│   ├── reports/                    # 报表组件（5个）
+│   ├── database/                   # 数据库管理组件（7个）
+│   ├── account-set/                # 账套管理组件（3个）
+│   ├── partner/                    # 往来单位组件（2个）
+│   ├── project/                    # 项目管理组件（9个）
+│   ├── transaction-import.tsx      # 银行流水导入（支持AI智能匹配）
+│   ├── import-history.tsx          # 导入历史
+│   ├── ai-learning-dashboard.tsx   # AI学习看板
+│   ├── ai-subject-recommendation.tsx # AI科目推荐
+│   ├── bank-account-selector.tsx   # 银行账户选择器
+│   ├── error-boundary.tsx          # 错误边界
+│   ├── DatabaseSyncWrapper.tsx     # 数据库同步包装器
+│   └── DatabaseManager.tsx         # 数据库管理器
+├── stores/                         # Zustand 状态管理（22个Store）
+│   ├── index.ts                    # Store 导出
+│   ├── persistence-config.ts       # 持久化配置（UI状态用localStorage）
+│   ├── useVoucherStore.ts          # 凭证录入
+│   ├── useSubjectStore.ts          # 科目管理
+│   ├── useInvoiceStore.ts          # 发票管理（含自动凭证生成）
+│   ├── useAccountSetStore.ts       # 账套管理
+│   ├── useUserPreferenceStore.ts   # 用户偏好（AI L2学习）
+│   ├── useAuditStore.ts            # 审计日志
+│   ├── usePartnerStore.ts          # 往来单位
+│   ├── useDepartmentStore.ts       # 部门
+│   ├── useCurrencyStore.ts         # 币别
+│   ├── useVoucherTemplateStore.ts  # 凭证模板
+│   ├── useSummaryStore.ts          # 常用摘要
+│   ├── useClearingStore.ts         # 核销
+│   ├── useAgingStore.ts            # 账龄分析
+│   ├── useReportConfigStore.ts     # 报表配置
+│   ├── useFixedAssetStore.ts       # 固定资产
+│   ├── useIntangibleAssetStore.ts  # 无形资产
+│   ├── usePrepaidExpenseStore.ts   # 待摊费用
+│   ├── useSettingsStore.ts         # 系统设置
+│   ├── useAccountStore.ts          # 账户管理
+│   ├── useFinancialProjectStore.ts # 财务项目
+│   └── useProjectStore.ts          # 项目管理
+├── lib/                            # 核心业务逻辑
+│   ├── accounting.ts               # 会计引擎核心（含 getSmartMatch）
+│   ├── ai-learning.ts              # AI学习模块
+│   ├── template-engine.ts          # 自动化模板引擎（4个系统模板）
+│   ├── parser.ts                   # Excel解析器（银行流水等）
+│   ├── depreciation.ts             # 折旧计算（直线法/双倍余额/年数总和/工作量法）
+│   ├── amortization.ts             # 摊销计算
+│   ├── financial-reports.ts        # 财务报表生成
+│   ├── enhanced-formula-interpreter.ts # 增强公式解释器
+│   ├── excel-utils.ts              # Excel工具
+│   ├── paste-handler.ts            # 剪贴板粘贴处理
+│   ├── print-utils.ts              # 打印工具
+│   ├── chinese-number.ts           # 中文数字转换
+│   ├── code-generator.ts           # 自动编码生成
+│   ├── utils.ts                    # 通用工具函数
+│   ├── bank-parsers/               # 银行流水解析器
+│   │   └── ccb-parser.ts           # 建设银行
+│   ├── data/                       # 数据配置
+│   │   ├── keyword-rules.json      # AI L1关键词匹配规则
+│   │   ├── subjects.json           # 默认科目
+│   │   └── templates.json          # 凭证模板
+│   └── database/                   # 数据库层
+│       ├── index.ts                # 数据库服务工厂（SQLite/IndexedDB切换）
+│       ├── sqlite-service.ts       # SQLite CRUD（核心数据持久化）
+│       ├── sqlite-manager.ts       # SQLite 连接管理
+│       ├── account-set-db-manager.ts # 账套数据库管理
+│       ├── file-handle-manager.ts  # 文件句柄管理（OPFS/FSA）
+│       ├── service.ts              # IndexedDB 服务（兼容层）
+│       └── manager.ts              # IndexedDB 管理器
+├── hooks/                          # 自定义Hooks
+│   ├── useStorage.ts
+│   ├── useVoucherSession.ts
+│   ├── useErrorHandling.ts
+│   ├── useAccountSetSwitch.ts
+│   ├── useDatabaseSync.ts
+│   └── use-toast.ts
 └── types/
-    └── index.ts          # 类型定义
+    ├── index.ts                    # 类型定义（1000+行）
+    └── electron.d.ts               # Electron API 类型声明
 ```
 
 ---
@@ -102,7 +185,7 @@ src/
 
 ```bash
 # 安装依赖
-npm install @tanstack/react-table lucide-react clsx tailwind-merge
+npm install
 
 # 运行开发服务器
 npm run dev
@@ -119,13 +202,13 @@ npm run lint
 ## 关键技术点
 
 ### Zustand Store 设计
-- 每个功能模块一个Store，当前已实现：
-  - `useVoucherStore`: 凭证录入状态管理
-  - `useUserPreferenceStore`: 用户偏好记忆
-  - `useAuditStore`: 审计日志追踪
-  - `useSubjectStore`: 科目管理状态管理
+- 每个功能模块一个Store，已实现22个Store
 - 状态管理：当前数据 + Actions方法组合
-- 注意：当前版本使用persist中间件，数据保存到localStorage
+- 持久化策略：
+  - 主数据通过 SQLite 数据库持久化（`sqlite-service.ts`）
+  - UI配置通过 Zustand persist 中间件保存到 localStorage
+  - `persistence-config.ts` 提供 UI 状态持久化配置
+  - `DatabaseSyncWrapper` 负责同步 Zustand ↔ SQLite
 
 ### 会计引擎 (lib/accounting.ts)
 核心会计函数集合：
@@ -136,7 +219,6 @@ npm run lint
 - `calculateVoucherStatus()` - 凭证状态机验证
 - `createReverseVoucher()` - 创建冲销凭证
 - `calculateExchangeGainLoss()` - 汇兑损益计算
-- `VoucherStatus` 枚举：DRAFT, REVIEW, POSTED, REVERSED
 
 ### 自动化模板引擎 (lib/template-engine.ts)
 系统的核心创新点，实现"凭证工厂"概念：
@@ -146,30 +228,11 @@ npm run lint
 - `FormulaInterpreter` 类：安全公式解释器
 - `VoucherTemplate` 接口：模板结构定义
 
-#### 2. 模板结构 (VoucherTemplate)
-```typescript
-{
-  id: 'tpl_sale_invoice',
-  name: '销售发票确认收入',
-  triggerType: 'invoice_import',  // 触发类型
-  isSystem: true,                // 系统模板不可修改
-  entries: [                     // 模板分录
-    {
-      id: 'entry_1',
-      subject: '1122',
-      subjectName: '应收账款',
-      direction: 'debit',
-      formula: '{total_amount}'   // 支持表达式
-    }
-  ],
-  validations: [                 // 验证规则
-    { field: 'total_amount', condition: 'required', message: '金额不能为空' }
-  ],
-  variables: [                   // 变量定义
-    { name: 'total_amount', type: 'number', source: 'extracted' }
-  ]
-}
-```
+#### 2. 预设系统模板
+- 销售发票（`tpl_sale_invoice`，triggerType: `invoice_import`）：应收账款 + 主营业务收入 + 销项税
+- 采购发票（`tpl_purchase_invoice`，triggerType: `invoice_import`）：材料采购 + 进项税 + 应付账款
+- 银行收款（`tpl_bank_deposit`，triggerType: `bank_statement`）：银行存款
+- 银行付款（`tpl_bank_payment`，triggerType: `bank_statement`）：管理费用 + 银行存款
 
 #### 3. 公式解释器特性
 - 支持变量：`{total_amount}`, `{tax_amount}`, `{base_amount}`
@@ -180,11 +243,17 @@ npm run lint
 #### 4. 自动化流程
 1. 数据导入 → 2. 模板匹配（triggerType）→ 3. 数据验证 → 4. 公式计算 → 5. 借贷平衡检查 → 6. 生成凭证
 
-#### 5. 预设系统模板
-- 销售发票（`tpl_sale_invoice`）：应收账款 + 主营业务收入 + 销项税
-- 采购发票（`tpl_purchase_invoice`）：材料采购 + 进项税 + 应付账款
-- 银行收款（`tpl_bank_deposit`）：银行存款
-- 银行付款（`tpl_bank_payment`）：管理费用 + 银行存款
+### 发票自动凭证 (stores/useInvoiceStore.ts)
+- `importInvoicesFromExcel()` 支持 `autoGenerateVoucher` 选项
+- 导入发票时可选自动生成凭证（进项/销项发票页面均有开关）
+- 凭证生成使用标准会计分录（非模板引擎，直接硬编码分录）
+- 自动生成凭证字号：`记-YYYYMM-NNN` 格式
+
+### 银行流水自动凭证 (components/transaction-import.tsx)
+- `handleAutoMatch()` 使用 `getSmartMatch()` 进行AI智能匹配（L1 + L2）
+- `handleGenerateVouchers()` 批量生成凭证，支持银行科目选择
+- 银行流水数据通过 `sqliteService` 的 `bankTransactions` 表持久化
+- 导入页 "最近导入" 侧栏从数据库读取真实数据
 
 ### AI智能匹配架构
 实现于 `lib/accounting.ts` 的 `getSmartMatch()` 函数
@@ -193,48 +262,30 @@ npm run lint
 - 数据源：`keyword-rules.json` 预设通用规则
 - 匹配方式：关键词模糊匹配
 - 优先级：1-10，数值越高置信度越高
-- 示例规则：
-  ```json
-  {
-    "id": "rule_001",
-    "keyword": "房租",
-    "subject": "6603",
-    "direction": "debit",
-    "priority": 9
-  }
-  ```
 
 #### 2. Level 2（上下文学习）
 - 数据源：`useUserPreferenceStore` 用户历史行为
-- 记录内容：用户手动修改科目的偏好
-- 匹配逻辑：双向匹配
-  - 摘要包含用户偏好摘要
-  - 用户偏好摘要包含当前摘要
-  - 摘要包含用户科目代码
+- 匹配逻辑：双向匹配（摘要包含/被包含）
 - 时间权重：最近的偏好权重更高
 
-#### 3. 匹配算法
-```typescript
-// L2匹配优先级更高
-const l2Matches = userPrefs.filter(pref =>
-  summary.includes(pref.summary) ||
-  pref.summary.includes(summary) ||
-  summary.includes(pref.subject)
-);
+### 数据库层 (lib/database/)
 
-// L1规则匹配
-const l1Match = rules.find(rule =>
-  summary.includes(rule.keyword) ||
-  rule.keyword.includes(summary)
-);
+#### SQLite 服务 (sqlite-service.ts)
+- 通过 sql.js 在浏览器端运行 SQLite
+- 支持 OPFS（Origin Private File System）持久化
+- 自动数据库迁移（添加新表、新列）
+- 所有操作带 `accountSetId` 隔离
 
-// 返回结果包含来源信息（rule/user-preference）和置信度
-```
+#### 数据库索引
+- `lib/database/index.ts` 提供统一入口
+- `getCurrentService()` 返回当前数据库服务（默认 SQLite）
+- `getCurrentManager()` 返回当前数据库管理器
 
 ### 审计追踪 (useAuditStore)
 - 记录所有凭证状态变更
 - 追踪用户操作历史
 - 支持操作回溯
+- 数据通过 Zustand persist + SQLite 双重持久化
 
 ### UI组件约定
 - 使用shadcn/ui组件
@@ -245,28 +296,37 @@ const l1Match = rules.find(rule =>
 
 ---
 
-## 开发优先级（基于当前代码状态）
+## 已实现功能清单
 
-### 已实现功能
-- ✅ 核心类型定义（types/index.ts）
+- ✅ 核心类型定义（types/index.ts，1000+行）
 - ✅ 会计引擎基础功能（lib/accounting.ts）
-- ✅ 自动化模板引擎（lib/template-engine.ts）
-- ✅ 基础UI组件和布局
-- ✅ 凭证录入Store（useVoucherStore）
-- ✅ 科目管理Store（useSubjectStore） - 科目层级树形显示、新增/编辑/删除/冻结功能
-- ✅ 关键词规则配置
+- ✅ 自动化模板引擎（lib/template-engine.ts，4个系统模板）
+- ✅ 基础UI组件和布局（shadcn/ui 16个组件）
+- ✅ 凭证录入Store（useVoucherStore）+ Excel-like网格
+- ✅ 科目管理Store（useSubjectStore）- 层级树形显示、CRUD、冻结
+- ✅ AI智能匹配（L1关键词 + L2用户偏好）
+- ✅ 用户偏好学习（useUserPreferenceStore）
+- ✅ 审计日志（useAuditStore）
+- ✅ 银行流水导入 - AI智能匹配、批量生成凭证
+- ✅ 发票管理（进项/销项）- Excel导入、自动生成凭证、核销
+- ✅ 报表查询 - 科目余额表、资产负债表、损益表、现金流量表
+- ✅ 往来管理 - 账龄分析、核销
+- ✅ 账套管理 - 多账套、OPFS存储、期初余额
+- ✅ 数据持久化 - SQLite数据库 + OPFS
+- ✅ 基础档案 - 科目、部门、项目、币别、往来单位、常用摘要、凭证模板
+- ✅ 固定资产管理 - 折旧计算（4种方法）
+- ✅ 无形资产管理 - 摊销计算
+- ✅ 待摊费用管理
+- ✅ 会计引擎 - 科目余额计算、凭证字号、借贷平衡
+- ✅ 银行流水解析器 - 建设银行格式
 
-### 待实现功能（按优先级）
-1. **凭证录入界面** - 完善voucher-entry-grid组件
-2. **科目搜索组件** - 实现subject-search功能
-3. **状态机集成** - 将凭证状态管理集成到UI
-4. **AI学习功能** - 实现useUserPreferenceStore
-5. **审计日志** - 完善useAuditStore
-6. **报表查询功能**
-7. **流水导入功能**
-8. **数据持久化** - 集成IndexedDB
-9. **账套管理**
-10. **高级功能**（汇兑损益、年结）
+### 待完善功能
+1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
+2. **往来单位合并** - `settings/auxiliary/page.tsx` 显示"合并功能开发中..."
+3. **项目删除** - `settings/projects/page.tsx` 未实现删除
+4. **自定义报表** - `reports/page.tsx` 3个按钮无 onClick
+5. **现金流量表** - 计算逻辑简化，需更复杂分析
+6. **模板引擎集成** - `template-engine.ts` 已实现但未与发票/银行导入流程集成（当前使用硬编码分录）
 
 ---
 
@@ -310,20 +370,19 @@ if (type === 'sale_invoice') {
 ### 当前代码状态
 - ✅ 类型定义完整：typescript严格模式
 - ✅ 组件分离：UI组件与业务逻辑分离
-- ⚠️ 状态管理：部分Store实现，缺少persist中间件
+- ✅ 数据持久化：SQLite数据库 + Zustand persist 双层架构
+- ✅ 22个 Zustand Store 覆盖所有功能模块
 - ⚠️ 错误处理：需要完善全局错误处理
-- ❌ 数据持久化：当前仅内存存储
 
 ### 代码规范
 - 使用ESLint + TypeScript严格模式
 - 组件使用PascalCase，文件使用kebab-case
 - 常量使用UPPER_SNAKE_CASE
-- 接口使用IPascalCase（如IVoucher）
 - 工具函数使用lowerCamelCase
 
 ### 注意事项
 
-1. **数据持久化** - 使用SQLite数据库存储所有数据，支持数据导入/导出和多账套管理
+1. **数据持久化** - 主数据使用 SQLite 数据库（`sqlite-service.ts`），UI 状态使用 Zustand persist（`persistence-config.ts`）
 2. **日期格式** - 所有日期使用ISO格式（YYYY-MM-DD）
 3. **金额精度** - 所有金额保留2位小数，使用Math.round避免浮点误差
 4. **科目验证** - 操作前验证科目是否存在，防止数据错误
@@ -334,22 +393,14 @@ if (type === 'sale_invoice') {
 9. **模板验证** - 生成凭证前必须验证数据完整性
 10. **公式安全** - 公式解释器需要防止注入攻击
 11. **UI 提示规范** - 使用全局 Toast 组件替代原生 alert
-   - ✅ 禁止使用原生 `alert()`、`confirm()`、`prompt()`
-   - ✅ 使用 `useToast()` hook 调用 `showToast(type, message, duration)`
-   - ✅ 支持类型：`'success'` | `'error'` | `'warning'` | `'info'`
-   - ✅ 示例：`showToast('success', '操作成功'); showToast('error', '操作失败');`
-   - ✅ Toast 显示在屏幕中央，自动 3 秒后关闭
+    - ✅ 禁止使用原生 `alert()`、`confirm()`、`prompt()`
+    - ✅ 使用 `useToast()` hook 调用 `showToast(type, message, duration)`
+    - ✅ 支持类型：`'success'` | `'error'` | `'warning'` | `'info'`
 12. **必填字段标识** - 使用红色 `*` 标记必填字段
-   - ✅ 在 `components/ui/label.tsx` 中已实现 `required` 属性支持
-   - ✅ 使用方式：`<Label required>字段名称</Label>` 自动显示红色 `*`
-   - ✅ 禁止在 label 文本中直接写 `*`，如 `<Label>部门代码 *</Label>` 错误
-   - ✅ 红色样式：`text-red-500` (Tailwind CSS)
-
-13. **端口占用处理** - 不要使用 taskkill 命令终止 node.exe 进程
-   - ❌ 禁止使用 `taskkill /f /im node.exe` 命令来解决端口占用问题
-   - ❌ 该命令会同时终止 VS Code 等使用 node.exe 的应用程序
-   - ✅ 推荐使用 `lsof`（macOS/Linux）或 `netstat`（Windows）查找并终止特定进程
-   - ✅ Windows 示例：`netstat -ano | findstr :3000` 找到 PID，然后 `taskkill /f /pid <PID>`
+    - ✅ 使用方式：`<Label required>字段名称</Label>` 自动显示红色 `*`
+    - ✅ 禁止在 label 文本中直接写 `*`
+13. **端口占用处理** - 不要使用 `taskkill /f /im node.exe` 终止所有 node 进程
+    - ✅ Windows 示例：`netstat -ano | findstr :3000` 找到 PID，然后 `taskkill /f /pid <PID>`
 
 ---
 
@@ -359,43 +410,38 @@ if (type === 'sale_invoice') {
 - 层级缩进：一级科目无缩进，二级科目向右缩进24px，三级科目继续缩进
 - 展开/折叠：支持点击箭头展开或折叠子科目
 - 冻结状态：支持科目冻结，冻结的科目显示特殊标识
-- 数据持久化：使用zustand persist中间件，刷新页面不丢失数据
 
 ### 2. 双层AI匹配架构
 - L1规则库：行业通用规则（keyword-rules.json）
 - L2学习库：用户个性化偏好（useUserPreferenceStore）
 - 智能排序：用户偏好优先于预设规则
 - 持续学习：用户每次修改都记录并优化
+- 已集成到银行流水智能匹配
 
-### 2. 严格的状态机管理
-```mermaid
-graph LR
-    A[draft] --> B[submit]
-    B --> C[approve/post]
-    C --> D[posted]
-    D --> E[reverse]
-    E --> F[reversed]
+### 3. 严格的状态机管理
+```
+draft → review → posted → reversed
 ```
 - 不可逆流程：已记账凭证不能直接修改
 - 自动冲销：createReverseVoucher()生成红冲凭证
 - 状态追踪：完整的状态变更历史
 - 错误预防：calculateVoucherStatus()验证操作合法性
 
-### 3. 模板驱动的自动化
-- 配置即代码：通过VoucherTemplate配置代替硬编码
-- 公式引擎：支持复杂数学表达式和变量计算
-- 自动验证：内置验证规则确保数据完整性
-- 扩展性强：新增业务类型只需添加模板
+### 4. 发票导入自动凭证
+- 导入发票时可选"导入后自动生成凭证"
+- 进项发票：借-材料采购/进项税，贷-应付账款
+- 销项发票：借-应收账款，贷-主营业务收入/销项税
+- 自动生成凭证字号，批量处理
 
-### 4. 统一往来单位管理架构
+### 5. 统一往来单位管理架构
 - **单一卡片原则**：一个公司在系统中只有一个唯一ID
 - **多身份支持**：通过checkbox同时勾选"客户"、"供应商"或"两者皆是"
 - **Tab切换**：全部 | 客户 | 供应商，支持按类型筛选
-- **合并/关联功能**：解决历史数据重复问题，可将多个关联ID合并到同一主体
+- **合并/关联功能**：解决历史数据重复问题（开发中）
 - **明细账合并查看**：支持"显示全部往来"功能，将应收应付数据合并展示
 
-### 5. 模块化架构
-- 清晰分层：UI层（components）→ 业务层（lib）→ 数据层（stores）
+### 6. 模块化架构
+- 清晰分层：UI层（components）→ 业务层（lib）→ 数据层（stores + database）
 - 松耦合：各模块独立，便于维护和扩展
 - 类型安全：完整的TypeScript类型定义
 - 组件复用：shadcn/ui组件库保证UI一致性

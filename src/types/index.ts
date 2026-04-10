@@ -319,13 +319,16 @@ export interface BankTransaction {
   rowNumber: number;
 
   // UI properties (for matching and display)
-  status?: 'pending' | 'matched' | 'unmatched' | 'error';
+  status?: 'pending' | 'matched' | 'unmatched' | 'error' | 'voucher_generated';
   matchedSubject?: string;
   matchedSubjectName?: string;
   confidence?: number;
   description?: string;
   amount?: number;
   type?: 'debit' | 'credit';
+  generatedVoucherNo?: string;
+  voucherId?: string;
+  importBatchId?: string;
 }
 
 // 银行流水解析结果

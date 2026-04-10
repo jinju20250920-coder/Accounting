@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,13 +17,15 @@ import {
   DollarSign,
   Loader2,
   BarChart3,
-  Zap
+  Zap,
+  RefreshCw
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores';
-import { AISubjectRecommendation } from '@/components/ai-subject-recommendation';
 import { parseBankStatement } from '@/lib/parser';
 import { BankAccountSelector, DEFAULT_BANK_ACCOUNTS } from '@/components/bank-account-selector';
 import { useToast } from '@/components/ui/toast';
+import { getCurrentService } from '@/lib/database';
+import { getSmartMatch } from '@/lib/accounting';
 import type { BankTransaction, BankStatementParseResult } from '@/types';
 
 interface TransactionRecord {
@@ -51,7 +53,7 @@ interface TransactionRecord {
       amount: tx.debit || 0,
       balance: tx.balance,
       type,
-      status: 'pending'
+      status: (tx.status as any) || 'pending'
     };
   };
 
@@ -68,79 +70,44 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
   const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
-  const { addVoucherFromTransactions } = useVoucherStore();
+  const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const { showToast } = useToast();
 
-  // 模拟银行流水数据
-  const mockBankTransactions: TransactionRecord[] = [
-    {
-      id: '1',
-      date: '2026-03-10',
-      description: '销售收入-客户A',
-      amount: 50000,
-      balance: 250000,
-      type: 'debit',
-      status: 'pending'
-    },
-    {
-      id: '2',
-      date: '2026-03-09',
-      description: '采购材料-供应商B',
-      amount: -30000,
-      balance: 200000,
-      type: 'credit',
-      status: 'pending'
-    },
-    {
-      id: '3',
-      date: '2026-03-08',
-      description: '工资发放',
-      amount: -50000,
-      balance: 230000,
-      type: 'credit',
-      status: 'pending'
-    },
-    {
-      id: '4',
-      date: '2026-03-07',
-      description: '收到投资款',
-      amount: 100000,
-      balance: 280000,
-      type: 'debit',
-      status: 'pending'
-    }
-  ];
+  // 组件加载时从数据库读取已保存的流水
+  useEffect(() => {
+    loadSavedTransactions();
+  }, []);
 
-  // 模拟税务流水数据
-  const mockTaxTransactions: TransactionRecord[] = [
-    {
-      id: '1',
-      date: '2026-03-15',
-      description: '增值税进项税',
-      amount: 13000,
-      balance: 13000,
-      type: 'debit',
-      status: 'pending'
-    },
-    {
-      id: '2',
-      date: '2026-03-10',
-      description: '增值税销项税',
-      amount: -8500,
-      balance: 21500,
-      type: 'credit',
-      status: 'pending'
-    },
-    {
-      id: '3',
-      date: '2026-03-05',
-      description: '企业所得税',
-      amount: 25000,
-      balance: 30000,
-      type: 'credit',
-      status: 'pending'
+  const loadSavedTransactions = async () => {
+    setIsLoading(true);
+    try {
+      const service = getCurrentService();
+      const savedTransactions = await service.getAllBankTransactions();
+
+      if (savedTransactions.length > 0) {
+        // 只加载未生成凭证的流水
+        const pendingTransactions = savedTransactions.filter(
+          (tx: any) => tx.status === 'pending' || tx.status === 'matched'
+        );
+
+        if (pendingTransactions.length > 0) {
+          setTransactions(pendingTransactions);
+          setShowPreview(true);
+
+          // 恢复批次ID
+          const batchIds = [...new Set(pendingTransactions.map((tx: any) => tx.importBatchId).filter(Boolean))];
+          if (batchIds.length > 0) {
+            setCurrentBatchId(batchIds[0] as string);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('加载已保存的流水失败:', error);
+    } finally {
+      setIsLoading(false);
     }
-  ];
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -153,12 +120,12 @@ export function TransactionImport({ importType }: TransactionImportProps) {
            'application/vnd.ms-excel'];
 
       if (!validTypes.includes(file.type)) {
-        alert(`请选择${importType === 'bank' ? 'Excel或CSV' : 'Excel'}文件`);
+        showToast('error', `请选择${importType === 'bank' ? 'Excel或CSV' : 'Excel'}文件`);
         return;
       }
 
       if (file.size > 10 * 1024 * 1024) {
-        alert('文件大小不能超过10MB');
+        showToast('error', '文件大小不能超过10MB');
         return;
       }
 
@@ -177,7 +144,23 @@ export function TransactionImport({ importType }: TransactionImportProps) {
         const result: BankStatementParseResult = await parseBankStatement(selectedFile);
 
         setBankInfo(result.bankInfo);
-        setTransactions(result.transactions);
+
+        // 生成批次ID
+        const batchId = `batch_${Date.now()}`;
+        setCurrentBatchId(batchId);
+
+        // 为每条交易添加批次ID和初始状态
+        const transactionsWithMeta = result.transactions.map(tx => ({
+          ...tx,
+          importBatchId: batchId,
+          status: 'pending' as const
+        }));
+
+        // 保存到数据库
+        const service = getCurrentService();
+        await service.saveBankTransactions(transactionsWithMeta);
+
+        setTransactions(transactionsWithMeta);
         setParseErrors(result.errors);
 
         if (result.transactions.length === 0) {
@@ -189,18 +172,10 @@ export function TransactionImport({ importType }: TransactionImportProps) {
         if (result.errors.length > 0) {
           showToast('warning', `解析完成，有 ${result.errors.length} 个警告`);
         } else {
-          showToast('success', `成功解析 ${result.transactions.length} 条记录`);
+          showToast('success', `成功解析并保存 ${result.transactions.length} 条记录`);
         }
 
         setShowPreview(true);
-      } else {
-        // 税务流水 - 保留原有的 mock 逻辑
-        setTimeout(() => {
-          const mockData = mockTaxTransactions;
-          setTransactions(mockData as any);
-          setIsProcessing(false);
-          setShowPreview(true);
-        }, 2000);
       }
     } catch (error) {
       console.error('Parse error:', error);
@@ -210,58 +185,84 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     }
   };
 
-  const handleMatchSubject = (id: string, subject: string, subjectName: string) => {
+  const handleMatchSubject = async (id: string, subject: string, subjectName: string) => {
     setTransactions(prev => prev.map(t =>
       t.id === id
         ? { ...t, matchedSubject: subject, matchedSubjectName: subjectName, status: 'matched' }
         : t
     ));
+
+    // 更新数据库
+    try {
+      const service = getCurrentService();
+      await service.updateBankTransaction(id, {
+        matchedSubject: subject,
+        matchedSubjectName: subjectName,
+        status: 'matched'
+      });
+    } catch (error) {
+      console.error('更新交易匹配失败:', error);
+    }
   };
 
-  const handleAutoMatch = () => {
-    // 模拟自动匹配
-    setTransactions(prev => prev.map(t => {
-      // 简单的匹配逻辑
-      let subject = '';
-      let subjectName = '';
-      let confidence = 0.8;
+  const handleAutoMatch = async () => {
+    // 使用 AI 智能匹配系统（L1关键词规则 + L2用户偏好）
+    const { useUserPreferenceStore } = await import('@/stores/useUserPreferenceStore');
+    const { useSubjectStore } = await import('@/stores/useSubjectStore');
 
+    const userPrefs = useUserPreferenceStore.getState().preferences.map(p => ({
+      summary: p.summary,
+      subject: p.subject,
+      subjectName: p.subjectName,
+      timestamp: p.timestamp || 0
+    }));
+
+    const subjects = useSubjectStore.getState().subjects.map(s => ({
+      code: s.code,
+      name: s.name
+    }));
+
+    const updatedTransactions = transactions.map(t => {
       const description = t.summary || t.notes || '';
 
-      if (description.includes('收入') || description.includes('销售')) {
-        subject = '6001';
-        subjectName = '主营业务收入';
-        confidence = 0.9;
-      } else if (description.includes('采购') || description.includes('材料')) {
-        subject = '1405';
-        subjectName = '原材料';
-        confidence = 0.85;
-      } else if (description.includes('工资')) {
-        subject = '6602';
-        subjectName = '管理费用-工资';
-        confidence = 0.95;
-      } else if (description.includes('税')) {
-        subject = '2221';
-        subjectName = '应交税费';
-        confidence = 0.9;
-      }
+      // 使用 AI 智能匹配
+      const match = getSmartMatch(description, userPrefs, subjects);
 
-      if (subject) {
+      if (match) {
         return {
           ...t,
-          matchedSubject: subject,
-          matchedSubjectName: subjectName,
-          confidence,
-          status: 'matched'
+          matchedSubject: match.subject,
+          matchedSubjectName: match.subjectName,
+          confidence: match.confidence,
+          status: 'matched' as const
         };
       }
 
-      return { ...t, status: t.status || 'pending' };
-    }));
+      return t;
+    });
+
+    setTransactions(updatedTransactions);
+
+    // 批量更新数据库
+    try {
+      const service = getCurrentService();
+      for (const tx of updatedTransactions.filter(t => t.status === 'matched')) {
+        await service.updateBankTransaction(tx.id, {
+          matchedSubject: tx.matchedSubject,
+          matchedSubjectName: tx.matchedSubjectName,
+          confidence: tx.confidence,
+          status: 'matched'
+        });
+      }
+      showToast('success', '智能匹配完成');
+    } catch (error) {
+      console.error('更新匹配状态失败:', error);
+      showToast('error', '保存匹配结果失败');
+    }
   };
 
   const handleGenerateVouchers = async () => {
-    const matchedTransactions = transactions.filter(t => t.debit || t.credit);
+    const matchedTransactions = transactions.filter(t => t.matchedSubject || t.debit || t.credit);
     if (matchedTransactions.length === 0) {
       showToast('error', '没有有效的交易记录');
       return;
@@ -275,21 +276,148 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     setIsProcessing(true);
 
     try {
-      // 这里需要实现从银行交易生成凭证的逻辑
-      // 暂时显示成功消息
-      showToast('success', `准备生成 ${matchedTransactions.length} 张凭证`);
+      const service = getCurrentService();
+      const now = new Date().toISOString();
+      let successCount = 0;
+      let errorCount = 0;
 
-      // TODO: 实际的凭证生成逻辑
-      // 1. 对每笔交易进行AI科目匹配
-      // 2. 创建凭证分录
-      // 3. 生成平衡分录（银行存款）
-      // 4. 保存凭证
+      // 为每笔匹配的交易生成凭证
+      for (const transaction of matchedTransactions) {
+        try {
+          // 获取银行科目信息
+          const bankAccount = DEFAULT_BANK_ACCOUNTS.find(a => a.id === selectedBankAccountId);
+          const bankSubjectCode = bankAccount?.subjectCode || '1002';
+          const bankSubjectName = bankAccount?.name || '银行存款';
+
+          // 确定金额和方向
+          const isDebit = !!transaction.debit;
+          const amount = transaction.debit || transaction.credit || 0;
+
+          // 生成凭证ID和凭证号
+          const voucherId = `voucher_${Date.now()}_${transaction.id}`;
+          const voucherNo = await generateVoucherNo(transaction.date);
+
+          // 创建凭证分录
+          const entries: any[] = [];
+
+          // 交易分录（对方科目）
+          const transactionEntry: any = {
+            id: `entry_${voucherId}_0`,
+            voucherId,
+            date: transaction.date,
+            summary: transaction.summary || transaction.notes || '银行交易',
+            subjectCode: transaction.matchedSubject || '6603',
+            subjectName: transaction.matchedSubjectName || '财务费用',
+            debit: isDebit ? 0 : amount,
+            credit: isDebit ? amount : 0,
+            customerName: transaction.counterpartyName,
+            supplierName: transaction.counterpartyName,
+            auxiliary: {},
+            docNo: transaction.transactionSerialNo
+          };
+          entries.push(transactionEntry);
+
+          // 银行存款分录（平衡分录）
+          const bankEntry: any = {
+            id: `entry_${voucherId}_1`,
+            voucherId,
+            date: transaction.date,
+            summary: transaction.summary || '银行存款',
+            subjectCode: bankSubjectCode,
+            subjectName: bankSubjectName,
+            debit: isDebit ? amount : 0,
+            credit: isDebit ? 0 : amount
+          };
+          entries.push(bankEntry);
+
+          // 创建凭证对象
+          const voucher = {
+            id: voucherId,
+            voucherNo,
+            date: transaction.date,
+            summary: transaction.summary || transaction.notes || '银行交易',
+            entries,
+            status: 'draft' as const,
+            voucherType: isDebit ? 'receipt' as const : 'payment' as const,
+            createdBy: 'system',
+            createTime: now,
+            updateTime: now
+          };
+
+          // 保存凭证
+          await service.saveVoucher(voucher);
+
+          // 更新银行流水状态
+          await service.updateBankTransaction(transaction.id, {
+            status: 'voucher_generated',
+            voucherId,
+            generatedVoucherNo: voucherNo
+          });
+
+          successCount++;
+        } catch (error) {
+          console.error('生成凭证失败:', transaction.id, error);
+          errorCount++;
+        }
+      }
+
+      // 从列表中移除已生成凭证的流水
+      setTransactions(prev => prev.filter(t => t.status !== 'voucher_generated'));
+
+      if (successCount > 0) {
+        showToast('success', `成功生成 ${successCount} 张凭证${errorCount > 0 ? `，${errorCount} 条失败` : ''}`);
+      } else {
+        showToast('error', '生成凭证失败');
+      }
+
+      // 刷新凭证列表
+      const { useVoucherStore } = await import('@/stores');
+      const voucherStore = useVoucherStore.getState();
+      await voucherStore.initialize();
 
     } catch (error) {
       console.error('Generate vouchers error:', error);
       showToast('error', '生成凭证失败');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // 生成凭证号的辅助函数
+  const generateVoucherNo = async (date: string): Promise<string> => {
+    const yearMonth = date.substring(0, 7).replace('-', '');
+    const service = getCurrentService();
+
+    // 获取当前月份的所有凭证
+    const allVouchers = await service.getAllVouchers();
+    const currentMonthVouchers = allVouchers.filter((v: any) =>
+      v.voucherNo && v.voucherNo.startsWith(`记-${yearMonth}-`)
+    );
+
+    let maxSeq = 0;
+    for (const v of currentMonthVouchers) {
+      const match = v.voucherNo?.match(/-(\d{3})$/);
+      if (match) {
+        const seq = parseInt(match[1], 10);
+        if (seq > maxSeq) maxSeq = seq;
+      }
+    }
+
+    const newSeq = maxSeq + 1;
+    return `记-${yearMonth}-${String(newSeq).padStart(3, '0')}`;
+  };
+
+  const handleClearTransactions = async () => {
+    try {
+      const service = getCurrentService();
+      await service.clearBankTransactions();
+      setTransactions([]);
+      setShowPreview(false);
+      setCurrentBatchId(null);
+      showToast('success', '已清空所有流水');
+    } catch (error) {
+      console.error('清空流水失败:', error);
+      showToast('error', '清空流水失败');
     }
   };
 
@@ -305,6 +433,17 @@ export function TransactionImport({ importType }: TransactionImportProps) {
         return <Badge variant="outline">待处理</Badge>;
     }
   };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-gray-400 mb-4" />
+          <p className="text-gray-500">加载中...</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -407,7 +546,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   <div>
                     <p className="text-sm text-muted-foreground">已匹配</p>
                     <p className="text-2xl font-bold text-green-600">
-                      {transactions.filter(t => (t as any).status === 'matched').length}
+                      {transactions.filter(t => t.status === 'matched').length}
                     </p>
                   </div>
                   <CheckCircle className="h-8 w-8 text-green-200" />
@@ -420,7 +559,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   <div>
                     <p className="text-sm text-muted-foreground">待匹配</p>
                     <p className="text-2xl font-bold text-yellow-600">
-                      {transactions.filter(t => !(t as any).status || (t as any).status === 'pending').length}
+                      {transactions.filter(t => t.status === 'pending').length}
                     </p>
                   </div>
                   <AlertCircle className="h-8 w-8 text-yellow-200" />
@@ -443,14 +582,14 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           </div>
 
           {/* 操作栏 */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button onClick={handleAutoMatch} disabled={isProcessing}>
               <Zap className="h-4 w-4 mr-2" />
               智能匹配
             </Button>
             <Button
               onClick={handleGenerateVouchers}
-              disabled={isProcessing || transactions.filter(t => (t as any).status === 'matched').length === 0}
+              disabled={isProcessing || transactions.filter(t => t.status === 'matched').length === 0}
             >
               {isProcessing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -461,8 +600,16 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                 </>
               )}
             </Button>
-            <Button variant="outline" onClick={() => setShowPreview(false)}>
+            <Button variant="outline" onClick={loadSavedTransactions}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              刷新
+            </Button>
+            <Button variant="outline" onClick={() => { setShowPreview(false); setSelectedFile(null); }}>
               重新上传
+            </Button>
+            <Button variant="outline" onClick={handleClearTransactions} className="text-red-600 hover:text-red-700">
+              <Trash2 className="h-4 w-4 mr-2" />
+              清空流水
             </Button>
           </div>
 
@@ -498,16 +645,16 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                           </div>
                           {/* 金额 */}
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {transaction.debit && (
+                            {transaction.debit ? (
                               <span className="font-medium text-blue-600">
                                 借: ¥{transaction.debit.toLocaleString()}
                               </span>
-                            )}
-                            {transaction.credit && (
+                            ) : null}
+                            {transaction.credit ? (
                               <span className="font-medium text-red-600">
                                 贷: ¥{transaction.credit.toLocaleString()}
                               </span>
-                            )}
+                            ) : null}
                             {getStatusBadge(record.status)}
                           </div>
                         </div>
@@ -517,6 +664,13 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                         <div className="mt-2 text-sm text-slate-500 bg-slate-50 p-2 rounded">
                           <span className="text-slate-600 font-medium">备注: </span>
                           {transaction.notes}
+                        </div>
+                      )}
+                      {/* 已生成凭证提示 */}
+                      {transaction.status === 'voucher_generated' && transaction.generatedVoucherNo && (
+                        <div className="mt-2 text-sm text-green-600 bg-green-50 p-2 rounded">
+                          <CheckCircle className="h-4 w-4 inline mr-1" />
+                          已生成凭证: {transaction.generatedVoucherNo}
                         </div>
                       )}
                     </div>

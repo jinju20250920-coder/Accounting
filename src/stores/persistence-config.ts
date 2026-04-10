@@ -1,4 +1,6 @@
-// 临时文件 - 即将被移除，用于解决模块缺失问题
+// 持久化配置 - 用于 Zustand persist 中间件
+// 注意：主数据（凭证、科目等）通过 SQLite/OPFS 数据库持久化
+// 此配置仅用于 UI 状态和辅助数据的持久化
 import { PersistOptions } from 'zustand/middleware';
 
 // 存储键常量
@@ -32,16 +34,9 @@ export const DATA_VERSIONS = {
   CURRENT: 2
 };
 
-// 创建账套持久化配置 - 临时版本，不使用实际持久化
+// 创建持久化配置 - 使用 localStorage 持久化 UI 状态
 export function createAccountSetPersistConfig<T>(storageKey: string): PersistOptions<T> {
   return {
     name: storageKey,
-    // 暂时禁用持久化，等待完整重构
-    skipHydration: true,
-    storage: {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {}
-    }
   };
 }

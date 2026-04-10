@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,14 +18,86 @@ import {
   Calendar,
   Building2,
   Receipt,
-  BarChart3
+  BarChart3,
+  Loader2
 } from 'lucide-react';
 import { TransactionImport } from '@/components/transaction-import';
 import { ImportHistory } from '@/components/import-history';
+import { getCurrentService } from '@/lib/database';
+
+interface RecentImport {
+  id: string;
+  name: string;
+  type: 'bank';
+  date: string;
+  status: 'success' | 'partial' | 'failed';
+  recordCount: number;
+}
 
 export default function ImportPage() {
   const [activeTab, setActiveTab] = useState<'upload' | 'history'>('upload');
-  const [importType, setImportType] = useState<'bank' | 'tax'>('bank'); // Keeping for now, but only showing bank
+  const [importType, setImportType] = useState<'bank' | 'tax'>('bank');
+  const [recentImports, setRecentImports] = useState<RecentImport[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  // 加载最近导入记录
+  useEffect(() => {
+    loadRecentImports();
+  }, []);
+
+  const loadRecentImports = async () => {
+    setLoadingRecent(true);
+    try {
+      const service = getCurrentService();
+      const allTransactions = await service.getAllBankTransactions();
+
+      // 按批次分组，获取最近的导入记录
+      const batchMap = new Map<string, { batchId: string; date: string; count: number; statuses: Set<string> }>();
+      for (const tx of allTransactions) {
+        const batchId = tx.importBatchId || 'unknown';
+        if (!batchMap.has(batchId)) {
+          batchMap.set(batchId, {
+            batchId,
+            date: tx.createTime || tx.date,
+            count: 0,
+            statuses: new Set()
+          });
+        }
+        const batch = batchMap.get(batchId)!;
+        batch.count++;
+        batch.statuses.add(tx.status);
+        // 使用最早的createTime作为导入时间
+        if (tx.createTime && tx.createTime < batch.date) {
+          batch.date = tx.createTime;
+        }
+      }
+
+      // 转换为 RecentImport 格式，按日期倒序排列，取最近5条
+      const imports: RecentImport[] = Array.from(batchMap.values())
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 5)
+        .map(batch => ({
+          id: batch.batchId,
+          name: batch.batchId.startsWith('batch_')
+            ? `银行流水_${batch.date.split('T')[0].replace(/-/g, '')}`
+            : batch.batchId,
+          type: 'bank' as const,
+          date: batch.date,
+          status: batch.statuses.has('voucher_generated')
+            ? 'success' as const
+            : batch.statuses.has('pending')
+              ? 'partial' as const
+              : 'success' as const,
+          recordCount: batch.count
+        }));
+
+      setRecentImports(imports);
+    } catch (error) {
+      console.error('加载最近导入记录失败:', error);
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -106,36 +178,33 @@ export default function ImportPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-blue-500" />
-                    <div>
-                      <p className="text-sm font-medium">建设银行流水</p>
-                      <p className="text-xs text-muted-foreground">2026-03-10 14:30</p>
-                    </div>
+                {loadingRecent ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
                   </div>
-                  <Badge variant="default">成功</Badge>
-                </div>
-                <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                  <div className="flex items-center gap-2">
-                    <Receipt className="h-4 w-4 text-green-500" />
-                    <div>
-                      <p className="text-sm font-medium">增值税发票</p>
-                      <p className="text-xs text-muted-foreground">2026-03-09 10:15</p>
-                    </div>
+                ) : recentImports.length === 0 ? (
+                  <div className="text-center py-4 text-sm text-gray-400">
+                    暂无导入记录
                   </div>
-                  <Badge variant="default">成功</Badge>
-                </div>
-                <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-blue-500" />
-                    <div>
-                      <p className="text-sm font-medium">工商银行流水</p>
-                      <p className="text-xs text-muted-foreground">2026-03-08 16:45</p>
+                ) : (
+                  recentImports.map((imp) => (
+                    <div key={imp.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-blue-500" />
+                        <div>
+                          <p className="text-sm font-medium">{imp.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {imp.date ? new Date(imp.date).toLocaleString('zh-CN') : '-'}
+                            {imp.recordCount > 0 && ` · ${imp.recordCount}条`}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant={imp.status === 'failed' ? 'destructive' : 'default'}>
+                        {imp.status === 'success' ? '成功' : imp.status === 'partial' ? '部分成功' : '失败'}
+                      </Badge>
                     </div>
-                  </div>
-                  <Badge variant="destructive">部分失败</Badge>
-                </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

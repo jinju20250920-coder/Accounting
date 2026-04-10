@@ -509,9 +509,38 @@ export default function SetsPage() {
   };
 
   // 获取账套凭证数量
-  const getVoucherCount = (accountSetId: string): number => {
-    return 0; // TODO: 从数据库获取凭证数量
-  };
+  const [voucherCounts, setVoucherCounts] = useState<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    const loadVoucherCounts = async () => {
+      try {
+        const { sqliteService } = await import('@/lib/database/sqlite-service');
+        const counts = new Map<string, number>();
+
+        for (const accountSet of accountSets) {
+          try {
+            // 临时切换账套ID获取凭证数量
+            const origAccountSetId = sqliteService.accountSetId;
+            sqliteService.setAccountSetId(accountSet.id);
+            const vouchers = await sqliteService.getAllVouchers();
+            counts.set(accountSet.id, vouchers.length);
+            // 恢复原来的账套ID
+            sqliteService.setAccountSetId(origAccountSetId);
+          } catch {
+            counts.set(accountSet.id, 0);
+          }
+        }
+
+        setVoucherCounts(counts);
+      } catch (error) {
+        console.error('加载凭证数量失败:', error);
+      }
+    };
+
+    if (accountSets.length > 0) {
+      loadVoucherCounts();
+    }
+  }, [accountSets]);
 
   // 格式化日期
   const formatDate = (dateStr: string): string => {
@@ -602,7 +631,7 @@ export default function SetsPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-600">凭证数量:</span>
-                      <span className="font-medium">{getVoucherCount(accountSet.id)}</span>
+                      <span className="font-medium">{voucherCounts.get(accountSet.id) ?? '-'}</span>
                     </div>
                   </div>
 

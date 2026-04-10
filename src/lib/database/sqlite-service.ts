@@ -117,6 +117,76 @@ class SQLiteService {
     await this.migrateAddSubjectColumns();
     // 迁移：检查并创建固定资产相关表（如果不存在）
     await this.migrateCreateFixedAssetTables();
+    // 迁移：检查并创建银行流水表（如果不存在）
+    await this.migrateCreateBankTransactionsTable();
+  }
+
+  /**
+   * 迁移：创建银行流水表（如果不存在）
+   */
+  private async migrateCreateBankTransactionsTable(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 检查 bankTransactions 表是否存在
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='bankTransactions'"
+      );
+
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating bankTransactions table...');
+
+        const createTable = `
+          -- 银行流水表
+          CREATE TABLE IF NOT EXISTS bankTransactions (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            transactionTime TEXT,
+            voucherType TEXT,
+            voucherNo TEXT,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            balance REAL,
+            cashRemitFlag TEXT,
+            counterpartyName TEXT,
+            counterpartyAccount TEXT,
+            summary TEXT,
+            notes TEXT,
+            transactionSerialNo TEXT,
+            enterpriseSerialNo TEXT,
+            ourAccount TEXT,
+            ourAccountName TEXT,
+            ourBranch TEXT,
+            rowNumber INTEGER,
+            status TEXT DEFAULT 'pending',
+            matchedSubject TEXT,
+            matchedSubjectName TEXT,
+            confidence REAL,
+            bankAccountId TEXT,
+            importBatchId TEXT,
+            voucherId TEXT,
+            generatedVoucherNo TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id),
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id)
+          );
+
+          -- 银行流水索引
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_accountSetId ON bankTransactions(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_date ON bankTransactions(date);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_status ON bankTransactions(status);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_importBatchId ON bankTransactions(importBatchId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_voucherId ON bankTransactions(voucherId);
+        `;
+
+        this.dbInstance.exec(createTable);
+        console.log('Bank transactions table migration completed successfully');
+      }
+    } catch (error) {
+      console.warn('Bank transactions table migration warning:', error);
+    }
   }
 
   /**
@@ -422,6 +492,49 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_accountSetId ON invoiceReconciliations(accountSetId);
           CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_invoiceId ON invoiceReconciliations(invoiceId);
           CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
+
+          -- 银行流水表
+          CREATE TABLE IF NOT EXISTS bankTransactions (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            transactionTime TEXT,
+            voucherType TEXT,
+            voucherNo TEXT,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            balance REAL,
+            cashRemitFlag TEXT,
+            counterpartyName TEXT,
+            counterpartyAccount TEXT,
+            summary TEXT,
+            notes TEXT,
+            transactionSerialNo TEXT,
+            enterpriseSerialNo TEXT,
+            ourAccount TEXT,
+            ourAccountName TEXT,
+            ourBranch TEXT,
+            rowNumber INTEGER,
+            status TEXT DEFAULT 'pending',
+            matchedSubject TEXT,
+            matchedSubjectName TEXT,
+            confidence REAL,
+            bankAccountId TEXT,
+            importBatchId TEXT,
+            voucherId TEXT,
+            generatedVoucherNo TEXT,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id),
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id)
+          );
+
+          -- 银行流水索引
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_accountSetId ON bankTransactions(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_date ON bankTransactions(date);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_status ON bankTransactions(status);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_importBatchId ON bankTransactions(importBatchId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_voucherId ON bankTransactions(voucherId);
         `;
 
         this.dbInstance.exec(createTables);
@@ -1838,7 +1951,7 @@ class SQLiteService {
       // Clear other tables
       const tables = ['subjects', 'departments', 'projects', 'currencies', 'partners',
                      'voucherTemplates', 'commonSummaries', 'userPreferences',
-                     'auditLogs', 'recRelations'];
+                     'auditLogs', 'recRelations', 'bankTransactions'];
 
       for (const table of tables) {
         const stmt = this.dbInstance.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
@@ -1847,6 +1960,165 @@ class SQLiteService {
       }
     } catch (error) {
       console.error('Clear all data failed:', error);
+      throw error;
+    }
+  }
+
+  // ========== 银行流水操作 ==========
+
+  async saveBankTransaction(transaction: any): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
+      const txWithAccountSet = { ...transaction, accountSetId: this.accountSetId };
+
+      const stmt = this.dbInstance.prepare(`
+        INSERT OR REPLACE INTO bankTransactions (
+          id, date, transactionTime, voucherType, voucherNo, debit, credit, balance,
+          cashRemitFlag, counterpartyName, counterpartyAccount, summary, notes,
+          transactionSerialNo, enterpriseSerialNo, ourAccount, ourAccountName, ourBranch,
+          rowNumber, status, matchedSubject, matchedSubjectName, confidence,
+          bankAccountId, importBatchId, voucherId, generatedVoucherNo,
+          accountSetId, createTime, updateTime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run([
+        txWithAccountSet.id,
+        txWithAccountSet.date || '',
+        txWithAccountSet.transactionTime || '',
+        txWithAccountSet.voucherType || '',
+        txWithAccountSet.voucherNo || '',
+        txWithAccountSet.debit || 0,
+        txWithAccountSet.credit || 0,
+        txWithAccountSet.balance || 0,
+        txWithAccountSet.cashRemitFlag || '',
+        txWithAccountSet.counterpartyName || '',
+        txWithAccountSet.counterpartyAccount || '',
+        txWithAccountSet.summary || '',
+        txWithAccountSet.notes || '',
+        txWithAccountSet.transactionSerialNo || '',
+        txWithAccountSet.enterpriseSerialNo || '',
+        txWithAccountSet.ourAccount || '',
+        txWithAccountSet.ourAccountName || '',
+        txWithAccountSet.ourBranch || '',
+        txWithAccountSet.rowNumber || 0,
+        txWithAccountSet.status || 'pending',
+        txWithAccountSet.matchedSubject || '',
+        txWithAccountSet.matchedSubjectName || '',
+        txWithAccountSet.confidence || 0,
+        txWithAccountSet.bankAccountId || '',
+        txWithAccountSet.importBatchId || '',
+        txWithAccountSet.voucherId || '',
+        txWithAccountSet.generatedVoucherNo || '',
+        txWithAccountSet.accountSetId,
+        txWithAccountSet.createTime || now,
+        txWithAccountSet.updateTime || now
+      ]);
+      stmt.free();
+    } catch (error) {
+      console.error('Save bank transaction failed:', error);
+      throw error;
+    }
+  }
+
+  async saveBankTransactions(transactions: any[]): Promise<void> {
+    for (const tx of transactions) {
+      await this.saveBankTransaction(tx);
+    }
+  }
+
+  async getBankTransaction(id: string): Promise<any | undefined> {
+    await this.ensureInitialized();
+    return await this.querySingleAsync<any>(
+      `SELECT * FROM bankTransactions WHERE id = ? AND accountSetId = ?`,
+      [id, this.accountSetId]
+    );
+  }
+
+  async getAllBankTransactions(): Promise<any[]> {
+    await this.ensureInitialized();
+    return await this.queryAllAsync<any>(
+      `SELECT * FROM bankTransactions WHERE accountSetId = ? ORDER BY date DESC, rowNumber ASC`,
+      [this.accountSetId]
+    );
+  }
+
+  async getBankTransactionsByStatus(status: 'pending' | 'matched' | 'voucher_generated'): Promise<any[]> {
+    await this.ensureInitialized();
+    return await this.queryAllAsync<any>(
+      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND status = ? ORDER BY date DESC`,
+      [this.accountSetId, status]
+    );
+  }
+
+  async getBankTransactionsByDateRange(startDate: string, endDate: string): Promise<any[]> {
+    await this.ensureInitialized();
+    return await this.queryAllAsync<any>(
+      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
+      [this.accountSetId, startDate, endDate]
+    );
+  }
+
+  async getBankTransactionsByBatch(batchId: string): Promise<any[]> {
+    await this.ensureInitialized();
+    return await this.queryAllAsync<any>(
+      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND importBatchId = ? ORDER BY rowNumber ASC`,
+      [this.accountSetId, batchId]
+    );
+  }
+
+  async updateBankTransaction(id: string, updates: Partial<any>): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      const now = new Date().toISOString();
+
+      // 构建动态更新语句
+      const updateFields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+      const values = [...Object.values(updates), now, id, this.accountSetId];
+
+      const stmt = this.dbInstance.prepare(
+        `UPDATE bankTransactions SET ${updateFields}, updateTime = ? WHERE id = ? AND accountSetId = ?`
+      );
+      stmt.run(values);
+      stmt.free();
+    } catch (error) {
+      console.error('Update bank transaction failed:', error);
+      throw error;
+    }
+  }
+
+  async deleteBankTransaction(id: string): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      const stmt = this.dbInstance.prepare(`DELETE FROM bankTransactions WHERE id = ? AND accountSetId = ?`);
+      stmt.run([id, this.accountSetId]);
+      stmt.free();
+    } catch (error) {
+      console.error('Delete bank transaction failed:', error);
+      throw error;
+    }
+  }
+
+  async deleteBankTransactionsByBatch(batchId: string): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      const stmt = this.dbInstance.prepare(`DELETE FROM bankTransactions WHERE importBatchId = ? AND accountSetId = ?`);
+      stmt.run([batchId, this.accountSetId]);
+      stmt.free();
+    } catch (error) {
+      console.error('Delete bank transactions by batch failed:', error);
+      throw error;
+    }
+  }
+
+  async clearBankTransactions(): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      const stmt = this.dbInstance.prepare(`DELETE FROM bankTransactions WHERE accountSetId = ?`);
+      stmt.run([this.accountSetId]);
+      stmt.free();
+    } catch (error) {
+      console.error('Clear bank transactions failed:', error);
       throw error;
     }
   }

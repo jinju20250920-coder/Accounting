@@ -855,6 +855,58 @@ class DatabaseService {
     await clearSingleStore('auditLogs');
     await clearSingleStore('recRelations');
   }
+
+  // ========== 银行流水操作 (IndexedDB版本 - 兼容性占位) ==========
+  // 注意：项目当前使用SQLite，这些方法主要用于类型兼容
+
+  async saveBankTransaction(_transaction: any): Promise<void> {
+    console.warn('saveBankTransaction: 请使用SQLite版本');
+  }
+
+  async saveBankTransactions(_transactions: any[]): Promise<void> {
+    console.warn('saveBankTransactions: 请使用SQLite版本');
+  }
+
+  async getBankTransaction(_id: string): Promise<any | undefined> {
+    console.warn('getBankTransaction: 请使用SQLite版本');
+    return undefined;
+  }
+
+  async getAllBankTransactions(): Promise<any[]> {
+    console.warn('getAllBankTransactions: 请使用SQLite版本');
+    return [];
+  }
+
+  async getBankTransactionsByStatus(_status: string): Promise<any[]> {
+    console.warn('getBankTransactionsByStatus: 请使用SQLite版本');
+    return [];
+  }
+
+  async getBankTransactionsByDateRange(_startDate: string, _endDate: string): Promise<any[]> {
+    console.warn('getBankTransactionsByDateRange: 请使用SQLite版本');
+    return [];
+  }
+
+  async getBankTransactionsByBatch(_batchId: string): Promise<any[]> {
+    console.warn('getBankTransactionsByBatch: 请使用SQLite版本');
+    return [];
+  }
+
+  async updateBankTransaction(_id: string, _updates: Partial<any>): Promise<void> {
+    console.warn('updateBankTransaction: 请使用SQLite版本');
+  }
+
+  async deleteBankTransaction(_id: string): Promise<void> {
+    console.warn('deleteBankTransaction: 请使用SQLite版本');
+  }
+
+  async deleteBankTransactionsByBatch(_batchId: string): Promise<void> {
+    console.warn('deleteBankTransactionsByBatch: 请使用SQLite版本');
+  }
+
+  async clearBankTransactions(): Promise<void> {
+    console.warn('clearBankTransactions: 请使用SQLite版本');
+  }
 }
 
 export const databaseService = new DatabaseService();
