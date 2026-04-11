@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,83 @@ import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
 import { usePartnerStore } from '@/stores/usePartnerStore';
 import { SubjectSearch } from '@/components/voucher/subject-search';
+import { useSubjectStore } from '@/stores';
 import type { Partner } from '@/types';
+
+/** Popover 风格科目选择器：点击展开，选中后只显示 Tag */
+function SubjectSearchPopover({ value, onSelect, placeholder }: {
+  value: string;
+  onSelect: (code: string, name: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const { subjects } = useSubjectStore();
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 搜索过滤（只显示叶子科目，即没有子科目的）
+  const filtered = subjects.filter(s => {
+    const hasChildren = subjects.some(c => c.parentId === s.id);
+    if (hasChildren) return false;
+    if (!searchText.trim()) return true;
+    const q = searchText.toLowerCase();
+    return s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
+  });
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-left text-slate-400 hover:border-slate-400 transition-colors"
+      >
+        {placeholder || '点击选择科目...'}
+      </button>
+
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg">
+          <div className="p-2 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <input
+                autoFocus
+                placeholder="搜索科目代码或名称..."
+                value={searchText}
+                onChange={e => setSearchText(e.target.value)}
+                className="w-full pl-7 pr-2 py-1.5 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-40 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="py-4 text-center text-xs text-slate-400">无匹配科目</div>
+            ) : (
+              filtered.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 flex items-center gap-2 transition-colors"
+                  onClick={() => { onSelect(s.code, s.name); setOpen(false); setSearchText(''); }}
+                >
+                  <span className="font-mono text-slate-600">{s.code}</span>
+                  <span>{s.name}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AuxiliaryDataPage() {
   const { showToast } = useToast();
@@ -605,10 +681,10 @@ export default function AuxiliaryDataPage() {
           </DialogHeader>
 
           {/* 左右双栏布局：左侧灰底基本信息 + 右侧白底账务设置 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 py-2">
             {/* ========== 左侧栏：基本信息（浅灰底） ========== */}
             <div className="bg-slate-50 rounded-lg p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2">基本信息</h3>
+              <h3 className="text-sm font-semibold text-slate-700 pb-2">基本信息</h3>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -657,9 +733,9 @@ export default function AuxiliaryDataPage() {
               </div>
             </div>
 
-            {/* ========== 右侧栏：账务设置（白底，更亮） ========== */}
-            <div className="bg-white rounded-lg p-5 space-y-4 border border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2">账务设置</h3>
+            {/* ========== 右侧栏：账务设置（白底） ========== */}
+            <div className="bg-white rounded-lg p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-slate-700 pb-2">账务设置</h3>
 
               {/* 横向布局：邮箱 */}
               <div className="flex items-center gap-3">
@@ -685,34 +761,36 @@ export default function AuxiliaryDataPage() {
                 <Input placeholder="银行账号" value={formData.bankAccount} onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))} className="flex-1" />
               </div>
 
-              {/* 默认科目 */}
+              {/* 默认科目 - Popover 风格 */}
               <div className="space-y-1.5">
                 <Label className="font-semibold text-sm">默认对方科目</Label>
                 <p className="text-xs text-slate-400">
                   流水匹配时自动使用。供应商建议"应付账款"，客户建议"应收账款"
                 </p>
-                <div className="border rounded-md">
-                  <SubjectSearch
-                    value={formData.defaultSubjectCode ? `${formData.defaultSubjectCode} ${formData.defaultSubjectName}` : ''}
-                    onSelect={(code, name) => setFormData(prev => ({ ...prev, defaultSubjectCode: code, defaultSubjectName: name }))}
-                    placeholder="搜索科目代码或名称..."
-                    showDirection={false}
-                    showType={false}
-                    compact
-                  />
-                </div>
-                {formData.defaultSubjectCode && (
+                {formData.defaultSubjectCode ? (
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{formData.defaultSubjectCode} {formData.defaultSubjectName}</Badge>
-                    <Button variant="ghost" size="sm" onClick={() => setFormData(prev => ({ ...prev, defaultSubjectCode: '', defaultSubjectName: '' }))} className="text-xs text-slate-400 h-6">
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
+                      {formData.defaultSubjectCode} {formData.defaultSubjectName}
+                    </Badge>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, defaultSubjectCode: '', defaultSubjectName: '' }))}
+                      className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+                    >
                       清除
-                    </Button>
+                    </button>
                   </div>
+                ) : (
+                  <SubjectSearchPopover
+                    value=""
+                    onSelect={(code, name) => setFormData(prev => ({ ...prev, defaultSubjectCode: code, defaultSubjectName: name }))}
+                    placeholder="点击选择科目..."
+                  />
                 )}
               </div>
 
               {/* 冻结 */}
-              <div className="pt-3 border-t space-y-1">
+              <div className="pt-3 space-y-1">
                 <div className="flex items-center gap-2">
                   <input type="checkbox" id="frozen" checked={formData.frozen} onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))} className="rounded" />
                   <Label htmlFor="frozen" className="font-semibold text-sm cursor-pointer">冻结往来单位</Label>
@@ -722,7 +800,7 @@ export default function AuxiliaryDataPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-2">
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>
                 取消

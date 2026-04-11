@@ -36,7 +36,7 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
 
           {/* 对话框内容 */}
           <div
-            className="relative z-10 w-full transform rounded-lg border bg-background shadow-xl transition-all"
+            className="relative z-10 w-full transform rounded-lg bg-white transition-all"
             onClick={handleContentClick}
             style={{
               margin: "20px",
