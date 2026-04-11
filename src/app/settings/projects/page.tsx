@@ -24,7 +24,8 @@ import {
   Save,
   X,
   Lock,
-  Unlock
+  Unlock,
+  Folder
 } from 'lucide-react';
 import { useFinancialProjectStore } from '@/stores';
 import { Project } from '@/types';
@@ -668,79 +669,104 @@ export default function ProjectsPage() {
 
       {/* 新增/编辑项目对话框 */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{editingId ? '编辑项目' : '新增项目'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>项目代码</Label>
-              <Input
-                placeholder={editingId ? '' : '自动生成或手动输入'}
-                value={formData.code}
-                onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-              />
-              {!editingId && (
-                <p className="text-xs text-slate-500">留空则自动生成编码：{codeRule.prefix}{codeRule.separator}{String(codeRule.lastNumber + 1).padStart(codeRule.padding, '0')}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label required>项目名称</Label>
-              <Input
-                placeholder="输入项目名称"
-                value={formData.name}
-                onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label required>项目类型</Label>
-              <select
-                value={formData.type}
-                onChange={e => setFormData(prev => ({ ...prev, type: e.target.value as Project['type'] }))}
-                className="w-full px-3 py-2 border rounded-md"
-              >
-                <option value="income">收入类</option>
-                <option value="cost">成本类</option>
-                <option value="other">其他类</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label required>开始日期</Label>
-              <ChineseDatePicker
-                value={formData.startDate}
-                onChange={v => setFormData(prev => ({ ...prev, startDate: v }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>结束日期</Label>
-              <ChineseDatePicker
-                value={formData.endDate}
-                onChange={v => setFormData(prev => ({ ...prev, endDate: v }))}
-              />
-              <p className="text-xs text-slate-500">留空表示项目仍在进行中</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="frozen"
-                checked={formData.frozen}
-                onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))}
-                className="rounded"
-              />
-              <Label htmlFor="frozen" className="cursor-pointer">冻结项目</Label>
+          <div className="bg-slate-50 -mx-6 -mt-2 px-6 py-5 space-y-4">
+            <div className="bg-white border border-slate-200 shadow-sm rounded-lg p-5 space-y-4">
+              {/* 项目代码 + 类型 同行 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="font-semibold text-xs text-slate-700">项目代码</Label>
+                  <Input
+                    placeholder={editingId ? '' : '自动生成或手动输入'}
+                    value={formData.code}
+                    onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
+                  />
+                  {!editingId && (
+                    <p className="text-[11px] text-slate-400">留空自动生成 {codeRule.prefix}{codeRule.separator}{String(codeRule.lastNumber + 1).padStart(codeRule.padding, '0')}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="font-semibold text-xs text-slate-700">项目类型</Label>
+                  <select
+                    value={formData.type}
+                    onChange={e => setFormData(prev => ({ ...prev, type: e.target.value as Project['type'] }))}
+                    className="w-full h-8 px-2.5 py-1 text-sm border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  >
+                    <option value="income">收入类</option>
+                    <option value="cost">成本类</option>
+                    <option value="other">其他类</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 项目名称 */}
+              <div className="space-y-1.5">
+                <Label required className="font-semibold text-xs text-slate-700">项目名称</Label>
+                <div className="relative">
+                  <Folder className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="输入项目名称"
+                    value={formData.name}
+                    onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              {/* 开始日期 + 结束日期 同行 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label required className="font-semibold text-xs text-slate-700">
+                    <Calendar className="h-3 w-3 inline mr-1 -mt-0.5" />
+                    开始日期
+                  </Label>
+                  <ChineseDatePicker
+                    value={formData.startDate}
+                    onChange={v => setFormData(prev => ({ ...prev, startDate: v }))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="font-semibold text-xs text-slate-700">
+                    <Calendar className="h-3 w-3 inline mr-1 -mt-0.5" />
+                    结束日期
+                  </Label>
+                  <ChineseDatePicker
+                    value={formData.endDate}
+                    onChange={v => setFormData(prev => ({ ...prev, endDate: v }))}
+                    className="w-full"
+                  />
+                  <p className="text-[11px] text-slate-400">留空表示进行中</p>
+                </div>
+              </div>
+
+              {/* 冻结 */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="frozen"
+                  checked={formData.frozen}
+                  onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))}
+                  className="rounded"
+                />
+                <Label htmlFor="frozen" className="font-semibold text-xs text-slate-700 cursor-pointer">冻结项目</Label>
+              </div>
             </div>
           </div>
-          <DialogFooter>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>
-                取消
-              </Button>
-              <Button onClick={handleAddProject}>
-                <Save className="h-4 w-4 mr-2" />
-                保存
-              </Button>
-            </div>
-          </DialogFooter>
+
+          {/* 底部按钮 */}
+          <div className="flex justify-end gap-2 pt-3 mt-1 border-t border-slate-100">
+            <Button variant="outline" size="sm" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>
+              取消
+            </Button>
+            <Button size="sm" onClick={handleAddProject}>
+              <Save className="h-4 w-4 mr-1.5" />
+              保存
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -4,6 +4,17 @@ import { useEffect, useState, useRef } from 'react';
 import { getCurrentManager } from '@/lib/database';
 import { useToast } from '@/hooks/use-toast';
 
+// 全局初始化 Promise：其他组件可以通过 waitForDbInit() 等待数据库就绪
+let _initResolve: (() => void) | null = null;
+const _initPromise = new Promise<void>((resolve) => { _initResolve = resolve; });
+let _initDone = false;
+
+/** 等待 DatabaseSyncWrapper 完成初始化。已完成后立即返回。 */
+export async function waitForDbInit(): Promise<void> {
+  if (_initDone) return;
+  await _initPromise;
+}
+
 export function useDatabaseSync() {
   const { toast } = useToast();
   const [isInitialized, setIsInitialized] = useState(false);
@@ -74,6 +85,8 @@ export function useDatabaseSync() {
         ]);
 
         setIsInitialized(true);
+        _initDone = true;
+        _initResolve?.();
         console.log('Database initialized successfully');
       } catch (error) {
         console.error('Database initialization error:', error);

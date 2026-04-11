@@ -11,6 +11,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { getCurrentService } from '@/lib/database';
+import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { useRouter } from 'next/navigation';
 import type { BankTransaction } from '@/types';
@@ -40,6 +41,8 @@ export function BankStatementsList() {
   const loadTransactions = async () => {
     setLoading(true);
     try {
+      // 等待全局数据库初始化完成
+      await waitForDbInit();
       const service = getCurrentService();
       const all = await service.getAllBankTransactions();
       // 只显示已入账的流水
@@ -107,7 +110,7 @@ export function BankStatementsList() {
       {/* 统计 */}
       <div className="grid grid-cols-3 gap-3">
         <div className="text-center p-3 bg-slate-50 rounded">
-          <p className="text-xs text-slate-500">已入账流水</p>
+          <p className="text-xs text-slate-500">流水总数</p>
           <p className="text-lg font-bold">{filtered.length}</p>
         </div>
         <div className="text-center p-3 bg-green-50 rounded">

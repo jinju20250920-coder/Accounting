@@ -118,9 +118,10 @@ export default function ImportPage() {
         </div>
       </div>
 
-      {activeTab === 'import' ? (
+      {/* 流水导入 - 始终渲染以保留数据状态 */}
+      <div className={activeTab === 'import' ? '' : 'hidden'}>
         <div className="grid grid-cols-1 gap-6">
-          <div className="space-y-6">
+          <div>
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -134,86 +135,88 @@ export default function ImportPage() {
             </Card>
           </div>
 
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">导入说明</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+          {/* 导入说明 - 横向排列 */}
+          <Card>
+            <CardContent className="pt-5">
+              <div className="grid grid-cols-3 gap-6">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center shrink-0">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  </div>
                   <div>
-                    <p className="text-sm font-medium">文件格式</p>
-                    <p className="text-xs text-muted-foreground">
-                      支持 .xlsx, .xls, .csv 格式，文件大小不超过 10MB
-                    </p>
+                    <p className="text-sm font-medium text-slate-800">文件格式</p>
+                    <p className="text-xs text-slate-500">.xlsx / .xls / .csv，不超过 10MB</p>
                   </div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                    <CheckCircle className="h-4 w-4 text-blue-500" />
+                  </div>
                   <div>
-                    <p className="text-sm font-medium">自动匹配</p>
-                    <p className="text-xs text-muted-foreground">
-                      系统会根据交易描述智能匹配会计科目
-                    </p>
+                    <p className="text-sm font-medium text-slate-800">智能匹配</p>
+                    <p className="text-xs text-slate-500">根据交易描述自动匹配会计科目</p>
                   </div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center shrink-0">
+                    <CheckCircle className="h-4 w-4 text-purple-500" />
+                  </div>
                   <div>
-                    <p className="text-sm font-medium">批量生成</p>
-                    <p className="text-xs text-muted-foreground">
-                      导入成功后自动生成记账凭证，支持批量审核
-                    </p>
+                    <p className="text-sm font-medium text-slate-800">批量生成</p>
+                    <p className="text-xs text-slate-500">自动生成记账凭证，支持批量过账</p>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </CardContent>
+          </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  最近导入
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {loadingRecent ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                    </div>
-                  ) : recentImports.length === 0 ? (
-                    <div className="text-center py-4 text-sm text-gray-400">
-                      暂无导入记录
-                    </div>
-                  ) : (
-                    recentImports.map((imp) => (
-                      <div key={imp.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-blue-500" />
-                          <div>
-                            <p className="text-sm font-medium">{imp.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {imp.date ? new Date(imp.date).toLocaleString('zh-CN') : '-'}
-                              {imp.recordCount > 0 && ` · ${imp.recordCount}条`}
-                            </p>
-                          </div>
+          {/* 最近导入 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" />
+                最近导入
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {loadingRecent ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  </div>
+                ) : recentImports.length === 0 ? (
+                  <div className="text-center py-4 text-sm text-gray-400">
+                    暂无导入记录
+                  </div>
+                ) : (
+                  recentImports.map((imp) => (
+                    <div key={imp.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-blue-500" />
+                        <div>
+                          <p className="text-sm font-medium">{imp.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {imp.date ? new Date(imp.date).toLocaleString('zh-CN') : '-'}
+                            {imp.recordCount > 0 && ` · ${imp.recordCount}条`}
+                          </p>
                         </div>
-                        <Badge variant={imp.status === 'failed' ? 'destructive' : 'default'}>
-                          {imp.status === 'success' ? '成功' : imp.status === 'partial' ? '部分成功' : '失败'}
-                        </Badge>
                       </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                      <Badge variant={imp.status === 'failed' ? 'destructive' : 'default'}>
+                        {imp.status === 'success' ? '成功' : imp.status === 'partial' ? '部分成功' : '失败'}
+                      </Badge>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      ) : (
+      </div>
+
+      {/* 银行流水 - 始终渲染以保留状态 */}
+      <div className={activeTab === 'list' ? '' : 'hidden'}>
         <BankStatementsList />
-      )}
+      </div>
     </div>
   );
 }

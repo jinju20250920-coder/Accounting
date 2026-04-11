@@ -26,6 +26,7 @@ import { parseBankStatement } from '@/lib/parser';
 import { BankAccountSelector, DEFAULT_BANK_ACCOUNTS } from '@/components/bank-account-selector';
 import { useToast } from '@/components/ui/toast';
 import { getCurrentService } from '@/lib/database';
+import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { matchBankTransaction } from '@/lib/accounting';
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
 import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
@@ -92,6 +93,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const loadSavedTransactions = async () => {
     setIsLoading(true);
     try {
+      // 等待全局数据库初始化完成
+      await waitForDbInit();
       const service = getCurrentService();
       const savedTransactions = await service.getAllBankTransactions();
 

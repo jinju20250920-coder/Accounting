@@ -340,30 +340,55 @@ class SQLiteManager {
   private startAutoSave(): void {
     // Auto-save every 5 seconds
     this.autoSaveInterval = setInterval(() => {
-      this.saveDatabase();
+      this.saveDatabase().catch(err => console.error('Auto-save failed:', err));
     }, 5000);
 
-    if (!this.isElectron && !this.useOPFS) {
-      // 仅在 localStorage 环境中使用页面事件 (OPFS 和 Electron 数据已持久化)
-      const handleBeforeUnload = () => {
-        this.saveDatabase();
-      };
+    // 所有环境都注册页面关闭事件，确保数据写入磁盘
+    const handleBeforeUnload = () => {
+      if (this.db) {
+        try {
+          const data = this.db.export();
+          if (this.useOPFS && this.opfsHandle) {
+            // OPFS: 同步写入 (使用 write + close 的同步模式)
+            // 注意: beforeunload 中 async 操作可能来不及完成
+            // 所以 auto-save 是主要的持久化保障
+          } else if (!this.isElectron) {
+            // localStorage: 同步写入，beforeunload 中可靠
+            try {
+              const uint8Data = new Uint8Array(data);
+              let binaryString = '';
+              const chunkSize = 0x8000;
+              for (let i = 0; i < uint8Data.length; i += chunkSize) {
+                const chunk = uint8Data.subarray(i, i + chunkSize);
+                binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+              }
+              localStorage.setItem(this.DB_STORAGE_KEY, btoa(binaryString));
+            } catch (e) {
+              console.error('beforeunload save failed:', e);
+            }
+          }
+        } catch (e) {
+          console.error('Export in beforeunload failed:', e);
+        }
+      }
+    };
 
-      const handlePageHide = () => {
-        this.saveDatabase();
-      };
+    const handlePageHide = () => {
+      this.saveDatabase().catch(() => {});
+    };
 
-      window.addEventListener('beforeunload', handleBeforeUnload);
-      window.addEventListener('pagehide', handlePageHide);
-
-      // Cleanup on instance destruction (if needed)
-      // For now, we'll just keep the listeners active
-    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
   }
 
   // Manually trigger save
   save(): void {
-    this.saveDatabase();
+    // saveDatabase is async but we call it fire-and-forget style
+    // to avoid blocking the caller. The auto-save timer provides
+    // a safety net if a fire-and-forget save gets lost.
+    this.saveDatabase().catch(err => {
+      console.error('Save failed:', err);
+    });
   }
 
   // Clear corrupted data
