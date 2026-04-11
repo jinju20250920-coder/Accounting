@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -260,19 +262,17 @@ export function FirstTimeWizard({ open, onOpenChange, onComplete }: FirstTimeWiz
 
               <div className="space-y-2">
                 <Label>账套开始日期</Label>
-                <Input
-                  type="date"
+                <ChineseDatePicker
                   value={formData.startDate}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, startDate: v })}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label>启用年月</Label>
-                <Input
-                  type="month"
+                <ChineseMonthPicker
                   value={formData.enableDate}
-                  onChange={(e) => setFormData({ ...formData, enableDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, enableDate: v })}
                 />
               </div>
 

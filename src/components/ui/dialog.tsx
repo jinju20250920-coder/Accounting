@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils"
 import { XIcon } from "lucide-react"
 import { Button } from "./button"
 
+// Context to pass close handler to DialogContent
+const DialogContext = React.createContext<{
+  onClose?: () => void
+}>({})
+
 interface DialogProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -12,17 +17,12 @@ interface DialogProps {
 }
 
 const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
-  // 点击外部关闭
-  const handleOverlayClick = () => {
-    if (onOpenChange) {
-      onOpenChange(false);
-    }
-  };
+  const handleClose = () => onOpenChange?.(false)
 
   // 阻止对话框内部点击时关闭
   const handleContentClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-  };
+    e.stopPropagation()
+  }
 
   return (
     <>
@@ -31,12 +31,12 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
           {/* 遮罩层 */}
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={handleOverlayClick}
+            onClick={handleClose}
           />
 
           {/* 对话框内容 */}
           <div
-            className="relative z-10 w-full max-w-2xl transform rounded-lg border bg-background p-6 shadow-xl transition-all"
+            className="relative z-10 w-full transform rounded-lg border bg-background shadow-xl transition-all"
             onClick={handleContentClick}
             style={{
               margin: "20px",
@@ -45,7 +45,9 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
               overflow: "auto"
             }}
           >
-            {children}
+            <DialogContext.Provider value={{ onClose: handleClose }}>
+              {children}
+            </DialogContext.Provider>
           </div>
         </div>
       )}
@@ -73,8 +75,21 @@ interface DialogContentProps {
 }
 
 const DialogContent = ({ className, children, style }: DialogContentProps) => {
+  const { onClose } = React.useContext(DialogContext)
+
   return (
-    <div className={cn("relative", className)} style={style}>
+    <div className={cn("relative p-6", className)} style={style}>
+      {/* 关闭按钮 */}
+      {onClose && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-3 top-3 h-7 w-7 rounded-sm text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
+          onClick={onClose}
+        >
+          <XIcon className="h-4 w-4" />
+        </Button>
+      )}
       {children}
     </div>
   )
@@ -88,7 +103,7 @@ interface DialogHeaderProps {
 const DialogHeader = ({ className, children }: DialogHeaderProps) => (
   <div
     className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-left",
+      "flex flex-col space-y-1.5 text-center sm:text-left pr-8",
       className
     )}
   >

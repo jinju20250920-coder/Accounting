@@ -39,6 +39,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SimpleSelect } from '@/components/ui/select';
 import { useVoucherStore } from '@/stores/useVoucherStore';
@@ -541,18 +542,16 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-400" />
-              <Input
-                type="date"
+              <ChineseDatePicker
                 placeholder="开始日期"
                 value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                onChange={(v) => setDateRange({ ...dateRange, start: v })}
               />
               <span className="text-slate-400">至</span>
-              <Input
-                type="date"
+              <ChineseDatePicker
                 placeholder="结束日期"
                 value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                onChange={(v) => setDateRange({ ...dateRange, end: v })}
               />
             </div>
             <div className="ml-auto flex gap-2">

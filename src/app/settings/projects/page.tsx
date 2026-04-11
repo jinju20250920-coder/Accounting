@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -705,18 +706,16 @@ export default function ProjectsPage() {
             </div>
             <div className="space-y-2">
               <Label required>开始日期</Label>
-              <Input
-                type="date"
+              <ChineseDatePicker
                 value={formData.startDate}
-                onChange={e => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                onChange={v => setFormData(prev => ({ ...prev, startDate: v }))}
               />
             </div>
             <div className="space-y-2">
               <Label>结束日期</Label>
-              <Input
-                type="date"
+              <ChineseDatePicker
                 value={formData.endDate}
-                onChange={e => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                onChange={v => setFormData(prev => ({ ...prev, endDate: v }))}
               />
               <p className="text-xs text-slate-500">留空表示项目仍在进行中</p>
             </div>

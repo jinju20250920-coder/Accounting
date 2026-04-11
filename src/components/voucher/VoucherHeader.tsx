@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker'
 import { Label } from '@/components/ui/label'
 import {
   Save,
@@ -540,11 +541,10 @@ export function VoucherHeader() {
                     新凭证
                   </h1>
                   <div className="text-sm text-slate-600 mt-1">
-                    <input
-                      type="date"
+                    <ChineseDatePicker
                       value={new Date().toISOString().split('T')[0]}
-                      onChange={(e) => {
-                        updateVoucherDate(e.target.value)
+                      onChange={(v) => {
+                        updateVoucherDate(v)
                       }}
                       className="bg-transparent border-b border-slate-300 hover:border-slate-500 focus:outline-none focus:border-blue-500 text-sm"
                     />
@@ -604,11 +604,10 @@ export function VoucherHeader() {
                   {currentVoucher.voucherNo}
                 </h1>
                 <div className="text-sm text-slate-600 mt-1">
-                  <input
-                    type="date"
+                  <ChineseDatePicker
                     value={currentVoucher.date}
-                    onChange={(e) => {
-                      updateVoucherDate(e.target.value)
+                    onChange={(v) => {
+                      updateVoucherDate(v)
                     }}
                     className="bg-transparent border-b border-slate-300 hover:border-slate-500 focus:outline-none focus:border-blue-500 text-sm"
                     disabled={currentVoucher.status !== 'draft'}

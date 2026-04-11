@@ -597,132 +597,99 @@ export default function AuxiliaryDataPage() {
 
       {/* 新增/编辑往来单位对话框 */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingId ? '编辑往来单位' : '新增往来单位'}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label required>单位代码</Label>
-                <Input
-                  placeholder="如：CUS001、SUP001、EMP001"
-                  value={formData.code}
-                  onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                />
-                <p className="text-xs text-slate-500">输入唯一的单位代码</p>
+
+          {/* 左右双栏布局：左侧灰底基本信息 + 右侧白底账务设置 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
+            {/* ========== 左侧栏：基本信息（浅灰底） ========== */}
+            <div className="bg-slate-50 rounded-lg p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2">基本信息</h3>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label required className="font-semibold text-sm">单位代码</Label>
+                  <Input placeholder="如：CUS001" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label required className="font-semibold text-sm">单位名称</Label>
+                  <Input placeholder="输入单位名称" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label required>单位名称</Label>
-                <Input
-                  placeholder="输入单位名称"
-                  value={formData.name}
-                  onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
+
               {/* 身份选择 */}
-              <div className="space-y-3 col-span-2 pt-2 border-t">
-                <p className="text-sm font-medium text-slate-700">选择身份（至少勾选一项）</p>
-                <div className="flex gap-6">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.isCustomer}
-                      onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))}
-                      className="rounded"
-                    />
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-sm">身份（至少勾选一项）</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={formData.isCustomer} onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))} className="rounded" />
                     <span className="text-sm">客户</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.isSupplier}
-                      onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))}
-                      className="rounded"
-                    />
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={formData.isSupplier} onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))} className="rounded" />
                     <span className="text-sm">供应商</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.isEmployee}
-                      onChange={e => setFormData(prev => ({ ...prev, isEmployee: e.target.checked }))}
-                      className="rounded"
-                    />
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={formData.isEmployee} onChange={e => setFormData(prev => ({ ...prev, isEmployee: e.target.checked }))} className="rounded" />
                     <span className="text-sm">雇员</span>
                   </label>
                 </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>联系人</Label>
-                <Input
-                  placeholder="输入联系人姓名"
-                  value={formData.contact}
-                  onChange={e => setFormData(prev => ({ ...prev, contact: e.target.value }))}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="font-semibold text-sm">联系人</Label>
+                  <Input placeholder="联系人姓名" value={formData.contact} onChange={e => setFormData(prev => ({ ...prev, contact: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="font-semibold text-sm">联系电话</Label>
+                  <Input placeholder="联系电话" value={formData.phone} onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>联系电话</Label>
-                <Input
-                  placeholder="输入联系电话"
-                  value={formData.phone}
-                  onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>电子邮箱</Label>
-                <Input
-                  type="email"
-                  placeholder="输入电子邮箱"
-                  value={formData.email}
-                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>税号</Label>
-                <Input
-                  placeholder="输入纳税人识别号"
-                  value={formData.taxNumber}
-                  onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2 col-span-2">
-                <Label>地址</Label>
-                <Input
-                  placeholder="输入单位地址"
-                  value={formData.address}
-                  onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>开户银行</Label>
-                <Input
-                  placeholder="输入开户银行"
-                  value={formData.bankName}
-                  onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2 col-span-2">
-                <Label>银行账号</Label>
-                <Input
-                  placeholder="输入银行账号"
-                  value={formData.bankAccount}
-                  onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))}
-                />
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-sm">地址</Label>
+                <Input placeholder="单位地址" value={formData.address} onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))} />
               </div>
             </div>
 
-            {/* 默认科目 */}
-            <div className="grid grid-cols-1 gap-4 pt-2 border-t">
-              <div className="space-y-2">
-                <Label>默认对方科目</Label>
-                <p className="text-xs text-slate-500">
-                  银行流水匹配时，自动使用此科目。供应商建议选"应付账款"，客户建议选"应收账款"
+            {/* ========== 右侧栏：账务设置（白底，更亮） ========== */}
+            <div className="bg-white rounded-lg p-5 space-y-4 border border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2">账务设置</h3>
+
+              {/* 横向布局：邮箱 */}
+              <div className="flex items-center gap-3">
+                <Label className="font-semibold text-sm w-20 shrink-0 text-right">电子邮箱</Label>
+                <Input placeholder="电子邮箱" value={formData.email} onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))} className="flex-1" />
+              </div>
+
+              {/* 横向布局：税号 */}
+              <div className="flex items-center gap-3">
+                <Label className="font-semibold text-sm w-20 shrink-0 text-right">税号</Label>
+                <Input placeholder="纳税人识别号" value={formData.taxNumber} onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))} className="flex-1" />
+              </div>
+
+              {/* 横向布局：开户银行 */}
+              <div className="flex items-center gap-3">
+                <Label className="font-semibold text-sm w-20 shrink-0 text-right">开户银行</Label>
+                <Input placeholder="开户银行" value={formData.bankName} onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))} className="flex-1" />
+              </div>
+
+              {/* 横向布局：银行账号 */}
+              <div className="flex items-center gap-3">
+                <Label className="font-semibold text-sm w-20 shrink-0 text-right">银行账号</Label>
+                <Input placeholder="银行账号" value={formData.bankAccount} onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))} className="flex-1" />
+              </div>
+
+              {/* 默认科目 */}
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-sm">默认对方科目</Label>
+                <p className="text-xs text-slate-400">
+                  流水匹配时自动使用。供应商建议"应付账款"，客户建议"应收账款"
                 </p>
                 <div className="border rounded-md">
                   <SubjectSearch
@@ -731,35 +698,30 @@ export default function AuxiliaryDataPage() {
                     placeholder="搜索科目代码或名称..."
                     showDirection={false}
                     showType={false}
+                    compact
                   />
                 </div>
                 {formData.defaultSubjectCode && (
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{formData.defaultSubjectCode} {formData.defaultSubjectName}</Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setFormData(prev => ({ ...prev, defaultSubjectCode: '', defaultSubjectName: '' }))}
-                      className="text-xs text-slate-400 h-6"
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setFormData(prev => ({ ...prev, defaultSubjectCode: '', defaultSubjectName: '' }))} className="text-xs text-slate-400 h-6">
                       清除
                     </Button>
                   </div>
                 )}
               </div>
-            </div>
-            <div className="flex items-center gap-2 pt-2 border-t">
-              <input
-                type="checkbox"
-                id="frozen"
-                checked={formData.frozen}
-                onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))}
-                className="rounded"
-              />
-              <Label htmlFor="frozen" className="cursor-pointer">冻结往来单位</Label>
-              <p className="text-xs text-slate-500 ml-2">冻结后无法删除，建议在需要停止业务往来时使用</p>
+
+              {/* 冻结 */}
+              <div className="pt-3 border-t space-y-1">
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="frozen" checked={formData.frozen} onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))} className="rounded" />
+                  <Label htmlFor="frozen" className="font-semibold text-sm cursor-pointer">冻结往来单位</Label>
+                </div>
+                <p className="text-xs text-slate-400 pl-5">冻结后无法删除</p>
+              </div>
             </div>
           </div>
+
           <DialogFooter>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>

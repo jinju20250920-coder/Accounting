@@ -8,6 +8,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Search, Filter, Check, X, ChevronRight } from 'lucide-react';
@@ -111,22 +112,20 @@ export function OutstandingSelector({
                 subjectCode: e.target.value
               }))}
             />
-            <Input
-              type="date"
+            <ChineseDatePicker
               placeholder="开始日期"
               value={searchParams.startDate}
-              onChange={(e) => setSearchParams(prev => ({
+              onChange={(v) => setSearchParams(prev => ({
                 ...prev,
-                startDate: e.target.value
+                startDate: v
               }))}
             />
-            <Input
-              type="date"
+            <ChineseDatePicker
               placeholder="结束日期"
               value={searchParams.endDate}
-              onChange={(e) => setSearchParams(prev => ({
+              onChange={(v) => setSearchParams(prev => ({
                 ...prev,
-                endDate: e.target.value
+                endDate: v
               }))}
             />
             <div className="flex gap-2">

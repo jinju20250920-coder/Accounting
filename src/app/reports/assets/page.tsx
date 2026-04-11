@@ -7,6 +7,7 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useReportConfigStore, type ReportRow } from '@/stores/useReportConfigStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Download, Printer, Calendar, Settings, Edit3, Save, RotateCcw } from 'lucide-react';
@@ -354,7 +355,7 @@ export default function AssetsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">资产负债表</h1>
         <div className="flex items-center gap-3 no-print">
-          <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
+          <ChineseDatePicker value={reportDate} onChange={(v) => setReportDate(v)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
           <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={showYearBeginning} onChange={(e) => setShowYearBeginning(e.target.checked)} /> 年初余额</label>
           <Button variant="outline" size="sm" onClick={() => setOpeningBalanceDialogOpen(true)}><Save className="h-4 w-4 mr-2" />期初余额</Button>
           <Button variant="outline" size="sm" onClick={() => setIsEditMode(!isEditMode)}><Edit3 className="h-4 w-4 mr-2" />{isEditMode ? '完成' : '编辑'}</Button>

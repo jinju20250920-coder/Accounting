@@ -7,6 +7,7 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useReportConfigStore } from '@/stores/useReportConfigStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Download, Printer, Calendar, Settings, Edit3, Save } from 'lucide-react';
@@ -316,9 +317,9 @@ export default function ProfitPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">利润表</h1>
         <div className="flex items-center gap-3 no-print">
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
+          <ChineseDatePicker value={startDate} onChange={(v) => setStartDate(v)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
           <span className="text-slate-500">至</span>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
+          <ChineseDatePicker value={endDate} onChange={(v) => setEndDate(v)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
           <Button variant="outline" size="sm" onClick={() => setIsEditMode(!isEditMode)}><Edit3 className="h-4 w-4 mr-2" />{isEditMode ? '完成' : '编辑'}</Button>
           <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 mr-2" />导出</Button>
           <Button variant="outline" size="sm" onClick={handlePrint}><Printer className="h-4 w-4 mr-2" />打印</Button>

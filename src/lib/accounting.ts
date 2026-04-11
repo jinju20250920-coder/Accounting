@@ -164,7 +164,7 @@ export interface BankMatchInput {
   summary: string;           // 摘要
   notes?: string;            // 备注
   counterpartyName?: string; // 对方户名
-  isDebit: boolean;          // true=流入(借方), false=流出(贷方)
+  isDebit: boolean;          // true=银行流水借方(付款/流出), false=银行流水贷方(收款/流入)
 }
 
 export interface BankMatchRule {
@@ -196,7 +196,7 @@ export function matchBankTransaction(
   userPrefs: Array<{ summary: string; subject: string; subjectName?: string; timestamp: number }>,
 ): BankMatchResult | null {
   const text = [input.summary, input.notes].filter(Boolean).join(' ');
-  const direction: 'in' | 'out' = input.isDebit ? 'in' : 'out';
+  const direction: 'in' | 'out' = input.isDebit ? 'out' : 'in';
 
   // === 第1层：往来单位默认科目 ===
   if (input.counterpartyName) {
@@ -247,6 +247,29 @@ export function matchBankTransaction(
       source: 'user-preference',
       confidence: Math.min(l2Matches.length * 0.15, 0.85),
     };
+  }
+
+  // === 第5层：智能推断（有对方户名但无匹配规则） ===
+  if (input.counterpartyName && input.counterpartyName.trim().length > 0) {
+    if (input.isDebit) {
+      // 借方=付款（钱流出）→ 应付账款
+      return {
+        subjectCode: '2202',
+        subjectName: '应付账款',
+        source: 'system-rule',
+        confidence: 0.4,
+        partnerName: input.counterpartyName,
+      };
+    } else {
+      // 贷方=收款（钱流入）→ 应收账款
+      return {
+        subjectCode: '1122',
+        subjectName: '应收账款',
+        source: 'system-rule',
+        confidence: 0.4,
+        partnerName: input.counterpartyName,
+      };
+    }
   }
 
   return null;

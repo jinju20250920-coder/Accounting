@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -253,10 +254,9 @@ function AssetCardDialog({
 
           <div className="space-y-2">
             <Label required>购置日期</Label>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={formData.acquisitionDate || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, acquisitionDate: e.target.value }))}
+              onChange={(v) => setFormData(prev => ({ ...prev, acquisitionDate: v }))}
             />
           </div>
 

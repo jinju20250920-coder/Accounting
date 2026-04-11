@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -388,17 +389,15 @@ export default function CashflowPage() {
               <Calendar className="h-4 w-4 text-slate-400" />
               <Label>期间</Label>
             </div>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={period.startDate}
-              onChange={(e) => setPeriod(prev => ({ ...prev, startDate: e.target.value }))}
+              onChange={(v) => setPeriod(prev => ({ ...prev, startDate: v }))}
               className="w-40"
             />
             <span className="text-slate-400">至</span>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={period.endDate}
-              onChange={(e) => setPeriod(prev => ({ ...prev, endDate: e.target.value }))}
+              onChange={(v) => setPeriod(prev => ({ ...prev, endDate: v }))}
               className="w-40"
             />
             <Button variant="outline" size="sm">

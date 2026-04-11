@@ -5,6 +5,7 @@ import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1040,17 +1041,15 @@ export default function InputInvoicePage() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-500">日期</span>
-              <Input
-                type="date"
+              <ChineseDatePicker
                 value={dateRange.start}
-                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                onChange={(v) => setDateRange(prev => ({ ...prev, start: v }))}
                 className="w-36"
               />
               <span className="text-slate-400">~</span>
-              <Input
-                type="date"
+              <ChineseDatePicker
                 value={dateRange.end}
-                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                onChange={(v) => setDateRange(prev => ({ ...prev, end: v }))}
                 className="w-36"
               />
               <Button

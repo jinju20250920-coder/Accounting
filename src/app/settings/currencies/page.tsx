@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -623,10 +624,9 @@ export default function CurrenciesPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>汇率开始日期</Label>
-                  <Input
-                    type="date"
+                  <ChineseDatePicker
                     value={formData.rateStartDate}
-                    onChange={e => setFormData(prev => ({ ...prev, rateStartDate: e.target.value }))}
+                    onChange={v => setFormData(prev => ({ ...prev, rateStartDate: v }))}
                   />
                 </div>
               </div>

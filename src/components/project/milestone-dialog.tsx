@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -185,12 +186,9 @@ export function MilestoneDialog({ milestone, open = false, onOpenChange }: Miles
 
             <div className="space-y-2">
               <Label htmlFor="targetDate">目标日期 *</Label>
-              <Input
-                id="targetDate"
-                type="date"
-                required
+              <ChineseDatePicker
                 value={formData.targetDate}
-                onChange={(e) => setFormData({ ...formData, targetDate: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, targetDate: v })}
               />
             </div>
           </div>

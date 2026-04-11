@@ -91,7 +91,7 @@ src/
 │   │   └── templates/              # 凭证模板
 │   └── partner-dashboard/          # 往来单位详情
 ├── components/
-│   ├── ui/                         # shadcn/ui 组件（16个）
+│   ├── ui/                         # shadcn/ui 组件（16个）+ 中文日期/月份选择器
 │   ├── layout/                     # 布局（sidebar, VoucherLayout）
 │   ├── voucher/                    # 凭证相关组件（15个）
 │   │   ├── voucher-entry-grid.tsx  # Excel-like 凭证录入网格
@@ -383,7 +383,11 @@ if (type === 'sale_invoice') {
 ### 注意事项
 
 1. **数据持久化** - 主数据使用 SQLite 数据库（`sqlite-service.ts`），UI 状态使用 Zustand persist（`persistence-config.ts`）
-2. **日期格式** - 存储使用ISO格式（YYYY-MM-DD），UI显示使用中文格式（YYYY年MM月DD日）
+2. **日期格式** - 存储使用ISO格式（YYYY-MM-DD / YYYY-MM），UI显示使用中文格式
+   - 日期显示：`2026年4月10日`（使用 `ChineseDatePicker` 组件）
+   - 月份显示：`2026年4月`（使用 `ChineseMonthPicker` 组件）
+   - 日期/月份选择器：全系统统一使用自定义中文组件（`src/components/ui/chinese-date-picker.tsx`、`src/components/ui/chinese-month-picker.tsx`）
+   - **禁止使用原生 `<input type="date">` 或 `<input type="month">`**，其弹出日历为英文且无法控制语言
 3. **金额精度** - 所有金额保留2位小数，使用Math.round避免浮点误差
 4. **科目验证** - 操作前验证科目是否存在，防止数据错误
 5. **借贷平衡** - 保存前必须平衡，否则提示警告

@@ -22,6 +22,7 @@ import { useVoucherStore } from '@/stores';
 import { useSubjectStore } from '@/stores';
 import { useRouter } from 'next/navigation';
 import { formatMoney } from '@/lib/accounting';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import * as XLSX from 'xlsx';
 
 interface SubjectBalanceRow {
@@ -37,12 +38,29 @@ interface SubjectBalanceRow {
 }
 
 export default function BalancePage() {
-  const { vouchers, calculateSubjectBalances } = useVoucherStore();
-  const { subjects, getSubjectByCode } = useSubjectStore();
+  const { vouchers, calculateSubjectBalances, initialize: initVouchers } = useVoucherStore();
+  const { subjects, getSubjectByCode, initializeSubjects } = useSubjectStore();
   const router = useRouter();
+  const [dataLoaded, setDataLoaded] = useState(false);
+
+  // 确保数据已从数据库加载
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await Promise.all([
+          initVouchers(),
+          initializeSubjects(),
+        ]);
+      } catch (e) {
+        console.error('Balance page init failed:', e);
+      }
+      setDataLoaded(true);
+    };
+    loadData();
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [startMonth, setStartMonth] = useState<string>(() => new Date().toISOString().slice(0, 7)); // 开始月份：YYYY-MM
+  const [startMonth, setStartMonth] = useState<string>(() => `${new Date().getFullYear()}-01`); // 开始月份：当年1月
   const [endMonth, setEndMonth] = useState<string>(() => new Date().toISOString().slice(0, 7)); // 结束月份：YYYY-MM
   const [showLedgerDialog, setShowLedgerDialog] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState<{
@@ -65,6 +83,22 @@ export default function BalancePage() {
       setStartMonth(value);
     }
   };
+
+  // 调试日志
+  useEffect(() => {
+    if (dataLoaded) {
+      console.log('[BalancePage] vouchers:', vouchers.length, 'subjects:', subjects.length);
+      console.log('[BalancePage] posted vouchers:', vouchers.filter(v => v.status === 'posted').length);
+      if (vouchers.length > 0) {
+        const v = vouchers[0];
+        console.log('[BalancePage] first voucher:', v.voucherNo, 'status:', v.status, 'entries:', v.entries?.length);
+        if (v.entries?.[0]) {
+          console.log('[BalancePage] first entry subjectCode:', v.entries[0].subjectCode);
+          console.log('[BalancePage] subject found:', !!getSubjectByCode(v.entries[0].subjectCode));
+        }
+      }
+    }
+  }, [dataLoaded, vouchers.length, subjects.length]);
 
   // 计算科目余额
   const subjectBalances = useMemo(() => {
@@ -346,17 +380,15 @@ export default function BalancePage() {
           <p className="text-slate-600 mt-1">查询各科目的期初余额、本期发生额和期末余额</p>
         </div>
         <div className="flex gap-2 items-center">
-          <Input
-            type="month"
+          <ChineseMonthPicker
             value={startMonth}
-            onChange={(e) => handleStartMonthChange(e.target.value)}
+            onChange={(v) => handleStartMonthChange(v)}
             className="w-36"
           />
           <span className="text-slate-400">至</span>
-          <Input
-            type="month"
+          <ChineseMonthPicker
             value={endMonth}
-            onChange={(e) => handleEndMonthChange(e.target.value)}
+            onChange={(v) => handleEndMonthChange(v)}
             className="w-36"
           />
           <Button variant="outline" size="sm">
@@ -471,11 +503,22 @@ export default function BalancePage() {
           <CardTitle>科目余额明细</CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredBalances.length === 0 ? (
+          {!dataLoaded ? (
+            <div className="text-center py-12 text-slate-500">
+              <RefreshCw className="h-8 w-8 mx-auto mb-4 animate-spin text-slate-300" />
+              <p>加载中...</p>
+            </div>
+          ) : filteredBalances.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <FileText className="h-12 w-12 mx-auto mb-4 text-slate-300" />
               <p>暂无科目余额数据</p>
-              <p className="text-sm mt-2">请先录入凭证并记账</p>
+              <p className="text-sm mt-2">
+                {vouchers.length === 0
+                  ? '请先录入凭证'
+                  : vouchers.every(v => v.status !== 'posted')
+                    ? '凭证尚未记账，请先过账凭证'
+                    : '当前月份范围内无数据，请调整月份筛选'}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">

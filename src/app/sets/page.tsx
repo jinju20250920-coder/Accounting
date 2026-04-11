@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import {
   Building2,
@@ -761,18 +763,16 @@ export default function SetsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label required>启用日期</Label>
-                <Input
-                  type="date"
+                <ChineseDatePicker
                   value={formData.startDate}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, startDate: v })}
                 />
               </div>
               <div className="space-y-2">
                 <Label required>启用年月</Label>
-                <Input
-                  type="month"
+                <ChineseMonthPicker
                   value={formData.enableDate}
-                  onChange={(e) => setFormData({ ...formData, enableDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, enableDate: v })}
                 />
               </div>
             </div>

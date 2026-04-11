@@ -3,6 +3,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import type { AgingMode } from '@/lib/accounting';
 
 interface AgingFilterProps {
@@ -64,10 +65,9 @@ export function AgingFilter({
 
           <div className="flex items-center gap-2">
             <Label>截止日期:</Label>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={asOfDate}
-              onChange={(e) => onAsOfDateChange(e.target.value)}
+              onChange={(v) => onAsOfDateChange(v)}
               className="w-40"
             />
           </div>

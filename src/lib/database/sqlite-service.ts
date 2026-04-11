@@ -41,6 +41,16 @@ class SQLiteService {
   private _accountSetId: string = 'default'; // 当前账套ID
   private _usingAccountSetDb: boolean = false; // 是否使用账套数据库
 
+  /** 写操作后立即持久化到 OPFS/localStorage/磁盘 */
+  private async persist(): Promise<void> {
+    try {
+      const { sqliteManager } = await import('./sqlite-manager');
+      sqliteManager.save();
+    } catch {
+      // sqliteManager 不可用时静默忽略（fallback 内存库无法持久化）
+    }
+  }
+
   // 设置当前账套ID
   setAccountSetId(accountSetId: string) {
     this._accountSetId = accountSetId;
@@ -889,6 +899,7 @@ class SQLiteService {
         ]);
         entryStmt.free();
       }
+      await this.persist();
     } catch (error) {
       console.error('Save voucher failed:', error);
       throw error;
@@ -1079,6 +1090,7 @@ class SQLiteService {
         ]);
         stmt.free();
       }
+      await this.persist();
     } catch (error) {
       console.error('Save subjects failed:', error);
       throw error;
@@ -1392,6 +1404,7 @@ class SQLiteService {
         ]);
         stmt.free();
       }
+      await this.persist();
     } catch (error) {
       console.error('Save partners failed:', error);
       throw error;
@@ -2088,6 +2101,7 @@ class SQLiteService {
     for (const tx of transactions) {
       await this.saveBankTransaction(tx);
     }
+    await this.persist();
   }
 
   async getBankTransaction(id: string): Promise<any | undefined> {
@@ -2144,6 +2158,7 @@ class SQLiteService {
       );
       stmt.run(values);
       stmt.free();
+      await this.persist();
     } catch (error) {
       console.error('Update bank transaction failed:', error);
       throw error;
@@ -2177,9 +2192,12 @@ class SQLiteService {
   async clearBankTransactions(): Promise<void> {
     try {
       await this.ensureInitialized();
-      const stmt = this.dbInstance.prepare(`DELETE FROM bankTransactions WHERE accountSetId = ?`);
+      const stmt = this.dbInstance.prepare(
+        `DELETE FROM bankTransactions WHERE accountSetId = ? AND status != 'voucher_generated'`
+      );
       stmt.run([this.accountSetId]);
       stmt.free();
+      await this.persist();
     } catch (error) {
       console.error('Clear bank transactions failed:', error);
       throw error;

@@ -28,6 +28,8 @@ import { useToast } from '@/components/ui/toast';
 import { getCurrentService } from '@/lib/database';
 import { matchBankTransaction } from '@/lib/accounting';
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
+import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
+import type { PreviewEntry } from '@/components/voucher-preview-dialog';
 import { SubjectSearch } from '@/components/voucher/subject-search';
 import type { BankTransaction, BankStatementParseResult } from '@/types';
 
@@ -74,6 +76,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
   const [editingSubjectTxId, setEditingSubjectTxId] = useState<string | null>(null);
+  const [previewEntries, setPreviewEntries] = useState<any[]>([]);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -300,12 +304,13 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     }
   };
 
-  const handleGenerateVouchers = async () => {
-    // 优先使用勾选的交易，否则使用全部匹配的交易
+  // 构建预览数据并打开预览弹窗
+  const handleOpenPreview = async () => {
     const targetIds = selectedTxIds.size > 0 ? selectedTxIds : null;
     const matchedTransactions = transactions.filter(t =>
       (targetIds ? targetIds.has(t.id) : true) &&
-      (t.matchedSubject || t.debit || t.credit)
+      (t.matchedSubject || t.debit || t.credit) &&
+      t.status !== 'voucher_generated'
     );
     if (matchedTransactions.length === 0) {
       showToast('error', targetIds ? '选中的记录中没有可生成的交易' : '没有有效的交易记录');
@@ -317,107 +322,210 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       return;
     }
 
+    // 获取银行科目信息
+    const bankAccount = DEFAULT_BANK_ACCOUNTS.find(a => a.id === selectedBankAccountId);
+    const bankSubjectCode = bankAccount?.subjectCode || '1002';
+    const bankSubjectName = bankAccount?.name || '银行存款';
+
+    // 检查往来单位是否存在
+    const { usePartnerStore } = await import('@/stores/usePartnerStore');
+    const existingPartners = usePartnerStore.getState().partners;
+
+    const previewEntries = matchedTransactions.map(transaction => {
+      const isDebit = !!transaction.debit;
+      const amount = transaction.debit || transaction.credit || 0;
+      const willCreatePartner = !!(transaction.counterpartyName &&
+        !existingPartners.some(p =>
+          p.name === transaction.counterpartyName ||
+          transaction.counterpartyName.includes(p.name) ||
+          p.name.includes(transaction.counterpartyName)
+        ));
+      const originalSummary = transaction.summary || transaction.notes || '银行交易';
+      const counterpartSubjectName = transaction.matchedSubjectName || '财务费用';
+
+      return {
+        transactionId: transaction.id,
+        date: transaction.date,
+        postingDate: transaction.date,
+        originalSummary,
+        summary: generateDefaultSummary({
+          isDebit,
+          counterpartyName: transaction.counterpartyName,
+          counterpartSubjectName,
+          amount,
+        }),
+        counterpartyName: transaction.counterpartyName,
+        counterpartyAccount: transaction.counterpartyAccount,
+        counterpartSubjectCode: transaction.matchedSubject || '6603',
+        counterpartSubjectName,
+        bankSubjectCode,
+        bankSubjectName,
+        amount,
+        isDebit,
+        willCreatePartner,
+      };
+    });
+
+    setPreviewEntries(previewEntries);
+    setShowPreviewDialog(true);
+  };
+
+  // 确认生成凭证（从预览弹窗回调，接收用户编辑后的数据）
+  const handleGenerateVouchers = async (editedEntries: PreviewEntry[]) => {
     setIsProcessing(true);
 
     try {
       const service = getCurrentService();
+      const { usePartnerStore } = await import('@/stores/usePartnerStore');
+
+      // 1. 自动创建不存在的往来单位
+      const partnersToCreate = editedEntries.filter(e => e.willCreatePartner && e.counterpartyName);
+      const createdPartnerNames = new Set<string>();
+
+      for (const entry of partnersToCreate) {
+        if (!entry.counterpartyName || createdPartnerNames.has(entry.counterpartyName)) continue;
+
+        try {
+          const isCustomer = !entry.isDebit; // 贷方(收款)=客户(应收账款)
+          const isSupplier = entry.isDebit;  // 借方(付款)=供应商(应付账款)
+
+          // 生成编码：客户C001/C002..., 供应商V001/V002..., 两者都是B001...
+          const prefix = isCustomer && isSupplier ? 'B' : isCustomer ? 'C' : 'V';
+          const existingCodes = usePartnerStore.getState().partners.map(p => p.code);
+          let seq = 1;
+          while (existingCodes.includes(`${prefix}${String(seq).padStart(3, '0')}`)) {
+            seq++;
+          }
+          const code = `${prefix}${String(seq).padStart(3, '0')}`;
+
+          await usePartnerStore.getState().addPartner({
+            code,
+            name: entry.counterpartyName,
+            isCustomer,
+            isSupplier,
+            isEmployee: false,
+            defaultSubjectCode: isCustomer ? '1122' : '2202',
+            defaultSubjectName: isCustomer ? '应收账款' : '应付账款',
+            bankAccount: entry.counterpartyAccount || '',
+            frozen: false,
+          });
+
+          createdPartnerNames.add(entry.counterpartyName);
+        } catch (error) {
+          console.error('自动创建往来单位失败:', entry.counterpartyName, error);
+        }
+      }
+
+      // 2. 生成凭证
       const now = new Date().toISOString();
       let successCount = 0;
       let errorCount = 0;
+      let duplicateCount = 0;
+      const processedIds = new Set<string>();
 
-      // 为每笔匹配的交易生成凭证
-      for (const transaction of matchedTransactions) {
+      for (const previewEntry of editedEntries) {
         try {
-          // 获取银行科目信息
-          const bankAccount = DEFAULT_BANK_ACCOUNTS.find(a => a.id === selectedBankAccountId);
-          const bankSubjectCode = bankAccount?.subjectCode || '1002';
-          const bankSubjectName = bankAccount?.name || '银行存款';
+          // 防重复入账：检查该流水是否已生成过凭证
+          const tx = transactions.find(t => t.id === previewEntry.transactionId);
+          if (!tx || tx.status === 'voucher_generated') {
+            duplicateCount++;
+            continue;
+          }
 
-          // 确定金额和方向
-          const isDebit = !!transaction.debit;
-          const amount = transaction.debit || transaction.credit || 0;
-
-          // 生成凭证ID和凭证号
-          const voucherId = `voucher_${Date.now()}_${transaction.id}`;
-          const voucherNo = await generateVoucherNo(transaction.date);
+          const isDebit = previewEntry.isDebit;
+          const amount = previewEntry.amount;
+          const voucherId = `voucher_${Date.now()}_${previewEntry.transactionId}`;
+          const postingDate = previewEntry.postingDate || previewEntry.date;
+          const voucherNo = await generateVoucherNo(postingDate);
 
           // 创建凭证分录
           const entries: any[] = [];
 
+          // isDebit=true: 银行流水借方=付款(钱流出)
+          //   → 银行存款减少(贷方), 对方科目增加(借方,如应付账款)
+          // isDebit=false: 银行流水贷方=收款(钱流入)
+          //   → 银行存款增加(借方), 对方科目减少(贷方,如应收账款)
+
           // 交易分录（对方科目）
-          const transactionEntry: any = {
+          entries.push({
             id: `entry_${voucherId}_0`,
             voucherId,
-            date: transaction.date,
-            summary: transaction.summary || transaction.notes || '银行交易',
-            subjectCode: transaction.matchedSubject || '6603',
-            subjectName: transaction.matchedSubjectName || '财务费用',
-            debit: isDebit ? 0 : amount,
-            credit: isDebit ? amount : 0,
-            customerName: transaction.counterpartyName,
-            supplierName: transaction.counterpartyName,
+            date: postingDate,
+            summary: previewEntry.summary,
+            subjectCode: previewEntry.counterpartSubjectCode,
+            subjectName: previewEntry.counterpartSubjectName,
+            debit: isDebit ? amount : 0,
+            credit: isDebit ? 0 : amount,
+            customerName: previewEntry.counterpartyName,
+            supplierName: previewEntry.counterpartyName,
             auxiliary: {},
-            docNo: transaction.transactionSerialNo
-          };
-          entries.push(transactionEntry);
+            docNo: tx.transactionSerialNo,
+          });
 
           // 银行存款分录（平衡分录）
-          const bankEntry: any = {
+          entries.push({
             id: `entry_${voucherId}_1`,
             voucherId,
-            date: transaction.date,
-            summary: transaction.summary || '银行存款',
-            subjectCode: bankSubjectCode,
-            subjectName: bankSubjectName,
-            debit: isDebit ? amount : 0,
-            credit: isDebit ? 0 : amount
-          };
-          entries.push(bankEntry);
+            date: postingDate,
+            summary: previewEntry.summary,
+            subjectCode: previewEntry.bankSubjectCode,
+            subjectName: previewEntry.bankSubjectName,
+            debit: isDebit ? 0 : amount,
+            credit: isDebit ? amount : 0,
+          });
 
-          // 创建凭证对象
+          // 创建并保存凭证
           const voucher = {
             id: voucherId,
             voucherNo,
-            date: transaction.date,
-            summary: transaction.summary || transaction.notes || '银行交易',
+            date: postingDate,
+            summary: previewEntry.summary,
             entries,
-            status: 'draft' as const,
-            voucherType: isDebit ? 'receipt' as const : 'payment' as const,
+            status: 'posted' as const,
+            voucherType: isDebit ? 'payment' as const : 'receipt' as const,
             createdBy: 'system',
             createTime: now,
-            updateTime: now
+            updateTime: now,
           };
 
-          // 保存凭证
           await service.saveVoucher(voucher);
 
           // 更新银行流水状态
-          await service.updateBankTransaction(transaction.id, {
+          await service.updateBankTransaction(previewEntry.transactionId, {
             status: 'voucher_generated',
             voucherId,
-            generatedVoucherNo: voucherNo
+            generatedVoucherNo: voucherNo,
           });
 
+          processedIds.add(previewEntry.transactionId);
           successCount++;
         } catch (error) {
-          console.error('生成凭证失败:', transaction.id, error);
+          console.error('生成凭证失败:', previewEntry.transactionId, error);
           errorCount++;
         }
       }
 
-      // 从列表中移除已生成凭证的流水
-      setTransactions(prev => prev.filter(t => t.status !== 'voucher_generated'));
+      // 从列表中移除已生成凭证的流水（按 ID 集合移除，不依赖 state 中的 status）
+      setTransactions(prev => prev.filter(t => !processedIds.has(t.id)));
+
+      // 关闭预览弹窗
+      setShowPreviewDialog(false);
+
+      const messages: string[] = [];
+      if (successCount > 0) messages.push(`生成 ${successCount} 张凭证`);
+      if (createdPartnerNames.size > 0) messages.push(`新建 ${createdPartnerNames.size} 个往来单位`);
+      if (duplicateCount > 0) messages.push(`跳过 ${duplicateCount} 条重复`);
+      if (errorCount > 0) messages.push(`${errorCount} 条失败`);
 
       if (successCount > 0) {
-        showToast('success', `成功生成 ${successCount} 张凭证${errorCount > 0 ? `，${errorCount} 条失败` : ''}`);
+        showToast('success', messages.join('，'));
       } else {
-        showToast('error', '生成凭证失败');
+        showToast('error', messages.join('，') || '生成凭证失败');
       }
 
       // 刷新凭证列表
       const { useVoucherStore } = await import('@/stores');
-      const voucherStore = useVoucherStore.getState();
-      await voucherStore.initialize();
+      await useVoucherStore.getState().initialize();
 
     } catch (error) {
       console.error('Generate vouchers error:', error);
@@ -494,7 +602,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       setTransactions([]);
       setShowPreview(false);
       setCurrentBatchId(null);
-      showToast('success', '已清空所有流水');
+      showToast('success', '已清空未入账流水');
     } catch (error) {
       console.error('清空流水失败:', error);
       showToast('error', '清空流水失败');
@@ -694,7 +802,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
               匹配规则
             </Button>
             <Button
-              onClick={handleGenerateVouchers}
+              onClick={handleOpenPreview}
               disabled={isProcessing || transactions.filter(t => t.status === 'matched').length === 0}
             >
               {isProcessing ? (
@@ -703,8 +811,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                 <>
                   <FileText className="h-4 w-4 mr-2" />
                   {selectedTxIds.size > 0
-                    ? `生成凭证 (${selectedTxIds.size}条)`
-                    : '生成凭证 (全部)'}
+                    ? `预览并生成 (${selectedTxIds.size}条)`
+                    : '预览并生成 (全部)'}
                 </>
               )}
             </Button>
@@ -717,7 +825,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
             </Button>
             <Button variant="outline" onClick={handleClearTransactions} className="text-red-600 hover:text-red-700">
               <Trash2 className="h-4 w-4 mr-2" />
-              清空流水
+              清空未入账流水
             </Button>
           </div>
 
@@ -823,6 +931,15 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
       {/* 规则管理弹窗 */}
       <BankRulesDialog open={showRulesDialog} onOpenChange={setShowRulesDialog} />
+
+      {/* 凭证预览弹窗 */}
+      <VoucherPreviewDialog
+        open={showPreviewDialog}
+        onOpenChange={setShowPreviewDialog}
+        entries={previewEntries}
+        onConfirm={handleGenerateVouchers}
+        isProcessing={isProcessing}
+      />
     </div>
   );
 }

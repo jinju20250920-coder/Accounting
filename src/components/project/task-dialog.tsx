@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -245,11 +246,9 @@ export function TaskDialog({ task, open = false, onOpenChange }: TaskDialogProps
 
             <div className="space-y-2">
               <Label htmlFor="dueDate">截止日期</Label>
-              <Input
-                id="dueDate"
-                type="date"
+              <ChineseDatePicker
                 value={formData.dueDate}
-                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, dueDate: v })}
               />
             </div>
           </div>

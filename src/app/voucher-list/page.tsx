@@ -37,6 +37,7 @@ import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { Voucher as VoucherType, VoucherEntry as VoucherEntryType } from '@/types';
 import { toChineseAmount } from '@/lib/chinese-number';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { DatabaseManager } from '@/components/DatabaseManager';
 
 // 状态配置
@@ -125,10 +126,6 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, cu
         <div>
           <label className="text-sm text-slate-500">日期</label>
           <p className="font-medium">{voucher.date}</p>
-        </div>
-        <div>
-          <label className="text-sm text-slate-500">类型</label>
-          <p className="font-medium">{typeConfig[voucher.voucherType as keyof typeof typeConfig]}</p>
         </div>
         <div>
           <label className="text-sm text-slate-500">状态</label>
@@ -248,7 +245,6 @@ export default function VoucherListPage() {
     }
     return 'posted_reversed';
   });
-  const [selectedType, setSelectedType] = useState<string>('all');
   // 默认显示当前系统月份的凭证
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
   const [startMonth, setStartMonth] = useState<string>(currentMonth);
@@ -325,13 +321,12 @@ export default function VoucherListPage() {
         (selectedStatus === 'posted_reversed' && (v.status === 'posted' || v.status === 'reversed')) ||
         v.status === selectedStatus;
 
-      const matchesType = selectedType === 'all' || v.voucherType === selectedType;
       // 月份区间筛选：凭证日期在开始月份和结束月份之间（包含两端）
       const voucherMonth = v.date.slice(0, 7);
       const matchesMonthRange = (!startMonth || !endMonth) ||
         (voucherMonth >= startMonth && voucherMonth <= endMonth);
 
-      return matchesSearch && matchesStatus && matchesType && matchesMonthRange;
+      return matchesSearch && matchesStatus && matchesMonthRange;
     })
     .sort((a, b) => {
       const aVal = sortField === 'date' ? a.date : a.voucherNo;
@@ -463,7 +458,7 @@ export default function VoucherListPage() {
 
   const handleExport = () => {
     // 导出为CSV
-    const headers = ['凭证号', '日期', '摘要', '业务单据号', '往来单位', '部门', '项目', '现金流量', '创建人', '创建时间', '状态', '类型', '借方合计', '贷方合计'];
+    const headers = ['凭证号', '日期', '摘要', '往来单位', '项目', '创建人', '创建时间', '状态', '借方合计', '贷方合计'];
     const rows = filteredVouchers.map(v => {
       const debitTotal = v.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
       const creditTotal = v.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
@@ -477,13 +472,6 @@ export default function VoucherListPage() {
         if (entry.supplierName) partnerNames.add(entry.supplierName);
       });
 
-      // 提取部门
-      const deptNames = new Set<string>();
-      v.entries.forEach(entry => {
-        if (entry.deptCode) deptNames.add(entry.deptCode);
-        if (entry.auxiliary?.department) deptNames.add(entry.auxiliary.department);
-      });
-
       // 提取项目
       const projectNames = new Set<string>();
       v.entries.forEach(entry => {
@@ -491,25 +479,15 @@ export default function VoucherListPage() {
         if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
       });
 
-      // 提取现金流量
-      const cashFlowItems = new Set<string>();
-      v.entries.forEach(entry => {
-        if (entry.cashFlowItem) cashFlowItems.add(entry.cashFlowItem);
-      });
-
       return [
         v.voucherNo,
         v.date,
         v.summary || '',
-        v.entries[0]?.docNo || '',
         Array.from(partnerNames).join('; '),
-        Array.from(deptNames).join('; '),
         Array.from(projectNames).join('; '),
-        Array.from(cashFlowItems).join('; '),
         v.createdBy || '',
         v.createTime ? new Date(v.createTime).toLocaleString('zh-CN') : '',
         statusConfig[v.status as keyof typeof statusConfig].label,
-        typeConfig[v.voucherType as keyof typeof typeConfig],
         debitTotal.toFixed(2),
         creditTotal.toFixed(2)
       ];
@@ -634,35 +612,17 @@ export default function VoucherListPage() {
                 ]}
               />
             </div>
-            <div>
-              <SimpleSelect
-                value={selectedType}
-                onChange={setSelectedType}
-                options={[
-                  { value: 'all', label: '全部类型' },
-                  { value: 'general', label: '记账凭证' },
-                  { value: 'receipt', label: '收款凭证' },
-                  { value: 'payment', label: '付款凭证' },
-                  { value: 'transfer', label: '转账凭证' },
-                  { value: 'closing', label: '结转凭证' }
-                ]}
-              />
-            </div>
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-400" />
-              <Input
-                type="month"
-                placeholder="开始月份"
+              <ChineseMonthPicker
                 value={startMonth}
-                onChange={(e) => handleStartMonthChange(e.target.value)}
+                onChange={(v) => handleStartMonthChange(v)}
                 className="w-36"
               />
               <span className="text-slate-400">至</span>
-              <Input
-                type="month"
-                placeholder="结束月份"
+              <ChineseMonthPicker
                 value={endMonth}
-                onChange={(e) => handleEndMonthChange(e.target.value)}
+                onChange={(v) => handleEndMonthChange(v)}
                 className="w-36"
               />
             </div>
@@ -722,14 +682,10 @@ export default function VoucherListPage() {
                         </button>
                       </th>
                       <th className="text-left p-3 border-b">摘要</th>
-                      <th className="text-left p-3 border-b">业务单据号</th>
                       <th className="text-left p-3 border-b">往来单位</th>
-                      <th className="text-left p-3 border-b">部门</th>
                       <th className="text-left p-3 border-b">项目</th>
-                      <th className="text-left p-3 border-b">现金流量</th>
                       <th className="text-left p-3 border-b">创建人</th>
                       <th className="text-left p-3 border-b">创建时间</th>
-                      <th className="text-left p-3 border-b">类型</th>
                       <th className="text-left p-3 border-b">状态</th>
                       <th className="text-right p-3 border-b">借方合计</th>
                       <th className="text-right p-3 border-b">贷方合计</th>
@@ -767,7 +723,6 @@ export default function VoucherListPage() {
                             </td>
                             <td className="p-3 border-b">{voucher.date}</td>
                             <td className="p-3 border-b truncate max-w-xs">{voucher.summary || '-'}</td>
-                            <td className="p-3 border-b font-mono text-xs">{voucher.entries[0]?.docNo || '-'}</td>
                             <td className="p-3 border-b text-xs">
                               {(() => {
                                 // 提取往来单位
@@ -783,17 +738,6 @@ export default function VoucherListPage() {
                             </td>
                             <td className="p-3 border-b text-xs">
                               {(() => {
-                                // 提取部门
-                                const deptNames = new Set<string>();
-                                voucher.entries.forEach(entry => {
-                                  if (entry.deptCode) deptNames.add(entry.deptCode);
-                                  if (entry.auxiliary?.department) deptNames.add(entry.auxiliary.department);
-                                });
-                                return Array.from(deptNames).join('; ') || '-';
-                              })()}
-                            </td>
-                            <td className="p-3 border-b text-xs">
-                              {(() => {
                                 // 提取项目
                                 const projectNames = new Set<string>();
                                 voucher.entries.forEach(entry => {
@@ -803,21 +747,8 @@ export default function VoucherListPage() {
                                 return Array.from(projectNames).join('; ') || '-';
                               })()}
                             </td>
-                            <td className="p-3 border-b text-xs">
-                              {(() => {
-                                // 提取现金流量
-                                const cashFlowItems = new Set<string>();
-                                voucher.entries.forEach(entry => {
-                                  if (entry.cashFlowItem) cashFlowItems.add(entry.cashFlowItem);
-                                });
-                                return Array.from(cashFlowItems).join('; ') || '-';
-                              })()}
-                            </td>
                             <td className="p-3 border-b text-xs">{voucher.createdBy || '-'}</td>
                             <td className="p-3 border-b text-xs">{voucher.createTime ? new Date(voucher.createTime).toLocaleString('zh-CN') : '-'}</td>
-                            <td className="p-3 border-b">
-                              {typeConfig[voucher.voucherType as keyof typeof typeConfig]}
-                            </td>
                             <td className="p-3 border-b">
                               <Badge className={statusConfig[voucher.status as keyof typeof statusConfig].color}>
                                 {statusConfig[voucher.status as keyof typeof statusConfig].label}
@@ -887,13 +818,7 @@ export default function VoucherListPage() {
                                   })()}
                                 </td>
                                 <td className="p-3 border-b text-xs">
-                                  {entry.deptCode || entry.auxiliary?.department || '-'}
-                                </td>
-                                <td className="p-3 border-b text-xs">
                                   {entry.projectCode || entry.auxiliary?.project || '-'}
-                                </td>
-                                <td className="p-3 border-b text-xs">
-                                  {entry.cashFlowItem || '-'}
                                 </td>
                                 <td className="p-3 border-b"></td>
                                 <td className="p-3 border-b"></td>

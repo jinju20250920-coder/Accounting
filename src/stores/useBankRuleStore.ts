@@ -23,6 +23,16 @@ const SYSTEM_RULES: Omit<BankTransactionRule, 'accountSetId'>[] = [
   { id: 'sys_014', name: '水电费', keyword: '水费', subjectCode: '6603', subjectName: '管理费用', direction: 'out', priority: 9, enabled: true, isSystem: true, createTime: '', updateTime: '' },
   { id: 'sys_015', name: '电费', keyword: '电费', subjectCode: '6603', subjectName: '管理费用', direction: 'out', priority: 9, enabled: true, isSystem: true, createTime: '', updateTime: '' },
   { id: 'sys_016', name: '电话费', keyword: '电话费', subjectCode: '6603', subjectName: '管理费用', direction: 'out', priority: 8, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_017', name: '货款付款', keyword: '货款', subjectCode: '2202', subjectName: '应付账款', direction: 'out', priority: 7, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_018', name: '货款收款', keyword: '货款', subjectCode: '1122', subjectName: '应收账款', direction: 'in', priority: 7, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_019', name: '采购付款', keyword: '采购', subjectCode: '2202', subjectName: '应付账款', direction: 'out', priority: 8, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_020', name: '销售收款', keyword: '销售', subjectCode: '1122', subjectName: '应收账款', direction: 'in', priority: 8, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_021', name: '运费', keyword: '运费', subjectCode: '6603', subjectName: '管理费用', direction: 'out', priority: 8, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_022', name: '退款', keyword: '退款', subjectCode: '1122', subjectName: '应收账款', direction: 'in', priority: 7, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_023', name: '转账手续费', keyword: '转账', subjectCode: '6603', subjectName: '财务费用', direction: 'out', priority: 9, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_024', name: '汇款手续费', keyword: '汇款', subjectCode: '6603', subjectName: '财务费用', direction: 'out', priority: 9, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_025', name: '跨行转账', keyword: '跨行', subjectCode: '6603', subjectName: '财务费用', direction: 'out', priority: 8, enabled: true, isSystem: true, createTime: '', updateTime: '' },
+  { id: 'sys_026', name: '印花税', keyword: '印花税', subjectCode: '2221', subjectName: '应交税费', direction: 'out', priority: 10, enabled: true, isSystem: true, createTime: '', updateTime: '' },
 ];
 
 interface BankRuleStore {

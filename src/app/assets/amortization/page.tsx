@@ -5,6 +5,7 @@ import { useIntangibleAssetStore } from '@/stores/useIntangibleAssetStore';
 import { usePrepaidExpenseStore } from '@/stores/usePrepaidExpenseStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -245,10 +246,9 @@ export default function BatchAmortizationPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-slate-600">摊销期间:</span>
-            <Input
-              type="month"
+            <ChineseMonthPicker
               value={period}
-              onChange={(e) => setPeriod(e.target.value)}
+              onChange={(v) => setPeriod(v)}
               className="w-40"
             />
           </div>

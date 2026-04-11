@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { usePrepaidExpenseStore } from '@/stores/usePrepaidExpenseStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -201,28 +202,25 @@ function PrepaidExpenseDialog({
 
           <div className="space-y-2">
             <Label>付款日期</Label>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={formData.paymentDate || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, paymentDate: e.target.value }))}
+              onChange={(v) => setFormData(prev => ({ ...prev, paymentDate: v }))}
             />
           </div>
 
           <div className="space-y-2">
             <Label required>摊销开始日期</Label>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={formData.startDate || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+              onChange={(v) => setFormData(prev => ({ ...prev, startDate: v }))}
             />
           </div>
 
           <div className="space-y-2">
             <Label required>摊销结束日期</Label>
-            <Input
-              type="date"
+            <ChineseDatePicker
               value={formData.endDate || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+              onChange={(v) => setFormData(prev => ({ ...prev, endDate: v }))}
             />
           </div>
 
