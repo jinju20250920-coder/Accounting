@@ -1,4 +1,3 @@
-
 'use client';
 
 import React from 'react';
@@ -10,16 +9,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { useSubjectStore } from '@/stores';
 
 interface BankAccountSelectorProps {
-  accounts: BankAccount[];
   selectedAccountId: string | null;
   onSelectAccount: (accountId: string) => void;
   label?: string;
   disabled?: boolean;
 }
 
-interface BankAccount {
+export interface BankAccount {
   id: string;
   code: string;
   name: string;
@@ -28,13 +27,47 @@ interface BankAccount {
   bankName?: string;
 }
 
+/**
+ * 从科目表动态生成银行账户列表（1002 银行存款的子科目）
+ */
+export function getBankAccountsFromSubjects(subjects: any[]): BankAccount[] {
+  // 找到 1002 科目
+  const bankSubject = subjects.find(s => s.code === '1002');
+  if (!bankSubject) return [];
+
+  // 获取 1002 的所有子科目
+  const children = subjects.filter(s => s.parentId === bankSubject.id && !s.disabled);
+
+  // 如果没有子科目，返回 1002 本身
+  if (children.length === 0) {
+    return [{
+      id: bankSubject.id,
+      code: bankSubject.code,
+      name: bankSubject.name,
+      subjectCode: bankSubject.code,
+    }];
+  }
+
+  // 返回子科目列表
+  return children.map(child => ({
+    id: child.id,
+    code: child.code,
+    name: child.name,
+    subjectCode: child.code,
+    accountNumber: child.bankAccountNumber || '',
+    bankName: child.name,
+  }));
+}
+
 export function BankAccountSelector({
-  accounts,
   selectedAccountId,
   onSelectAccount,
   label = '选择银行账户',
   disabled = false
 }: BankAccountSelectorProps) {
+  const subjects = useSubjectStore(state => state.subjects);
+  const accounts = getBankAccountsFromSubjects(subjects);
+
   return (
     <div className="space-y-2">
       <Label required>{label}</Label>
@@ -53,7 +86,7 @@ export function BankAccountSelector({
                 <span className="font-medium">{account.name}</span>
                 <span className="text-xs text-slate-500">
                   {account.subjectCode}
-                  {account.accountNumber && ` | ${account.accountNumber}`}
+                  {account.accountNumber && ` | ...${account.accountNumber.slice(-4)}`}
                 </span>
               </div>
             </SelectItem>
@@ -64,20 +97,8 @@ export function BankAccountSelector({
   );
 }
 
-// 默认银行账户列表（科目1002的子科目）
-export const DEFAULT_BANK_ACCOUNTS: BankAccount[] = [
-  {
-    id: 'bank_1002',
-    code: '1002',
-    name: '银行存款',
-    subjectCode: '1002'
-  },
-  {
-    id: 'bank_1002_01',
-    code: '100201',
-    name: '建设银行',
-    subjectCode: '100201',
-    accountNumber: '32250198648200001614',
-    bankName: '中国建设银行股份有限公司昆山张浦支行'
-  }
-];
+/** 兼容旧代码的 DEFAULT_BANK_ACCOUNTS 导出（动态版） */
+export function getDefaultBankAccounts(): BankAccount[] {
+  const subjects = useSubjectStore.getState().subjects;
+  return getBankAccountsFromSubjects(subjects);
+}

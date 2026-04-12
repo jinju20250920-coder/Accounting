@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,19 +19,23 @@ import {
   BarChart3,
   Zap,
   RefreshCw,
-  Settings
+  Settings,
+  Search,
+  X
 } from 'lucide-react';
-import { useVoucherStore } from '@/stores';
+import { useVoucherStore, useSubjectStore, useAccountSetStore } from '@/stores';
+import type { Subject } from '@/types';
+import { Popover } from '@/components/ui/popover';
 import { parseBankStatement } from '@/lib/parser';
-import { BankAccountSelector, DEFAULT_BANK_ACCOUNTS } from '@/components/bank-account-selector';
+import { BankAccountSelector, getDefaultBankAccounts } from '@/components/bank-account-selector';
 import { useToast } from '@/components/ui/toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { getCurrentService } from '@/lib/database';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { matchBankTransaction } from '@/lib/accounting';
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
 import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
 import type { PreviewEntry } from '@/components/voucher-preview-dialog';
-import { SubjectSearch } from '@/components/voucher/subject-search';
 import type { BankTransaction, BankStatementParseResult } from '@/types';
 
 interface TransactionRecord {
@@ -63,6 +67,102 @@ interface TransactionRecord {
     };
   };
 
+/** 对方科目 Popover 选择器 */
+function SubjectPopover({
+  value,
+  valueName,
+  onSelect,
+  onClear,
+}: {
+  value: string | undefined;
+  valueName: string | undefined;
+  onSelect: (code: string, name: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const { subjects } = useSubjectStore();
+
+  const flatSubjects = useMemo(() => {
+    return subjects.filter(s => !s.disabled);
+  }, [subjects]);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return flatSubjects.slice(0, 50);
+    const q = search.toLowerCase();
+    return flatSubjects.filter(
+      s => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
+    ).slice(0, 50);
+  }, [search, flatSubjects]);
+
+  const handleSelect = (code: string, name: string) => {
+    onSelect(code, name);
+    setOpen(false);
+    setSearch('');
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClear();
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => { setOpen(v); if (!v) setSearch(''); }}
+      content={
+        <div className="bg-white rounded-lg shadow-lg border border-slate-200 w-72 overflow-hidden">
+          <div className="p-2 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                autoFocus
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="搜索科目代码或名称..."
+                className="w-full pl-7 pr-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-slate-400 text-center">无匹配科目</div>
+            ) : (
+              filtered.map(subject => (
+                <div
+                  key={subject.id}
+                  className="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 flex items-center gap-2"
+                  onClick={() => handleSelect(subject.code, subject.name)}
+                >
+                  <span className="font-mono text-slate-600">{subject.code}</span>
+                  <span className="text-slate-800">{subject.name}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      }
+    >
+      <div className="cursor-pointer" onClick={() => setOpen(true)}>
+        {value ? (
+          <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-md border border-blue-200 hover:bg-blue-100 transition-colors">
+            {value} {valueName}
+            <X
+              className="h-3 w-3 ml-0.5 hover:text-red-500 cursor-pointer"
+              onClick={handleClear}
+            />
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-slate-400 text-xs border border-dashed border-slate-300 rounded-md px-2 py-0.5 hover:border-blue-400 hover:text-blue-500 transition-colors">
+            <Search className="h-3 w-3" />
+            选择科目
+          </span>
+        )}
+      </div>
+    </Popover>
+  );
+}
+
 interface TransactionImportProps {
   importType: 'bank' | 'tax';
 }
@@ -76,13 +176,15 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
   const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
-  const [editingSubjectTxId, setEditingSubjectTxId] = useState<string | null>(null);
+
   const [previewEntries, setPreviewEntries] = useState<any[]>([]);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+  const [showAccountNameConfirm, setShowAccountNameConfirm] = useState(false);
+  const [pendingParseResult, setPendingParseResult] = useState<BankStatementParseResult | null>(null);
   const { showToast } = useToast();
 
   // 组件加载时从数据库读取已保存的流水
@@ -115,8 +217,9 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           }
 
           // 自动选择默认银行科目
-          if (!selectedBankAccountId && DEFAULT_BANK_ACCOUNTS.length > 0) {
-            setSelectedBankAccountId(DEFAULT_BANK_ACCOUNTS[0].id);
+          const bankAccounts = getDefaultBankAccounts();
+          if (!selectedBankAccountId && bankAccounts.length > 0) {
+            setSelectedBankAccountId(bankAccounts[0].id);
           }
         }
       }
@@ -163,47 +266,187 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
         setBankInfo(result.bankInfo);
 
-        // 生成批次ID
-        const batchId = `batch_${Date.now()}`;
-        setCurrentBatchId(batchId);
-
-        // 为每条交易添加批次ID和初始状态
-        const transactionsWithMeta = result.transactions.map(tx => ({
-          ...tx,
-          importBatchId: batchId,
-          status: 'pending' as const
-        }));
-
-        // 保存到数据库
-        const service = getCurrentService();
-        await service.saveBankTransactions(transactionsWithMeta);
-
-        setTransactions(transactionsWithMeta);
-        setParseErrors(result.errors);
-
         if (result.transactions.length === 0) {
           showToast('error', '未找到有效的交易记录');
           setIsProcessing(false);
           return;
         }
 
-        if (result.errors.length > 0) {
-          showToast('warning', `解析完成，有 ${result.errors.length} 个警告`);
-        } else {
-          showToast('success', `成功解析并保存 ${result.transactions.length} 条记录`);
+        // 校验银行账户名称是否与账套公司名一致
+        const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+        const bankAccountName = result.bankInfo.accountName?.trim();
+        const companyNames = accountSet?.name?.trim();
+
+        if (bankAccountName && companyNames && bankAccountName !== companyNames) {
+          // 名称不一致，弹出确认框
+          setPendingParseResult(result);
+          setShowAccountNameConfirm(true);
+          setIsProcessing(false);
+          return;
         }
 
-        setShowPreview(true);
-
-        // 自动选择默认银行科目
-        if (!selectedBankAccountId && DEFAULT_BANK_ACCOUNTS.length > 0) {
-          setSelectedBankAccountId(DEFAULT_BANK_ACCOUNTS[0].id);
-        }
+        // 名称一致或无法比较，直接保存
+        await saveParsedTransactions(result);
       }
     } catch (error) {
       console.error('Parse error:', error);
       showToast('error', '解析文件失败，请检查格式是否正确');
     } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * 自动匹配银行流水到1002子科目。
+   * 如果找不到匹配的子科目，自动在1002下创建新子科目。
+   * 返回自动选择的 bankAccountId。
+   */
+  const autoMatchBankSubject = async (transactions: BankTransaction[]): Promise<string | null> => {
+    const { subjects, addSubject } = useSubjectStore.getState();
+
+    // 找到 1002 科目
+    const bankRoot = subjects.find(s => s.code === '1002');
+    if (!bankRoot) return null;
+
+    // 收集本次导入涉及的所有银行账号
+    const accountMap = new Map<string, { accountNumber: string; branch: string }>();
+    for (const tx of transactions) {
+      if (tx.ourAccount && !accountMap.has(tx.ourAccount)) {
+        accountMap.set(tx.ourAccount, {
+          accountNumber: tx.ourAccount,
+          branch: tx.ourBranch || '',
+        });
+      }
+    }
+
+    // 对每个银行账号，匹配或创建子科目
+    let firstMatchedId: string | null = null;
+
+    for (const [accountNo, info] of accountMap) {
+      // 在 1002 子科目中查找 accountNumber 匹配的
+      const existing = subjects.find(
+        s => s.parentId === bankRoot.id && s.bankAccountNumber === accountNo
+      );
+
+      if (existing) {
+        if (!firstMatchedId) firstMatchedId = existing.id;
+        continue;
+      }
+
+      // 没有匹配 → 自动创建子科目
+      const last4 = accountNo.slice(-4);
+      const shortName = info.branch
+        .replace(/^中国/, '')
+        .replace(/股份有限公司.*/, '')
+        .replace(/有限责任公司.*/, '')
+        .slice(0, 6) || `银行${last4}`;
+
+      // 计算新科目代码：100201, 100202, ...
+      const siblings = subjects.filter(s => s.parentId === bankRoot.id);
+      const nextSeq = siblings.length + 1;
+      const newCode = `1002${String(nextSeq).padStart(2, '0')}`;
+
+      const newSubject: Omit<Subject, 'id'> = {
+        code: newCode,
+        name: shortName,
+        parentId: bankRoot.id,
+        level: 2,
+        direction: 'debit' as const,
+        enableDept: false,
+        enableProject: false,
+        enableForeign: false,
+        isCustomer: false,
+        isSupplier: false,
+        isEmployee: false,
+        enableCashFlow: true,
+        disabled: false,
+        block: false,
+        subjectType: 'Asset',
+        bankAccountNumber: accountNo,
+      };
+
+      await addSubject(newSubject);
+
+      // 重新获取刚创建的科目 ID
+      const updated = useSubjectStore.getState().subjects;
+      const created = updated.find(s => s.code === newCode);
+      if (created && !firstMatchedId) firstMatchedId = created.id;
+    }
+
+    return firstMatchedId;
+  };
+
+  /** 将解析结果保存到数据库（与确认逻辑分离） */
+  const saveParsedTransactions = async (result: BankStatementParseResult) => {
+    // 自动匹配/创建银行子科目
+    const matchedBankId = await autoMatchBankSubject(result.transactions);
+    if (matchedBankId && !selectedBankAccountId) {
+      setSelectedBankAccountId(matchedBankId);
+    }
+
+    // 生成批次ID
+    const batchId = `batch_${Date.now()}`;
+    setCurrentBatchId(batchId);
+
+    // 为每条交易添加批次ID和初始状态，并去除已存在的重复流水
+    const service = getCurrentService();
+    const dedupedTransactions: typeof result.transactions = [];
+    let skippedCount = 0;
+
+    for (const tx of result.transactions) {
+      if (tx.date && tx.voucherNo && tx.transactionSerialNo) {
+        const exists = await service.existsBankTransaction(tx.date, tx.voucherNo, tx.transactionSerialNo);
+        if (exists) {
+          skippedCount++;
+          continue;
+        }
+      }
+      dedupedTransactions.push({
+        ...tx,
+        importBatchId: batchId,
+        status: 'pending' as const
+      });
+    }
+
+    if (dedupedTransactions.length === 0) {
+      showToast('warning', `所有 ${result.transactions.length} 条流水已存在，无需重复导入`);
+      return;
+    }
+
+    // 保存到数据库
+    await service.saveBankTransactions(dedupedTransactions);
+
+    setTransactions(dedupedTransactions);
+    setParseErrors(result.errors);
+
+    const baseMsg = `成功解析并保存 ${dedupedTransactions.length} 条记录`;
+    if (skippedCount > 0) {
+      showToast('warning', `${baseMsg}，跳过 ${skippedCount} 条重复流水`);
+    } else if (result.errors.length > 0) {
+      showToast('warning', `解析完成，有 ${result.errors.length} 个警告`);
+    } else {
+      showToast('success', baseMsg);
+    }
+
+    setShowPreview(true);
+
+    // 自动选择默认银行科目
+    const bankAccounts = getDefaultBankAccounts();
+    if (!selectedBankAccountId && bankAccounts.length > 0) {
+      setSelectedBankAccountId(bankAccounts[0].id);
+    }
+  };
+
+  /** 确认继续导入（账户名不一致时） */
+  const handleConfirmImport = async () => {
+    setShowAccountNameConfirm(false);
+    setIsProcessing(true);
+    try {
+      if (pendingParseResult) {
+        await saveParsedTransactions(pendingParseResult);
+      }
+    } finally {
+      setPendingParseResult(null);
       setIsProcessing(false);
     }
   };
@@ -326,7 +569,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     }
 
     // 获取银行科目信息
-    const bankAccount = DEFAULT_BANK_ACCOUNTS.find(a => a.id === selectedBankAccountId);
+    const bankAccounts = getDefaultBankAccounts();
+    const bankAccount = bankAccounts.find(a => a.id === selectedBankAccountId);
     const bankSubjectCode = bankAccount?.subjectCode || '1002';
     const bankSubjectName = bankAccount?.name || '银行存款';
 
@@ -435,6 +679,16 @@ export function TransactionImport({ importType }: TransactionImportProps) {
             continue;
           }
 
+          // 数据库级别去重：按 date + voucherNo + transactionSerialNo 检查
+          if (tx.date && tx.voucherNo && tx.transactionSerialNo) {
+            const existing = await service.findPostedBankTransaction(tx.date, tx.voucherNo, tx.transactionSerialNo);
+            if (existing) {
+              showToast('warning', `流水 ${tx.date} ${tx.voucherNo}-${tx.transactionSerialNo} 已入账（凭证号：${existing.generatedVoucherNo || '未知'}），跳过`);
+              duplicateCount++;
+              continue;
+            }
+          }
+
           const isDebit = previewEntry.isDebit;
           const amount = previewEntry.amount;
           const voucherId = `voucher_${Date.now()}_${previewEntry.transactionId}`;
@@ -462,7 +716,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
             customerName: previewEntry.counterpartyName,
             supplierName: previewEntry.counterpartyName,
             auxiliary: {},
-            docNo: tx.transactionSerialNo,
+            docNo: `${tx.voucherNo || ''}-${tx.transactionSerialNo || ''}`,
           });
 
           // 银行存款分录（平衡分录）
@@ -568,7 +822,6 @@ export function TransactionImport({ importType }: TransactionImportProps) {
         ? { ...t, matchedSubject: code, matchedSubjectName: name, status: 'matched' as const }
         : t
     ));
-    setEditingSubjectTxId(null);
 
     // 更新数据库
     try {
@@ -595,6 +848,24 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       }
     } catch (error) {
       console.error('保存用户偏好失败:', error);
+    }
+  };
+
+  const handleClearSubject = async (txId: string) => {
+    setTransactions(prev => prev.map(t =>
+      t.id === txId
+        ? { ...t, matchedSubject: undefined, matchedSubjectName: undefined, status: 'pending' as const }
+        : t
+    ));
+    try {
+      const service = getCurrentService();
+      await service.updateBankTransaction(txId, {
+        matchedSubject: null as any,
+        matchedSubjectName: null as any,
+        status: 'pending'
+      });
+    } catch (error) {
+      console.error('清除科目匹配失败:', error);
     }
   };
 
@@ -710,7 +981,6 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                 </div>
               )}
               <BankAccountSelector
-                accounts={DEFAULT_BANK_ACCOUNTS}
                 selectedAccountId={selectedBankAccountId}
                 onSelectAccount={setSelectedBankAccountId}
                 label="选择银行科目（生成凭证时的平衡分录）"
@@ -843,8 +1113,9 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   const record = toTransactionRecord(transaction);
                   return (
                     <div key={transaction.id} className={`border rounded-lg p-4 hover:bg-gray-50 ${selectedTxIds.has(transaction.id) ? 'bg-blue-50 border-blue-200' : ''}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3 flex-1">
+                      <div className="flex items-center justify-between">
+                        {/* 左侧：勾选框 + 日期 + 摘要 + 对方 + 科目选择器 */}
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
                           <input
                             type="checkbox"
                             checked={selectedTxIds.has(transaction.id)}
@@ -859,54 +1130,48 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                                 return next;
                               });
                             }}
-                            className="rounded border-slate-300"
+                            className="rounded border-slate-300 flex-shrink-0"
                           />
                           <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
                           <span className="font-mono text-sm flex-shrink-0">{transaction.date}</span>
-                          <span className="flex-1">{transaction.summary || transaction.notes}</span>
+                          <span className="text-sm truncate max-w-[200px]" title={transaction.summary || transaction.notes || ''}>
+                            {transaction.summary || transaction.notes}
+                          </span>
                           {transaction.counterpartyName && (
                             <span className="text-sm text-slate-500 flex-shrink-0">
                               对方: {transaction.counterpartyName}
+                              {transaction.counterpartyAccount && (
+                                <span className="text-slate-400 ml-1">{transaction.counterpartyAccount}</span>
+                              )}
                             </span>
                           )}
+                          <div className="flex-shrink-0">
+                            <SubjectPopover
+                              value={transaction.matchedSubject}
+                              valueName={transaction.matchedSubjectName}
+                              onSelect={(code, name) => handleManualSubjectSelect(transaction.id, code, name)}
+                              onClear={() => handleClearSubject(transaction.id)}
+                            />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 ml-4">
-                          {/* 对方科目列 */}
-                          <div className="text-sm flex-shrink-0">
-                            <span className="text-slate-500">对方科目: </span>
-                            {editingSubjectTxId === transaction.id ? (
-                              <div className="border rounded-md w-56" onClick={e => e.stopPropagation()}>
-                                <SubjectSearch
-                                  value=""
-                                  onSelect={(code, name) => handleManualSubjectSelect(transaction.id, code, name)}
-                                  placeholder="搜索科目..."
-                                  showDirection={false}
-                                  showType={false}
-                                />
-                              </div>
-                            ) : (
-                              <span
-                                className={`font-medium ${transaction.matchedSubject ? 'text-blue-700' : 'text-slate-400 cursor-pointer hover:text-blue-500 underline decoration-dashed'}`}
-                                onClick={() => setEditingSubjectTxId(transaction.id)}
-                              >
-                                {transaction.matchedSubject ? `${transaction.matchedSubject} - ${transaction.matchedSubjectName}` : '点击选择'}
-                              </span>
-                            )}
-                          </div>
-                          {/* 金额 */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {transaction.debit ? (
-                              <span className="font-medium text-blue-600">
-                                借: ¥{transaction.debit.toLocaleString()}
-                              </span>
-                            ) : null}
-                            {transaction.credit ? (
-                              <span className="font-medium text-red-600">
-                                贷: ¥{transaction.credit.toLocaleString()}
-                              </span>
-                            ) : null}
-                            {getStatusBadge(record.status)}
-                          </div>
+                        {/* 右侧：金额 + 状态 */}
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                          {transaction.debit ? (
+                            <span className="font-medium text-blue-600 text-sm">
+                              借: ¥{transaction.debit.toLocaleString()}
+                            </span>
+                          ) : null}
+                          {transaction.credit ? (
+                            <span className="font-medium text-red-600 text-sm">
+                              贷: ¥{transaction.credit.toLocaleString()}
+                            </span>
+                          ) : null}
+                          {transaction.balance != null && (
+                            <span className="text-sm text-slate-400 flex-shrink-0">
+                              余额: ¥{transaction.balance.toLocaleString()}
+                            </span>
+                          )}
+                          {getStatusBadge(record.status)}
                         </div>
                       </div>
                       {/* 备注 */}
@@ -934,6 +1199,28 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
       {/* 规则管理弹窗 */}
       <BankRulesDialog open={showRulesDialog} onOpenChange={setShowRulesDialog} />
+
+      {/* 账户名称不一致确认弹窗 */}
+      <Dialog open={showAccountNameConfirm} onOpenChange={(open) => { if (!open) { setShowAccountNameConfirm(false); setPendingParseResult(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>银行账户名称不匹配</DialogTitle>
+            <DialogDescription>
+              导入文件的银行账户名称为「{pendingParseResult?.bankInfo?.accountName}」，
+              当前账套公司名称为「{useAccountSetStore.getState().getCurrentAccountSet()?.name}」，
+              两者不一致。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowAccountNameConfirm(false); setPendingParseResult(null); }}>
+              取消导入
+            </Button>
+            <Button onClick={handleConfirmImport}>
+              继续导入
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 凭证预览弹窗 */}
       <VoucherPreviewDialog

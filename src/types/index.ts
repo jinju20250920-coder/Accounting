@@ -46,6 +46,7 @@ export interface Subject {
   block: boolean; // 冻结状态
   subjectType?: 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss'; // 科目类型
   accountSetId?: string; // 新增字段：所属账套ID
+  bankAccountNumber?: string; // 银行账号（仅1002子科目使用，用于自动匹配银行流水）
 }
 
 // 凭证

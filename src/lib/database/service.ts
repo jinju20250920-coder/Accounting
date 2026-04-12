@@ -896,6 +896,16 @@ class DatabaseService {
     console.warn('updateBankTransaction: 请使用SQLite版本');
   }
 
+  async findPostedBankTransaction(_date: string, _voucherNo: string, _transactionSerialNo: string): Promise<any | null> {
+    console.warn('findPostedBankTransaction: 请使用SQLite版本');
+    return null;
+  }
+
+  async existsBankTransaction(_date: string, _voucherNo: string, _transactionSerialNo: string): Promise<boolean> {
+    console.warn('existsBankTransaction: 请使用SQLite版本');
+    return false;
+  }
+
   async deleteBankTransaction(_id: string): Promise<void> {
     console.warn('deleteBankTransaction: 请使用SQLite版本');
   }

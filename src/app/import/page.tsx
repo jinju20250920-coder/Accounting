@@ -93,7 +93,7 @@ export default function ImportPage() {
       {/* 标题 + Tab 切换 */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">银行流水</h1>
+          <h1 className="text-3xl font-bold text-slate-900">资金管理</h1>
           <p className="text-slate-600 mt-1">导入银行流水，自动生成记账凭证</p>
         </div>
         <div className="flex border rounded-lg overflow-hidden">

@@ -191,6 +191,7 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_bankTransactions_status ON bankTransactions(status);
           CREATE INDEX IF NOT EXISTS idx_bankTransactions_importBatchId ON bankTransactions(importBatchId);
           CREATE INDEX IF NOT EXISTS idx_bankTransactions_voucherId ON bankTransactions(voucherId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_dedup ON bankTransactions(accountSetId, date, voucherNo, transactionSerialNo);
         `;
 
         this.dbInstance.exec(createTable);
@@ -547,6 +548,7 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_bankTransactions_status ON bankTransactions(status);
           CREATE INDEX IF NOT EXISTS idx_bankTransactions_importBatchId ON bankTransactions(importBatchId);
           CREATE INDEX IF NOT EXISTS idx_bankTransactions_voucherId ON bankTransactions(voucherId);
+          CREATE INDEX IF NOT EXISTS idx_bankTransactions_dedup ON bankTransactions(accountSetId, date, voucherNo, transactionSerialNo);
         `;
 
         this.dbInstance.exec(createTables);
@@ -668,7 +670,8 @@ class SQLiteService {
 
       const neededColumns = [
         'enableDept', 'enableProject', 'enableForeign', 'foreignCurrency',
-        'isCustomer', 'isSupplier', 'isEmployee', 'enableCashFlow'
+        'isCustomer', 'isSupplier', 'isEmployee', 'enableCashFlow',
+        'bankAccountNumber'
       ];
 
       const missingColumns = neededColumns.filter(col => !columns.includes(col));
@@ -677,7 +680,7 @@ class SQLiteService {
         console.log('Migrating subjects table: adding columns', missingColumns);
 
         const alterStatements = missingColumns.map(col => {
-          if (col === 'foreignCurrency') {
+          if (col === 'foreignCurrency' || col === 'bankAccountNumber') {
             return `ALTER TABLE subjects ADD COLUMN ${col} TEXT;`;
           } else {
             return `ALTER TABLE subjects ADD COLUMN ${col} INTEGER DEFAULT 0;`;
@@ -2163,6 +2166,26 @@ class SQLiteService {
       console.error('Update bank transaction failed:', error);
       throw error;
     }
+  }
+
+  /** 检查流水是否已入账（按 date + voucherNo + transactionSerialNo 去重） */
+  async findPostedBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<any | null> {
+    await this.ensureInitialized();
+    const rows = await this.queryAllAsync<any>(
+      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? AND status = 'voucher_generated' LIMIT 1`,
+      [this.accountSetId, date, voucherNo, transactionSerialNo]
+    );
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  /** 检查流水是否已存在（导入去重，不论状态） */
+  async existsBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<boolean> {
+    await this.ensureInitialized();
+    const rows = await this.queryAllAsync<any>(
+      `SELECT id FROM bankTransactions WHERE accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? LIMIT 1`,
+      [this.accountSetId, date, voucherNo, transactionSerialNo]
+    );
+    return rows.length > 0;
   }
 
   async deleteBankTransaction(id: string): Promise<void> {

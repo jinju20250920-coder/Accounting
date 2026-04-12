@@ -61,6 +61,12 @@ const menuItems = [
     { label: '应收明细', path: '/aging/ar' },
     { label: '应付明细', path: '/aging/ap' },
   ]},
+  { icon: Upload, label: '资金管理', path: '/import' },
+  { icon: FileText, label: '发票管理', path: '/invoices', children: [
+    { label: '进项发票', path: '/invoices/input' },
+    { label: '销项发票', path: '/invoices/output' },
+    { label: '发票资金一览表', path: '/invoices/summary' },
+  ]},
   { icon: Package, label: '资产管理', path: '/assets', children: [
     { label: '固定资产', path: '/assets/fixed' },
     { label: '无形资产', path: '/assets/intangible' },
@@ -70,12 +76,6 @@ const menuItems = [
   ]},
   { icon: Building2, label: '账套管理', path: '/sets' },
   { icon: RefreshCw, label: '汇兑损益', path: '/exchange' },
-  { icon: Upload, label: '流水导入', path: '/import' },
-  { icon: FileText, label: '发票管理', path: '/invoices', children: [
-    { label: '进项发票', path: '/invoices/input' },
-    { label: '销项发票', path: '/invoices/output' },
-    { label: '发票资金一览表', path: '/invoices/summary' },
-  ]},
   { icon: Settings, label: '基础档案', path: '/settings', children: [
     { label: '科目管理', path: '/settings/subjects' },
     { label: '部门管理', path: '/settings/departments' },
