@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +19,9 @@ const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 
 export function ChineseDatePicker({ value, onChange, className, placeholder = '选择日期', disabled, min, max }: ChineseDatePickerProps) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
   const [viewYear, setViewYear] = useState(() => {
     if (value) return parseInt(value.split('-')[0]);
@@ -29,9 +32,49 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
     return new Date().getMonth() + 1;
   });
 
+  // 计算弹出位置（Portal 挂载到 body）
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const panelHeight = 320;
+
+    let top: number;
+    if (spaceBelow >= panelHeight || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 4;
+    } else {
+      top = rect.top - panelHeight - 4;
+    }
+
+    setPanelStyle({
+      position: 'fixed',
+      top,
+      left: rect.left,
+      zIndex: 9999,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      updatePosition();
+      const onScroll = () => updatePosition();
+      const onResize = () => updatePosition();
+      window.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', onResize);
+      return () => {
+        window.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('resize', onResize);
+      };
+    }
+  }, [open, updatePosition]);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
+        panelRef.current && !panelRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -39,7 +82,6 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // sync view when value changes externally
   useEffect(() => {
     if (value) {
       const parts = value.split('-');
@@ -56,59 +98,36 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
     ? `${value.split('-')[0]}年${parseInt(value.split('-')[1])}月${parseInt(value.split('-')[2])}日`
     : placeholder;
 
-  // Build calendar grid
   const calendarDays = useMemo(() => {
-    // First day of the month (0=Sun, 1=Mon, ..., 6=Sat)
     const firstDay = new Date(viewYear, viewMonth - 1, 1).getDay();
-    // Convert to Monday-based (0=Mon, ..., 6=Sun)
     const startOffset = firstDay === 0 ? 6 : firstDay - 1;
-
-    // Days in the month
     const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-
-    // Previous month days for padding
     const prevMonthDays = new Date(viewYear, viewMonth - 1, 0).getDate();
 
     const days: Array<{ day: number; month: 'prev' | 'current' | 'next'; fullDate: string }> = [];
 
-    // Previous month padding
     for (let i = startOffset - 1; i >= 0; i--) {
       const day = prevMonthDays - i;
       const m = viewMonth === 1 ? 12 : viewMonth - 1;
       const y = viewMonth === 1 ? viewYear - 1 : viewYear;
-      days.push({
-        day,
-        month: 'prev',
-        fullDate: `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      });
+      days.push({ day, month: 'prev', fullDate: `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}` });
     }
 
-    // Current month
     for (let d = 1; d <= daysInMonth; d++) {
-      days.push({
-        day: d,
-        month: 'current',
-        fullDate: `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-      });
+      days.push({ day: d, month: 'current', fullDate: `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
     }
 
-    // Next month padding (fill to complete rows, 6 rows = 42 cells)
     const remaining = 42 - days.length;
     for (let d = 1; d <= remaining; d++) {
       const m = viewMonth === 12 ? 1 : viewMonth + 1;
       const y = viewMonth === 12 ? viewYear + 1 : viewYear;
-      days.push({
-        day: d,
-        month: 'next',
-        fullDate: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-      });
+      days.push({ day: d, month: 'next', fullDate: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
     }
 
     return days;
   }, [viewYear, viewMonth]);
 
   const handleSelect = (fullDate: string) => {
-    // check min/max
     if (min && fullDate < min) return;
     if (max && fullDate > max) return;
     onChange(fullDate);
@@ -116,21 +135,13 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
   };
 
   const prevMonth = () => {
-    if (viewMonth === 1) {
-      setViewMonth(12);
-      setViewYear(y => y - 1);
-    } else {
-      setViewMonth(m => m - 1);
-    }
+    if (viewMonth === 1) { setViewMonth(12); setViewYear(y => y - 1); }
+    else { setViewMonth(m => m - 1); }
   };
 
   const nextMonth = () => {
-    if (viewMonth === 12) {
-      setViewMonth(1);
-      setViewYear(y => y + 1);
-    } else {
-      setViewMonth(m => m + 1);
-    }
+    if (viewMonth === 12) { setViewMonth(1); setViewYear(y => y + 1); }
+    else { setViewMonth(m => m + 1); }
   };
 
   const goToday = () => {
@@ -148,33 +159,36 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
   }, []);
 
   return (
-    <div ref={ref} className={cn('relative inline-block', className)}>
+    <div className={cn('inline-block', className)}>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen(!open)}
         className={cn(
-          'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-left',
+          'h-9 w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-left',
           'transition-colors outline-none hover:border-slate-400',
-          'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
+          'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20',
           'disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-50',
           !value && 'text-slate-400',
-          open && 'border-ring ring-3 ring-ring/50'
+          open && 'border-ring ring-2 ring-ring/20'
         )}
       >
         {displayValue}
       </button>
 
-      {open && (
-        <div className="absolute z-50 top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg p-3 w-[280px]">
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          style={panelStyle}
+          className="bg-white border border-slate-200 rounded-lg shadow-xl p-3 w-[280px]"
+        >
           {/* Month/Year navigation */}
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={prevMonth} className="p-1 rounded hover:bg-slate-100">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-sm font-medium">
-              {viewYear}年{viewMonth}月
-            </span>
+            <span className="text-sm font-medium">{viewYear}年{viewMonth}月</span>
             <button type="button" onClick={nextMonth} className="p-1 rounded hover:bg-slate-100">
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -183,9 +197,7 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
           {/* Weekday headers */}
           <div className="grid grid-cols-7 mb-1">
             {WEEKDAYS.map(d => (
-              <div key={d} className="text-center text-xs font-medium text-slate-500 py-1">
-                {d}
-              </div>
+              <div key={d} className="text-center text-xs font-medium text-slate-500 py-1">{d}</div>
             ))}
           </div>
 
@@ -227,7 +239,8 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
               今天
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

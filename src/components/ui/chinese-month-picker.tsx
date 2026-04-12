@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -20,11 +21,53 @@ export function ChineseMonthPicker({ value, onChange, className, placeholder = '
     if (value) return parseInt(value.split('-')[0]);
     return new Date().getFullYear();
   });
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
+
+  // 计算弹出位置（Portal 挂载到 body，不受父容器 overflow 限制）
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const panelHeight = 260; // 大致面板高度
+
+    let top: number;
+    if (spaceBelow >= panelHeight || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 4;
+    } else {
+      top = rect.top - panelHeight - 4;
+    }
+
+    setPanelStyle({
+      position: 'fixed',
+      top,
+      left: rect.left,
+      zIndex: 9999,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      updatePosition();
+      const onScroll = () => updatePosition();
+      const onResize = () => updatePosition();
+      window.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', onResize);
+      return () => {
+        window.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('resize', onResize);
+      };
+    }
+  }, [open, updatePosition]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
+        panelRef.current && !panelRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -32,7 +75,6 @@ export function ChineseMonthPicker({ value, onChange, className, placeholder = '
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // sync viewYear when value changes externally
   useEffect(() => {
     if (value) {
       const y = parseInt(value.split('-')[0]);
@@ -54,25 +96,30 @@ export function ChineseMonthPicker({ value, onChange, className, placeholder = '
   const selectedYear = value ? parseInt(value.split('-')[0]) : -1;
 
   return (
-    <div ref={ref} className={cn('relative inline-block', className)}>
+    <div className={cn('inline-block', className)}>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen(!open)}
         className={cn(
-          'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-left',
+          'h-9 w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-left',
           'transition-colors outline-none hover:border-slate-400',
-          'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
+          'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20',
           'disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-50',
           !value && 'text-slate-400',
-          open && 'border-ring ring-3 ring-ring/50'
+          open && 'border-ring ring-2 ring-ring/20'
         )}
       >
         {displayValue}
       </button>
 
-      {open && (
-        <div className="absolute z-50 top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg p-3 min-w-[240px]">
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          style={panelStyle}
+          className="bg-white border border-slate-200 rounded-lg shadow-xl p-3 min-w-[240px]"
+        >
           {/* Year navigation */}
           <div className="flex items-center justify-between mb-3">
             <button
@@ -120,7 +167,8 @@ export function ChineseMonthPicker({ value, onChange, className, placeholder = '
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
