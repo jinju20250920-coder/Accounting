@@ -1,5 +1,7 @@
 import type { BankAccountInfo } from '@/types';
 
+export type { BankAccountInfo };
+
 /**
  * Column mapping: Chinese keywords → standard BankTransaction fields.
  * Keywords use substring matching: "借方发生额（支出）" matches keyword "借方发生额".
