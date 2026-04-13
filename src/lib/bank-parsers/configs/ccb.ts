@@ -1,0 +1,41 @@
+import type { BankParserConfig } from '../types';
+
+export const ccbConfig: BankParserConfig = {
+  id: 'ccb',
+  name: '建设银行',
+  headerRows: 9,
+  columnMapping: {
+    date: ['日期'],
+    time: ['交易时间'],
+    voucherType: ['凭证类型'],
+    voucherNo: ['凭证号'],
+    debit: ['借方发生额'],
+    credit: ['贷方发生额'],
+    balance: ['余额'],
+    cashRemitFlag: ['钞汇标识'],
+    counterpartyName: ['对方户名'],
+    counterpartyAccount: ['对方账号'],
+    summary: ['摘要'],
+    notes: ['备注'],
+    transactionSerialNo: ['交易流水号'],
+    enterpriseSerialNo: ['企业流水号'],
+    ourAccount: ['本方账号'],
+    ourAccountName: ['本方户名'],
+    ourBranch: ['本方网点'],
+  },
+  dateFormat: 'iso',
+  hasSeparatedTime: true,
+  metaExtract: [
+    { row: 3, col: 1, field: 'bankName' },
+    { row: 3, col: 1, field: 'branch' },
+    { row: 3, col: 3, field: 'currency' },
+    { row: 4, col: 1, field: 'accountNumber' },
+    { row: 5, col: 1, field: 'accountName' },
+  ],
+  identifiers: {
+    sheetKeywords: ['建设银行', 'CCB'],
+    columnKeywords: ['钞汇标识', '本方账号', '本方户名'],
+    minColumns: 15,
+    maxColumns: 20,
+  },
+};
