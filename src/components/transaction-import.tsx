@@ -27,7 +27,7 @@ import { useVoucherStore, useSubjectStore, useAccountSetStore } from '@/stores';
 import { BankFormatSelector } from '@/components/bank-format-selector';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
 import { getAllConfigs } from '@/lib/bank-parsers/bank-registry';
-import type { DetectionResult } from '@/lib/bank-parsers/types';
+import type { DetectionResult, CustomBankConfig } from '@/lib/bank-parsers/types';
 import type { Subject } from '@/types';
 import { Popover } from '@/components/ui/popover';
 import { parseBankStatement } from '@/lib/parser';
@@ -35,7 +35,10 @@ import { BankAccountSelector, getDefaultBankAccounts } from '@/components/bank-a
 import { useToast } from '@/components/ui/toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { getCurrentService } from '@/lib/database';
+import { sqliteService } from '@/lib/database/sqlite-service';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
+
+type SqliteServiceType = typeof sqliteService;
 import { matchBankTransaction } from '@/lib/accounting';
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
 import { FieldMappingCoach } from '@/components/field-mapping-coach';
@@ -193,6 +196,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [selectedBankId, setSelectedBankId] = useState<string>('auto');
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
   const [showCoach, setShowCoach] = useState(false);
+  const [bankSelectorKey, setBankSelectorKey] = useState(0);
   const { showToast } = useToast();
 
   // 组件加载时从数据库读取已保存的流水
@@ -276,9 +280,40 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const handleUpload = async () => {
     if (!selectedFile) return;
 
-    // Custom format: show coach
-    if (selectedBankId === 'custom') {
+    // New custom format: show coach wizard
+    if (selectedBankId === 'custom_new') {
       setShowCoach(true);
+      return;
+    }
+
+    // Saved custom config: use it directly
+    if (selectedBankId.startsWith('custom_')) {
+      setIsProcessing(true);
+      setParseErrors([]);
+      try {
+        const customConfigId = selectedBankId.replace('custom_', '');
+        await waitForDbInit();
+        const service = getCurrentService() as SqliteServiceType;
+        const configs: CustomBankConfig[] = await service.getCustomBankConfigs();
+        const saved = configs.find(c => c.id === customConfigId);
+        if (!saved) {
+          showToast('error', '自定义格式配置未找到，请重新配置');
+          setIsProcessing(false);
+          return;
+        }
+        const { parseWithConfig } = await import('@/lib/bank-parsers/engine');
+        const result = await parseWithConfig(selectedFile, saved.config);
+        setBankInfo(result.bankInfo);
+        if (result.transactions.length > 0) {
+          await saveParsedTransactions(result);
+        } else {
+          showToast('error', '未找到有效的交易记录');
+        }
+      } catch (e) {
+        showToast('error', `解析失败: ${(e as Error).message}`);
+      } finally {
+        setIsProcessing(false);
+      }
       return;
     }
 
@@ -976,6 +1011,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                   </div>
                   <div className="flex items-center gap-2">
                     <BankFormatSelector
+                      key={bankSelectorKey}
                       value={selectedBankId}
                       onChange={setSelectedBankId}
                       detectionResult={detectionResult}
@@ -1237,6 +1273,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
         onClose={() => setShowCoach(false)}
         file={selectedFile}
         onConfigCreated={async (config) => {
+          // Refresh the selector so new custom config appears
+          setBankSelectorKey(k => k + 1);
           const { parseWithConfig } = await import('@/lib/bank-parsers/engine');
           const result = await parseWithConfig(selectedFile!, config);
           setBankInfo(result.bankInfo);

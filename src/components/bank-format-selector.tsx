@@ -1,11 +1,16 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Zap } from 'lucide-react';
 import { getBankList } from '@/lib/bank-parsers/bank-registry';
-import type { DetectionResult } from '@/lib/bank-parsers/types';
+import type { DetectionResult, CustomBankConfig } from '@/lib/bank-parsers/types';
+import { getCurrentService } from '@/lib/database';
+import { sqliteService } from '@/lib/database/sqlite-service';
+import { waitForDbInit } from '@/hooks/useDatabaseSync';
+
+type SqliteServiceType = typeof sqliteService;
 
 interface BankFormatSelectorProps {
   value: string;
@@ -16,6 +21,23 @@ interface BankFormatSelectorProps {
 const bankList = getBankList();
 
 export function BankFormatSelector({ value, onChange, detectionResult }: BankFormatSelectorProps) {
+  const [customConfigs, setCustomConfigs] = useState<CustomBankConfig[]>([]);
+
+  useEffect(() => {
+    loadCustomConfigs();
+  }, []);
+
+  const loadCustomConfigs = async () => {
+    try {
+      await waitForDbInit();
+      const service = getCurrentService() as SqliteServiceType;
+      const configs = await service.getCustomBankConfigs();
+      setCustomConfigs(configs);
+    } catch {
+      // Ignore errors, custom configs will be empty
+    }
+  };
+
   return (
     <div className="flex items-center gap-2">
       <Select value={value} onValueChange={onChange}>
@@ -24,7 +46,16 @@ export function BankFormatSelector({ value, onChange, detectionResult }: BankFor
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="auto">自动检测</SelectItem>
-          <SelectItem value="custom">自定义格式</SelectItem>
+          {customConfigs.length > 0 && (
+            <>
+              {customConfigs.map(cfg => (
+                <SelectItem key={cfg.id} value={`custom_${cfg.id}`}>
+                  {cfg.name}
+                </SelectItem>
+              ))}
+            </>
+          )}
+          <SelectItem value="custom_new">+ 新建自定义格式</SelectItem>
           {bankList.map(bank => (
             <SelectItem key={bank.id} value={bank.id}>
               {bank.name}

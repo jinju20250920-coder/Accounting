@@ -538,6 +538,7 @@ export interface Partner {
   bankName?: string; // 开户银行
   defaultSubjectCode?: string; // 默认对方科目代码（供应商→应付账款，客户→应收账款）
   defaultSubjectName?: string; // 默认对方科目名称
+  paymentTermDays?: number; // 账期天数（入账日期+账期=到期日）
   frozen: boolean;
   createTime: string;
   updateTime: string;

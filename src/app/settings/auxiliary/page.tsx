@@ -146,6 +146,7 @@ export default function AuxiliaryDataPage() {
     bankName: '',
     defaultSubjectCode: '',
     defaultSubjectName: '',
+    paymentTermDays: 30,
     frozen: false
   });
 
@@ -236,6 +237,7 @@ export default function AuxiliaryDataPage() {
       bankName: partner.bankName || '',
       defaultSubjectCode: partner.defaultSubjectCode || '',
       defaultSubjectName: partner.defaultSubjectName || '',
+      paymentTermDays: partner.paymentTermDays ?? 30,
       frozen: partner.frozen
     });
     setShowDialog(true);
@@ -405,6 +407,7 @@ export default function AuxiliaryDataPage() {
       bankName: '',
       defaultSubjectCode: '',
       defaultSubjectName: '',
+      paymentTermDays: 30,
       frozen: false
     });
   };
@@ -787,6 +790,23 @@ export default function AuxiliaryDataPage() {
                     placeholder="点击选择科目..."
                   />
                 )}
+              </div>
+
+              {/* 账期天数 */}
+              <div className="space-y-1">
+                <Label className="text-sm font-semibold text-slate-600">账期天数</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={999}
+                    value={formData.paymentTermDays ?? ''}
+                    onChange={e => setFormData(prev => ({ ...prev, paymentTermDays: parseInt(e.target.value) || 0 }))}
+                    className="w-20 px-2 py-1 border border-slate-200 rounded text-sm"
+                    placeholder="30"
+                  />
+                  <span className="text-xs text-slate-400">天（入账日期 + 账期 = 到期日）</span>
+                </div>
               </div>
 
               {/* 冻结 */}
