@@ -26,16 +26,36 @@ export interface ParseResult {
   errors: Array<{ row: number; message: string }>;
 }
 
-import { parseCCBStatement } from './bank-parsers/ccb-parser';
+import { parseWithConfig } from './bank-parsers/engine';
+import { getConfigById, getAllConfigsWithCustom } from './bank-parsers/bank-registry';
+import { getBestDetection, detectBank } from './bank-parsers/detector';
 import type { BankStatementParseResult } from '@/types';
 
 /**
  * 解析银行流水Excel文件
- * 自动检测银行格式并使用对应解析器
+ * @param file 上传的Excel文件
+ * @param bankId 银行ID（可选，不传则自动检测）
  */
-export async function parseBankStatement(file: File): Promise<BankStatementParseResult> {
-  // 目前仅支持建设银行格式
-  return parseCCBStatement(file);
+export async function parseBankStatement(file: File, bankId?: string): Promise<BankStatementParseResult> {
+  if (bankId) {
+    const config = getConfigById(bankId);
+    if (config) return parseWithConfig(file, config);
+  }
+
+  // Auto-detect
+  const allConfigs = getAllConfigsWithCustom();
+  const results = await detectBank(file, allConfigs);
+  const best = getBestDetection(results);
+
+  if (best) {
+    return parseWithConfig(file, best.config);
+  }
+
+  // Fallback: try CCB (legacy behavior)
+  const ccbConfig = getConfigById('ccb');
+  if (ccbConfig) return parseWithConfig(file, ccbConfig);
+
+  throw new Error('无法识别银行格式，请手动选择银行类型');
 }
 
 /**
