@@ -29,3 +29,5 @@ export { useClearingStore } from './useClearingStore';
 export { useAccountSetStore } from './useAccountSetStore';
 
 export { useAgingStore } from './useAgingStore';
+
+export { useBankAccountStore } from './useBankAccountStore';
