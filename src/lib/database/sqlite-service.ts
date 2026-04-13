@@ -654,6 +654,63 @@ class SQLiteService {
         console.warn('Database migration warning:', error);
       }
     }
+
+    // --- Migration: bank_account_bindings ---
+    if (!this.dbInstance) return;
+    try {
+      const checkBindings = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='bank_account_bindings'"
+      );
+      if (!checkBindings[0]?.values?.length) {
+        console.log('Migrating database: creating bank_account_bindings table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS bank_account_bindings (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            accountNumber TEXT NOT NULL,
+            bankId TEXT NOT NULL,
+            bankName TEXT NOT NULL,
+            aliasName TEXT,
+            subSubjectCode TEXT NOT NULL,
+            subSubjectName TEXT NOT NULL,
+            branch TEXT,
+            currency TEXT,
+            isDefault INTEGER DEFAULT 0,
+            createdAt TEXT NOT NULL,
+            UNIQUE(accountSetId, accountNumber)
+          );
+          CREATE INDEX IF NOT EXISTS idx_bank_bindings_accountSetId ON bank_account_bindings(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_bank_bindings_accountNumber ON bank_account_bindings(accountNumber);
+        `);
+        console.log('bank_account_bindings table migration completed');
+      }
+    } catch (e) {
+      console.warn('bank_account_bindings migration warning:', e);
+    }
+
+    // --- Migration: custom_bank_configs ---
+    try {
+      const checkCustom = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='custom_bank_configs'"
+      );
+      if (!checkCustom[0]?.values?.length) {
+        console.log('Migrating database: creating custom_bank_configs table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS custom_bank_configs (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            name TEXT NOT NULL,
+            config TEXT NOT NULL,
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_custom_bank_configs_accountSetId ON custom_bank_configs(accountSetId);
+        `);
+        console.log('custom_bank_configs table migration completed');
+      }
+    } catch (e) {
+      console.warn('custom_bank_configs migration warning:', e);
+    }
   }
 
   /**
@@ -2225,6 +2282,84 @@ class SQLiteService {
       console.error('Clear bank transactions failed:', error);
       throw error;
     }
+  }
+
+  // --- Bank Account Bindings ---
+  async getBankAccountBindings(): Promise<any[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM bank_account_bindings WHERE accountSetId = ? ORDER BY createdAt DESC`,
+      [this.accountSetId]
+    );
+    return result[0]?.values?.map((row: any[]) => ({
+      id: row[0], accountSetId: row[1], accountNumber: row[2], bankId: row[3],
+      bankName: row[4], aliasName: row[5], subSubjectCode: row[6], subSubjectName: row[7],
+      branch: row[8], currency: row[9], isDefault: !!row[10], createdAt: row[11],
+    })) || [];
+  }
+
+  async saveBankAccountBinding(binding: any): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO bank_account_bindings
+       (id, accountSetId, accountNumber, bankId, bankName, aliasName, subSubjectCode, subSubjectName, branch, currency, isDefault, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [binding.id, binding.accountSetId, binding.accountNumber, binding.bankId, binding.bankName,
+       binding.aliasName || null, binding.subSubjectCode, binding.subSubjectName,
+       binding.branch || null, binding.currency || null, binding.isDefault ? 1 : 0, binding.createdAt]
+    );
+    await this.persist();
+  }
+
+  async deleteBankAccountBinding(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM bank_account_bindings WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
+  }
+
+  async findBankAccountBinding(accountNumber: string): Promise<any | null> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM bank_account_bindings WHERE accountNumber = ? AND accountSetId = ?`,
+      [accountNumber, this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return null;
+    const row = result[0].values[0];
+    return {
+      id: row[0], accountSetId: row[1], accountNumber: row[2], bankId: row[3],
+      bankName: row[4], aliasName: row[5], subSubjectCode: row[6], subSubjectName: row[7],
+      branch: row[8], currency: row[9], isDefault: !!row[10], createdAt: row[11],
+    };
+  }
+
+  // --- Custom Bank Configs ---
+  async getCustomBankConfigs(): Promise<any[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM custom_bank_configs WHERE accountSetId = ? ORDER BY createdAt DESC`,
+      [this.accountSetId]
+    );
+    return result[0]?.values?.map((row: any[]) => ({
+      id: row[0], accountSetId: row[1], name: row[2], config: JSON.parse(row[3]),
+      createdAt: row[4], updatedAt: row[5],
+    })) || [];
+  }
+
+  async saveCustomBankConfig(customConfig: any): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO custom_bank_configs (id, accountSetId, name, config, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [customConfig.id, customConfig.accountSetId, customConfig.name,
+       JSON.stringify(customConfig.config), customConfig.createdAt, customConfig.updatedAt]
+    );
+    await this.persist();
+  }
+
+  async deleteCustomBankConfig(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM custom_bank_configs WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
   }
 }
 
