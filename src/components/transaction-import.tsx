@@ -24,6 +24,10 @@ import {
   X
 } from 'lucide-react';
 import { useVoucherStore, useSubjectStore, useAccountSetStore } from '@/stores';
+import { BankFormatSelector } from '@/components/bank-format-selector';
+import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
+import { getAllConfigs } from '@/lib/bank-parsers/bank-registry';
+import type { DetectionResult } from '@/lib/bank-parsers/types';
 import type { Subject } from '@/types';
 import { Popover } from '@/components/ui/popover';
 import { parseBankStatement } from '@/lib/parser';
@@ -185,6 +189,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
   const [showAccountNameConfirm, setShowAccountNameConfirm] = useState(false);
   const [pendingParseResult, setPendingParseResult] = useState<BankStatementParseResult | null>(null);
+  const [selectedBankId, setSelectedBankId] = useState<string>('auto');
+  const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
   const { showToast } = useToast();
 
   // 组件加载时从数据库读取已保存的流水
@@ -230,7 +236,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     }
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const validTypes = importType === 'bank'
@@ -251,6 +257,17 @@ export function TransactionImport({ importType }: TransactionImportProps) {
       }
 
       setSelectedFile(file);
+      setDetectionResult(null);
+
+      // Auto-detect bank format
+      try {
+        const results = await detectBank(file, getAllConfigs());
+        const best = getBestDetection(results);
+        setDetectionResult(best);
+        if (best) setSelectedBankId(best.bankId);
+      } catch {
+        // Detection failed, user will select manually
+      }
     }
   };
 
@@ -262,7 +279,8 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
     try {
       if (importType === 'bank') {
-        const result: BankStatementParseResult = await parseBankStatement(selectedFile);
+        const bankId = selectedBankId === 'auto' ? undefined : selectedBankId;
+        const result: BankStatementParseResult = await parseBankStatement(selectedFile, bankId);
 
         setBankInfo(result.bankInfo);
 
@@ -937,7 +955,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
             </div>
 
             {selectedFile && (
-              <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+              <div className="mt-4 p-4 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <FileText className="h-5 w-5 text-blue-500" />
@@ -949,6 +967,11 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <BankFormatSelector
+                      value={selectedBankId}
+                      onChange={setSelectedBankId}
+                      detectionResult={detectionResult}
+                    />
                     <Button variant="outline" size="sm" onClick={() => setSelectedFile(null)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
