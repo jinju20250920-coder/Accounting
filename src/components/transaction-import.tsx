@@ -38,6 +38,7 @@ import { getCurrentService } from '@/lib/database';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { matchBankTransaction } from '@/lib/accounting';
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
+import { FieldMappingCoach } from '@/components/field-mapping-coach';
 import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
 import type { PreviewEntry } from '@/components/voucher-preview-dialog';
 import type { BankTransaction, BankStatementParseResult } from '@/types';
@@ -191,6 +192,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
   const [pendingParseResult, setPendingParseResult] = useState<BankStatementParseResult | null>(null);
   const [selectedBankId, setSelectedBankId] = useState<string>('auto');
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
+  const [showCoach, setShowCoach] = useState(false);
   const { showToast } = useToast();
 
   // 组件加载时从数据库读取已保存的流水
@@ -273,6 +275,12 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+
+    // Custom format: show coach
+    if (selectedBankId === 'custom') {
+      setShowCoach(true);
+      return;
+    }
 
     setIsProcessing(true);
     setParseErrors([]);
@@ -1222,6 +1230,23 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
       {/* 规则管理弹窗 */}
       <BankRulesDialog open={showRulesDialog} onOpenChange={setShowRulesDialog} />
+
+      {/* 字段映射教练 */}
+      <FieldMappingCoach
+        open={showCoach}
+        onClose={() => setShowCoach(false)}
+        file={selectedFile}
+        onConfigCreated={async (config) => {
+          const { parseWithConfig } = await import('@/lib/bank-parsers/engine');
+          const result = await parseWithConfig(selectedFile!, config);
+          setBankInfo(result.bankInfo);
+          if (result.transactions.length > 0) {
+            await saveParsedTransactions(result);
+          } else {
+            showToast('error', '未找到有效的交易记录');
+          }
+        }}
+      />
 
       {/* 账户名称不一致确认弹窗 */}
       <Dialog open={showAccountNameConfirm} onOpenChange={(open) => { if (!open) { setShowAccountNameConfirm(false); setPendingParseResult(null); } }}>

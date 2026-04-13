@@ -14,6 +14,7 @@ import {
   Building2,
   RefreshCw,
   Upload,
+  Activity,
   Settings,
   ChevronDown,
   ChevronRight,
@@ -61,7 +62,10 @@ const menuItems = [
     { label: '应收明细', path: '/aging/ar' },
     { label: '应付明细', path: '/aging/ap' },
   ]},
-  { icon: Upload, label: '资金管理', path: '/import' },
+  { icon: Upload, label: '资金管理', path: '/import', children: [
+    { label: '银行流水导入', path: '/import' },
+    { label: '资金结算中心', path: '/fund-hub' },
+  ]},
   { icon: FileText, label: '发票管理', path: '/invoices', children: [
     { label: '进项发票', path: '/invoices/input' },
     { label: '销项发票', path: '/invoices/output' },
@@ -84,6 +88,7 @@ const menuItems = [
     { label: '币别管理', path: '/settings/currencies' },
     { label: '常用摘要库', path: '/settings/summaries' },
     { label: '凭证模版', path: '/settings/templates' },
+    { label: '银行账户', path: '/settings/bank-accounts' },
   ]},
 ];
 
