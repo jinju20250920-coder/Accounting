@@ -56,6 +56,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 11. **固定资产管理** - 固定资产卡片、无形资产、待摊费用、折旧/摊销计算
 12. **汇兑损益** - 外币科目、汇率管理、期末自动调汇
 13. **期末结转** - 损益结转、年结处理
+14. **资金中心** - 资金头寸总览、多银行汇总、现金流图表、账龄分布、结算预警、到期日历、往来单位结算
 
 ---
 
@@ -88,8 +89,10 @@ src/
 │   │   ├── projects/               # 项目管理
 │   │   ├── currencies/             # 币别管理
 │   │   ├── summaries/              # 常用摘要
-│   │   └── templates/              # 凭证模板
+│   │   ├── templates/              # 凭证模板
+│   │   └── bank-accounts/          # 银行账户管理（含格式配置向导）
 │   └── partner-dashboard/          # 往来单位详情
+│   └── fund-hub/                   # 资金中心（结算看板）
 ├── components/
 │   ├── ui/                         # shadcn/ui 组件（16个）+ 中文日期/月份选择器
 │   ├── layout/                     # 布局（sidebar, VoucherLayout）
@@ -111,9 +114,21 @@ src/
 │   ├── ai-learning-dashboard.tsx   # AI学习看板
 │   ├── ai-subject-recommendation.tsx # AI科目推荐
 │   ├── bank-account-selector.tsx   # 银行账户选择器
+│   ├── bank-format-selector.tsx    # 银行格式选择器（含自定义配置）
+│   ├── bank-format-test-dialog.tsx # 银行格式测试对话框
+│   ├── field-mapping-coach.tsx     # 自定义格式映射向导（5步，含模糊自动匹配）
 │   ├── error-boundary.tsx          # 错误边界
 │   ├── DatabaseSyncWrapper.tsx     # 数据库同步包装器
 │   └── DatabaseManager.tsx         # 数据库管理器
+│   └── fund-hub/                   # 资金中心组件（8个）
+│       ├── settlement-dashboard.tsx # 结算总看板
+│       ├── cash-position-card.tsx  # 资金头寸卡片
+│       ├── bank-summary-table.tsx  # 多银行汇总表
+│       ├── cash-flow-chart.tsx     # 现金流图表
+│       ├── aging-distribution.tsx  # 账龄分布
+│       ├── settlement-alerts.tsx   # 结算预警
+│       ├── due-date-calendar.tsx   # 到期日历
+│       └── counterparty-settlement.tsx # 往来单位结算
 ├── stores/                         # Zustand 状态管理（22个Store）
 │   ├── index.ts                    # Store 导出
 │   ├── persistence-config.ts       # 持久化配置（UI状态用localStorage）
@@ -153,8 +168,28 @@ src/
 │   ├── chinese-number.ts           # 中文数字转换
 │   ├── code-generator.ts           # 自动编码生成
 │   ├── utils.ts                    # 通用工具函数
-│   ├── bank-parsers/               # 银行流水解析器
-│   │   └── ccb-parser.ts           # 建设银行
+│   ├── bank-parsers/               # 银行流水解析器（配置驱动，14家内置银行）
+│   │   ├── engine.ts               # 通用解析引擎（合并表头、dataStartRow）
+│   │   ├── detector.ts             # 自动识别银行格式（评分检测）
+│   │   ├── types.ts                # BankParserConfig、BankAccountBinding 等类型
+│   │   ├── bank-registry.ts        # 内置银行注册表 + BANK_BRANDS 品牌色
+│   │   ├── date-handlers.ts        # 日期处理器（ISO/Excel序列号/紧凑/自定义）
+│   │   ├── meta-extractor.ts       # 元数据提取（户名、账号、银行名）
+│   │   └── configs/                # 14家银行配置
+│   │       ├── ccb.ts              # 建设银行（双层表头）
+│   │       ├── icbc.ts             # 工商银行
+│   │       ├── abc.ts              # 农业银行
+│   │       ├── cmb.ts              # 招商银行
+│   │       ├── boc.ts              # 中国银行
+│   │       ├── citic.ts            # 中信银行
+│   │       ├── bocom.ts            # 交通银行
+│   │       ├── industrial.ts       # 兴业银行
+│   │       ├── czb.ts              # 浙商银行
+│   │       ├── spdb.ts             # 浦发银行
+│   │       ├── cmbc.ts             # 民生银行
+│   │       ├── pingan.ts           # 平安银行
+│   │       ├── huaxia.ts           # 华夏银行
+│   │       └── shanghai.ts         # 上海银行
 │   ├── data/                       # 数据配置
 │   │   ├── keyword-rules.json      # AI L1关键词匹配规则
 │   │   ├── subjects.json           # 默认科目
@@ -255,6 +290,38 @@ npm run lint
 - 银行流水数据通过 `sqliteService` 的 `bankTransactions` 表持久化
 - 导入页 "最近导入" 侧栏从数据库读取真实数据
 
+### 多银行解析引擎 (lib/bank-parsers/)
+配置驱动的银行流水解析系统，支持14家内置银行 + 用户自定义格式：
+
+#### 1. 架构设计
+- `BankParserConfig` — 每家银行一份配置（表头行、列映射、日期格式、标识符）
+- `engine.ts` — 通用解析引擎：读取 Excel → 匹配列 → 解析行
+- `detector.ts` — 自动检测银行格式，基于 sheetKeywords + columnKeywords 评分
+- `bank-registry.ts` — 14家内置银行注册表 + `BANK_BRANDS` 品牌色常量
+- `configs/*.ts` — 各银行配置文件（ccb、icbc、abc 等14家）
+
+#### 2. 关键特性
+- **双层表头合并**：engine.ts 自动合并前一行表头（如建行 "借方" + "发生额" → "借方发生额"）
+- **数据起始行**：`dataStartRow` 可选字段，支持表头与数据间有空行/小计行
+- **模糊列匹配**：`matchColumns()` 使用子串匹配，一个字段可配多个关键词
+- **日期处理器插件**：ISO / Excel序列号 / 紧凑格式 / 自定义模式
+- **元数据提取**：从表头前几行自动提取户名、账号、银行名
+
+#### 3. 自定义格式流程（FieldMappingCoach）
+5步向导：选择表头行 → 列映射 → 日期格式 → 测试预览 → 保存
+- **模糊自动匹配**：`autoMatch()` 基于关键词库评分，自动填充映射并显示置信度（绿/黄/橙）
+- **相邻行合并**：`getMergedHeaders()` 合并选中行与上下相邻行，解决双层表头问题
+- **配置持久化**：保存到 SQLite `custom_bank_configs` 表，下次导入时自动加载
+- **编辑模式**：`initialConfig` + `editingRecordId` 支持修改已有自定义配置
+
+#### 4. 银行账户管理页 (/settings/bank-accounts)
+- 14家内置银行卡片网格，带品牌色 + 已绑定标记
+- 引导式新增：选银行 → 填账号 → 格式配置（非内置银行）
+- 编辑模式：显示格式配置状态，可配置/重新配置/测试
+- Excel批量导入：下载模板 → 填写 → 上传预览 → 确认导入
+- 第15+银行：选择"+ 新增银行"，输入名称后走格式配置向导
+- `__new__` 哨兵值标识新增银行，自动生成 `custom_bank_*` ID
+
 ### AI智能匹配架构
 实现于 `lib/accounting.ts` 的 `getSmartMatch()` 函数
 
@@ -353,7 +420,12 @@ npm run lint
 - ✅ 无形资产管理 - 摊销计算
 - ✅ 待摊费用管理
 - ✅ 会计引擎 - 科目余额计算、凭证字号、借贷平衡
-- ✅ 银行流水解析器 - 建设银行格式
+- ✅ 银行流水解析器 - 配置驱动，14家内置银行（建行/工行/农行/招行/中行等）
+- ✅ 银行格式自动识别 - detectBank 评分检测，自动匹配最佳配置
+- ✅ 自定义格式映射向导 - FieldMappingCoach 5步向导，模糊自动匹配列字段（置信度评分）
+- ✅ 双层表头合并 - 解析引擎自动合并相邻行表头（如建行格式）
+- ✅ 数据起始行设置 - 支持表头与数据之间有空行/小计行的格式
+- ✅ 银行账户管理 - 引导式新增向导，编辑模式，Excel批量导入，第15+银行支持
 - ✅ 资金管理页 - 多银行汇总表、按月/日筛选、凭证明细弹窗
 - ✅ 流水去重 - 导入时按 date+voucherNo+transactionSerialNo 去重，入账时防重复
 - ✅ 银行账户名校验 - 导入时检查银行户名与账套公司名是否一致
