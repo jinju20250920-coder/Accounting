@@ -649,19 +649,7 @@ export default function VoucherListPage() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-                  {/* Column widths */}
-                  <colgroup>
-                    <col style={{ width: '40px' }} />   {/* checkbox */}
-                    <col style={{ width: '110px' }} />   {/* 凭证号 */}
-                    <col style={{ width: '100px' }} />   {/* 日期 */}
-                    <col />                               {/* 摘要 (flex) */}
-                    <col style={{ width: '180px' }} />   {/* 科目 */}
-                    <col style={{ width: '120px' }} />   {/* 往来单位 */}
-                    <col style={{ width: '80px' }} />    {/* 状态 */}
-                    <col style={{ width: '110px' }} />   {/* 借方金额 */}
-                    <col style={{ width: '110px' }} />   {/* 贷方金额 */}
-                    <col style={{ width: '100px' }} />   {/* 操作 */}
-                  </colgroup>
+                  <colgroup><col style={{ width: '40px' }} /><col style={{ width: '110px' }} /><col style={{ width: '100px' }} /><col /><col style={{ width: '180px' }} /><col style={{ width: '120px' }} /><col style={{ width: '80px' }} /><col style={{ width: '110px' }} /><col style={{ width: '110px' }} /><col style={{ width: '100px' }} /></colgroup>
                   <thead className="bg-slate-50 sticky top-0 z-10">
                     <tr className="border-b-2 border-slate-200">
                       <th className="text-left py-3 px-2 no-print">
