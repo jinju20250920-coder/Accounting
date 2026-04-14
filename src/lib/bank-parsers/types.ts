@@ -43,6 +43,7 @@ export interface BankParserConfig {
   dateFormat: 'iso' | 'excel_serial' | 'compact' | 'custom';
   dateFormatCustom?: string;
   hasSeparatedTime?: boolean;
+  dataStartRow?: number;
   sheetIndex?: number;
   metaExtract?: Array<{
     row: number;

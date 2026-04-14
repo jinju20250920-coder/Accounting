@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -10,15 +10,18 @@ import { useToast } from '@/components/ui/toast';
 import { parseWithConfig } from '@/lib/bank-parsers/engine';
 import type { BankParserConfig } from '@/lib/bank-parsers/types';
 import type { BankStatementParseResult } from '@/types';
-import { getCurrentService } from '@/lib/database';
 import { sqliteService } from '@/lib/database/sqlite-service';
-import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Sparkles } from 'lucide-react';
 
 interface FieldMappingCoachProps {
   open: boolean;
   onClose: () => void;
   file: File | null;
   onConfigCreated: (config: BankParserConfig) => void;
+  /** Pass an existing config to edit it (pre-populates all fields) */
+  initialConfig?: BankParserConfig;
+  /** The CustomBankConfig record id to update (for edit mode) */
+  editingRecordId?: string;
 }
 
 const REQUIRED_FIELDS = [
@@ -45,20 +48,126 @@ const DATE_FORMATS = [
   { value: 'custom', label: '自定义格式' },
 ];
 
+/** Comprehensive keywords for fuzzy-matching each standard field */
+const FIELD_KEYWORDS: Record<string, string[]> = {
+  date: ['记账日期', '交易日期', '日期', '发生日期', '交易时间', '记账时间', '业务日期', '清算日期'],
+  time: ['交易时间', '记账时间', '时间', '发生时间', '业务时间'],
+  debit: ['借方发生额', '借方金额', '借方', '支出金额', '支出', '借方发生额（支出）', '付款金额'],
+  credit: ['贷方发生额', '贷方金额', '贷方', '收入金额', '收入', '贷方发生额（收入）', '收款金额'],
+  balance: ['账户余额', '余额', '当前余额', '本方账户余额', '本方余额', '帐户余额', '可用余额'],
+  counterpartyName: ['对方户名', '对方名称', '交易对方', '收款人', '付款人', '收付方', '对方账户名称', '交易对方名称', '对手方'],
+  counterpartyAccount: ['对方账号', '对方账户', '收款账号', '付款账号', '对方开户账号'],
+  summary: ['交易摘要', '摘要', '业务摘要', '交易类型'],
+  notes: ['附言', '备注', '用途', '说明', '交易备注'],
+  transactionSerialNo: ['交易流水号', '流水号', '明细号', '交易序号', '交易编号', '凭证流水号'],
+  voucherNo: ['凭证号', '凭证号码', '凭证编号', '记帐凭证号', '记账凭证号'],
+};
+
+/**
+ * Score the similarity between a column header and a field's keywords.
+ * Returns 0-1 score: 1.0 = exact match, 0.9 = contains keyword, etc.
+ */
+function scoreMatch(header: string, keywords: string[]): number {
+  const h = header.trim();
+  if (!h) return 0;
+
+  // 1. Exact match
+  for (const kw of keywords) {
+    if (h === kw) return 1.0;
+  }
+
+  // 2. Header contains a keyword (header is longer, keyword is a substring)
+  for (const kw of keywords) {
+    if (h.includes(kw)) return 0.9;
+  }
+
+  // 3. A keyword contains the header (header is shorter, part of keyword)
+  for (const kw of keywords) {
+    if (kw.includes(h)) return 0.7;
+  }
+
+  // 4. Character overlap ratio
+  const hChars = new Set(h);
+  let bestOverlap = 0;
+  for (const kw of keywords) {
+    const kwChars = new Set(kw);
+    let shared = 0;
+    for (const c of hChars) {
+      if (kwChars.has(c)) shared++;
+    }
+    const ratio = shared / Math.max(hChars.size, kwChars.size);
+    bestOverlap = Math.max(bestOverlap, ratio);
+  }
+
+  return bestOverlap > 0.6 ? bestOverlap * 0.6 : 0;
+}
+
+/**
+ * Auto-match column headers to standard fields.
+ * Returns { fieldMap, scores } where scores[field] = confidence 0-1.
+ */
+function autoMatch(headers: string[]): { fieldMap: Record<string, string>; scores: Record<string, number> } {
+  const fieldMap: Record<string, string> = {};
+  const scores: Record<string, number> = {};
+  const usedHeaders = new Set<string>();
+
+  // Collect all fields
+  const allFields = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS].map(f => f.key);
+
+  // Sort by priority: required fields first, then by best score
+  for (const field of allFields) {
+    const keywords = FIELD_KEYWORDS[field];
+    if (!keywords) continue;
+
+    let bestScore = 0;
+    let bestHeader = '';
+
+    for (const header of headers) {
+      if (usedHeaders.has(header)) continue;
+      const s = scoreMatch(header, keywords);
+      if (s > bestScore) {
+        bestScore = s;
+        bestHeader = header;
+      }
+    }
+
+    if (bestHeader && bestScore >= 0.5) {
+      fieldMap[field] = bestHeader;
+      scores[field] = bestScore;
+      usedHeaders.add(bestHeader);
+    }
+  }
+
+  return { fieldMap, scores };
+}
+
 type Step = 0 | 1 | 2 | 3 | 4;
 
-export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: FieldMappingCoachProps) {
+export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initialConfig, editingRecordId }: FieldMappingCoachProps) {
   const [step, setStep] = useState<Step>(0);
   const [rawRows, setRawRows] = useState<string[][]>([]);
   const [selectedHeaderRow, setSelectedHeaderRow] = useState<number>(0);
+  const [dataStartRow, setDataStartRow] = useState<number>(1);
   const [columnHeaders, setColumnHeaders] = useState<string[]>([]);
   const [fieldMap, setFieldMap] = useState<Record<string, string>>({});
+  const [matchScores, setMatchScores] = useState<Record<string, number>>({});
   const [dateFormat, setDateFormat] = useState('iso');
   const [customPattern, setCustomPattern] = useState('');
   const [previewResult, setPreviewResult] = useState<BankStatementParseResult | null>(null);
   const [configName, setConfigName] = useState('自定义银行格式');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+
+  // Pre-populate non-file-dependent state from initialConfig
+  React.useEffect(() => {
+    if (open && initialConfig) {
+      setConfigName(initialConfig.name || '自定义银行格式');
+      setSelectedHeaderRow(initialConfig.headerRows || 0);
+      setDataStartRow(initialConfig.dataStartRow != null ? initialConfig.dataStartRow : (initialConfig.headerRows || 0) + 1);
+      setDateFormat(initialConfig.dateFormat || 'iso');
+      setCustomPattern(initialConfig.dateFormatCustom || '');
+    }
+  }, [open, initialConfig]);
 
   // Load file on open
   React.useEffect(() => {
@@ -76,19 +185,109 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
     const data: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     setRawRows(data);
 
-    // Guess header row: first row where > 50% cells are non-empty text
-    let guessed = 0;
+    // Use headerRows from initialConfig if editing, otherwise guess
+    const headerIdx = initialConfig?.headerRows ?? guessHeaderRow(data);
+    setSelectedHeaderRow(headerIdx);
+    const dsRow = initialConfig?.dataStartRow != null ? initialConfig.dataStartRow : headerIdx + 1;
+    setDataStartRow(dsRow);
+
+    const headers = getMergedHeaders(data, headerIdx);
+    setColumnHeaders(headers);
+
+    // If initialConfig provided, resolve fieldMap against actual headers
+    if (initialConfig?.columnMapping) {
+      const fm: Record<string, string> = {};
+      for (const [field, keywords] of Object.entries(initialConfig.columnMapping)) {
+        if (!keywords || keywords.length === 0) continue;
+        for (let i = 0; i < headers.length; i++) {
+          if (keywords.some(kw => headers[i].includes(kw))) {
+            fm[field] = headers[i];
+            break;
+          }
+        }
+      }
+      setFieldMap(fm);
+      setMatchScores({});
+      setStep(1);
+    } else {
+      // Auto-match using fuzzy scoring
+      const { fieldMap: autoMap, scores } = autoMatch(headers);
+      setFieldMap(autoMap);
+      setMatchScores(scores);
+
+      const matchCount = Object.keys(autoMap).length;
+      if (matchCount > 0) {
+        showToast('info', `已自动匹配 ${matchCount} 个字段，请检查并调整`);
+      }
+      setStep(0);
+    }
+  };
+
+  /**
+   * Merge the selected header row with adjacent rows.
+   * Handles dual-layer headers (e.g. CCB has group headers in row N, sub-headers in row N+1).
+   * Same logic as engine.ts mergedHeaders.
+   */
+  const getMergedHeaders = (data: string[][], idx: number): string[] => {
+    const row = data[idx] || [];
+    const prevRow = idx > 0 ? data[idx - 1] : null;
+    const nextRow = idx < data.length - 1 ? data[idx + 1] : null;
+    const maxCols = Math.max(row.length, prevRow?.length || 0, nextRow?.length || 0);
+
+    const merged: string[] = [];
+    for (let i = 0; i < maxCols; i++) {
+      const cur = String(row[i] || '').trim();
+      const prev = prevRow ? String(prevRow[i] || '').trim() : '';
+      const next = nextRow ? String(nextRow[i] || '').trim() : '';
+
+      // Start with previous + current (same as engine.ts)
+      let combined = '';
+      if (cur && prev && cur !== prev) {
+        combined = prev + cur;
+      } else {
+        combined = cur || prev;
+      }
+
+      // Append next row if it adds new info and isn't already included
+      if (next && !combined.includes(next)) {
+        combined = combined ? combined + next : next;
+      }
+
+      merged.push(combined);
+    }
+
+    // Deduplicate while preserving order, and filter empty
+    const seen = new Set<string>();
+    return merged.filter(h => {
+      if (!h || seen.has(h)) return false;
+      seen.add(h);
+      return true;
+    });
+  };
+
+  const guessHeaderRow = (data: string[][]): number => {
+    // Prefer the row whose merged headers produce the most unique non-empty values
+    let bestIdx = 0;
+    let bestCount = 0;
     for (let i = 0; i < Math.min(data.length, 20); i++) {
-      const row = data[i];
-      const nonEmpty = row.filter(c => String(c || '').trim()).length;
-      if (nonEmpty > row.length * 0.5 && nonEmpty >= 3) {
-        guessed = i;
-        break;
+      const merged = getMergedHeaders(data, i);
+      if (merged.length > bestCount) {
+        bestCount = merged.length;
+        bestIdx = i;
       }
     }
-    setSelectedHeaderRow(guessed);
-    setColumnHeaders((data[guessed] || []).map((c: any) => String(c || '').trim()).filter(Boolean));
-    setStep(0);
+    return bestIdx;
+  };
+
+  // Re-run auto-matching when header row changes
+  const handleHeaderRowChange = (idx: number) => {
+    setSelectedHeaderRow(idx);
+    setDataStartRow(idx + 1);
+    const headers = getMergedHeaders(rawRows, idx);
+    setColumnHeaders(headers);
+    const { fieldMap: autoMap, scores } = autoMatch(headers);
+    setFieldMap(autoMap);
+    setMatchScores(scores);
   };
 
   const buildConfig = useCallback((): BankParserConfig => {
@@ -97,16 +296,17 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
       if (colName) mapping[field] = [colName];
     }
     return {
-      id: `custom_${Date.now()}`,
+      id: initialConfig?.id || `custom_${Date.now()}`,
       name: configName,
       headerRows: selectedHeaderRow,
+      dataStartRow: dataStartRow,
       columnMapping: mapping as any,
       dateFormat: dateFormat as any,
       dateFormatCustom: dateFormat === 'custom' ? customPattern : undefined,
       hasSeparatedTime: !!fieldMap.time,
-      identifiers: {},
+      identifiers: initialConfig?.identifiers || {},
     };
-  }, [selectedHeaderRow, fieldMap, dateFormat, customPattern, configName]);
+  }, [selectedHeaderRow, dataStartRow, fieldMap, dateFormat, customPattern, configName, initialConfig]);
 
   const handleTest = async () => {
     if (!file) return;
@@ -127,8 +327,9 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
     const config = buildConfig();
     try {
       const accountSetId = sqliteService.accountSetId;
+      const recordId = editingRecordId || `cbc_${Date.now()}`;
       await sqliteService.saveCustomBankConfig({
-        id: `cbc_${Date.now()}`,
+        id: recordId,
         accountSetId,
         name: configName,
         config,
@@ -146,17 +347,29 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
   const reset = () => {
     setStep(0);
     setFieldMap({});
+    setMatchScores({});
     setPreviewResult(null);
+  };
+
+  const autoMatchedCount = useMemo(() => {
+    return Object.keys(fieldMap).filter(k => matchScores[k] != null && matchScores[k] > 0).length;
+  }, [fieldMap, matchScores]);
+
+  const confidenceLabel = (score: number | undefined) => {
+    if (score == null || score === 0) return null;
+    if (score >= 0.9) return { text: `${Math.round(score * 100)}%`, cls: 'bg-green-50 text-green-700' };
+    if (score >= 0.7) return { text: `${Math.round(score * 100)}%`, cls: 'bg-yellow-50 text-yellow-700' };
+    return { text: `${Math.round(score * 100)}%`, cls: 'bg-orange-50 text-orange-600' };
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>自定义银行格式映射 — 步骤 {step + 1}/5</DialogTitle>
+          <DialogTitle>{initialConfig ? '编辑' : '自定义'}银行格式映射 — 步骤 {step + 1}/5</DialogTitle>
         </DialogHeader>
 
-        {/* Step 0: Header Row Selection */}
+        {/* Step 0: Header Row & Data Start Row Selection */}
         {step === 0 && (
           <div className="space-y-3">
             <p className="text-sm text-gray-600">选择列标题所在行（点击行号选中）：</p>
@@ -166,13 +379,14 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
                   {rawRows.slice(0, 20).map((row, idx) => (
                     <tr
                       key={idx}
-                      className={`cursor-pointer hover:bg-blue-50 ${idx === selectedHeaderRow ? 'bg-blue-100 font-bold' : ''}`}
-                      onClick={() => {
-                        setSelectedHeaderRow(idx);
-                        setColumnHeaders((row || []).map((c: any) => String(c || '').trim()).filter(Boolean));
-                      }}
+                      className={`cursor-pointer hover:bg-blue-50 ${
+                        idx === selectedHeaderRow ? 'bg-blue-100 font-bold' : ''
+                      } ${idx >= dataStartRow && idx > selectedHeaderRow ? 'bg-green-50/40' : ''}`}
+                      onClick={() => handleHeaderRowChange(idx)}
                     >
-                      <td className="px-2 py-1 border-r w-10 text-center text-gray-400">{idx}</td>
+                      <td className="px-2 py-1 border-r w-10 text-center text-gray-400">
+                        {idx === selectedHeaderRow ? '📌' : idx}
+                      </td>
                       {(row || []).slice(0, 8).map((cell, ci) => (
                         <td key={ci} className="px-2 py-1 truncate max-w-[120px]">{String(cell || '')}</td>
                       ))}
@@ -181,6 +395,67 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
                 </tbody>
               </table>
             </div>
+
+            {/* Merged headers preview */}
+            {columnHeaders.length > 0 && (
+              <div className="p-3 bg-slate-50 rounded-lg border">
+                <p className="text-xs text-slate-500 mb-2">
+                  识别到 {columnHeaders.length} 个列（已合并相邻行）：
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {columnHeaders.map((h, i) => (
+                    <Badge key={i} variant="secondary" className="text-xs">{h}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Data start row setting */}
+            <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-lg border">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-700">表头行:</span>
+                <Badge variant="outline" className="font-mono">第 {selectedHeaderRow} 行</Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-700">数据起始行:</span>
+                <Input
+                  type="number"
+                  min={selectedHeaderRow + 1}
+                  max={rawRows.length - 1}
+                  value={dataStartRow}
+                  onChange={(e) => setDataStartRow(Number(e.target.value))}
+                  className="w-20 h-7 text-sm text-center"
+                />
+              </div>
+              <p className="text-xs text-slate-400">
+                若表头与数据之间有空行或小计行，请调整数据起始行
+              </p>
+            </div>
+
+            {/* Auto-match preview */}
+            {autoMatchedCount > 0 && (
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium text-blue-700">
+                    已自动匹配 {autoMatchedCount} 个字段
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...REQUIRED_FIELDS, ...OPTIONAL_FIELDS].map(({ key, label }) => {
+                    if (!fieldMap[key]) return null;
+                    const conf = confidenceLabel(matchScores[key]);
+                    return (
+                      <Badge key={key} variant="secondary" className="text-xs">
+                        {label} → {fieldMap[key]}
+                        {conf && <span className={`ml-1 px-1 rounded text-[10px] ${conf.cls}`}>{conf.text}</span>}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={onClose}>取消</Button>
               <Button onClick={() => setStep(1)}>
@@ -193,25 +468,47 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
         {/* Step 1: Column Mapping */}
         {step === 1 && (
           <div className="space-y-3">
-            <p className="text-sm text-gray-600">将标准字段映射到对应的列：</p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-600">将标准字段映射到对应的列：</p>
+              <Button variant="ghost" size="sm" onClick={() => {
+                const { fieldMap: autoMap, scores } = autoMatch(columnHeaders);
+                setFieldMap(autoMap);
+                setMatchScores(scores);
+                showToast('info', `已重新匹配 ${Object.keys(autoMap).length} 个字段`);
+              }}>
+                <Sparkles className="h-3.5 w-3.5 mr-1" /> 重新自动匹配
+              </Button>
+            </div>
             <div className="space-y-2">
-              {[...REQUIRED_FIELDS, ...OPTIONAL_FIELDS].map(({ key, label }) => (
-                <div key={key} className="flex items-center gap-3">
-                  <Badge variant={REQUIRED_FIELDS.some(f => f.key === key) ? 'default' : 'secondary'} className="w-28 justify-center">
-                    {label}{REQUIRED_FIELDS.some(f => f.key === key) && ' *'}
-                  </Badge>
-                  <Select value={fieldMap[key] || ''} onValueChange={(v) => setFieldMap(prev => ({ ...prev, [key]: v }))}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="-- 不映射 --" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {columnHeaders.map((h, i) => (
-                        <SelectItem key={i} value={h}>{h}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
+              {[...REQUIRED_FIELDS, ...OPTIONAL_FIELDS].map(({ key, label }) => {
+                const conf = confidenceLabel(matchScores[key]);
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <Badge variant={REQUIRED_FIELDS.some(f => f.key === key) ? 'default' : 'secondary'} className="w-28 justify-center">
+                      {label}{REQUIRED_FIELDS.some(f => f.key === key) && ' *'}
+                    </Badge>
+                    <Select value={fieldMap[key] || ''} onValueChange={(v) => {
+                      setFieldMap(prev => ({ ...prev, [key]: v }));
+                      // Clear score when user manually changes
+                      setMatchScores(prev => { const n = { ...prev }; delete n[key]; return n; });
+                    }}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="-- 不映射 --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {columnHeaders.map((h, i) => (
+                          <SelectItem key={i} value={h}>{h}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {conf && (
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${conf.cls}`}>
+                        {conf.text}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(0)}>
@@ -234,7 +531,7 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
             {fieldMap.date && (
               <div className="p-3 bg-slate-50 rounded text-sm">
                 <p className="font-medium mb-1">日期列样本值：</p>
-                {rawRows.slice(selectedHeaderRow + 1, selectedHeaderRow + 4).map((row, i) => {
+                {rawRows.slice(dataStartRow, dataStartRow + 3).map((row, i) => {
                   const colIdx = columnHeaders.indexOf(fieldMap.date);
                   return (
                     <p key={i} className="text-gray-600">
@@ -298,6 +595,10 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated }: Fiel
                     ))}
                   </tbody>
                 </table>
+                <p className="text-xs text-slate-400 p-2 text-center">
+                  共解析 {previewResult.transactions.length} 条交易
+                  {previewResult.errors && previewResult.errors.length > 0 && `，${previewResult.errors.length} 个错误`}
+                </p>
               </div>
             ) : (
               <p className="text-sm text-red-500">

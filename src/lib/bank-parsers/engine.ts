@@ -50,8 +50,19 @@ export async function parseWithConfig(file: File, config: BankParserConfig): Pro
     };
   }
 
+  // For banks with multi-row headers (e.g. CCB), merge the previous row
+  // so keywords from both rows can be matched.
+  const prevRow = config.headerRows > 0 ? rawData[config.headerRows - 1] : null;
+  const mergedHeaders = headerRow.map((cell: string, i: number) => {
+    const cur = String(cell || '').trim();
+    const prev = prevRow ? String(prevRow[i] || '').trim() : '';
+    // Combine: prefer current row's text, append previous row's text if different
+    if (cur && prev && cur !== prev) return prev + cur;
+    return cur || prev;
+  });
+
   // Step 3: Match column headers to standard fields
-  const colIndex = matchColumns(headerRow, config.columnMapping);
+  const colIndex = matchColumns(mergedHeaders, config.columnMapping);
 
   // Validate: need at least date and one of debit/credit
   const hasDate = colIndex.has('date');
@@ -71,7 +82,8 @@ export async function parseWithConfig(file: File, config: BankParserConfig): Pro
   const transactions: BankTransaction[] = [];
   const errors: Array<{ row: number; message: string }> = [];
 
-  for (let i = config.headerRows + 1; i < rawData.length; i++) {
+  const dataStart = config.dataStartRow != null ? config.dataStartRow : config.headerRows + 1;
+  for (let i = dataStart; i < rawData.length; i++) {
     const row = rawData[i];
     if (!row || row.every(c => !String(c || '').trim())) continue; // skip empty rows
 

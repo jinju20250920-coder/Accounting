@@ -41,3 +41,21 @@ export function getAllConfigsWithCustom(customConfigs?: CustomBankConfig[]): Ban
 export function getBankList(): Array<{ id: string; name: string }> {
   return builtInConfigs.map(c => ({ id: c.id, name: c.name }));
 }
+
+/** Bank brand colors and short identifiers for visual display */
+export const BANK_BRANDS: Record<string, { color: string; short: string }> = {
+  ccb:        { color: '#003DA6', short: '建行' },
+  icbc:       { color: '#C50019', short: '工行' },
+  abc:        { color: '#008C50', short: '农行' },
+  boc:        { color: '#C50019', short: '中行' },
+  cmb:        { color: '#CC1931', short: '招行' },
+  bocom:      { color: '#003399', short: '交行' },
+  citic:      { color: '#E60012', short: '中信' },
+  spdb:       { color: '#003399', short: '浦发' },
+  cmbc:       { color: '#00A651', short: '民生' },
+  industrial: { color: '#003399', short: '兴业' },
+  czb:        { color: '#E60012', short: '浙商' },
+  pingan:     { color: '#FA6400', short: '平安' },
+  huaxia:     { color: '#E60012', short: '华夏' },
+  shanghai:   { color: '#003DA6', short: '上海' },
+};
