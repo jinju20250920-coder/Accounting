@@ -648,14 +648,24 @@ export default function VoucherListPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 sticky top-0">
-                    <tr>
-                      <th className="text-left p-3 border-b w-12 no-print">
-                        <button
-                          onClick={toggleSelectAll}
-                          className="hover:text-blue-600"
-                        >
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+                  {/* Column widths */}
+                  <colgroup>
+                    <col style={{ width: '40px' }} />   {/* checkbox */}
+                    <col style={{ width: '110px' }} />   {/* 凭证号 */}
+                    <col style={{ width: '100px' }} />   {/* 日期 */}
+                    <col />                               {/* 摘要 (flex) */}
+                    <col style={{ width: '180px' }} />   {/* 科目 */}
+                    <col style={{ width: '120px' }} />   {/* 往来单位 */}
+                    <col style={{ width: '80px' }} />    {/* 状态 */}
+                    <col style={{ width: '110px' }} />   {/* 借方金额 */}
+                    <col style={{ width: '110px' }} />   {/* 贷方金额 */}
+                    <col style={{ width: '100px' }} />   {/* 操作 */}
+                  </colgroup>
+                  <thead className="bg-slate-50 sticky top-0 z-10">
+                    <tr className="border-b-2 border-slate-200">
+                      <th className="text-left py-3 px-2 no-print">
+                        <button onClick={toggleSelectAll} className="hover:text-blue-600">
                           {selectedVoucherIds.size === paginatedVouchers.length && paginatedVouchers.length > 0 ? (
                             <CheckSquare className="w-4 h-4" />
                           ) : (
@@ -663,33 +673,23 @@ export default function VoucherListPage() {
                           )}
                         </button>
                       </th>
-                      <th className="text-left p-3 border-b">
-                        <button
-                          className="flex items-center gap-1 hover:text-blue-600"
-                          onClick={() => toggleSort('voucherNo')}
-                        >
-                          凭证号
-                          <ArrowUpDown className="w-3 h-3" />
+                      <th className="text-left py-3 px-3 font-semibold text-slate-700">
+                        <button className="flex items-center gap-1 hover:text-blue-600" onClick={() => toggleSort('voucherNo')}>
+                          凭证号 <ArrowUpDown className="w-3 h-3" />
                         </button>
                       </th>
-                      <th className="text-left p-3 border-b">
-                        <button
-                          className="flex items-center gap-1 hover:text-blue-600"
-                          onClick={() => toggleSort('date')}
-                        >
-                          日期
-                          <ArrowUpDown className="w-3 h-3" />
+                      <th className="text-left py-3 px-3 font-semibold text-slate-700">
+                        <button className="flex items-center gap-1 hover:text-blue-600" onClick={() => toggleSort('date')}>
+                          日期 <ArrowUpDown className="w-3 h-3" />
                         </button>
                       </th>
-                      <th className="text-left p-3 border-b">摘要</th>
-                      <th className="text-left p-3 border-b">往来单位</th>
-                      <th className="text-left p-3 border-b">项目</th>
-                      <th className="text-left p-3 border-b">创建人</th>
-                      <th className="text-left p-3 border-b">创建时间</th>
-                      <th className="text-left p-3 border-b">状态</th>
-                      <th className="text-right p-3 border-b">借方合计</th>
-                      <th className="text-right p-3 border-b">贷方合计</th>
-                      <th className="text-center p-3 border-b no-print">操作</th>
+                      <th className="text-left py-3 px-3 font-semibold text-slate-700">摘要</th>
+                      <th className="text-left py-3 px-3 font-semibold text-slate-700">科目</th>
+                      <th className="text-left py-3 px-3 font-semibold text-slate-700">往来单位</th>
+                      <th className="text-center py-3 px-3 font-semibold text-slate-700">状态</th>
+                      <th className="text-right py-3 px-3 font-semibold text-slate-700">借方金额</th>
+                      <th className="text-right py-3 px-3 font-semibold text-slate-700">贷方金额</th>
+                      <th className="text-center py-3 px-3 font-semibold text-slate-700 no-print">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -697,141 +697,120 @@ export default function VoucherListPage() {
                       const debitTotal = voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
                       const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
 
+                      // Extract partner & project from entries
+                      const partnerNames = new Set<string>();
+                      const projectNames = new Set<string>();
+                      voucher.entries.forEach(entry => {
+                        if (entry.auxiliary?.customer) partnerNames.add(entry.auxiliary.customer);
+                        if (entry.auxiliary?.supplier) partnerNames.add(entry.auxiliary.supplier);
+                        if (entry.customerName) partnerNames.add(entry.customerName);
+                        if (entry.supplierName) partnerNames.add(entry.supplierName);
+                        if (entry.projectCode) projectNames.add(entry.projectCode);
+                        if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
+                      });
+                      const partnerText = Array.from(partnerNames).join('; ') || '';
+
+                      const entries = voucher.entries.filter(e => e.subjectCode || e.debit > 0 || e.credit > 0);
+                      const statusKey = voucher.status as keyof typeof statusConfig;
+
                       return (
                         <React.Fragment key={voucher.id}>
-                          {/* 凭证信息行 */}
-                          <tr className="bg-slate-50 font-medium">
-                            <td className="p-3 border-b no-print">
-                              <button
-                                onClick={() => toggleSelectVoucher(voucher.id)}
-                                className="hover:text-blue-600"
-                              >
+                          {/* 凭证主行 */}
+                          <tr className="bg-white hover:bg-blue-50/30 border-b border-slate-100">
+                            <td className="py-3 px-2 no-print">
+                              <button onClick={() => toggleSelectVoucher(voucher.id)} className="hover:text-blue-600">
                                 {selectedVoucherIds.has(voucher.id) ? (
-                                  <CheckSquare className="w-4 h-4" />
+                                  <CheckSquare className="w-4 h-4 text-blue-600" />
                                 ) : (
                                   <Square className="w-4 h-4" />
                                 )}
                               </button>
                             </td>
-                            <td className="p-3 border-b font-mono text-blue-600">
-                              <button
-                                className="hover:underline"
-                                onClick={() => handleView(voucher)}
-                              >
+                            <td className="py-3 px-3 font-mono">
+                              <button className="text-blue-600 hover:underline font-semibold" onClick={() => handleView(voucher)}>
                                 {voucher.voucherNo}
                               </button>
                             </td>
-                            <td className="p-3 border-b">{voucher.date}</td>
-                            <td className="p-3 border-b truncate max-w-xs">{voucher.summary || '-'}</td>
-                            <td className="p-3 border-b text-xs">
-                              {(() => {
-                                // 提取往来单位
-                                const partnerNames = new Set<string>();
-                                voucher.entries.forEach(entry => {
-                                  if (entry.auxiliary?.customer) partnerNames.add(entry.auxiliary.customer);
-                                  if (entry.auxiliary?.supplier) partnerNames.add(entry.auxiliary.supplier);
-                                  if (entry.customerName) partnerNames.add(entry.customerName);
-                                  if (entry.supplierName) partnerNames.add(entry.supplierName);
-                                });
-                                return Array.from(partnerNames).join('; ') || '-';
-                              })()}
+                            <td className="py-3 px-3 text-slate-700">{voucher.date}</td>
+                            <td className="py-3 px-3">
+                              <span className="block truncate" title={voucher.summary || ''}>
+                                {voucher.summary || '-'}
+                              </span>
                             </td>
-                            <td className="p-3 border-b text-xs">
-                              {(() => {
-                                // 提取项目
-                                const projectNames = new Set<string>();
-                                voucher.entries.forEach(entry => {
-                                  if (entry.projectCode) projectNames.add(entry.projectCode);
-                                  if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
-                                });
-                                return Array.from(projectNames).join('; ') || '-';
-                              })()}
+                            <td className="py-3 px-3 text-slate-400 text-xs">{entries.length} 条分录</td>
+                            <td className="py-3 px-3">
+                              <span className="block truncate" title={partnerText}>
+                                {partnerText || <span className="text-slate-300">-</span>}
+                              </span>
                             </td>
-                            <td className="p-3 border-b text-xs">{voucher.createdBy || '-'}</td>
-                            <td className="p-3 border-b text-xs">{voucher.createTime ? new Date(voucher.createTime).toLocaleString('zh-CN') : '-'}</td>
-                            <td className="p-3 border-b">
-                              <Badge className={statusConfig[voucher.status as keyof typeof statusConfig].color}>
-                                {statusConfig[voucher.status as keyof typeof statusConfig].label}
+                            <td className="py-3 px-3 text-center">
+                              <Badge className={`${statusConfig[statusKey].color} text-xs`}>
+                                {statusConfig[statusKey].label}
                               </Badge>
                             </td>
-                            <td className="p-3 border-b text-right font-mono">
-                              {debitTotal.toFixed(2)}
+                            <td className="py-3 px-3 text-right font-mono text-slate-800">
+                              {debitTotal > 0 ? debitTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : ''}
                             </td>
-                            <td className="p-3 border-b text-right font-mono">
-                              {creditTotal.toFixed(2)}
+                            <td className="py-3 px-3 text-right font-mono text-slate-800">
+                              {creditTotal > 0 ? creditTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : ''}
                             </td>
-                            <td className="p-3 border-b text-center no-print">
-                              <div className="flex justify-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleView(voucher)}
-                                  title="查看"
-                                >
-                                  <Eye className="w-4 h-4" />
+                            <td className="py-3 px-3 text-center no-print">
+                              <div className="flex justify-center items-center gap-0.5">
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleView(voucher)} title="查看">
+                                  <Eye className="w-3.5 h-3.5" />
                                 </Button>
                                 {(voucher.status === 'draft' || voucher.status === 'review') && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleEdit(voucher)}
-                                    title="编辑"
-                                  >
-                                    <Edit className="w-4 h-4" />
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleEdit(voucher)} title="编辑">
+                                    <Edit className="w-3.5 h-3.5" />
                                   </Button>
                                 )}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleCopy(voucher)}
-                                  title="复制"
-                                >
-                                  <Copy className="w-4 h-4" />
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(voucher)} title="复制">
+                                  <Copy className="w-3.5 h-3.5" />
                                 </Button>
                                 {(voucher.status === 'draft' || voucher.status === 'review') && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleDelete(voucher)}
-                                    title="删除"
-                                  >
-                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(voucher)} title="删除">
+                                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
                                   </Button>
                                 )}
                               </div>
                             </td>
                           </tr>
 
-                          {/* 凭证明细行 */}
-                          {voucher.entries
-                            .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
-                            .map((entry) => (
-                              <tr key={`${voucher.id}_${entry.id}`} className="hover:bg-slate-100">
-                                <td className="p-3 border-b no-print"></td>
-                                <td className="p-3 border-b pl-6" colSpan={4}>{entry.summary || '-'}</td>
-                                <td className="p-3 border-b font-mono">{entry.subjectCode || '-'}</td>
-                                <td className="p-3 border-b">{entry.subjectName || '-'}</td>
-                                <td className="p-3 border-b text-xs">
-                                  {(() => {
-                                    const partner = entry.auxiliary?.customer || entry.auxiliary?.supplier || entry.customerName || entry.supplierName;
-                                    return partner || '-';
-                                  })()}
+                          {/* 凭证分录明细行 */}
+                          {entries.map((entry) => {
+                            const entryPartner = entry.auxiliary?.customer || entry.auxiliary?.supplier || entry.customerName || entry.supplierName || '';
+                            return (
+                              <tr key={`${voucher.id}_${entry.id}`} className="bg-slate-50/60 border-b border-slate-100 hover:bg-slate-100/60">
+                                <td className="py-2 px-2 no-print"></td>
+                                <td className="py-2 px-3"></td>
+                                <td className="py-2 px-3"></td>
+                                <td className="py-2 px-3 pl-8">
+                                  <span className="block truncate text-slate-500 text-xs" title={entry.summary || ''}>
+                                    {entry.summary || '-'}
+                                  </span>
                                 </td>
-                                <td className="p-3 border-b text-xs">
-                                  {entry.projectCode || entry.auxiliary?.project || '-'}
+                                <td className="py-2 px-3">
+                                  <span className="block truncate" title={`${entry.subjectCode || ''} ${entry.subjectName || ''}`}>
+                                    <span className="font-mono text-blue-500 text-xs">{entry.subjectCode}</span>
+                                    <span className="text-slate-600 text-xs ml-1">{entry.subjectName}</span>
+                                  </span>
                                 </td>
-                                <td className="p-3 border-b"></td>
-                                <td className="p-3 border-b"></td>
-                                <td className="p-3 border-b"></td>
-                                <td className="p-3 border-b text-right font-mono">
-                                  {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
+                                <td className="py-2 px-3">
+                                  <span className="block truncate text-slate-500 text-xs" title={entryPartner}>
+                                    {entryPartner || ''}
+                                  </span>
                                 </td>
-                                <td className="p-3 border-b text-right font-mono">
-                                  {entry.credit > 0 ? entry.credit.toFixed(2) : ''}
+                                <td className="py-2 px-3"></td>
+                                <td className="py-2 px-3 text-right font-mono text-slate-600">
+                                  {entry.debit > 0 ? entry.debit.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : ''}
                                 </td>
-                                <td className="p-3 border-b no-print"></td>
+                                <td className="py-2 px-3 text-right font-mono text-slate-600">
+                                  {entry.credit > 0 ? entry.credit.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : ''}
+                                </td>
+                                <td className="py-2 px-3 no-print"></td>
                               </tr>
-                            ))}
+                            );
+                          })}
                         </React.Fragment>
                       );
                     })}
