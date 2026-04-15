@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { getCurrentManager } from '@/lib/database';
+import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from './useAccountSetStore';
 import { usePartnerStore } from './usePartnerStore';
 import type {
@@ -60,6 +60,16 @@ interface InvoiceStore {
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
+// 获取当前账套的数据库实例（统一使用 sqliteService）
+async function getDb() {
+  const accountSetId = useAccountSetStore.getState().currentAccountSetId;
+  if (!accountSetId) throw new Error('请先选择账套');
+  sqliteService.setAccountSetId(accountSetId);
+  const db = await sqliteService.getDatabase();
+  if (!db) throw new Error('数据库未初始化');
+  return db;
+}
+
 export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 初始状态
   invoices: [],
@@ -71,13 +81,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 添加发票
   addInvoice: async (invoiceData) => {
-    const manager = await getCurrentManager();
-    await manager.init();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
-
-    const accountSetId = useAccountSetStore.getState().currentAccountSetId;
-    if (!accountSetId) throw new Error('请先选择账套');
+    const db = await getDb();
+    const accountSetId = useAccountSetStore.getState().currentAccountSetId!;
 
     const now = new Date().toISOString();
     const invoice: Invoice = {
@@ -113,10 +118,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 更新发票
   updateInvoice: async (id, updates) => {
-    const manager = await getCurrentManager();
-    await manager.init();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
+    const db = await getDb();
 
     const now = new Date().toISOString();
     const updateFields = { ...updates, updateTime: now };
@@ -138,10 +140,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 删除发票
   deleteInvoice: async (id) => {
-    const manager = await getCurrentManager();
-    await manager.init();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
+    const db = await getDb();
 
     // 先删除相关的核销记录
     let stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE invoiceId = ?');
@@ -185,16 +184,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       }
 
       // 使用 sqliteService 确保数据库表结构已迁移
-      const { sqliteService } = await import('@/lib/database/sqlite-service');
-
-      // 先设置账套ID，再获取数据库（这样迁移会使用正确的账套上下文）
-      sqliteService.setAccountSetId(accountSetId);
-
-      const db = await sqliteService.getDatabase();
-      if (!db) {
-        errors.push('数据库未初始化');
-        return { success, errors };
-      }
+      const db = await getDb();
 
       console.log('Invoice import: Database initialized, accountSetId:', accountSetId);
 
@@ -362,10 +352,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 添加核销记录
   addReconciliation: async (recData) => {
-    const manager = await getCurrentManager();
-    await manager.init();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
+    const db = await getDb();
 
     const rec: InvoiceReconciliation = {
       ...recData,
@@ -404,10 +391,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 删除核销记录
   deleteReconciliation: async (id) => {
-    const manager = await getCurrentManager();
-    await manager.init();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
+    const db = await getDb();
 
     const rec = get().reconciliations.find((r) => r.id === id);
     if (rec) {
@@ -460,13 +444,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     }
 
     try {
-      const manager = await getCurrentManager();
-      await manager.init();
-      const db = manager.getDatabase();
-      if (!db) {
-        set({ error: '数据库未初始化' });
-        return null;
-      }
+      const db = await getDb();
 
       // 生成凭证号
       const yearMonth = voucherDate.substring(0, 7).replace('-', '');
@@ -595,10 +573,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 批量删除发票
   deleteInvoices: async (ids: string[]): Promise<{ success: number; errors: string[] }> => {
-    const manager = await getCurrentManager();
-    await manager.init();
-    const db = manager.getDatabase();
-    if (!db) throw new Error('数据库未初始化');
+    const db = await getDb();
 
     let success = 0;
     const errors: string[] = [];
@@ -749,22 +724,13 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      // 使用 sqliteService 确保数据库表结构已迁移
-      const { sqliteService } = await import('@/lib/database/sqlite-service');
-      const db = await sqliteService.getDatabase();
-      if (!db) {
-        set({ loading: false, invoices: [], reconciliations: [] });
-        return;
-      }
-
       const accountSetId = useAccountSetStore.getState().currentAccountSetId;
       if (!accountSetId) {
         set({ loading: false, invoices: [], reconciliations: [] });
         return;
       }
 
-      // 设置账套ID
-      sqliteService.setAccountSetId(accountSetId);
+      const db = await getDb();
 
       // 加载发票
       const invoiceResult = db.exec(
