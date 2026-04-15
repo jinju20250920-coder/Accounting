@@ -922,6 +922,9 @@ export default function InputInvoicePage() {
     const result = await generateInvoiceVoucher(invoiceId, invoice.invoiceDate);
     if (result) {
       showToast('success', `凭证 ${result.voucherNo} 已生成`);
+    } else {
+      const error = useInvoiceStore.getState().error;
+      showToast('error', error || '生成凭证失败');
     }
   };
 

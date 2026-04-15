@@ -468,7 +468,6 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       const now = new Date().toISOString();
 
       // 根据发票类型生成凭证分录
-      const docNo = invoice.invoiceCode; // 使用发票号码作为单据号
       const partnerName = invoice.invoiceType === 'input' ? invoice.sellerName : invoice.buyerName;
 
       // 准备分录数据
@@ -536,25 +535,30 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         }
       }
 
-      // 插入凭证
+      // 插入凭证（列名对应 vouchers 表：id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime）
+      const docNo = invoice.invoiceCode;
       let stmt = db.prepare(
-        `INSERT INTO vouchers (id, voucherNo, date, summary, status, voucherType, createdBy, createTime, accountSetId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vouchers (id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmt.run([voucherId, voucherNo, voucherDate, '', 'draft', 'general', '系统', now, accountSetId]);
+      stmt.run([voucherId, voucherNo, voucherDate, '', 'draft', '系统', docNo, accountSetId, now, now]);
       stmt.free();
 
-      // 插入分录
+      // 插入分录（列名对应 entries 表实际结构）
       for (let i = 0; i < entryData.length; i++) {
         const entry = entryData[i];
         const entryId = `${voucherId}-${i + 1}`;
-        const entryNo = `${voucherNo}-${i + 1}`;
+        const direction = entry.debit > 0 ? 'debit' : 'credit';
+
+        // 往来单位：销项用 customerName，进项用 supplierName
+        const customerName = invoice.invoiceType === 'output' ? partnerName : '';
+        const supplierName = invoice.invoiceType === 'input' ? partnerName : '';
 
         stmt = db.prepare(
-          `INSERT INTO entries (id, entryNo, voucherNo, voucherId, entryDate, summary, subjectCode, subjectName, debit, credit, partnerName, docNo, entryTime, writeOffFlag, correction, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, date, accountSetId, createTime, updateTime)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, entryNo, voucherNo, voucherId, voucherDate, entry.summary, entry.subjectCode, entry.subjectName, entry.debit, entry.credit, partnerName, docNo, now, false, false, accountSetId]);
+        stmt.run([entryId, voucherId, entry.subjectCode, entry.subjectName, direction, entry.debit, entry.credit, entry.summary, customerName, supplierName, voucherDate, accountSetId, now, now]);
         stmt.free();
       }
 
