@@ -771,10 +771,6 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         `SELECT * FROM invoices WHERE accountSetId = '${accountSetId}' ORDER BY invoiceDate DESC, createTime DESC`
       );
 
-      console.log('[InvoiceStore.initialize] accountSetId:', accountSetId,
-        'invoiceResult tables:', invoiceResult.length,
-        invoiceResult.length > 0 ? `rows: ${invoiceResult[0].values?.length || 0}` : 'no data');
-
       const invoices: Invoice[] = [];
       if (invoiceResult.length > 0 && invoiceResult[0].values) {
         const columns = invoiceResult[0].columns;
@@ -786,10 +782,6 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           invoices.push(invoice as Invoice);
         }
       }
-
-      console.log('[InvoiceStore.initialize] Loaded', invoices.length, 'invoices',
-        invoices.length > 0 ? `types: ${[...new Set(invoices.map(i => i.invoiceType))].join(',')}` : '',
-        invoices.length > 0 ? `date range: ${invoices[invoices.length-1]?.invoiceDate} ~ ${invoices[0]?.invoiceDate}` : '');
 
       // 加载核销记录
       const recResult = db.exec(

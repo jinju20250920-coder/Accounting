@@ -683,7 +683,7 @@ export default function OutputInvoicePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
   const [voucherStatusFilter, setVoucherStatusFilter] = useState<string>('all');
-  const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => getCurrentYearRange());
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
