@@ -730,7 +730,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const state = get();
     const voucher = state.vouchers.find(v => v.id === voucherId);
 
-    if (!voucher || voucher.status === 'posted') return;
+    if (!voucher) return;
 
     const now = new Date().toISOString();
     const newId = Date.now().toString();
@@ -738,17 +738,19 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     // 生成新凭证号
     const voucherNo = await generateVoucherNo(voucher.date);
 
-    // Create copy with new ID
+    // Create copy with new ID and regenerated entry IDs
     const copiedVoucher: Voucher = {
       ...voucher,
       id: newId,
       voucherNo,
-      summary: voucher.summary + ' (副本)',
+      summary: voucher.summary ? voucher.summary + ' (副本)' : '(副本)',
       status: 'draft',
       createTime: now,
       updateTime: now,
-      entries: voucher.entries.map(entry => ({
-        ...entry
+      entries: voucher.entries.map((entry, idx) => ({
+        ...entry,
+        id: `${newId}_e${idx}`,
+        voucherId: newId,
       }))
     };
 
