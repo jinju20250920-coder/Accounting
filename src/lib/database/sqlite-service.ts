@@ -53,6 +53,8 @@ class SQLiteService {
 
   // 设置当前账套ID
   setAccountSetId(accountSetId: string) {
+    // 如果 ID 没变，不做任何操作，避免不必要地清空 dbInstance
+    if (this._accountSetId === accountSetId) return;
     this._accountSetId = accountSetId;
     this._usingAccountSetDb = (accountSetId !== 'default');
     this.dbInstance = null; // 清除缓存的数据库实例
