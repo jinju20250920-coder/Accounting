@@ -663,7 +663,11 @@ export default function OutputInvoicePage() {
     generateInvoiceVouchers,
   } = useInvoiceStore();
 
-  // 获取当月日期范围
+  // 获取当年日期范围（默认显示全年，避免过滤掉非当月发票）
+  const getCurrentYearRange = () => {
+    const year = new Date().getFullYear();
+    return { start: `${year}-01-01`, end: `${year}-12-31` };
+  };
   const getCurrentMonthRange = () => {
     const now = new Date();
     const year = now.getFullYear();
@@ -679,7 +683,7 @@ export default function OutputInvoicePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
   const [voucherStatusFilter, setVoucherStatusFilter] = useState<string>('all');
-  const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => getCurrentMonthRange());
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => getCurrentYearRange());
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);

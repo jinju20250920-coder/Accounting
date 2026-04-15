@@ -22,7 +22,9 @@ import {
   TrendingDown,
   Building2,
   CheckCircle,
+  ArrowRight,
 } from 'lucide-react';
+import Link from 'next/link';
 import type { InvoiceSummaryItem } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -404,6 +406,7 @@ export default function InvoiceSummaryPage() {
                   <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">进项凭证</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">销项凭证</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">状态</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -411,6 +414,8 @@ export default function InvoiceSummaryPage() {
                   const inputComplete = item.inputInvoiceCount === 0 || item.hasVoucherInputCount === item.inputInvoiceCount;
                   const outputComplete = item.outputInvoiceCount === 0 || item.hasVoucherOutputCount === item.outputInvoiceCount;
                   const allComplete = inputComplete && outputComplete;
+                  const hasInput = item.inputInvoiceCount > 0;
+                  const hasOutput = item.outputInvoiceCount > 0;
 
                   return (
                     <tr key={idx} className="border-t hover:bg-slate-50">
@@ -431,6 +436,26 @@ export default function InvoiceSummaryPage() {
                           <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
                             待处理
                           </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {!allComplete && (
+                          <div className="flex justify-center gap-2">
+                            {hasInput && !inputComplete && (
+                              <Link href="/invoices/input">
+                                <Button variant="outline" size="sm" className="h-6 text-xs">
+                                  进项 <ArrowRight className="h-3 w-3 ml-1" />
+                                </Button>
+                              </Link>
+                            )}
+                            {hasOutput && !outputComplete && (
+                              <Link href="/invoices/output">
+                                <Button variant="outline" size="sm" className="h-6 text-xs">
+                                  销项 <ArrowRight className="h-3 w-3 ml-1" />
+                                </Button>
+                              </Link>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
