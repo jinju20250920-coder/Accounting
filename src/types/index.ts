@@ -1043,6 +1043,33 @@ export interface InvoiceReconciliation {
   createTime: string;               // 创建时间
 }
 
+// 发票科目映射规则（关键词匹配）
+export interface InvoiceSubjectRule {
+  id: string;
+  accountSetId: string;
+  name: string;                     // 规则名称（如"差旅费"）
+  keywords: string[];               // 匹配关键词（goodsName 子串匹配，任一命中即可）
+  invoiceType: 'input' | 'output' | 'both';
+  matchTaxRate?: number;            // 可选税率匹配（如 0.13, 0.09, 0.06），不填则忽略税率
+  // 进项科目覆盖（可选，不填用默认）
+  inputDebitSubject?: string;       // 进项-借方科目代码（如 6602，覆盖默认的材料采购）
+  inputDebitSubjectName?: string;
+  inputTaxSubject?: string;         // 进项-进项税科目（如 222101）
+  inputTaxSubjectName?: string;
+  inputCreditSubject?: string;      // 进项-贷方科目代码（如 2241其他应付款）
+  inputCreditSubjectName?: string;
+  // 销项科目覆盖（可选，不填用默认）
+  outputDebitSubject?: string;      // 销项-借方科目（如 1122）
+  outputDebitSubjectName?: string;
+  outputCreditSubject?: string;     // 销项-贷方科目-收入（如 6002）
+  outputCreditSubjectName?: string;
+  outputTaxSubject?: string;        // 销项-销项税（如 222102）
+  outputTaxSubjectName?: string;
+  priority: number;                 // 数字越大越优先，默认 0
+  createTime: string;
+  updateTime: string;
+}
+
 // 发票筛选条件
 export interface InvoiceFilter {
   invoiceType?: InvoiceType;

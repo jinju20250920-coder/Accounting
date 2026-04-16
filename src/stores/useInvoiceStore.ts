@@ -424,7 +424,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     return get().reconciliations.filter((rec) => rec.invoiceId === invoiceId);
   },
 
-  // 生成发票凭证
+  // 生成发票凭证（模板引擎 + 关键词科目映射 + 科目自动创建）
   generateInvoiceVoucher: async (invoiceId, voucherDate) => {
     const invoice = get().getInvoiceById(invoiceId);
     if (!invoice) {
@@ -446,96 +446,133 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     try {
       const db = await getDb();
 
-      // 生成凭证号
-      const yearMonth = voucherDate.substring(0, 7).replace('-', '');
+      // 1. 从 SQLite 读取关键词科目映射规则
+      sqliteService.setAccountSetId(accountSetId);
+      const rules = await sqliteService.getInvoiceSubjectRules();
 
-      // 查询当月已有凭证号
+      // 2. 匹配规则：用 goodsName 匹配 keywords，取 priority 最高的
+      const goodsName = (invoice.goodsName || '').toLowerCase();
+      let matchedRule: any = null;
+      let bestPriority = -1;
+      let bestMatchLen = 0;
+
+      for (const rule of rules) {
+        // 检查发票类型是否匹配
+        if (rule.invoiceType !== 'both' && rule.invoiceType !== invoice.invoiceType) continue;
+        // 检查税率是否匹配（如果规则指定了税率）
+        if (rule.matchTaxRate != null && invoice.taxRate != null) {
+          if (Math.abs(rule.matchTaxRate - invoice.taxRate) > 0.001) continue;
+        }
+        // 检查关键词是否命中
+        const keywords: string[] = rule.keywords || [];
+        for (const kw of keywords) {
+          if (goodsName.includes(kw.toLowerCase())) {
+            if (rule.priority > bestPriority || (rule.priority === bestPriority && kw.length > bestMatchLen)) {
+              matchedRule = rule;
+              bestPriority = rule.priority;
+              bestMatchLen = kw.length;
+            }
+            break;
+          }
+        }
+      }
+
+      // 3. 构造科目覆盖（entry_id → {code, name}）
+      const isInput = invoice.invoiceType === 'input';
+      const subjectOverrides: Record<string, { code: string; name: string }> = {};
+
+      if (matchedRule) {
+        if (isInput) {
+          if (matchedRule.inputDebitSubject) subjectOverrides['entry_1'] = { code: matchedRule.inputDebitSubject, name: matchedRule.inputDebitSubjectName || '' };
+          if (matchedRule.inputTaxSubject) subjectOverrides['entry_2'] = { code: matchedRule.inputTaxSubject, name: matchedRule.inputTaxSubjectName || '' };
+          if (matchedRule.inputCreditSubject) subjectOverrides['entry_3'] = { code: matchedRule.inputCreditSubject, name: matchedRule.inputCreditSubjectName || '' };
+        } else {
+          if (matchedRule.outputDebitSubject) subjectOverrides['entry_1'] = { code: matchedRule.outputDebitSubject, name: matchedRule.outputDebitSubjectName || '' };
+          if (matchedRule.outputCreditSubject) subjectOverrides['entry_2'] = { code: matchedRule.outputCreditSubject, name: matchedRule.outputCreditSubjectName || '' };
+          if (matchedRule.outputTaxSubject) subjectOverrides['entry_3'] = { code: matchedRule.outputTaxSubject, name: matchedRule.outputTaxSubjectName || '' };
+        }
+      }
+
+      // 4. 科目自动创建（不存在的科目自动添加到 subjects 表）
+      const { useSubjectStore } = await import('./useSubjectStore');
+      const subjects = useSubjectStore.getState().subjects;
+      const existingCodes = new Set(subjects.map(s => s.code));
+
+      for (const [, val] of Object.entries(subjectOverrides)) {
+        if (!val.code || existingCodes.has(val.code)) continue;
+        // 根据代码首位判断方向
+        const firstDigit = val.code.charAt(0);
+        const direction = ('245').includes(firstDigit) ? 'credit' : 'debit';
+        // 查找父科目
+        let parentId: string | null = null;
+        if (val.code.length > 1) {
+          // 逐步缩短找父科目
+          for (let len = val.code.length - 1; len >= 1; len--) {
+            const parentCode = val.code.substring(0, len);
+            const parent = subjects.find(s => s.code === parentCode);
+            if (parent) {
+              parentId = parent.id;
+              break;
+            }
+          }
+        }
+        await useSubjectStore.getState().addSubject({
+          code: val.code,
+          name: val.name || val.code,
+          parentId,
+          level: val.code.length <= 3 ? 1 : val.code.length <= 4 ? 2 : 3,
+          direction,
+          enableDept: false,
+          enableProject: false,
+          enableForeign: false,
+          isCustomer: false,
+          isSupplier: false,
+          isEmployee: false,
+          enableCashFlow: false,
+          disabled: false,
+          block: false,
+        } as any);
+        existingCodes.add(val.code);
+      }
+
+      // 5. 调用模板引擎
+      const { templateEngine } = await import('@/lib/template-engine');
+      const templateId = isInput ? 'tpl_purchase_invoice' : 'tpl_sale_invoice';
+      const inputData = {
+        total_amount: invoice.totalAmount,
+        tax_amount: invoice.taxAmount || 0,
+        base_amount: invoice.amount,
+        partner_name: isInput ? invoice.sellerName : invoice.buyerName,
+        invoice_date: invoice.invoiceDate,
+        invoice_no: invoice.invoiceCode,
+      };
+
+      const tplResult = templateEngine.generateVoucherWithOverrides(templateId, inputData, subjectOverrides);
+
+      if (!tplResult.success || !tplResult.voucher) {
+        set({ error: tplResult.errors?.join('; ') || '模板引擎生成失败' });
+        return null;
+      }
+
+      // 6. 生成凭证号
+      const yearMonth = voucherDate.substring(0, 7).replace('-', '');
       let nextSeq = 1;
-      const result = db.exec(
+      const seqResult = db.exec(
         `SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1`,
         [accountSetId, `记-${yearMonth}-%`]
       );
-      if (result.length > 0 && result[0].values.length > 0) {
-        const lastNo = result[0].values[0][0] as string;
+      if (seqResult.length > 0 && seqResult[0].values.length > 0) {
+        const lastNo = seqResult[0].values[0][0] as string;
         const match = lastNo.match(/(\d+)$/);
-        if (match) {
-          nextSeq = parseInt(match[1], 10) + 1;
-        }
+        if (match) nextSeq = parseInt(match[1], 10) + 1;
       }
 
       const voucherNo = `记-${yearMonth}-${nextSeq.toString().padStart(4, '0')}`;
       const voucherId = generateId();
       const now = new Date().toISOString();
+      const partnerName = isInput ? invoice.sellerName : invoice.buyerName;
 
-      // 根据发票类型生成凭证分录
-      const partnerName = invoice.invoiceType === 'input' ? invoice.sellerName : invoice.buyerName;
-
-      // 准备分录数据
-      const entryData: Array<{
-        subjectCode: string;
-        subjectName: string;
-        debit: number;
-        credit: number;
-        summary: string;
-      }> = [];
-
-      if (invoice.invoiceType === 'input') {
-        // 进项发票凭证模板
-        entryData.push({
-          subjectCode: '1401',
-          subjectName: '材料采购',
-          debit: invoice.amount,
-          credit: 0,
-          summary: `采购${invoice.goodsName || '商品'} - ${invoice.sellerName}`,
-        });
-
-        if (invoice.taxAmount && invoice.taxAmount > 0) {
-          entryData.push({
-            subjectCode: '222101',
-            subjectName: '应交税费-进项税额',
-            debit: invoice.taxAmount,
-            credit: 0,
-            summary: `进项税额 - ${invoice.invoiceCode}`,
-          });
-        }
-
-        entryData.push({
-          subjectCode: '2202',
-          subjectName: '应付账款',
-          debit: 0,
-          credit: invoice.totalAmount,
-          summary: `应付${invoice.sellerName} - ${invoice.invoiceCode}`,
-        });
-      } else {
-        // 销项发票凭证模板
-        entryData.push({
-          subjectCode: '1122',
-          subjectName: '应收账款',
-          debit: invoice.totalAmount,
-          credit: 0,
-          summary: `应收${invoice.buyerName} - ${invoice.invoiceCode}`,
-        });
-
-        entryData.push({
-          subjectCode: '6001',
-          subjectName: '主营业务收入',
-          debit: 0,
-          credit: invoice.amount,
-          summary: `销售${invoice.goodsName || '商品'} - ${invoice.invoiceCode}`,
-        });
-
-        if (invoice.taxAmount && invoice.taxAmount > 0) {
-          entryData.push({
-            subjectCode: '222102',
-            subjectName: '应交税费-销项税额',
-            debit: 0,
-            credit: invoice.taxAmount,
-            summary: `销项税额 - ${invoice.invoiceCode}`,
-          });
-        }
-      }
-
-      // 插入凭证（列名对应 vouchers 表：id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime）
+      // 7. INSERT 凭证
       const docNo = invoice.invoiceCode;
       let stmt = db.prepare(
         `INSERT INTO vouchers (id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime)
@@ -544,25 +581,29 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       stmt.run([voucherId, voucherNo, voucherDate, '', 'draft', '系统', docNo, accountSetId, now, now]);
       stmt.free();
 
-      // 插入分录（列名对应 entries 表实际结构）
-      for (let i = 0; i < entryData.length; i++) {
-        const entry = entryData[i];
+      // 8. INSERT 分录（从模板引擎输出转换）
+      const tplEntries = tplResult.voucher.entries;
+      for (let i = 0; i < tplEntries.length; i++) {
+        const entry = tplEntries[i];
         const entryId = `${voucherId}-${i + 1}`;
         const direction = entry.debit > 0 ? 'debit' : 'credit';
+        const customerName = isInput ? '' : partnerName;
+        const supplierName = isInput ? partnerName : '';
 
-        // 往来单位：销项用 customerName，进项用 supplierName
-        const customerName = invoice.invoiceType === 'output' ? partnerName : '';
-        const supplierName = invoice.invoiceType === 'input' ? partnerName : '';
+        // 跳过税额为 0 的税分录
+        if (entry.debit === 0 && entry.credit === 0) continue;
 
         stmt = db.prepare(
           `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, date, accountSetId, createTime, updateTime)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, entry.subjectCode, entry.subjectName, direction, entry.debit, entry.credit, entry.summary, customerName, supplierName, voucherDate, accountSetId, now, now]);
+        stmt.run([entryId, voucherId, entry.subjectCode, entry.subjectName, direction,
+          entry.debit, entry.credit, entry.summary,
+          customerName, supplierName, voucherDate, accountSetId, now, now]);
         stmt.free();
       }
 
-      // 更新发票的凭证信息
+      // 9. 更新发票的凭证信息
       await get().updateInvoice(invoiceId, {
         voucherId,
         voucherNo,

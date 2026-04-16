@@ -4,10 +4,11 @@
  */
 
 // 模板类型定义
-interface VoucherTemplate {
+export interface VoucherTemplate {
   id: string;
   name: string;
   triggerType: string; // 触发类型：'invoice_import', 'bank_statement', 'tax_statement' 等
+  invoiceType?: 'input' | 'output'; // 发票类型（用于发票模板）
   description?: string;
   isSystem: boolean; // 系统内置模板不可修改
   entries: TemplateEntry[];
@@ -16,7 +17,7 @@ interface VoucherTemplate {
 }
 
 // 模板分录定义
-interface TemplateEntry {
+export interface TemplateEntry {
   id: string;
   subject: string;
   subjectName?: string;
@@ -27,14 +28,14 @@ interface TemplateEntry {
 }
 
 // 模板验证规则
-interface TemplateValidation {
+export interface TemplateValidation {
   field: string;
   condition: string; // 如：'required', 'mustExist', 'numeric'
   message: string;
 }
 
 // 变量定义
-interface VariableDefinition {
+export interface VariableDefinition {
   name: string;
   type: 'number' | 'string' | 'date';
   source: 'extracted' | 'calculated' | 'constant';
@@ -43,7 +44,7 @@ interface VariableDefinition {
 }
 
 // 输入数据
-interface InputData {
+export interface InputData {
   [key: string]: any;
   total_amount?: number;
   tax_amount?: number;
@@ -55,7 +56,7 @@ interface InputData {
 }
 
 // 公式解释器
-class FormulaInterpreter {
+export class FormulaInterpreter {
   /**
    * 计算公式值
    */
@@ -152,6 +153,7 @@ export class TemplateEngine {
         id: 'tpl_sale_invoice',
         name: '销售发票确认收入',
         triggerType: 'invoice_import',
+        invoiceType: 'output',
         isSystem: true,
         description: '销售发票自动生成收入凭证',
         variables: [
@@ -218,6 +220,7 @@ export class TemplateEngine {
         id: 'tpl_purchase_invoice',
         name: '采购发票确认成本',
         triggerType: 'invoice_import',
+        invoiceType: 'input',
         isSystem: true,
         description: '采购发票自动生成成本凭证',
         variables: [
@@ -389,6 +392,77 @@ export class TemplateEngine {
   }
 
   /**
+   * 生成凭证（支持科目覆盖）
+   * subjectOverrides: key = entry.id, value = { code, name }
+   */
+  generateVoucherWithOverrides(
+    templateId: string,
+    inputData: InputData,
+    subjectOverrides?: Record<string, { code: string; name: string }>
+  ): {
+    success: boolean;
+    voucher?: any;
+    errors?: string[];
+    warnings?: string[];
+  } {
+    const template = this.getTemplateById(templateId);
+    if (!template) {
+      return { success: false, errors: ['模板不存在'] };
+    }
+
+    // 验证输入数据
+    const validationResult = this.validateInput(template, inputData);
+    if (!validationResult.valid) {
+      return { success: false, errors: validationResult.errors };
+    }
+
+    // 计算分录（应用科目覆盖）
+    const entries = this.calculateEntries(template, inputData, subjectOverrides);
+
+    // 检查借贷是否平衡
+    const totalDebit = entries
+      .filter(e => e.direction === 'debit')
+      .reduce((sum, e) => sum + e.amount, 0);
+    const totalCredit = entries
+      .filter(e => e.direction === 'credit')
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      return { success: false, errors: [`借贷不平衡: 借方${totalDebit.toFixed(2)} 贷方${totalCredit.toFixed(2)}`] };
+    }
+
+    const partnerName = inputData.partner_name || '';
+
+    const voucher = {
+      id: generateId(),
+      voucherNo: `自动-${Date.now()}`,
+      date: inputData.invoice_date || new Date().toISOString().split('T')[0],
+      summary: template.name,
+      entries: entries.map(entry => ({
+        id: generateId(),
+        voucherId: '',
+        date: voucher.date,
+        summary: entry.description,
+        subjectCode: entry.subject,
+        subjectName: entry.subjectName,
+        debit: entry.direction === 'debit' ? entry.amount : 0,
+        credit: entry.direction === 'credit' ? entry.amount : 0,
+      })),
+      partnerName,
+      status: 'draft',
+      voucherType: 'auto',
+      createdBy: 'system',
+      createdAt: new Date().toISOString()
+    };
+
+    return {
+      success: true,
+      voucher,
+      warnings: validationResult.warnings || []
+    };
+  }
+
+  /**
    * 生成凭证
    */
   generateVoucher(templateId: string, inputData: InputData): {
@@ -511,7 +585,11 @@ export class TemplateEngine {
   /**
    * 计算分录
    */
-  private calculateEntries(template: VoucherTemplate, data: InputData): Array<{
+  private calculateEntries(
+    template: VoucherTemplate,
+    data: InputData,
+    subjectOverrides?: Record<string, { code: string; name: string }>
+  ): Array<{
     subject: string;
     subjectName?: string;
     direction: 'debit' | 'credit';
@@ -521,11 +599,14 @@ export class TemplateEngine {
     return template.entries.map(entry => {
       const amount = FormulaInterpreter.evaluate(entry.formula, data);
 
+      // 应用科目覆盖
+      const override = subjectOverrides?.[entry.id];
+
       return {
-        subject: entry.subject,
-        subjectName: entry.subjectName,
+        subject: override?.code || entry.subject,
+        subjectName: override?.name || entry.subjectName,
         direction: entry.direction,
-        amount: Math.round(amount * 100) / 2, // 保留2位小数
+        amount: Math.round(amount * 100) / 100,
         description: entry.description
       };
     });

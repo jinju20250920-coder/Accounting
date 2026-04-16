@@ -713,6 +713,49 @@ class SQLiteService {
     } catch (e) {
       console.warn('custom_bank_configs migration warning:', e);
     }
+
+    // --- Migration: invoice_subject_rules ---
+    try {
+      const checkRules = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='invoice_subject_rules'"
+      );
+      if (!checkRules[0]?.values?.length) {
+        console.log('Migrating database: creating invoice_subject_rules table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS invoice_subject_rules (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            name TEXT NOT NULL,
+            keywords TEXT NOT NULL,
+            invoiceType TEXT NOT NULL,
+            matchTaxRate REAL,
+            inputDebitSubject TEXT,
+            inputDebitSubjectName TEXT,
+            inputTaxSubject TEXT,
+            inputTaxSubjectName TEXT,
+            inputCreditSubject TEXT,
+            inputCreditSubjectName TEXT,
+            outputDebitSubject TEXT,
+            outputDebitSubjectName TEXT,
+            outputCreditSubject TEXT,
+            outputCreditSubjectName TEXT,
+            outputTaxSubject TEXT,
+            outputTaxSubjectName TEXT,
+            priority INTEGER DEFAULT 0,
+            createTime TEXT,
+            updateTime TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_isr_accountSetId ON invoice_subject_rules(accountSetId);
+        `);
+        console.log('invoice_subject_rules table migration completed');
+      }
+      // 补充列：matchTaxRate（旧表可能没有）
+      try {
+        this.dbInstance.exec(`ALTER TABLE invoice_subject_rules ADD COLUMN matchTaxRate REAL`);
+      } catch {} // 列已存在则忽略
+    } catch (e) {
+      console.warn('invoice_subject_rules migration warning:', e);
+    }
   }
 
   /**
@@ -2361,6 +2404,55 @@ class SQLiteService {
   async deleteCustomBankConfig(id: string): Promise<void> {
     await this.ensureInitialized();
     this.dbInstance.exec(`DELETE FROM custom_bank_configs WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
+  }
+
+  // --- Invoice Subject Rules ---
+  async getInvoiceSubjectRules(): Promise<any[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM invoice_subject_rules WHERE accountSetId = ? ORDER BY priority DESC, name ASC`,
+      [this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return [];
+    const cols = result[0].columns;
+    return result[0].values.map((row: any[]) => {
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      // 解析 keywords JSON
+      try { obj.keywords = JSON.parse(obj.keywords); } catch { obj.keywords = []; }
+      return obj;
+    });
+  }
+
+  async saveInvoiceSubjectRule(rule: any): Promise<void> {
+    await this.ensureInitialized();
+    const keywords = typeof rule.keywords === 'string' ? rule.keywords : JSON.stringify(rule.keywords || []);
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO invoice_subject_rules
+        (id, accountSetId, name, keywords, invoiceType, matchTaxRate,
+         inputDebitSubject, inputDebitSubjectName, inputTaxSubject, inputTaxSubjectName,
+         inputCreditSubject, inputCreditSubjectName,
+         outputDebitSubject, outputDebitSubjectName, outputCreditSubject, outputCreditSubjectName,
+         outputTaxSubject, outputTaxSubjectName,
+         priority, createTime, updateTime)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [rule.id, rule.accountSetId, rule.name, keywords, rule.invoiceType,
+       rule.matchTaxRate != null ? rule.matchTaxRate : null,
+       rule.inputDebitSubject || null, rule.inputDebitSubjectName || null,
+       rule.inputTaxSubject || null, rule.inputTaxSubjectName || null,
+       rule.inputCreditSubject || null, rule.inputCreditSubjectName || null,
+       rule.outputDebitSubject || null, rule.outputDebitSubjectName || null,
+       rule.outputCreditSubject || null, rule.outputCreditSubjectName || null,
+       rule.outputTaxSubject || null, rule.outputTaxSubjectName || null,
+       rule.priority || 0, rule.createTime, rule.updateTime]
+    );
+    await this.persist();
+  }
+
+  async deleteInvoiceSubjectRule(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM invoice_subject_rules WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 }

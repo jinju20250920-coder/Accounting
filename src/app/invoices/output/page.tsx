@@ -34,8 +34,10 @@ import {
   AlertCircle,
   Download,
   Trash2,
+  Settings2,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { InvoiceSubjectConfigDialog } from '@/components/invoice-subject-config-dialog';
 import type { Invoice, InvoicePaymentStatus } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -685,6 +687,7 @@ export default function OutputInvoicePage() {
   const [voucherStatusFilter, setVoucherStatusFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showSubjectConfig, setShowSubjectConfig] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -865,6 +868,10 @@ export default function OutputInvoicePage() {
           <Button onClick={() => setShowImportDialog(true)}>
             <Upload className="h-4 w-4 mr-2" />
             导入Excel
+          </Button>
+          <Button variant="outline" onClick={() => setShowSubjectConfig(true)}>
+            <Settings2 className="h-4 w-4 mr-2" />
+            科目配置
           </Button>
         </div>
       </div>
@@ -1116,6 +1123,12 @@ export default function OutputInvoicePage() {
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
         onImport={handleImport}
+      />
+
+      {/* 科目配置 */}
+      <InvoiceSubjectConfigDialog
+        open={showSubjectConfig}
+        onOpenChange={setShowSubjectConfig}
       />
 
       {/* 详情对话框 */}
