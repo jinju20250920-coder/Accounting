@@ -60,8 +60,8 @@ CREATE TABLE invoice_smart_rules (
   id TEXT PRIMARY KEY,
   accountSetId TEXT NOT NULL,
   name TEXT NOT NULL,
+  invoiceType TEXT NOT NULL DEFAULT 'both',  -- 'input' | 'output' | 'both'，规则级别过滤
   priority INTEGER DEFAULT 0,
-  conditionLogic TEXT DEFAULT 'AND',
   conditions TEXT NOT NULL,     -- JSON array of SmartRuleCondition
   actions TEXT NOT NULL,        -- JSON array of SmartRuleAction
   enabled INTEGER DEFAULT 1,
@@ -93,43 +93,61 @@ CREATE INDEX idx_acm_accountSetId ON asset_category_mapping(accountSetId);
 ### 3.3 TypeScript Types
 
 ```typescript
+// 匹配条件字段名映射到 Invoice 接口的实际字段名
+// 'notes' 对应 Invoice.notes（备注），UI 显示为"备注"
+type ConditionField = 'goodsName' | 'sellerName' | 'notes' | 'totalAmount' | 'taxRate';
+// 注意：Invoice 接口中备注字段为 'notes'（非 remark），金额字段为 'totalAmount'（非 amount）
+
 interface SmartRuleCondition {
-  field: 'goodsName' | 'sellerName' | 'remark' | 'amount' | 'invoiceType';
+  field: ConditionField;
   operator: 'contains' | 'equals' | '>' | '<' | '>=' | '<=';
-  values?: string[];    // for contains/equals
-  value?: number;       // for amount comparisons
+  values?: string[];    // for contains/equals (文本匹配)
+  value?: number;       // for 数值比较 (totalAmount/taxRate)
 }
 
-interface SmartRuleAction {
-  type: 'overrideSubject' | 'assignAuxiliary' | 'markAs' | 'createFixedAsset';
+// 动作类型使用 discriminated union，避免字段名冲突
+type SmartRuleAction =
+  | OverrideSubjectAction
+  | AssignAuxiliaryAction
+  | MarkAsAction
+  | CreateFixedAssetAction;
 
-  // overrideSubject
-  slot?: 'debit' | 'tax' | 'credit';
-  subjectCode?: string;
-  subjectName?: string;
+interface OverrideSubjectAction {
+  type: 'overrideSubject';
+  slot: 'debit' | 'tax' | 'credit';   // 必填，语义槽位
+  subjectCode: string;                  // 必填
+  subjectName: string;                  // 必填
+}
 
-  // assignAuxiliary
-  auxiliaryType?: 'employee' | 'project';
-  nameList?: string[];
-  sourceField?: 'remark' | 'sellerName';
+interface AssignAuxiliaryAction {
+  type: 'assignAuxiliary';
+  auxiliaryType: 'employee' | 'project';
+  nameList: string[];                   // 白名单
+  sourceField: 'notes' | 'sellerName';  // 从哪个字段提取（notes 对应 Invoice.notes）
+}
 
-  // markAs
-  category?: 'purchase' | 'reimbursement' | 'fixed_asset';
+interface MarkAsAction {
+  type: 'markAs';
+  category: 'purchase' | 'reimbursement' | 'fixed_asset';
+}
 
-  // createFixedAsset
-  assetCategory?: string;
-  depreciationYears?: number;
-  depreciationMethod?: 'straight_line' | 'double_declining' | 'sum_of_years';
-  subjectCode?: string;
-  residualRate?: number;
+interface CreateFixedAssetAction {
+  type: 'createFixedAsset';
+  assetCategory: string;                // 资产类别名称
+  depreciationYears: number;
+  depreciationMethod: DepreciationMethod; // 使用现有类型
+  assetSubjectCode: string;             // 固定资产科目代码
+  depreciationSubjectCode: string;      // 累计折旧科目代码
+  expenseSubjectCode: string;           // 费用科目代码
+  residualRate: number;                 // 残值率（如 0.05）
 }
 
 interface InvoiceSmartRule {
   id: string;
   accountSetId: string;
   name: string;
+  invoiceType: 'input' | 'output' | 'both';  // 规则级别过滤，同 v1.0
   priority: number;
-  conditionLogic: 'AND';
   conditions: SmartRuleCondition[];
   actions: SmartRuleAction[];
   enabled: boolean;
@@ -161,42 +179,54 @@ interface AssetCategoryMapping {
 ```
 发票导入
   → 遍历规则（按 priority DESC, createTime ASC 排序）
+    → 过滤 invoiceType：rule.invoiceType !== 'both' && rule.invoiceType !== invoice.invoiceType → 跳过
     → evaluateConditions(invoice, conditions)
       → AND 逻辑：全部条件为 true 才命中
       → 命中 → 收集该规则所有 actions → 跳出循环（单规则命中）
     → 未命中 → 继续下一条
   → 无命中 → 使用默认科目
   → executeActions(actions, invoice, context)
-    → overrideSubject → 组装科目覆盖映射
-    → assignAuxiliary → 从白名单匹配辅助核算对象
+    → overrideSubject → 通过 slot map 转换为 entry ID，组装科目覆盖映射
+    → assignAuxiliary → 查目标科目辅助核算配置 + 从白名单匹配
     → markAs → 更新发票分类标签
-    → createFixedAsset → 生成固定资产卡片（草稿）
+    → createFixedAsset → 生成完整 FixedAsset 对象
   → 调用模板引擎生成凭证
 ```
 
 ### 4.2 Condition Evaluation
 
 ```typescript
-function evaluateCondition(invoice, condition: SmartRuleCondition): boolean {
-  switch (condition.field) {
-    case 'goodsName':
-    case 'sellerName':
-    case 'remark': {
-      const text = (invoice[condition.field] || '').toLowerCase();
-      return condition.operator === 'contains'
-        ? (condition.values || []).some(v => text.includes(v.toLowerCase()))
-        : (condition.values || []).some(v => text === v.toLowerCase());
+// 字段名映射：条件字段名 → Invoice 接口字段名
+const FIELD_MAP: Record<ConditionField, keyof Invoice> = {
+  goodsName: 'goodsName',
+  sellerName: 'sellerName',
+  notes: 'notes',           // Invoice.notes（备注）
+  totalAmount: 'totalAmount',
+  taxRate: 'taxRate',
+};
+
+function evaluateCondition(invoice: Invoice, condition: SmartRuleCondition): boolean {
+  const fieldName = FIELD_MAP[condition.field];
+
+  // 文本字段：contains / equals
+  if (['goodsName', 'sellerName', 'notes'].includes(condition.field)) {
+    const text = (invoice[fieldName] || '').toString().toLowerCase();
+    if (condition.operator === 'contains') {
+      return (condition.values || []).some(v => text.includes(v.toLowerCase()));
     }
-    case 'amount': {
-      const amount = invoice.totalAmount ?? 0;
-      return compare(amount, condition.operator, condition.value ?? 0);
-    }
-    case 'invoiceType':
-      return invoice.invoiceType === condition.value;
+    return (condition.values || []).some(v => text === v.toLowerCase());
   }
+
+  // 数值字段：> / < / >= / <= / equals
+  if (['totalAmount', 'taxRate'].includes(condition.field)) {
+    const numVal = Number(invoice[fieldName]) || 0;
+    return compare(numVal, condition.operator, condition.value ?? 0);
+  }
+
+  return false;
 }
 
-function evaluateConditions(invoice, conditions: SmartRuleCondition[], logic: 'AND'): boolean {
+function evaluateConditions(invoice: Invoice, conditions: SmartRuleCondition[]): boolean {
   if (conditions.length === 0) return false; // 空条件不命中
   return conditions.every(c => evaluateCondition(invoice, c));
 }
@@ -204,16 +234,21 @@ function evaluateConditions(invoice, conditions: SmartRuleCondition[], logic: 'A
 
 ### 4.3 Auxiliary Accounting Resolution
 
+辅助核算的启用判断基于**科目配置**：如果覆盖的目标科目（如 6602.01）配置了辅助核算（`auxiliaryItems` 非空），则该科目需要辅助核算。
+
 ```typescript
 function resolveAuxiliary(
-  invoice, action: SmartRuleAction, accountSetConfig
+  invoice: Invoice,
+  action: AssignAuxiliaryAction,
+  targetSubject: Subject | null  // 覆盖的目标科目
 ): { value: string | null; needsPrompt: boolean } {
-  // 账套未启用辅助核算 → 静默跳过
-  if (!accountSetConfig.auxiliaryEnabled) {
+  // 目标科目未配置辅助核算 → 静默跳过
+  if (!targetSubject?.auxiliaryItems || targetSubject.auxiliaryItems.length === 0) {
     return { value: null, needsPrompt: false };
   }
 
-  const source = invoice[action.sourceField] || '';
+  const fieldName = FIELD_MAP[action.sourceField];
+  const source = (invoice[fieldName] || '').toString();
   const matched = (action.nameList || []).find(name => source.includes(name));
 
   // 白名单命中 → 自动填充
@@ -228,25 +263,73 @@ function resolveAuxiliary(
 
 ### 4.4 Fixed Asset Card Generation
 
+生成完整的 `FixedAsset` 对象（匹配 `src/types/index.ts` 第 604 行的接口定义），初始状态为 `active`（未开始折旧即为事实上的草稿）。
+
 ```typescript
-function buildAssetCard(invoice, action: SmartRuleAction): FixedAssetCard {
+function buildAssetCard(invoice: Invoice, action: CreateFixedAssetAction): Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> {
+  const salvageValue = Math.round(invoice.totalAmount * (action.residualRate ?? 0.05) * 100) / 100;
+  const depreciableValue = invoice.totalAmount - salvageValue;
+
   return {
-    name: invoice.goodsName,
+    assetCode: generateAssetCode(),           // 自动编码，如 FA-YYYYMM-NNN
+    assetName: invoice.goodsName || '未命名资产',
+    categoryName: action.assetCategory,
+    quantity: invoice.quantity ?? 1,
+    unit: invoice.unit || '台',
+    specification: invoice.specification || '',
+    // 财务数据
     originalValue: invoice.totalAmount,
-    purchaseDate: invoice.invoiceDate,
-    depreciationStartDate: invoice.invoiceDate,
-    category: action.assetCategory,
-    depreciationYears: action.depreciationYears ?? 5,
-    depreciationMethod: action.depreciationMethod || 'straight_line',
+    salvageValue,
+    depreciableValue,
+    accumulatedDepreciation: 0,
+    netValue: invoice.totalAmount,             // 初始净值 = 原值
+    // 折旧设置
+    depreciationMethod: action.depreciationMethod,
+    usefulLifeYears: action.depreciationYears,
+    usefulLifeMonths: action.depreciationYears * 12,
+    // 日期
+    acquisitionDate: invoice.invoiceDate,
+    depreciationStartDate: undefined,          // 人工确认后设置
+    // 状态
+    status: 'active',                         // active 但 depreciationStartDate 为空 = 事实草稿
+    // 科目映射
+    assetSubjectCode: action.assetSubjectCode,
+    depreciationSubjectCode: action.depreciationSubjectCode,
+    expenseSubjectCode: action.expenseSubjectCode,
+    // 来源信息
     supplierName: invoice.sellerName,
-    invoiceNo: invoice.invoiceNumber,
-    residualRate: action.residualRate ?? 0.05,
-    status: 'draft',
+    invoiceNo: invoice.invoiceCode,           // Invoice.invoiceCode（发票号码）
   };
 }
 ```
 
-### 4.5 Engine API
+### 4.5 Subject Override Slot → Template Entry ID Mapping
+
+槽位名称 `debit`/`tax`/`credit` 需要映射到模板引擎的 `entry_1`/`entry_2`/`entry_3`：
+
+```typescript
+// 进项发票模板 (tpl_purchase_invoice):
+//   entry_1 = debit(费用/采购), entry_2 = debit(进项税), entry_3 = credit(应付)
+const INPUT_SLOT_MAP: Record<string, string> = {
+  debit: 'entry_1',
+  tax: 'entry_2',
+  credit: 'entry_3',
+};
+
+// 销项发票模板 (tpl_sale_invoice):
+//   entry_1 = debit(应收), entry_2 = credit(收入), entry_3 = credit(销项税)
+const OUTPUT_SLOT_MAP: Record<string, string> = {
+  debit: 'entry_1',
+  credit: 'entry_2',
+  tax: 'entry_3',
+};
+
+function getSlotMap(invoiceType: 'input' | 'output') {
+  return invoiceType === 'input' ? INPUT_SLOT_MAP : OUTPUT_SLOT_MAP;
+}
+```
+
+### 4.6 Engine API
 
 ```typescript
 // src/lib/invoice-rule-engine.ts
@@ -256,7 +339,7 @@ export interface ActionResult {
   auxiliaryValue: string | null;
   auxiliaryNeedsPrompt: boolean;
   markCategory: 'purchase' | 'reimbursement' | 'fixed_asset' | null;
-  fixedAssetCard: FixedAssetCard | null;
+  fixedAssetCard: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> | null;
 }
 
 export function matchRule(
@@ -266,14 +349,16 @@ export function matchRule(
 
 export function evaluateConditions(
   invoice: Invoice,
-  conditions: SmartRuleCondition[],
-  logic: 'AND'
+  conditions: SmartRuleCondition[]
 ): boolean;
 
 export function executeActions(
   actions: SmartRuleAction[],
   invoice: Invoice,
-  context: { accountSetConfig: any }
+  context: {
+    invoiceType: 'input' | 'output';
+    getSubject: (code: string) => Subject | null;
+  }
 ): ActionResult;
 ```
 
@@ -343,12 +428,16 @@ export function executeActions(
 ```
 useInvoiceStore.generateInvoiceVoucher(invoice)
   → rules = sqliteService.getSmartRules()
-  → result = invoiceRuleEngine.matchRule(invoice, rules)
-  → if matched:
-      actionResult = invoiceRuleEngine.executeActions(rule.actions, invoice, ctx)
-      → subjectOverrides → template engine
+  → matchedRule = invoiceRuleEngine.matchRule(invoice, rules)
+     // matchRule 内部先按 invoiceType 过滤规则，再评估 conditions
+  → if matchedRule:
+      actionResult = invoiceRuleEngine.executeActions(
+        matchedRule.actions, invoice,
+        { invoiceType: invoice.invoiceType, getSubject: subjectStore.getByCode }
+      )
+      → subjectOverrides → template engine (key = slot map 转换后的 entry_1/2/3)
       → auxiliaryNeedsPrompt → prompt user with auxiliary selector
-      → fixedAssetCard → fixedAssetStore.createFromInvoice(card)
+      → fixedAssetCard → fixedAssetStore.addAsset(card)
       → markCategory → update invoice.category field
   → templateEngine.generateVoucherWithOverrides(...)
 ```
@@ -390,9 +479,11 @@ INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家�
 
 1. **Single rule match**: Only the highest-priority matched rule applies (no multi-rule stacking)
 2. **Actions execute in order**: overrideSubject → assignAuxiliary → markAs → createFixedAsset
-3. **Fixed asset cards always draft**: Auto-created but require manual confirmation before depreciation starts
-4. **Auxiliary accounting**: White list matching + accountSet config controls prompting behavior
-5. **Auxiliary not matched + accountSet enabled**: Prompt user to select from partner list, do not block voucher creation
+3. **Fixed asset cards use `status: 'active'`**: `AssetStatus` 类型无 `draft` 值，使用 `active` + `depreciationStartDate` 为空表示未开始折旧（事实草稿）
+4. **Auxiliary accounting**: White list matching + 目标科目的 auxiliaryItems 配置决定是否需要提示
+5. **Auxiliary not matched + subject requires auxiliary**: Prompt user to select from partner list, do not block voucher creation
+6. **overrideSubject without slot**: Discriminated union 使 slot 为必填，不会出现缺失情况
+7. **Field name alignment**: 条件字段 `notes` 对应 `Invoice.notes`（非 remark），`totalAmount` 对应 `Invoice.totalAmount`（非 amount）
 
 ---
 
