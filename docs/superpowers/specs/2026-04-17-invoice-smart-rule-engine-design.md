@@ -71,7 +71,31 @@ CREATE TABLE invoice_smart_rules (
 CREATE INDEX idx_isr_smart_accountSetId ON invoice_smart_rules(accountSetId);
 ```
 
-### 3.2 `asset_category_mapping` 表（关键词→资产类别映射）
+### 3.2 `supplier_subject_mapping` 表（供应商→科目映射）
+
+独立维护供应商名单，规则条件中通过 `supplierInList` 引用。一个供应商只能属于一个映射组。
+
+```sql
+CREATE TABLE supplier_subject_mapping (
+  id TEXT PRIMARY KEY,
+  accountSetId TEXT NOT NULL,
+  groupName TEXT NOT NULL,          -- 映射组名，如"原材料供应商"、"库存商品供应商"
+  sellerName TEXT NOT NULL,         -- 供应商全称（精确匹配）
+  -- 该供应商的默认科目覆盖（可选，不填则由规则 action 决定）
+  defaultDebitSubject TEXT,
+  defaultDebitSubjectName TEXT,
+  defaultTaxSubject TEXT,
+  defaultTaxSubjectName TEXT,
+  defaultCreditSubject TEXT,
+  defaultCreditSubjectName TEXT,
+  createTime TEXT,
+  updateTime TEXT
+);
+CREATE INDEX idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+CREATE INDEX idx_ssm_groupName ON supplier_subject_mapping(accountSetId, groupName);
+```
+
+### 3.3 `asset_category_mapping` 表（关键词→资产类别映射）
 
 ```sql
 CREATE TABLE asset_category_mapping (
@@ -90,19 +114,36 @@ CREATE TABLE asset_category_mapping (
 CREATE INDEX idx_acm_accountSetId ON asset_category_mapping(accountSetId);
 ```
 
-### 3.3 TypeScript Types
+### 3.4 TypeScript Types
 
 ```typescript
-// 匹配条件字段名映射到 Invoice 接口的实际字段名
+// 匹配条件字段
 // 'notes' 对应 Invoice.notes（备注），UI 显示为"备注"
-type ConditionField = 'goodsName' | 'sellerName' | 'notes' | 'totalAmount' | 'taxRate';
-// 注意：Invoice 接口中备注字段为 'notes'（非 remark），金额字段为 'totalAmount'（非 amount）
+// 'totalAmount' 对应 Invoice.totalAmount，'taxRate' 对应 Invoice.taxRate
+// 'supplierInList' 特殊条件：精确匹配供应商映射表中的名单
+type ConditionField = 'goodsName' | 'sellerName' | 'notes' | 'totalAmount' | 'taxRate' | 'supplierInList';
 
-interface SmartRuleCondition {
-  field: ConditionField;
-  operator: 'contains' | 'equals' | '>' | '<' | '>=' | '<=';
-  values?: string[];    // for contains/equals (文本匹配)
-  value?: number;       // for 数值比较 (totalAmount/taxRate)
+// 条件类型使用 discriminated union
+type SmartRuleCondition =
+  | TextCondition
+  | NumericCondition
+  | SupplierListCondition;
+
+interface TextCondition {
+  field: 'goodsName' | 'sellerName' | 'notes';
+  operator: 'contains' | 'equals';
+  values: string[];    // 关键词列表
+}
+
+interface NumericCondition {
+  field: 'totalAmount' | 'taxRate';
+  operator: '>' | '<' | '>=' | '<=' | 'equals';
+  value: number;
+}
+
+interface SupplierListCondition {
+  field: 'supplierInList';
+  groupName: string;   // 引用 supplier_subject_mapping 中的映射组名
 }
 
 // 动作类型使用 discriminated union，避免字段名冲突
@@ -110,7 +151,8 @@ type SmartRuleAction =
   | OverrideSubjectAction
   | AssignAuxiliaryAction
   | MarkAsAction
-  | CreateFixedAssetAction;
+  | CreateFixedAssetAction
+  | SupplierSubjectAction;
 
 interface OverrideSubjectAction {
   type: 'overrideSubject';
@@ -142,6 +184,12 @@ interface CreateFixedAssetAction {
   residualRate: number;                 // 残值率（如 0.05）
 }
 
+// 供应商映射科目覆盖：使用供应商映射表中的默认科目，优先于规则中其他 overrideSubject
+interface SupplierSubjectAction {
+  type: 'supplierSubject';
+  groupName: string;                    // 引用 supplier_subject_mapping 映射组名
+}
+
 interface InvoiceSmartRule {
   id: string;
   accountSetId: string;
@@ -168,6 +216,21 @@ interface AssetCategoryMapping {
   createTime: string;
   updateTime: string;
 }
+
+interface SupplierSubjectMapping {
+  id: string;
+  accountSetId: string;
+  groupName: string;                    // 映射组名
+  sellerName: string;                   // 供应商全称（精确匹配）
+  defaultDebitSubject?: string;
+  defaultDebitSubjectName?: string;
+  defaultTaxSubject?: string;
+  defaultTaxSubjectName?: string;
+  defaultCreditSubject?: string;
+  defaultCreditSubjectName?: string;
+  createTime: string;
+  updateTime: string;
+}
 ```
 
 ---
@@ -180,12 +243,14 @@ interface AssetCategoryMapping {
 发票导入
   → 遍历规则（按 priority DESC, createTime ASC 排序）
     → 过滤 invoiceType：rule.invoiceType !== 'both' && rule.invoiceType !== invoice.invoiceType → 跳过
-    → evaluateConditions(invoice, conditions)
+    → evaluateConditions(invoice, conditions, supplierMappings)
       → AND 逻辑：全部条件为 true 才命中
+      → supplierInList 条件：查 supplier_subject_mapping 表，invoice.sellerName 精确匹配组内名单
       → 命中 → 收集该规则所有 actions → 跳出循环（单规则命中）
     → 未命中 → 继续下一条
   → 无命中 → 使用默认科目
   → executeActions(actions, invoice, context)
+    → supplierSubject → 从供应商映射表取默认科目，优先级最高
     → overrideSubject → 通过 slot map 转换为 entry ID，组装科目覆盖映射
     → assignAuxiliary → 查目标科目辅助核算配置 + 从白名单匹配
     → markAs → 更新发票分类标签
@@ -196,39 +261,55 @@ interface AssetCategoryMapping {
 ### 4.2 Condition Evaluation
 
 ```typescript
-// 字段名映射：条件字段名 → Invoice 接口字段名
-const FIELD_MAP: Record<ConditionField, keyof Invoice> = {
+// 字段名映射：文本/数值条件字段 → Invoice 接口字段名
+const FIELD_MAP = {
   goodsName: 'goodsName',
   sellerName: 'sellerName',
   notes: 'notes',           // Invoice.notes（备注）
   totalAmount: 'totalAmount',
   taxRate: 'taxRate',
-};
+} as const;
 
-function evaluateCondition(invoice: Invoice, condition: SmartRuleCondition): boolean {
-  const fieldName = FIELD_MAP[condition.field];
+function evaluateCondition(
+  invoice: Invoice,
+  condition: SmartRuleCondition,
+  supplierMappings: SupplierSubjectMapping[]
+): boolean {
+  // 供应商名单匹配：精确匹配 invoice.sellerName 是否在指定映射组中
+  if (condition.field === 'supplierInList') {
+    return supplierMappings
+      .filter(m => m.groupName === condition.groupName)
+      .some(m => m.sellerName === invoice.sellerName);
+  }
 
   // 文本字段：contains / equals
-  if (['goodsName', 'sellerName', 'notes'].includes(condition.field)) {
+  if ('values' in condition && ['goodsName', 'sellerName', 'notes'].includes(condition.field)) {
+    const fieldName = FIELD_MAP[condition.field as keyof typeof FIELD_MAP];
     const text = (invoice[fieldName] || '').toString().toLowerCase();
-    if (condition.operator === 'contains') {
-      return (condition.values || []).some(v => text.includes(v.toLowerCase()));
+    const op = (condition as TextCondition).operator;
+    if (op === 'contains') {
+      return condition.values.some(v => text.includes(v.toLowerCase()));
     }
-    return (condition.values || []).some(v => text === v.toLowerCase());
+    return condition.values.some(v => text === v.toLowerCase());
   }
 
   // 数值字段：> / < / >= / <= / equals
-  if (['totalAmount', 'taxRate'].includes(condition.field)) {
+  if ('value' in condition && ['totalAmount', 'taxRate'].includes(condition.field)) {
+    const fieldName = FIELD_MAP[condition.field as keyof typeof FIELD_MAP];
     const numVal = Number(invoice[fieldName]) || 0;
-    return compare(numVal, condition.operator, condition.value ?? 0);
+    return compare(numVal, condition.operator, condition.value);
   }
 
   return false;
 }
 
-function evaluateConditions(invoice: Invoice, conditions: SmartRuleCondition[]): boolean {
+function evaluateConditions(
+  invoice: Invoice,
+  conditions: SmartRuleCondition[],
+  supplierMappings: SupplierSubjectMapping[]
+): boolean {
   if (conditions.length === 0) return false; // 空条件不命中
-  return conditions.every(c => evaluateCondition(invoice, c));
+  return conditions.every(c => evaluateCondition(invoice, c, supplierMappings));
 }
 ```
 
@@ -329,7 +410,39 @@ function getSlotMap(invoiceType: 'input' | 'output') {
 }
 ```
 
-### 4.6 Engine API
+### 4.6 Supplier Subject Resolution
+
+供应商映射表的科目覆盖优先级高于规则中的 `overrideSubject`，因为供应商级别的配置更具体：
+
+```typescript
+function resolveSupplierSubject(
+  invoice: Invoice,
+  action: SupplierSubjectAction,
+  supplierMappings: SupplierSubjectMapping[],
+  slotMap: Record<string, string>
+): Record<string, { code: string; name: string }> {
+  const mapping = supplierMappings.find(
+    m => m.groupName === action.groupName && m.sellerName === invoice.sellerName
+  );
+  if (!mapping) return {};
+
+  const overrides: Record<string, { code: string; name: string }> = {};
+  if (mapping.defaultDebitSubject) {
+    overrides[slotMap['debit']] = { code: mapping.defaultDebitSubject, name: mapping.defaultDebitSubjectName || '' };
+  }
+  if (mapping.defaultTaxSubject) {
+    overrides[slotMap['tax']] = { code: mapping.defaultTaxSubject, name: mapping.defaultTaxSubjectName || '' };
+  }
+  if (mapping.defaultCreditSubject) {
+    overrides[slotMap['credit']] = { code: mapping.defaultCreditSubject, name: mapping.defaultCreditSubjectName || '' };
+  }
+  return overrides;
+}
+```
+
+**科目覆盖优先级**：供应商映射 (`supplierSubject`) > 规则内 `overrideSubject` > 模板默认
+
+### 4.7 Engine API
 
 ```typescript
 // src/lib/invoice-rule-engine.ts
@@ -344,12 +457,14 @@ export interface ActionResult {
 
 export function matchRule(
   invoice: Invoice,
-  rules: InvoiceSmartRule[]
+  rules: InvoiceSmartRule[],
+  supplierMappings: SupplierSubjectMapping[]
 ): InvoiceSmartRule | null;
 
 export function evaluateConditions(
   invoice: Invoice,
-  conditions: SmartRuleCondition[]
+  conditions: SmartRuleCondition[],
+  supplierMappings: SupplierSubjectMapping[]
 ): boolean;
 
 export function executeActions(
@@ -358,6 +473,7 @@ export function executeActions(
   context: {
     invoiceType: 'input' | 'output';
     getSubject: (code: string) => Subject | null;
+    supplierMappings: SupplierSubjectMapping[];
   }
 ): ActionResult;
 ```
@@ -368,25 +484,47 @@ export function executeActions(
 
 ### 5.1 Rule Configuration Dialog (`InvoiceSmartRuleDialog`)
 
-三区域布局：
+三个 Tab 页布局：
+
+**Tab 1 — 规则配置**（核心编辑页）
 
 **区域 1 — 基本信息：** 规则名称、发票类型（进项/销项/通用）、优先级、启用开关
 
 **区域 2 — 匹配条件：** 动态增删条件行
-- 字段下拉：货物名称 / 销方名称 / 备注 / 金额 / 发票类型
-- 金额条件：操作 `> / < / >= / <=` + 数值输入
+- 字段下拉：货物名称 / 销方名称 / 备注 / 金额 / 税率 / 供应商名单
 - 文本条件：操作 `包含/等于` + 标签式关键词输入
+- 数值条件：操作 `> / < / >= / <=` + 数值输入
+- 供应商名单条件：下拉选择已有的供应商映射组名
 - `[+ 添加条件]` 按钮
 
 **区域 3 — 执行动作：** 动态增删动作面板
 - 覆盖科目：借方/税/贷方 三个科目槽位
+- 供应商科目覆盖：下拉选择映射组名（使用该供应商的默认科目）
 - 辅助核算认领：类型（人员/项目）、提取来源（备注/销方）、白名单
 - 预分拣标记：采购 / 报销 / 固定资产
 - 生成固定资产卡片：资产类别（下拉）、折旧年限、折旧方法、残值率
 
-### 5.2 Asset Category Mapping Tab
+**Tab 2 — 供应商映射**（独立管理供应商名单）
 
-在配置对话框中新增 Tab「资产类别映射」：
+```
+┌──────────────────────────────────────────────────────┐
+│ 映射组: [原材料供应商 ▼]   [+ 新建组]               │
+│                                                        │
+│ 供应商名称         │ 借方科目      │ 贷方科目          │
+│ 上海材料有限公司   │ 1403 原材料   │ 2202 应付账款     │
+│ 北京钢铁集团       │ 1403 原材料   │ 2202 应付账款     │
+│ 深圳电子科技       │ 1405 库存商品 │ 2202 应付账款     │
+│                                                        │
+│ [+ 添加供应商]  [批量导入]                             │
+└──────────────────────────────────────────────────────┘
+```
+
+- 映射组切换：下拉选择已有组，或新建组
+- 供应商行：精确名称 + 三个科目槽位（借方/税/贷方）
+- 批量导入：Excel 模板 → 填写供应商名称+科目 → 上传导入
+- 规则条件中 `supplierInList` 引用映射组名，实现跨规则复用
+
+### 5.2 Asset Category Mapping Tab（Tab 3）
 
 | 资产类别 | 折旧年限 | 方法   | 关键词                 | 标签   |
 |---------|---------|--------|----------------------|--------|
@@ -402,8 +540,8 @@ export function executeActions(
 
 每条规则卡片：
 - 规则名称 + 优先级（P99）+ 启用状态开关
-- 条件摘要：`货物名∈[滴滴,出行] + 销方∈[滴滴] + 备注∈[加班]`
-- 动作摘要：`科目→6602.01/2241.01 | 辅助→人员 | 标记→报销`
+- 条件摘要：`货物名∈[滴滴,出行] + 销方∈[滴滴] + 备注∈[加班]` 或 `供应商∈[原材料供应商组]`
+- 动作摘要：`科目→6602.01/2241.01 | 供应商科目→原材料组 | 辅助→人员 | 标记→报销`
 - 操作：编辑（行内抽屉展开）/ 删除
 
 ---
@@ -414,11 +552,11 @@ export function executeActions(
 
 | File | Change | Description |
 |------|--------|-------------|
-| `src/types/index.ts` | Modify | Add `InvoiceSmartRule`, `SmartRuleCondition`, `SmartRuleAction`, `AssetCategoryMapping` types |
-| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `asset_category_mapping` table, update CRUD |
-| `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation, action execution, asset card generation |
-| `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine, handles `assignAuxiliary` and `createFixedAsset` |
-| `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 3-zone layout + asset mapping tab |
+| `src/types/index.ts` | Modify | Add `InvoiceSmartRule`, `SmartRuleCondition` (discriminated union), `SmartRuleAction` (discriminated union), `AssetCategoryMapping`, `SupplierSubjectMapping` types |
+| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `supplier_subject_mapping` and `asset_category_mapping` tables, update CRUD |
+| `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation (text/numeric/supplier), action execution, asset card generation |
+| `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine, handles supplier subject, `assignAuxiliary` and `createFixedAsset` |
+| `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 3-tab layout (规则配置/供应商映射/资产类别映射) |
 | `src/stores/useFixedAssetStore.ts` | Modify | Add `createFromInvoice()` method |
 | `src/app/invoices/input/page.tsx` | Modify | Replace dialog component reference |
 | `src/app/invoices/output/page.tsx` | Modify | Replace dialog component reference |
@@ -428,14 +566,16 @@ export function executeActions(
 ```
 useInvoiceStore.generateInvoiceVoucher(invoice)
   → rules = sqliteService.getSmartRules()
-  → matchedRule = invoiceRuleEngine.matchRule(invoice, rules)
-     // matchRule 内部先按 invoiceType 过滤规则，再评估 conditions
+  → supplierMappings = sqliteService.getSupplierMappings()
+  → matchedRule = invoiceRuleEngine.matchRule(invoice, rules, supplierMappings)
+     // matchRule 内部先按 invoiceType 过滤规则，再评估 conditions（含 supplierInList）
   → if matchedRule:
       actionResult = invoiceRuleEngine.executeActions(
         matchedRule.actions, invoice,
-        { invoiceType: invoice.invoiceType, getSubject: subjectStore.getByCode }
+        { invoiceType, getSubject, supplierMappings }
       )
-      → subjectOverrides → template engine (key = slot map 转换后的 entry_1/2/3)
+      → supplierSubject overrides (最高优先级)
+      → overrideSubject → template engine (key = slot map 转换后的 entry_1/2/3)
       → auxiliaryNeedsPrompt → prompt user with auxiliary selector
       → fixedAssetCard → fixedAssetStore.addAsset(card)
       → markCategory → update invoice.category field
@@ -448,6 +588,7 @@ useInvoiceStore.generateInvoiceVoucher(invoice)
 // Development stage: direct DROP and recreate
 DROP TABLE IF EXISTS invoice_subject_rules;
 CREATE TABLE invoice_smart_rules (...);
+CREATE TABLE supplier_subject_mapping (...);
 CREATE TABLE asset_category_mapping (...);
 INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家具/装修/运输工具)
 ```
@@ -463,11 +604,15 @@ INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家�
 | Empty conditions array | Skip rule, never match |
 | Multiple rules with same priority | Sort by createTime ASC, first wins |
 | Amount condition with null invoice amount | Condition evaluates false |
-| Empty auxiliary nameList | Skip assignment, check accountSet config for prompt |
-| Empty remark/sellerName on invoice | contains on empty string, no match |
+| Empty auxiliary nameList | Skip assignment, check subject auxiliary config for prompt |
+| Empty notes/sellerName on invoice | contains on empty string, no match |
 | Fixed asset action with amount ≤ 0 | Skip card generation, Toast warning |
 | Asset category not found in mapping | Default to 5 years depreciation |
 | Subject code does not exist | Auto-create with direction from first digit |
+| `supplierInList` condition but mapping group empty | Condition evaluates false, rule not matched |
+| `supplierSubject` action but no matching supplier entry | Skip supplier override, fall through to `overrideSubject` |
+| Same supplier in multiple mapping groups | First match wins (by group creation order) |
+| Invoice sellerName not in any mapping group | `supplierInList` condition false, rule not matched via supplier |
 
 ### 7.2 Error Handling
 
@@ -478,12 +623,14 @@ INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家�
 ### 7.3 Key Design Decisions
 
 1. **Single rule match**: Only the highest-priority matched rule applies (no multi-rule stacking)
-2. **Actions execute in order**: overrideSubject → assignAuxiliary → markAs → createFixedAsset
-3. **Fixed asset cards use `status: 'active'`**: `AssetStatus` 类型无 `draft` 值，使用 `active` + `depreciationStartDate` 为空表示未开始折旧（事实草稿）
-4. **Auxiliary accounting**: White list matching + 目标科目的 auxiliaryItems 配置决定是否需要提示
-5. **Auxiliary not matched + subject requires auxiliary**: Prompt user to select from partner list, do not block voucher creation
-6. **overrideSubject without slot**: Discriminated union 使 slot 为必填，不会出现缺失情况
-7. **Field name alignment**: 条件字段 `notes` 对应 `Invoice.notes`（非 remark），`totalAmount` 对应 `Invoice.totalAmount`（非 amount）
+2. **Actions execute in order**: supplierSubject → overrideSubject → assignAuxiliary → markAs → createFixedAsset
+3. **Supplier subject priority**: `supplierSubject` action overrides `overrideSubject` action for same slot (supplier mapping is more specific)
+4. **Fixed asset cards use `status: 'active'`**: `AssetStatus` 类型无 `draft` 值，使用 `active` + `depreciationStartDate` 为空表示未开始折旧（事实草稿）
+5. **Auxiliary accounting**: White list matching + 目标科目的 auxiliaryItems 配置决定是否需要提示
+6. **Auxiliary not matched + subject requires auxiliary**: Prompt user to select from partner list, do not block voucher creation
+7. **overrideSubject without slot**: Discriminated union 使 slot 为必填，不会出现缺失情况
+8. **Field name alignment**: 条件字段 `notes` 对应 `Invoice.notes`（非 remark），`totalAmount` 对应 `Invoice.totalAmount`（非 amount）
+9. **Supplier matching is exact**: 供应商映射使用精确匹配（`===`），非模糊匹配，避免误匹配
 
 ---
 
