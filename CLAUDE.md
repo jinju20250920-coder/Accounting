@@ -117,6 +117,7 @@ src/
 │   ├── bank-format-selector.tsx    # 银行格式选择器（含自定义配置）
 │   ├── bank-format-test-dialog.tsx # 银行格式测试对话框
 │   ├── field-mapping-coach.tsx     # 自定义格式映射向导（5步，含模糊自动匹配）
+│   ├── invoice-subject-config-dialog.tsx # 发票科目映射规则配置
 │   ├── error-boundary.tsx          # 错误边界
 │   ├── DatabaseSyncWrapper.tsx     # 数据库同步包装器
 │   └── DatabaseManager.tsx         # 数据库管理器
@@ -156,7 +157,7 @@ src/
 ├── lib/                            # 核心业务逻辑
 │   ├── accounting.ts               # 会计引擎核心（含 getSmartMatch）
 │   ├── ai-learning.ts              # AI学习模块
-│   ├── template-engine.ts          # 自动化模板引擎（4个系统模板）
+│   ├── template-engine.ts          # 自动化模板引擎（4个系统模板，支持科目覆盖）
 │   ├── parser.ts                   # Excel解析器（银行流水等）
 │   ├── depreciation.ts             # 折旧计算（直线法/双倍余额/年数总和/工作量法）
 │   ├── amortization.ts             # 摊销计算
@@ -259,13 +260,13 @@ npm run lint
 系统的核心创新点，实现"凭证工厂"概念：
 
 #### 1. 核心组件
-- `TemplateEngine` 类：模板管理和凭证生成
-- `FormulaInterpreter` 类：安全公式解释器
-- `VoucherTemplate` 接口：模板结构定义
+- `TemplateEngine` 类：模板管理和凭证生成（export）
+- `FormulaInterpreter` 类：安全公式解释器（export）
+- `VoucherTemplate` / `TemplateEntry` / `InputData` 接口（export）
 
 #### 2. 预设系统模板
-- 销售发票（`tpl_sale_invoice`，triggerType: `invoice_import`）：应收账款 + 主营业务收入 + 销项税
-- 采购发票（`tpl_purchase_invoice`，triggerType: `invoice_import`）：材料采购 + 进项税 + 应付账款
+- 销售发票（`tpl_sale_invoice`，triggerType: `invoice_import`，invoiceType: `output`）：应收账款 + 主营业务收入 + 销项税
+- 采购发票（`tpl_purchase_invoice`，triggerType: `invoice_import`，invoiceType: `input`）：材料采购 + 进项税 + 应付账款
 - 银行收款（`tpl_bank_deposit`，triggerType: `bank_statement`）：银行存款
 - 银行付款（`tpl_bank_payment`，triggerType: `bank_statement`）：管理费用 + 银行存款
 
@@ -281,8 +282,30 @@ npm run lint
 ### 发票自动凭证 (stores/useInvoiceStore.ts)
 - `importInvoicesFromExcel()` 支持 `autoGenerateVoucher` 选项
 - 导入发票时可选自动生成凭证（进项/销项发票页面均有开关）
-- 凭证生成使用标准会计分录（非模板引擎，直接硬编码分录）
+- 凭证生成通过模板引擎 `templateEngine.generateVoucherWithOverrides()` 驱动
+- 科目映射：关键词规则（goodsName 匹配）→ 覆盖模板中的默认科目
+- 支持税率匹配：规则可指定 `matchTaxRate`，按发票税率精确匹配
+- 不存在的科目代码自动创建（direction 按代码首位判断）
 - 自动生成凭证字号：`记-YYYYMM-NNN` 格式
+- 所有数据库操作统一使用 `sqliteService`（`getDb()` helper）
+
+#### 发票科目映射规则（关键词驱动）
+配置入口：进项/销项发票页面 → "科目配置" 按钮
+
+```
+匹配优先级：关键词规则（priority 最高者）> 默认科目
+规则维度：关键词(goodsName) + 可选税率(taxRate) → 覆盖6个科目槽位
+  进项：借方(费用/采购) + 进项税 + 贷方(应付)
+  销项：借方(应收) + 贷方(收入) + 销项税
+```
+
+示例：
+- 关键词"滴滴,打车" → 进项借方=差旅费，贷方=其他应付款（员工报销）
+- 关键词"餐费,招待" → 进项借方=招待费
+- 关键词"服务,咨询" + 税率6% → 税科目=进项税额(6%)
+- 无匹配 → 使用默认：材料采购/进项税/应付账款 或 应收/收入/销项税
+
+持久化：`invoice_subject_rules` SQLite 表，`InvoiceSubjectRule` 类型定义
 
 ### 银行流水自动凭证 (components/transaction-import.tsx)
 - `handleAutoMatch()` 使用 `getSmartMatch()` 进行AI智能匹配（L1 + L2）
@@ -432,6 +455,9 @@ npm run lint
 - ✅ 银行子科目自动匹配 - 导入时自动匹配/创建1002子科目（bankAccountNumber字段）
 - ✅ 业务单据号 - 入账凭证docNo使用 账户明细编号-交易流水号
 - ✅ 流水匹配规则页UI重构 - Popover科目选择、行内编辑抽屉、搜索过滤、标签化
+- ✅ 发票凭证模板引擎集成 - generateInvoiceVoucher 走模板引擎，关键词科目映射，税率匹配，科目自动创建
+- ✅ 发票科目映射规则配置 - InvoiceSubjectConfigDialog 组件，invoice_subject_rules 表持久化
+- ✅ 发票Store数据库统一 - 全部 CRUD 使用 sqliteService（getDb() helper），修复列名不匹配问题
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
@@ -439,7 +465,7 @@ npm run lint
 3. **项目删除** - `settings/projects/page.tsx` 未实现删除
 4. **自定义报表** - `reports/page.tsx` 3个按钮无 onClick
 5. **现金流量表** - 计算逻辑简化，需更复杂分析
-6. **模板引擎集成** - `template-engine.ts` 已实现但未与发票/银行导入流程集成（当前使用硬编码分录）
+6. **模板引擎与银行流水集成** - `template-engine.ts` 的银行模板（bank_deposit/bank_payment）未与银行导入流程集成
 
 ---
 
