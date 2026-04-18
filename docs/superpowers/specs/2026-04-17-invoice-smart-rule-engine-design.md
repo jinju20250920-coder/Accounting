@@ -95,7 +95,27 @@ CREATE INDEX idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
 CREATE INDEX idx_ssm_groupName ON supplier_subject_mapping(accountSetId, groupName);
 ```
 
-### 3.3 `asset_category_mapping` 表（关键词→资产类别映射）
+### 3.3 `expense_reimbursement` 表（费用发票清单 — 报销人关联）
+
+独立导入费用清单（Excel），按发票号关联报销人。导入顺序不固定，凭证生成时合并。
+
+```sql
+CREATE TABLE expense_reimbursement (
+  id TEXT PRIMARY KEY,
+  accountSetId TEXT NOT NULL,
+  invoiceCode TEXT NOT NULL,        -- 发票号码（关联 Invoice.invoiceCode）
+  reimburserName TEXT NOT NULL,     -- 报销人姓名
+  reimburserId TEXT,                -- 往来单位ID（关联 partner，自动匹配/创建）
+  notes TEXT,                       -- 备注
+  importBatchId TEXT,               -- 导入批次ID
+  createTime TEXT,
+  updateTime TEXT
+);
+CREATE INDEX idx_er_accountSetId ON expense_reimbursement(accountSetId);
+CREATE INDEX idx_er_invoiceCode ON expense_reimbursement(accountSetId, invoiceCode);
+```
+
+### 3.4 `asset_category_mapping` 表（关键词→资产类别映射）
 
 ```sql
 CREATE TABLE asset_category_mapping (
@@ -152,7 +172,8 @@ type SmartRuleAction =
   | AssignAuxiliaryAction
   | MarkAsAction
   | CreateFixedAssetAction
-  | SupplierSubjectAction;
+  | SupplierSubjectAction
+  | ReimbursementSubjectAction;
 
 interface OverrideSubjectAction {
   type: 'overrideSubject';
@@ -188,6 +209,14 @@ interface CreateFixedAssetAction {
 interface SupplierSubjectAction {
   type: 'supplierSubject';
   groupName: string;                    // 引用 supplier_subject_mapping 映射组名
+}
+
+// 报销科目覆盖：将贷方科目替换为"其他应付款-报销人"，并自动关联/创建往来卡片
+// 仅当费用清单中存在该发票号的报销人记录时生效
+interface ReimbursementSubjectAction {
+  type: 'reimbursementSubject';
+  creditSubjectCode: string;            // 报销贷方科目（如 "2241" 其他应付款）
+  creditSubjectName: string;            // 科目名称
 }
 
 interface InvoiceSmartRule {
@@ -231,6 +260,18 @@ interface SupplierSubjectMapping {
   createTime: string;
   updateTime: string;
 }
+
+interface ExpenseReimbursement {
+  id: string;
+  accountSetId: string;
+  invoiceCode: string;                  // 发票号码，关联 Invoice.invoiceCode
+  reimburserName: string;               // 报销人姓名
+  reimburserId?: string;                // 往来单位ID（自动匹配/创建）
+  notes?: string;
+  importBatchId?: string;
+  createTime: string;
+  updateTime: string;
+}
 ```
 
 ---
@@ -252,6 +293,8 @@ interface SupplierSubjectMapping {
   → executeActions(actions, invoice, context)
     → supplierSubject → 从供应商映射表取默认科目，优先级最高
     → overrideSubject → 通过 slot map 转换为 entry ID，组装科目覆盖映射
+    → reimbursementSubject → 查费用清单（expense_reimbursement），替换贷方为"其他应付款-报销人"
+      → 如果报销人不在往来单位中 → 自动创建往来卡片（个人类型）
     → assignAuxiliary → 查目标科目辅助核算配置 + 从白名单匹配
     → markAs → 更新发票分类标签
     → createFixedAsset → 生成完整 FixedAsset 对象
@@ -384,7 +427,70 @@ function buildAssetCard(invoice: Invoice, action: CreateFixedAssetAction): Omit<
 }
 ```
 
-### 4.5 Subject Override Slot → Template Entry ID Mapping
+### 4.5 Reimbursement Subject Resolution
+
+报销类发票的核心逻辑：贷方科目从"应付账款-供应商"变为"其他应付款-报销人"。
+
+```typescript
+interface ReimbursementResult {
+  creditOverride: { code: string; name: string } | null;
+  reimburserName: string | null;
+  partnerCreated: boolean;            // 是否自动创建了往来卡片
+}
+
+function resolveReimbursement(
+  invoice: Invoice,
+  action: ReimbursementSubjectAction,
+  expenseList: ExpenseReimbursement[],
+  slotMap: Record<string, string>
+): ReimbursementResult {
+  // 按发票号查找报销人
+  const record = expenseList.find(
+    r => r.invoiceCode === invoice.invoiceCode
+  );
+
+  if (!record) {
+    // 费用清单中没有该发票 → 跳过报销处理
+    return { creditOverride: null, reimburserName: null, partnerCreated: false };
+  }
+
+  // 确保报销人存在往来卡片
+  let partnerId = record.reimburserId;
+  let partnerCreated = false;
+
+  if (!partnerId) {
+    // 查找或创建往来卡片
+    const existing = partnerStore.findByName(record.reimburserName);
+    if (existing) {
+      partnerId = existing.id;
+    } else {
+      // 自动创建个人类型往来卡片
+      const newPartner = partnerStore.addPartner({
+        name: record.reimburserName,
+        type: 'individual',       // 个人类型
+        isCustomer: false,
+        isSupplier: false,
+        isEmployee: true,         // 标记为员工
+      });
+      partnerId = newPartner.id;
+      partnerCreated = true;
+    }
+    // 更新报销记录的 reimburserId
+    sqliteService.updateExpenseReimbursement(record.id, { reimburserId: partnerId });
+  }
+
+  return {
+    creditOverride: {
+      code: action.creditSubjectCode,      // e.g. "2241"
+      name: `${action.creditSubjectName}-${record.reimburserName}`,  // "其他应付款-张三"
+    },
+    reimburserName: record.reimburserName,
+    partnerCreated,
+  };
+}
+```
+
+### 4.6 Subject Override Slot → Template Entry ID Mapping
 
 槽位名称 `debit`/`tax`/`credit` 需要映射到模板引擎的 `entry_1`/`entry_2`/`entry_3`：
 
@@ -440,9 +546,11 @@ function resolveSupplierSubject(
 }
 ```
 
-**科目覆盖优先级**：供应商映射 (`supplierSubject`) > 规则内 `overrideSubject` > 模板默认
+**科目覆盖优先级**：报销科目 (`reimbursementSubject`) > 供应商映射 (`supplierSubject`) > 规则内 `overrideSubject` > 模板默认
 
-### 4.7 Engine API
+报销科目仅覆盖 credit 槽位，不影响 debit/tax。供应商映射和 overrideSubject 可覆盖所有槽位。
+
+### 4.8 Engine API
 
 ```typescript
 // src/lib/invoice-rule-engine.ts
@@ -453,6 +561,8 @@ export interface ActionResult {
   auxiliaryNeedsPrompt: boolean;
   markCategory: 'purchase' | 'reimbursement' | 'fixed_asset' | null;
   fixedAssetCard: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> | null;
+  reimburserName: string | null;       // 报销人姓名（来自费用清单）
+  partnerCreated: boolean;             // 是否自动创建了往来卡片
 }
 
 export function matchRule(
@@ -474,6 +584,7 @@ export function executeActions(
     invoiceType: 'input' | 'output';
     getSubject: (code: string) => Subject | null;
     supplierMappings: SupplierSubjectMapping[];
+    expenseList: ExpenseReimbursement[];  // 费用清单
   }
 ): ActionResult;
 ```
@@ -500,6 +611,7 @@ export function executeActions(
 **区域 3 — 执行动作：** 动态增删动作面板
 - 覆盖科目：借方/税/贷方 三个科目槽位
 - 供应商科目覆盖：下拉选择映射组名（使用该供应商的默认科目）
+- 报销科目覆盖：贷方科目（如"其他应付款"），自动按发票号查费用清单替换
 - 辅助核算认领：类型（人员/项目）、提取来源（备注/销方）、白名单
 - 预分拣标记：采购 / 报销 / 固定资产
 - 生成固定资产卡片：资产类别（下拉）、折旧年限、折旧方法、残值率
@@ -524,7 +636,28 @@ export function executeActions(
 - 批量导入：Excel 模板 → 填写供应商名称+科目 → 上传导入
 - 规则条件中 `supplierInList` 引用映射组名，实现跨规则复用
 
-### 5.2 Asset Category Mapping Tab（Tab 3）
+**Tab 3 — 费用清单**（导入报销人与发票号的关联）
+
+```
+┌──────────────────────────────────────────────────────┐
+│ [导入费用清单]                      [下载模板]        │
+│                                                        │
+│ 已导入清单 (共 23 条)                                  │
+│ ┌────────────┬──────┬──────────────┬────────┐        │
+│ │ 发票号码    │ 报销人 │ 备注         │ 状态   │        │
+│ ├────────────┼──────┼──────────────┼────────┤        │
+│ │ 12345678   │ 张三  │ 加班打车     │ ● 已匹配│        │
+│ │ 12345679   │ 李四  │ 客户招待     │ ● 已匹配│        │
+│ │ 12345680   │ 王五  │ 办公用品     │ ○ 未匹配│        │
+│ └────────────┴──────┴──────────────┴────────┘        │
+└──────────────────────────────────────────────────────┘
+```
+
+- 状态：已匹配（发票已导入且发票号对应）/ 未匹配（发票尚未导入）
+- 支持多次导入追加，按发票号去重（后导入覆盖先导入）
+- 清空按钮：删除当前账套所有费用清单记录
+
+### 5.2 Asset Category Mapping Tab（Tab 4）
 
 | 资产类别 | 折旧年限 | 方法   | 关键词                 | 标签   |
 |---------|---------|--------|----------------------|--------|
@@ -552,13 +685,14 @@ export function executeActions(
 
 | File | Change | Description |
 |------|--------|-------------|
-| `src/types/index.ts` | Modify | Add `InvoiceSmartRule`, `SmartRuleCondition` (discriminated union), `SmartRuleAction` (discriminated union), `AssetCategoryMapping`, `SupplierSubjectMapping` types |
-| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `supplier_subject_mapping` and `asset_category_mapping` tables, update CRUD |
-| `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation (text/numeric/supplier), action execution, asset card generation |
-| `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine, handles supplier subject, `assignAuxiliary` and `createFixedAsset` |
-| `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 3-tab layout (规则配置/供应商映射/资产类别映射) |
+| `src/types/index.ts` | Modify | Add `InvoiceSmartRule`, `SmartRuleCondition` (discriminated union), `SmartRuleAction` (discriminated union incl. `ReimbursementSubjectAction`), `AssetCategoryMapping`, `SupplierSubjectMapping`, `ExpenseReimbursement` types |
+| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `supplier_subject_mapping`, `asset_category_mapping`, `expense_reimbursement` tables, update CRUD |
+| `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation (text/numeric/supplier), action execution (incl. reimbursement resolution), asset card generation |
+| `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine, handles supplier/reimbursement subject, `assignAuxiliary` and `createFixedAsset` |
+| `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 4-tab layout (规则配置/供应商映射/费用清单/资产类别映射) |
 | `src/stores/useFixedAssetStore.ts` | Modify | Add `createFromInvoice()` method |
-| `src/app/invoices/input/page.tsx` | Modify | Replace dialog component reference |
+| `src/stores/usePartnerStore.ts` | Modify | Add `findByName()`, support `isEmployee` type for auto-created reimburser cards |
+| `src/app/invoices/input/page.tsx` | Modify | Replace dialog component reference, add expense list import button |
 | `src/app/invoices/output/page.tsx` | Modify | Replace dialog component reference |
 
 ### 6.2 Call Chain
@@ -567,14 +701,18 @@ export function executeActions(
 useInvoiceStore.generateInvoiceVoucher(invoice)
   → rules = sqliteService.getSmartRules()
   → supplierMappings = sqliteService.getSupplierMappings()
+  → expenseList = sqliteService.getExpenseReimbursements()
   → matchedRule = invoiceRuleEngine.matchRule(invoice, rules, supplierMappings)
      // matchRule 内部先按 invoiceType 过滤规则，再评估 conditions（含 supplierInList）
   → if matchedRule:
       actionResult = invoiceRuleEngine.executeActions(
         matchedRule.actions, invoice,
-        { invoiceType, getSubject, supplierMappings }
+        { invoiceType, getSubject, supplierMappings, expenseList }
       )
-      → supplierSubject overrides (最高优先级)
+      → reimbursementSubject (最高优先级，仅覆盖 credit)
+        → 查 expenseList 找报销人 → 替换贷方为"其他应付款-报销人"
+        → 报销人无往来卡片 → 自动创建
+      → supplierSubject overrides (覆盖 debit/tax/credit)
       → overrideSubject → template engine (key = slot map 转换后的 entry_1/2/3)
       → auxiliaryNeedsPrompt → prompt user with auxiliary selector
       → fixedAssetCard → fixedAssetStore.addAsset(card)
@@ -590,8 +728,23 @@ DROP TABLE IF EXISTS invoice_subject_rules;
 CREATE TABLE invoice_smart_rules (...);
 CREATE TABLE supplier_subject_mapping (...);
 CREATE TABLE asset_category_mapping (...);
+CREATE TABLE expense_reimbursement (...);
 INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家具/装修/运输工具)
 ```
+
+### 6.4 Expense List Import
+
+费用清单 Excel 格式：
+
+| 发票号码 | 报销人 | 备注 |
+|---------|--------|------|
+| 12345678 | 张三 | 加班打车 |
+| 12345679 | 李四 | 客户招待 |
+
+- 导入流程：进项发票页面 → "费用清单" 按钮 → 上传 Excel → 预览匹配 → 确认导入
+- 按发票号自动匹配已导入的进项发票，显示匹配状态（已匹配/未找到）
+- 导入顺序不固定：费用清单可先于发票导入，凭证生成时合并
+- 凭证生成时才检查费用清单，不在导入时触发
 
 ---
 
@@ -613,6 +766,10 @@ INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家�
 | `supplierSubject` action but no matching supplier entry | Skip supplier override, fall through to `overrideSubject` |
 | Same supplier in multiple mapping groups | First match wins (by group creation order) |
 | Invoice sellerName not in any mapping group | `supplierInList` condition false, rule not matched via supplier |
+| `reimbursementSubject` action but no expense list entry | Skip reimbursement override, use original credit subject |
+| Reimburser name not in partner list | Auto-create partner card (individual type, `isEmployee: true`) |
+| Multiple expense list entries with same invoice code | Use first imported record, log warning |
+| Expense list imported before invoices | Stored in DB, matched at voucher generation time |
 
 ### 7.2 Error Handling
 
@@ -623,14 +780,17 @@ INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家�
 ### 7.3 Key Design Decisions
 
 1. **Single rule match**: Only the highest-priority matched rule applies (no multi-rule stacking)
-2. **Actions execute in order**: supplierSubject → overrideSubject → assignAuxiliary → markAs → createFixedAsset
-3. **Supplier subject priority**: `supplierSubject` action overrides `overrideSubject` action for same slot (supplier mapping is more specific)
+2. **Actions execute in order**: reimbursementSubject → supplierSubject → overrideSubject → assignAuxiliary → markAs → createFixedAsset
+3. **Reimbursement credit override**: `reimbursementSubject` 仅覆盖 credit 槽位，将"应付账款-供应商"替换为"其他应付款-报销人"
+4. **Supplier subject priority**: `supplierSubject` action overrides `overrideSubject` action for same slot (supplier mapping is more specific)
 4. **Fixed asset cards use `status: 'active'`**: `AssetStatus` 类型无 `draft` 值，使用 `active` + `depreciationStartDate` 为空表示未开始折旧（事实草稿）
 5. **Auxiliary accounting**: White list matching + 目标科目的 auxiliaryItems 配置决定是否需要提示
 6. **Auxiliary not matched + subject requires auxiliary**: Prompt user to select from partner list, do not block voucher creation
 7. **overrideSubject without slot**: Discriminated union 使 slot 为必填，不会出现缺失情况
 8. **Field name alignment**: 条件字段 `notes` 对应 `Invoice.notes`（非 remark），`totalAmount` 对应 `Invoice.totalAmount`（非 amount）
 9. **Supplier matching is exact**: 供应商映射使用精确匹配（`===`），非模糊匹配，避免误匹配
+10. **Expense list import order agnostic**: 费用清单和发票导入顺序不固定，凭证生成时才合并
+11. **Auto-create partner card**: 报销人不在往来单位中时自动创建个人类型卡片（`isEmployee: true`）
 
 ---
 
