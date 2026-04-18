@@ -71,9 +71,9 @@ CREATE TABLE invoice_smart_rules (
 CREATE INDEX idx_isr_smart_accountSetId ON invoice_smart_rules(accountSetId);
 ```
 
-### 3.2 `supplier_subject_mapping` 表（供应商→科目映射）
+### 3.2 `supplier_subject_mapping` 表（供应商白名单 + 类型 + 科目映射）
 
-独立维护供应商名单，规则条件中通过 `supplierInList` 引用。一个供应商只能属于一个映射组。
+以供应商白名单为第一道分水岭：在白名单中 → 采购类；不在白名单中 → 报销/固定资产类。供应商类型决定具体科目。
 
 ```sql
 CREATE TABLE supplier_subject_mapping (
@@ -81,7 +81,9 @@ CREATE TABLE supplier_subject_mapping (
   accountSetId TEXT NOT NULL,
   groupName TEXT NOT NULL,          -- 映射组名，如"原材料供应商"、"库存商品供应商"
   sellerName TEXT NOT NULL,         -- 供应商全称（精确匹配）
-  -- 该供应商的默认科目覆盖（可选，不填则由规则 action 决定）
+  supplierType TEXT NOT NULL DEFAULT 'material',  -- 供应商类型：
+                                   -- 'material'(原材料) | 'inventory'(库存商品) | 'fixed_asset'(固定资产) | 'service'(服务) | 'other'(其他)
+  -- 该供应商的默认科目覆盖（可选，不填则由 supplierType 的默认配置决定）
   defaultDebitSubject TEXT,
   defaultDebitSubjectName TEXT,
   defaultTaxSubject TEXT,
@@ -93,7 +95,18 @@ CREATE TABLE supplier_subject_mapping (
 );
 CREATE INDEX idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
 CREATE INDEX idx_ssm_groupName ON supplier_subject_mapping(accountSetId, groupName);
+CREATE INDEX idx_ssm_sellerName ON supplier_subject_mapping(accountSetId, sellerName);
 ```
+
+**供应商类型与默认科目映射**：
+
+| supplierType | 说明 | 默认借方 | 默认贷方 |
+|-------------|------|---------|---------|
+| `material` | 原材料供应商 | 1403 原材料 | 2202 应付账款 |
+| `inventory` | 库存商品供应商 | 1405 库存商品 | 2202 应付账款 |
+| `fixed_asset` | 固定资产供应商 | 1601 固定资产 | 2202 应付账款 |
+| `service` | 服务供应商 | 6602 管理费用 | 2202 应付账款 |
+| `other` | 其他 | 1401 材料采购 | 2202 应付账款 |
 
 ### 3.3 `expense_reimbursement` 表（费用发票清单 — 报销人关联）
 
@@ -315,11 +328,14 @@ interface AuxiliaryStrategyConfig {
   updateTime: string;
 }
 
+type SupplierType = 'material' | 'inventory' | 'fixed_asset' | 'service' | 'other';
+
 interface SupplierSubjectMapping {
   id: string;
   accountSetId: string;
   groupName: string;                    // 映射组名
   sellerName: string;                   // 供应商全称（精确匹配）
+  supplierType: SupplierType;           // 供应商类型
   defaultDebitSubject?: string;
   defaultDebitSubjectName?: string;
   defaultTaxSubject?: string;
@@ -351,26 +367,25 @@ interface ExpenseReimbursement {
 
 ```
 发票导入
+  → 第一道分水岭：查供应商白名单
+    → 销方在白名单中 → 采购类
+      → 根据 supplierType 决定科目（material→原材料, inventory→库存商品, fixed_asset→固定资产...）
+      → 固定资产类型 → 额外生成资产卡片
+      → 贷方辅助核算指向供应商
+    → 销方不在白名单中 → 检查关键词库
+      → 命中固定资产关键词 → 固定资产类 → 生成资产卡片
+      → 命中报销关键词 → 报销类 → 贷方偏移至报销人
+      → 都未命中 → 默认报销类（兜底）
   → 遍历规则（按 priority DESC, createTime ASC 排序）
-    → 过滤 invoiceType：rule.invoiceType !== 'both' && rule.invoiceType !== invoice.invoiceType → 跳过
+    → 过滤 invoiceType
     → evaluateConditions(invoice, conditions, supplierMappings)
-      → AND 逻辑：全部条件为 true 才命中
-      → supplierInList 条件：查 supplier_subject_mapping 表，invoice.sellerName 精确匹配组内名单
-      → 命中 → 收集该规则所有 actions → 跳出循环（单规则命中）
-    → 未命中 → 继续下一条
-  → 无命中 → 使用默认科目
+      → 命中 → 收集 actions → 跳出循环
   → executeActions(actions, invoice, context)
-    → resolveExpenseCategory → 查报销关键词库，判断发票是否属于报销类
-    → supplierSubject → 从供应商映射表取默认科目，优先级最高
-    → overrideSubject → 通过 slot map 转换为 entry ID，组装科目覆盖映射
-    → reimbursementSubject → 查费用清单（expense_reimbursement），替换贷方为"其他应付款-报销人"
-      → 如果报销人不在往来单位中 → 自动创建往来卡片（个人类型）
-    → resolveAuxiliaryStrategy → 根据全局策略决定辅助核算行为：
-      → auxiliary 模式：科目有辅助核算配置 → 设置辅助核算维度值
-      → sub_account 模式：科目已是子科目（如112201）→ 跳过辅助核算，避免重复
-      → 报销类发票 + auxiliary 模式 → 贷方辅助核算从"销方"偏移至"报销人"
-    → markAs → 更新发票分类标签
-    → createFixedAsset → 生成完整 FixedAsset 对象
+    → resolveAuxiliaryStrategy → 根据全局策略 + 分类结果决定辅助核算
+    → supplierSubject / reimbursementSubject → 科目覆盖
+    → overrideSubject → 规则级科目覆盖
+    → markAs → 标记分类（purchase / reimbursement / fixed_asset）
+    → createFixedAsset → 生成资产卡片
   → 调用模板引擎生成凭证
 ```
 
@@ -800,19 +815,23 @@ export function executeActions(
 ┌──────────────────────────────────────────────────────┐
 │ 映射组: [原材料供应商 ▼]   [+ 新建组]               │
 │                                                        │
-│ 供应商名称         │ 借方科目      │ 贷方科目          │
-│ 上海材料有限公司   │ 1403 原材料   │ 2202 应付账款     │
-│ 北京钢铁集团       │ 1403 原材料   │ 2202 应付账款     │
-│ 深圳电子科技       │ 1405 库存商品 │ 2202 应付账款     │
+│ 供应商名称         │ 类型     │ 借方科目      │ 贷方科目│
+│ 上海材料有限公司   │ 原材料   │ 1403 原材料   │ 2202   │
+│ 北京钢铁集团       │ 原材料   │ 1403 原材料   │ 2202   │
+│ 深圳电子科技       │ 库存商品 │ 1405 库存商品 │ 2202   │
+│ XX机械制造         │ 固定资产 │ 1601 固定资产 │ 2202   │
 │                                                        │
 │ [+ 添加供应商]  [批量导入]                             │
 └──────────────────────────────────────────────────────┘
 ```
 
 - 映射组切换：下拉选择已有组，或新建组
-- 供应商行：精确名称 + 三个科目槽位（借方/税/贷方）
-- 批量导入：Excel 模板 → 填写供应商名称+科目 → 上传导入
+- 供应商类型下拉：原材料 / 库存商品 / 固定资产 / 服务 / 其他
+- 选择类型后自动填充默认科目（可手动覆盖）
+- 供应商行：精确名称 + 类型 + 三个科目槽位
+- 批量导入：Excel 模板 → 填写供应商名称+类型+科目 → 上传导入
 - 规则条件中 `supplierInList` 引用映射组名，实现跨规则复用
+- **核心逻辑**：在白名单中 → 采购类（按类型分科目），不在白名单中 → 报销/固定资产
 
 **Tab 3 — 费用清单**（导入报销人与发票号的关联）
 
