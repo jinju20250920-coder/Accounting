@@ -115,7 +115,54 @@ CREATE INDEX idx_er_accountSetId ON expense_reimbursement(accountSetId);
 CREATE INDEX idx_er_invoiceCode ON expense_reimbursement(accountSetId, invoiceCode);
 ```
 
-### 3.4 `asset_category_mapping` 表（关键词→资产类别映射）
+### 3.4 `expense_keyword_categories` 表（报销关键词库）
+
+内置常见报销关键词分类表，用于判断发票是否属于报销类，触发辅助核算偏移。
+
+```sql
+CREATE TABLE expense_keyword_categories (
+  id TEXT PRIMARY KEY,
+  accountSetId TEXT NOT NULL,
+  category TEXT NOT NULL,           -- 分类：餐饮/交通/通讯/住宿/办公
+  keywords TEXT NOT NULL,           -- JSON array, e.g. ["打车","滴滴","出行"]
+  expenseSubjectCode TEXT,          -- 默认费用科目，如 6602.03(差旅费)
+  expenseSubjectName TEXT,
+  isSystem INTEGER DEFAULT 0,       -- 系统预设不可删
+  enabled INTEGER DEFAULT 1,
+  createTime TEXT,
+  updateTime TEXT
+);
+CREATE INDEX idx_ekc_accountSetId ON expense_keyword_categories(accountSetId);
+```
+
+系统预设分类：
+
+| 分类 | 关键词 | 默认费用科目 |
+|------|--------|-------------|
+| 交通 | 打车,滴滴,出行,运输,加油,油费 | 6602.01 差旅费 |
+| 餐饮 | 餐费,餐饮,招待,宴请,食品 | 6602.02 业务招待费 |
+| 通讯 | 话费,通讯,电信,移动,联通 | 6602.03 办公费 |
+| 住宿 | 住宿,酒店,宾馆,旅馆 | 6602.01 差旅费 |
+| 办公 | 办公,文具,打印,耗材 | 6602.03 办公费 |
+
+### 3.5 `auxiliary_strategy_config` 表（全局辅助核算策略）
+
+```sql
+CREATE TABLE auxiliary_strategy_config (
+  id TEXT PRIMARY KEY,
+  accountSetId TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'auxiliary',  -- 'auxiliary'(辅助核算) | 'sub_account'(科目明细化)
+  autoCreatePartner INTEGER DEFAULT 1,     -- 往来卡片不存在时自动创建
+  autoDisableAuxiliaryOnSubAccount INTEGER DEFAULT 1, -- 子科目存在时自动关闭辅助核算
+  updateTime TEXT
+);
+```
+
+**两种互斥模式**：
+- `auxiliary`：使用辅助核算维度，如 `1201 应收账款` + 辅助核算 `A公司`
+- `sub_account`：科目明细化，如 `112201 应收-A公司`，每家供应商一个末级科目
+
+### 3.6 `asset_category_mapping` 表（关键词→资产类别映射）
 
 ```sql
 CREATE TABLE asset_category_mapping (
@@ -246,6 +293,28 @@ interface AssetCategoryMapping {
   updateTime: string;
 }
 
+interface ExpenseKeywordCategory {
+  id: string;
+  accountSetId: string;
+  category: string;              // 餐饮/交通/通讯/住宿/办公
+  keywords: string[];
+  expenseSubjectCode?: string;   // 默认费用科目
+  expenseSubjectName?: string;
+  isSystem: boolean;
+  enabled: boolean;
+  createTime: string;
+  updateTime: string;
+}
+
+interface AuxiliaryStrategyConfig {
+  id: string;
+  accountSetId: string;
+  mode: 'auxiliary' | 'sub_account';
+  autoCreatePartner: boolean;
+  autoDisableAuxiliaryOnSubAccount: boolean;
+  updateTime: string;
+}
+
 interface SupplierSubjectMapping {
   id: string;
   accountSetId: string;
@@ -291,11 +360,15 @@ interface ExpenseReimbursement {
     → 未命中 → 继续下一条
   → 无命中 → 使用默认科目
   → executeActions(actions, invoice, context)
+    → resolveExpenseCategory → 查报销关键词库，判断发票是否属于报销类
     → supplierSubject → 从供应商映射表取默认科目，优先级最高
     → overrideSubject → 通过 slot map 转换为 entry ID，组装科目覆盖映射
     → reimbursementSubject → 查费用清单（expense_reimbursement），替换贷方为"其他应付款-报销人"
       → 如果报销人不在往来单位中 → 自动创建往来卡片（个人类型）
-    → assignAuxiliary → 查目标科目辅助核算配置 + 从白名单匹配
+    → resolveAuxiliaryStrategy → 根据全局策略决定辅助核算行为：
+      → auxiliary 模式：科目有辅助核算配置 → 设置辅助核算维度值
+      → sub_account 模式：科目已是子科目（如112201）→ 跳过辅助核算，避免重复
+      → 报销类发票 + auxiliary 模式 → 贷方辅助核算从"销方"偏移至"报销人"
     → markAs → 更新发票分类标签
     → createFixedAsset → 生成完整 FixedAsset 对象
   → 调用模板引擎生成凭证
@@ -356,32 +429,105 @@ function evaluateConditions(
 }
 ```
 
-### 4.3 Auxiliary Accounting Resolution
+### 4.3 Auxiliary Accounting Resolution（辅助核算偏移策略）
 
-辅助核算的启用判断基于**科目配置**：如果覆盖的目标科目（如 6602.01）配置了辅助核算（`auxiliaryItems` 非空），则该科目需要辅助核算。
+辅助核算行为由**全局策略**（`auxiliary_strategy_config`）和**科目配置**共同决定。
+
+#### 三种场景的核算对象偏移
+
+| 发票类型 | 核算对象指向 | 逻辑 |
+|---------|------------|------|
+| 采购/原材料 | 销方（供应商） | 贷方辅助核算 = 发票销方名称 |
+| 报销/差旅 | 报销人（员工） | 贷方辅助核算 = 费用清单中的报销人 |
+| 资产/设备 | 资产卡片 | 固定资产卡片，无辅助核算 |
+
+#### 报销类判断
 
 ```typescript
-function resolveAuxiliary(
+function detectExpenseCategory(
   invoice: Invoice,
-  action: AssignAuxiliaryAction,
-  targetSubject: Subject | null  // 覆盖的目标科目
-): { value: string | null; needsPrompt: boolean } {
-  // 目标科目未配置辅助核算 → 静默跳过
-  if (!targetSubject?.auxiliaryItems || targetSubject.auxiliaryItems.length === 0) {
-    return { value: null, needsPrompt: false };
+  expenseKeywords: ExpenseKeywordCategory[]
+): ExpenseKeywordCategory | null {
+  const goodsName = (invoice.goodsName || '').toLowerCase();
+  return expenseKeywords
+    .filter(ek => ek.enabled)
+    .find(ek => ek.keywords.some(kw => goodsName.includes(kw.toLowerCase())))
+    ?? null;
+}
+```
+
+#### 辅助核算解析
+
+```typescript
+interface AuxiliaryResult {
+  debitAuxiliary: string | null;     // 借方辅助核算值
+  creditAuxiliary: string | null;    // 贷方辅助核算值
+  debitNeedsPrompt: boolean;
+  creditNeedsPrompt: boolean;
+  auxiliaryDisabled: boolean;        // 子科目模式，该行不需要辅助核算
+}
+
+function resolveAuxiliaryStrategy(
+  invoice: Invoice,
+  context: {
+    strategy: AuxiliaryStrategyConfig;
+    debitSubject: Subject | null;
+    creditSubject: Subject | null;
+    expenseCategory: ExpenseKeywordCategory | null;  // 报销关键词库匹配结果
+    reimburserName: string | null;                     // 费用清单中的报销人
+    supplierMappings: SupplierSubjectMapping[];
+  }
+): AuxiliaryResult {
+  const result: AuxiliaryResult = {
+    debitAuxiliary: null,
+    creditAuxiliary: null,
+    debitNeedsPrompt: false,
+    creditNeedsPrompt: false,
+    auxiliaryDisabled: false,
+  };
+
+  // === 子科目模式 ===
+  if (context.strategy.mode === 'sub_account') {
+    // 科目已是子科目（如 112201 应收-A公司）→ 不需要辅助核算
+    // 判断依据：科目代码长度 > 父级代码 且 无 auxiliaryItems 配置
+    const isSubAccount = (subject: Subject | null) =>
+      subject && !subject.auxiliaryItems?.length;
+
+    if (isSubAccount(context.debitSubject)) {
+      result.auxiliaryDisabled = true; // 借方不需要辅助
+    }
+    if (isSubAccount(context.creditSubject)) {
+      result.auxiliaryDisabled = true; // 贷方不需要辅助
+    }
+    return result;
   }
 
-  const fieldName = FIELD_MAP[action.sourceField];
-  const source = (invoice[fieldName] || '').toString();
-  const matched = (action.nameList || []).find(name => source.includes(name));
-
-  // 白名单命中 → 自动填充
-  if (matched) {
-    return { value: matched, needsPrompt: false };
+  // === 辅助核算模式 ===
+  // 借方辅助核算：报销类 → 费用类型对应的辅助维度
+  if (context.debitSubject?.auxiliaryItems?.length) {
+    if (context.expenseCategory) {
+      // 报销类：借方辅助核算 = 费用类型（餐饮/交通/住宿...）
+      result.debitAuxiliary = context.expenseCategory.category;
+    } else {
+      result.debitNeedsPrompt = true;
+    }
   }
 
-  // 未命中 → 提示用户手动选择
-  return { value: null, needsPrompt: true };
+  // 贷方辅助核算：根据发票类型决定指向
+  if (context.creditSubject?.auxiliaryItems?.length) {
+    if (context.expenseCategory && context.reimburserName) {
+      // 报销类 + 有报销人 → 偏移至报销人
+      result.creditAuxiliary = context.reimburserName;
+    } else {
+      // 采购类 → 指向销方
+      result.creditAuxiliary = invoice.sellerName || null;
+      if (!result.creditAuxiliary) {
+        result.creditNeedsPrompt = true;
+      }
+    }
+  }
+
+  return result;
 }
 ```
 
@@ -595,7 +741,39 @@ export function executeActions(
 
 ### 5.1 Rule Configuration Dialog (`InvoiceSmartRuleDialog`)
 
-三个 Tab 页布局：
+五个 Tab 页布局：
+
+**Tab 0 — 辅助核算策略**（全局设置）
+
+```
+┌──────────────────────────────────────────────────────┐
+│ 全局辅助核算策略                                       │
+│                                                        │
+│ 核算模式: (●) 辅助核算  ( ) 科目明细化                  │
+│                                                        │
+│ [X] 子科目存在时自动关闭辅助核算                         │
+│ [X] 往来卡片不存在时自动创建                             │
+│                                                        │
+│ 核算对象偏移规则                                        │
+│ ┌──────────┬──────────────────┬──────────────┐       │
+│ │ 发票类型  │ 触发条件          │ 核算对象指向   │       │
+│ ├──────────┼──────────────────┼──────────────┤       │
+│ │ 采购/原材料│ 供应商在白名单中   │ → 销方       │       │
+│ │ 报销/差旅  │ 类别:餐饮/交通/通讯 │ → 报销人     │       │
+│ │ 资产/设备  │ 金额>5000+关键词  │ → 资产卡片   │       │
+│ └──────────┴──────────────────┴──────────────┘       │
+│                                                        │
+│ 报销关键词库（内置）                                     │
+│ ┌──────────┬────────────────────┬──────────────┐     │
+│ │ 分类      │ 关键词              │ 默认费用科目   │     │
+│ ├──────────┼────────────────────┼──────────────┤     │
+│ │ 交通 [系统]│ 打车,滴滴,出行,加油  │ 6602.01 差旅 │     │
+│ │ 餐饮 [系统]│ 餐费,餐饮,招待,宴请  │ 6602.02 招待 │     │
+│ │ 通讯 [系统]│ 话费,通讯,电信      │ 6602.03 办公 │     │
+│ │ [+ 添加分类]                                   │     │
+│ └──────────┴────────────────────┴──────────────┘     │
+└──────────────────────────────────────────────────────┘
+```
 
 **Tab 1 — 规则配置**（核心编辑页）
 
@@ -685,11 +863,11 @@ export function executeActions(
 
 | File | Change | Description |
 |------|--------|-------------|
-| `src/types/index.ts` | Modify | Add `InvoiceSmartRule`, `SmartRuleCondition` (discriminated union), `SmartRuleAction` (discriminated union incl. `ReimbursementSubjectAction`), `AssetCategoryMapping`, `SupplierSubjectMapping`, `ExpenseReimbursement` types |
-| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `supplier_subject_mapping`, `asset_category_mapping`, `expense_reimbursement` tables, update CRUD |
-| `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation (text/numeric/supplier), action execution (incl. reimbursement resolution), asset card generation |
-| `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine, handles supplier/reimbursement subject, `assignAuxiliary` and `createFixedAsset` |
-| `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 4-tab layout (规则配置/供应商映射/费用清单/资产类别映射) |
+| `src/types/index.ts` | Modify | Add all new types incl. `ExpenseKeywordCategory`, `AuxiliaryStrategyConfig`, `ExpenseReimbursement`, `ReimbursementSubjectAction` |
+| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `supplier_subject_mapping`, `asset_category_mapping`, `expense_reimbursement`, `expense_keyword_categories`, `auxiliary_strategy_config` tables |
+| `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation, expense category detection, auxiliary strategy resolution, all action types |
+| `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine with full context |
+| `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 5-tab layout (辅助核算策略/规则配置/供应商映射/费用清单/资产类别映射) |
 | `src/stores/useFixedAssetStore.ts` | Modify | Add `createFromInvoice()` method |
 | `src/stores/usePartnerStore.ts` | Modify | Add `findByName()`, support `isEmployee` type for auto-created reimburser cards |
 | `src/app/invoices/input/page.tsx` | Modify | Replace dialog component reference, add expense list import button |
@@ -702,21 +880,23 @@ useInvoiceStore.generateInvoiceVoucher(invoice)
   → rules = sqliteService.getSmartRules()
   → supplierMappings = sqliteService.getSupplierMappings()
   → expenseList = sqliteService.getExpenseReimbursements()
+  → strategy = sqliteService.getAuxiliaryStrategy()
+  → expenseKeywords = sqliteService.getExpenseKeywordCategories()
   → matchedRule = invoiceRuleEngine.matchRule(invoice, rules, supplierMappings)
-     // matchRule 内部先按 invoiceType 过滤规则，再评估 conditions（含 supplierInList）
+  → expenseCategory = detectExpenseCategory(invoice, expenseKeywords)
   → if matchedRule:
       actionResult = invoiceRuleEngine.executeActions(
         matchedRule.actions, invoice,
-        { invoiceType, getSubject, supplierMappings, expenseList }
+        { invoiceType, getSubject, supplierMappings, expenseList, strategy, expenseCategory }
       )
-      → reimbursementSubject (最高优先级，仅覆盖 credit)
-        → 查 expenseList 找报销人 → 替换贷方为"其他应付款-报销人"
-        → 报销人无往来卡片 → 自动创建
-      → supplierSubject overrides (覆盖 debit/tax/credit)
-      → overrideSubject → template engine (key = slot map 转换后的 entry_1/2/3)
-      → auxiliaryNeedsPrompt → prompt user with auxiliary selector
+      → resolveAuxiliaryStrategy (根据全局策略 + 科目配置 + 报销类型)
+        → 辅助核算模式：报销类贷方偏移至报销人，采购类贷方指向销方
+        → 子科目模式：自动关闭辅助核算，避免重复
+      → reimbursementSubject → 替换贷方
+      → supplierSubject → 覆盖 debit/tax/credit
+      → overrideSubject → template engine
       → fixedAssetCard → fixedAssetStore.addAsset(card)
-      → markCategory → update invoice.category field
+      → markCategory → update invoice.category
   → templateEngine.generateVoucherWithOverrides(...)
 ```
 
@@ -729,7 +909,11 @@ CREATE TABLE invoice_smart_rules (...);
 CREATE TABLE supplier_subject_mapping (...);
 CREATE TABLE asset_category_mapping (...);
 CREATE TABLE expense_reimbursement (...);
-INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家具/装修/运输工具)
+CREATE TABLE expense_keyword_categories (...);
+CREATE TABLE auxiliary_strategy_config (...);
+INSERT INTO asset_category_mapping -- 4 system presets
+INSERT INTO expense_keyword_categories -- 5 system presets (交通/餐饮/通讯/住宿/办公)
+INSERT INTO auxiliary_strategy_config -- default: mode='auxiliary'
 ```
 
 ### 6.4 Expense List Import
@@ -780,17 +964,17 @@ INSERT INTO asset_category_mapping -- 4 system presets (电子设备/办公家�
 ### 7.3 Key Design Decisions
 
 1. **Single rule match**: Only the highest-priority matched rule applies (no multi-rule stacking)
-2. **Actions execute in order**: reimbursementSubject → supplierSubject → overrideSubject → assignAuxiliary → markAs → createFixedAsset
-3. **Reimbursement credit override**: `reimbursementSubject` 仅覆盖 credit 槽位，将"应付账款-供应商"替换为"其他应付款-报销人"
-4. **Supplier subject priority**: `supplierSubject` action overrides `overrideSubject` action for same slot (supplier mapping is more specific)
-4. **Fixed asset cards use `status: 'active'`**: `AssetStatus` 类型无 `draft` 值，使用 `active` + `depreciationStartDate` 为空表示未开始折旧（事实草稿）
-5. **Auxiliary accounting**: White list matching + 目标科目的 auxiliaryItems 配置决定是否需要提示
-6. **Auxiliary not matched + subject requires auxiliary**: Prompt user to select from partner list, do not block voucher creation
-7. **overrideSubject without slot**: Discriminated union 使 slot 为必填，不会出现缺失情况
-8. **Field name alignment**: 条件字段 `notes` 对应 `Invoice.notes`（非 remark），`totalAmount` 对应 `Invoice.totalAmount`（非 amount）
-9. **Supplier matching is exact**: 供应商映射使用精确匹配（`===`），非模糊匹配，避免误匹配
-10. **Expense list import order agnostic**: 费用清单和发票导入顺序不固定，凭证生成时才合并
-11. **Auto-create partner card**: 报销人不在往来单位中时自动创建个人类型卡片（`isEmployee: true`）
+2. **Actions execute in order**: resolveExpenseCategory → resolveAuxiliaryStrategy → reimbursementSubject → supplierSubject → overrideSubject → markAs → createFixedAsset
+3. **Two auxiliary modes (mutually exclusive)**: `auxiliary`（辅助核算维度）vs `sub_account`（科目明细化），由全局策略决定
+4. **Auxiliary offset for reimbursements**: 报销类发票贷方辅助核算从"销方"偏移至"报销人"，由报销关键词库自动判断
+5. **Sub-account auto-disable**: 子科目模式（如 `112201 应收-A公司`）自动关闭辅助核算，避免重复核算
+6. **Reimbursement credit override**: `reimbursementSubject` 仅覆盖 credit 槽位
+7. **Supplier subject priority**: `supplierSubject` > `overrideSubject` for same slot
+8. **Fixed asset cards use `status: 'active'`**: `depreciationStartDate` 为空表示事实草稿
+9. **Expense keyword categories**: 内置 5 类（交通/餐饮/通讯/住宿/办公），用户可扩展
+10. **Auto-create partner card**: 往来卡片不存在时自动创建（`isEmployee: true`）
+11. **Expense list import order agnostic**: 费用清单和发票导入顺序不固定
+12. **Supplier matching is exact**: 供应商映射使用精确匹配（`===`）
 
 ---
 
