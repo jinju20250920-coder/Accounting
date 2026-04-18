@@ -175,6 +175,22 @@ CREATE TABLE auxiliary_strategy_config (
 - `auxiliary`：使用辅助核算维度，如 `1201 应收账款` + 辅助核算 `A公司`
 - `sub_account`：科目明细化，如 `112201 应收-A公司`，每家供应商一个末级科目
 
+### 3.7 Invoice 扩展字段
+
+发票表需新增两个字段（通过 ALTER TABLE 迁移）：
+
+```sql
+-- 发票处理状态：正常/暂不入账
+ALTER TABLE invoices ADD COLUMN holdStatus TEXT DEFAULT 'normal';
+-- 'normal' | 'on_hold'
+-- normal: 正常发票，出现在凭证生成待选列表
+-- on_hold: 暂不入账，不出现在待选列表，但保留在数据库中用于查重
+
+-- 发票分类标签（由规则引擎 markAs 动作写入）
+ALTER TABLE invoices ADD COLUMN category TEXT DEFAULT NULL;
+-- 'purchase' | 'reimbursement' | 'fixed_asset' | NULL
+```
+
 ### 3.6 `asset_category_mapping` 表（关键词→资产类别映射）
 
 ```sql
@@ -480,6 +496,7 @@ interface AuxiliaryResult {
   debitNeedsPrompt: boolean;
   creditNeedsPrompt: boolean;
   auxiliaryDisabled: boolean;        // 子科目模式，该行不需要辅助核算
+  docNo: string;                     // 单据编号 = 发票号码（始终写入，与辅助核算无关）
 }
 
 function resolveAuxiliaryStrategy(
@@ -499,6 +516,7 @@ function resolveAuxiliaryStrategy(
     debitNeedsPrompt: false,
     creditNeedsPrompt: false,
     auxiliaryDisabled: false,
+    docNo: invoice.invoiceCode,       // 始终写入发票号码作为单据编号
   };
 
   // === 子科目模式 ===
@@ -854,7 +872,39 @@ export function executeActions(
 - 支持多次导入追加，按发票号去重（后导入覆盖先导入）
 - 清空按钮：删除当前账套所有费用清单记录
 
-### 5.2 Asset Category Mapping Tab（Tab 4）
+### 5.2 暂不入账区（Hold Area）
+
+进项发票列表页增加独立的选项卡，类似邮箱的"垃圾箱"或"存档"：
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [全部发票(156)]  [待生成凭证(42)]  [已生成凭证(98)]  [暂不入账(16)] │
+│                                                                │
+│  ┌──────┬──────────┬────────┬──────┬────────┬──────────┐     │
+│  │ 选择  │ 发票号码  │ 销方    │ 金额  │ 分类    │ 入账状态  │     │
+│  ├──────┼──────────┼────────┼──────┼────────┼──────────┤     │
+│  │ ☐    │ 23456789 │ 某某公司│ 500  │ 报销   │ ⏸ 暂停   │     │
+│  │ ☐    │ 23456790 │ 未知销方│ 1200 │ 未分类  │ ⏸ 暂停   │     │
+│  └──────┴──────────┴────────┴──────┴────────┴──────────┘     │
+│                                                                │
+│  [恢复到待选]  [删除]                        [批量恢复]        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**行为规则**：
+- "暂不入账"的发票不出现在"待生成凭证"选项卡中
+- 仍然保留在本地数据库中，**参与查重**（防止未来重复入账同一张发票）
+- 仍然参与统计汇总
+- 可随时恢复到"待生成凭证"列表
+- 恢复后正常进入凭证生成流程
+- 支持批量操作：批量暂缓、批量恢复
+
+**触发方式**：
+1. 手动标记：列表中勾选发票 → "暂不入账" 按钮
+2. 规则引擎自动标记：可配置规则将特定发票自动放入暂缓区（如销方不明、金额异常等）
+3. 凭证生成失败：自动标记为暂缓，等待人工处理
+
+### 5.3 Asset Category Mapping Tab（Tab 4）
 
 | 资产类别 | 折旧年限 | 方法   | 关键词                 | 标签   |
 |---------|---------|--------|----------------------|--------|
@@ -883,13 +933,13 @@ export function executeActions(
 | File | Change | Description |
 |------|--------|-------------|
 | `src/types/index.ts` | Modify | Add all new types incl. `ExpenseKeywordCategory`, `AuxiliaryStrategyConfig`, `ExpenseReimbursement`, `ReimbursementSubjectAction` |
-| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules` with `invoice_smart_rules`, add `supplier_subject_mapping`, `asset_category_mapping`, `expense_reimbursement`, `expense_keyword_categories`, `auxiliary_strategy_config` tables |
+| `src/lib/database/sqlite-service.ts` | Modify | Replace `invoice_subject_rules`, add all new tables, ALTER invoices add `holdStatus`/`category` columns, update dedup logic to include hold invoices |
 | `src/lib/invoice-rule-engine.ts` | **New** | Standalone matching engine: condition evaluation, expense category detection, auxiliary strategy resolution, all action types |
 | `src/stores/useInvoiceStore.ts` | Modify | `generateInvoiceVoucher` calls new engine with full context |
 | `src/components/invoice-subject-config-dialog.tsx` | Rewrite | → `InvoiceSmartRuleDialog`, 5-tab layout (辅助核算策略/规则配置/供应商映射/费用清单/资产类别映射) |
 | `src/stores/useFixedAssetStore.ts` | Modify | Add `createFromInvoice()` method |
 | `src/stores/usePartnerStore.ts` | Modify | Add `findByName()`, support `isEmployee` type for auto-created reimburser cards |
-| `src/app/invoices/input/page.tsx` | Modify | Replace dialog component reference, add expense list import button |
+| `src/app/invoices/input/page.tsx` | Modify | Replace dialog, add expense list import, add "暂不入账" tab with hold/restore actions |
 | `src/app/invoices/output/page.tsx` | Modify | Replace dialog component reference |
 
 ### 6.2 Call Chain
@@ -930,6 +980,8 @@ CREATE TABLE asset_category_mapping (...);
 CREATE TABLE expense_reimbursement (...);
 CREATE TABLE expense_keyword_categories (...);
 CREATE TABLE auxiliary_strategy_config (...);
+ALTER TABLE invoices ADD COLUMN holdStatus TEXT DEFAULT 'normal';
+ALTER TABLE invoices ADD COLUMN category TEXT DEFAULT NULL;
 INSERT INTO asset_category_mapping -- 4 system presets
 INSERT INTO expense_keyword_categories -- 5 system presets (交通/餐饮/通讯/住宿/办公)
 INSERT INTO auxiliary_strategy_config -- default: mode='auxiliary'
@@ -973,6 +1025,10 @@ INSERT INTO auxiliary_strategy_config -- default: mode='auxiliary'
 | Reimburser name not in partner list | Auto-create partner card (individual type, `isEmployee: true`) |
 | Multiple expense list entries with same invoice code | Use first imported record, log warning |
 | Expense list imported before invoices | Stored in DB, matched at voucher generation time |
+| Hold invoice re-imported | Dedup check still runs against hold invoices, prevents double entry |
+| Hold invoice restored | Returns to normal status, appears in voucher generation list |
+| Voucher generation on hold invoices | Skipped — only `holdStatus='normal'` invoices appear in selection |
+| docNo on voucher entries | Always set to `invoice.invoiceCode`, regardless of auxiliary accounting |
 
 ### 7.2 Error Handling
 
@@ -986,14 +1042,16 @@ INSERT INTO auxiliary_strategy_config -- default: mode='auxiliary'
 2. **Actions execute in order**: resolveExpenseCategory → resolveAuxiliaryStrategy → reimbursementSubject → supplierSubject → overrideSubject → markAs → createFixedAsset
 3. **Two auxiliary modes (mutually exclusive)**: `auxiliary`（辅助核算维度）vs `sub_account`（科目明细化），由全局策略决定
 4. **Auxiliary offset for reimbursements**: 报销类发票贷方辅助核算从"销方"偏移至"报销人"，由报销关键词库自动判断
-5. **Sub-account auto-disable**: 子科目模式（如 `112201 应收-A公司`）自动关闭辅助核算，避免重复核算
-6. **Reimbursement credit override**: `reimbursementSubject` 仅覆盖 credit 槽位
-7. **Supplier subject priority**: `supplierSubject` > `overrideSubject` for same slot
-8. **Fixed asset cards use `status: 'active'`**: `depreciationStartDate` 为空表示事实草稿
-9. **Expense keyword categories**: 内置 5 类（交通/餐饮/通讯/住宿/办公），用户可扩展
-10. **Auto-create partner card**: 往来卡片不存在时自动创建（`isEmployee: true`）
-11. **Expense list import order agnostic**: 费用清单和发票导入顺序不固定
-12. **Supplier matching is exact**: 供应商映射使用精确匹配（`===`）
+5. **Sub-account auto-disable**: 子科目模式自动关闭辅助核算，避免重复核算
+6. **DocNo always set**: 凭证分录的单据编号始终写入发票号码（`invoice.invoiceCode`），与辅助核算无关
+7. **Reimbursement credit override**: `reimbursementSubject` 仅覆盖 credit 槽位
+8. **Supplier subject priority**: `supplierSubject` > `overrideSubject` for same slot
+9. **Fixed asset cards use `status: 'active'`**: `depreciationStartDate` 为空表示事实草稿
+10. **Expense keyword categories**: 内置 5 类（交通/餐饮/通讯/住宿/办公），用户可扩展
+11. **Auto-create partner card**: 往来卡片不存在时自动创建（`isEmployee: true`）
+12. **Hold area isolation**: `holdStatus='on_hold'` 的发票不参与凭证生成，但参与查重和统计
+13. **Hold invoices still dedup**: 暂不入账的发票仍参与导入查重，防止未来重复入账
+14. **Supplier whitelist as primary classifier**: 在白名单 → 采购类（按类型分科目），不在 → 报销/固定资产
 
 ---
 
