@@ -894,10 +894,25 @@ export function executeActions(
 **行为规则**：
 - "暂不入账"的发票不出现在"待生成凭证"选项卡中
 - 仍然保留在本地数据库中，**参与查重**（防止未来重复入账同一张发票）
-- 仍然参与统计汇总
+- **不参与统计汇总**（统计卡片仅统计已入账发票，或按状态分卡片展示）
 - 可随时恢复到"待生成凭证"列表
 - 恢复后正常进入凭证生成流程
 - 支持批量操作：批量暂缓、批量恢复
+
+**统计卡片按状态分组**：
+
+```
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ 已入账        │ │ 待生成凭证    │ │ 暂不入账      │ │ 本月合计      │
+│ ¥ 125,600.00 │ │ ¥ 42,300.00  │ │ ¥ 16,800.00  │ │ ¥ 184,500.00 │
+│ 98 张         │ │ 42 张        │ │ 16 张         │ │ 156 张       │
+└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+- "已入账"卡片：`voucherId` 非空的发票金额/数量汇总
+- "待生成凭证"卡片：`holdStatus='normal'` 且 `voucherId` 为空的发票
+- "暂不入账"卡片：`holdStatus='on_hold'` 的发票（单独展示，不混入主统计）
+- "本月合计"卡片：当月所有发票（含暂缓），仅供参考
 
 **触发方式**：
 1. 手动标记：列表中勾选发票 → "暂不入账" 按钮
@@ -1049,8 +1064,9 @@ INSERT INTO auxiliary_strategy_config -- default: mode='auxiliary'
 9. **Fixed asset cards use `status: 'active'`**: `depreciationStartDate` 为空表示事实草稿
 10. **Expense keyword categories**: 内置 5 类（交通/餐饮/通讯/住宿/办公），用户可扩展
 11. **Auto-create partner card**: 往来卡片不存在时自动创建（`isEmployee: true`）
-12. **Hold area isolation**: `holdStatus='on_hold'` 的发票不参与凭证生成，但参与查重和统计
-13. **Hold invoices still dedup**: 暂不入账的发票仍参与导入查重，防止未来重复入账
+12. **Hold area isolation**: `holdStatus='on_hold'` 的发票不参与凭证生成和主统计，但参与查重
+13. **Hold invoices dedup only**: 暂不入账的发票仅参与导入查重，不参与已入账统计汇总
+14. **Stats by status**: 统计卡片按状态分组（已入账/待生成/暂不入账），不混合展示
 14. **Supplier whitelist as primary classifier**: 在白名单 → 采购类（按类型分科目），不在 → 报销/固定资产
 
 ---
