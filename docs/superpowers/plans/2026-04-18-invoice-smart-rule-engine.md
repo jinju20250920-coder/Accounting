@@ -226,6 +226,18 @@ interface AssetCategoryMapping {
   createTime: string;
   updateTime: string;
 }
+
+// --- Engine Context (passed to executeActions) ---
+interface EngineContext {
+  invoice: Invoice;
+  matchedRule: InvoiceSmartRule | null;
+  supplierMappings: SupplierSubjectMapping[];
+  expenseReimbursements: ExpenseReimbursement[];
+  auxiliaryStrategy: AuxiliaryStrategyConfig | null;
+  expenseKeywords: ExpenseKeywordCategory[];
+  assetMappings: AssetCategoryMapping[];
+  allRules: InvoiceSmartRule[];
+}
 ```
 
 - [ ] **Step 2: Add `holdStatus` and `category` to Invoice interface**
@@ -361,11 +373,12 @@ Per spec section 4.1:
 
 Implement each action resolver per spec sections 4.3-4.6:
 - `resolveSupplierSubject()` — supplier mapping table → slot overrides
-- `resolveReimbursement()` — expense list lookup → credit override + partner auto-create
+- `resolveReimbursement()` — expense list lookup → credit override + partner auto-create. **Important:** Partner interface has no `type` field. Auto-create reimburser with `{ isEmployee: true, isCustomer: false, isSupplier: false, code: 'EMP-' + Date.now(), name: reimburserName }`.
 - `buildAssetCard()` — invoice data → FixedAsset object
-- `resolveAuxiliaryStrategy()` — strategy config + subject config → auxiliary result
+- `resolveAuxiliaryStrategy()` — strategy config + subject config → auxiliary result. **Important:** `Subject` interface has no `auxiliaryItems` array. Auxiliary capability is determined by boolean flags: `hasAuxiliary(subject)` = `subject.isCustomer || subject.isSupplier || subject.isEmployee || subject.enableDept || subject.enableProject || subject.enableCashFlow`. Implement this as a helper function.
 - `detectExpenseCategory()` — keyword library match → ExpenseKeywordCategory
 - `generateAssetCode()` — helper: `FA-YYYYMM-NNN` format, query max NNN from DB
+- `executeActions()` — see signature in Task 1's `EngineContext` type below
 
 - [ ] **Step 4: Implement `executeActions()`**
 
@@ -434,7 +447,7 @@ findByName: (name: string): Partner | undefined => {
 
 Also change `addPartner` return type from `Promise<void>` to `Promise<Partner>` — make it return the newly created partner object (needed by engine for partner auto-creation flow). The engine does: `addPartner(...) → returns Partner → uses partner.id`.
 
-Note: Partner interface uses `isEmployee: boolean` (not `type: 'individual'`). Engine should set `isEmployee: true, isCustomer: false, isSupplier: false` when auto-creating reimburser cards.
+Note: Partner interface uses `isEmployee: boolean` (not `type: 'individual'`). Engine should set `isEmployee: true, isCustomer: false, isSupplier: false` when auto-creating reimburser cards. The `code` field is required and must be unique — engine should generate `code: 'EMP-' + Date.now()`.
 
 - [ ] **Step 2: Add `createFromInvoice` to FixedAssetStore**
 
