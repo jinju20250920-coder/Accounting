@@ -37,7 +37,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { InvoiceSubjectConfigDialog } from '@/components/invoice-subject-config-dialog';
+import { InvoiceSmartRuleDialog } from '@/components/invoice-smart-rule-dialog';
 import type { Invoice, InvoicePaymentStatus } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -1126,9 +1126,10 @@ export default function OutputInvoicePage() {
       />
 
       {/* 科目配置 */}
-      <InvoiceSubjectConfigDialog
+      <InvoiceSmartRuleDialog
         open={showSubjectConfig}
         onOpenChange={setShowSubjectConfig}
+        invoiceType="output"
       />
 
       {/* 详情对话框 */}
