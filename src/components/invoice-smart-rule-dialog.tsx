@@ -6,6 +6,7 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -38,7 +39,11 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  Download,
+  Upload,
+  FileText,
 } from 'lucide-react';
+import { ExpenseListImportDialog } from './expense-list-import-dialog';
 import type {
   InvoiceSmartRule,
   SmartRuleCondition,
@@ -55,6 +60,10 @@ import type {
   AuxiliaryStrategyConfig,
   ExpenseKeywordCategory,
   DepreciationMethod,
+  SupplierSubjectMapping,
+  ExpenseReimbursement,
+  AssetCategoryMapping,
+  SupplierType,
 } from '@/types';
 
 // ─── Props ──────────────────────────────────────────────────
@@ -131,30 +140,19 @@ export function InvoiceSmartRuleDialog({ open, onOpenChange, invoiceType }: Invo
           </TabsContent>
 
           <TabsContent value="suppliers" className="mt-4">
-            <PlaceholderTab title="供应商映射" />
+            <SupplierMappingTab />
           </TabsContent>
 
           <TabsContent value="expenses" className="mt-4">
-            <PlaceholderTab title="费用清单" />
+            <ExpenseListTab />
           </TabsContent>
 
           <TabsContent value="assets" className="mt-4">
-            <PlaceholderTab title="资产类别" />
+            <AssetCategoryTab />
           </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── Placeholder Tab ────────────────────────────────────────
-function PlaceholderTab({ title }: { title: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-      <Settings2 className="h-10 w-10 mb-3 opacity-40" />
-      <p className="text-sm">{title} — 待实现</p>
-      <p className="text-xs mt-1">该功能将在后续版本中提供</p>
-    </div>
   );
 }
 
@@ -187,7 +185,6 @@ function StrategyTab() {
       ]);
       if (s) setStrategy(s);
       else {
-        // Create default strategy
         const defaultStrategy: AuxiliaryStrategyConfig = {
           id: `strategy_${accountSetId}`,
           accountSetId: accountSetId!,
@@ -744,7 +741,6 @@ function RuleForm({
     const updated = formConditions.map((c, i): SmartRuleCondition => {
       if (i !== idx) return c;
 
-      // If field type changed, reset operator and values
       if (updates.field && updates.field !== c.field) {
         if (NUMERIC_FIELDS.includes(updates.field)) {
           return {
@@ -789,7 +785,6 @@ function RuleForm({
     const updated = formActions.map((a, i): SmartRuleAction => {
       if (i !== idx) return a;
 
-      // If action type changed, create a new default action of that type
       if (updates.type && updates.type !== a.type) {
         switch (updates.type) {
           case 'overrideSubject':
@@ -1368,5 +1363,856 @@ function SubjectPopoverPopup({
         </>
       )}
     </div>
+  );
+}
+
+// ─── Tab 2: Supplier Mapping ──────────────────────────────────
+const SUPPLIER_TYPE_OPTIONS: { value: SupplierType; label: string }[] = [
+  { value: 'material', label: '原材料' },
+  { value: 'inventory', label: '库存商品' },
+  { value: 'fixed_asset', label: '固定资产' },
+  { value: 'service', label: '服务' },
+  { value: 'other', label: '其他' },
+];
+
+const SUPPLIER_TYPE_DEFAULTS: Record<SupplierType, {
+  debitCode: string; debitName: string;
+  taxCode: string; taxName: string;
+  creditCode: string; creditName: string;
+}> = {
+  material: { debitCode: '1401', debitName: '材料采购', taxCode: '2221.01', taxName: '进项税额', creditCode: '2202', creditName: '应付账款' },
+  inventory: { debitCode: '1402', debitName: '库存商品', taxCode: '2221.01', taxName: '进项税额', creditCode: '2202', creditName: '应付账款' },
+  fixed_asset: { debitCode: '1601', debitName: '固定资产', taxCode: '2221.01', taxName: '进项税额', creditCode: '2202', creditName: '应付账款' },
+  service: { debitCode: '6602', debitName: '管理费用', taxCode: '2221.02', taxName: '进项税额-6%', creditCode: '2202', creditName: '应付账款' },
+  other: { debitCode: '', debitName: '', taxCode: '', taxName: '', creditCode: '', creditName: '' },
+};
+
+function SupplierMappingTab() {
+  const { showToast } = useToast();
+  const accountSetId = useAccountSetStore((s) => s.currentAccountSetId);
+
+  const [allMappings, setAllMappings] = useState<SupplierSubjectMapping[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showNewGroupInput, setShowNewGroupInput] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [addingRow, setAddingRow] = useState(false);
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
+  const [batchText, setBatchText] = useState('');
+  const [editForm, setEditForm] = useState<{
+    sellerName: string;
+    supplierType: SupplierType;
+    debitCode: string; debitName: string;
+    taxCode: string; taxName: string;
+    creditCode: string; creditName: string;
+  }>({
+    sellerName: '', supplierType: 'material',
+    debitCode: '', debitName: '',
+    taxCode: '', taxName: '',
+    creditCode: '', creditName: '',
+  });
+
+  useEffect(() => {
+    if (accountSetId) loadMappings();
+  }, [accountSetId]);
+
+  const loadMappings = async () => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      const data = await sqliteService.getSupplierMappings();
+      setAllMappings(data);
+      const groups = [...new Set(data.map(m => m.groupName))];
+      if (groups.length > 0 && !selectedGroup) {
+        setSelectedGroup(groups[0]);
+      }
+    } catch (e) {
+      console.error('加载供应商映射失败:', e);
+    }
+  };
+
+  const groups = [...new Set(allMappings.map(m => m.groupName))].sort();
+  const currentMappings = allMappings
+    .filter(m => m.groupName === selectedGroup)
+    .filter(m => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return m.sellerName.toLowerCase().includes(q);
+    });
+
+  const handleCreateGroup = () => {
+    const name = newGroupName.trim();
+    if (!name) {
+      showToast('error', '请输入分组名称');
+      return;
+    }
+    if (groups.includes(name)) {
+      showToast('error', '该分组已存在');
+      return;
+    }
+    setSelectedGroup(name);
+    setNewGroupName('');
+    setShowNewGroupInput(false);
+    showToast('success', `分组"${name}"已创建，请添加供应商`);
+  };
+
+  const handleDeleteGroup = () => {
+    if (currentMappings.length > 0) {
+      showToast('error', '该分组下还有供应商，请先删除所有供应商');
+      return;
+    }
+    setAllMappings(prev => prev.filter(m => m.groupName !== selectedGroup));
+    setSelectedGroup(groups.find(g => g !== selectedGroup) || '');
+    showToast('success', '分组已删除');
+  };
+
+  const resetEditForm = () => {
+    setEditForm({
+      sellerName: '', supplierType: 'material',
+      debitCode: '', debitName: '',
+      taxCode: '', taxName: '',
+      creditCode: '', creditName: '',
+    });
+  };
+
+  const handleTypeChange = (type: SupplierType) => {
+    const defaults = SUPPLIER_TYPE_DEFAULTS[type];
+    setEditForm(prev => ({
+      ...prev,
+      supplierType: type,
+      debitCode: prev.debitCode || defaults.debitCode,
+      debitName: prev.debitName || defaults.debitName,
+      taxCode: prev.taxCode || defaults.taxCode,
+      taxName: prev.taxName || defaults.taxName,
+      creditCode: prev.creditCode || defaults.creditCode,
+      creditName: prev.creditName || defaults.creditName,
+    }));
+  };
+
+  const startAddSupplier = () => {
+    resetEditForm();
+    const defaults = SUPPLIER_TYPE_DEFAULTS['material'];
+    setEditForm({
+      sellerName: '', supplierType: 'material',
+      debitCode: defaults.debitCode, debitName: defaults.debitName,
+      taxCode: defaults.taxCode, taxName: defaults.taxName,
+      creditCode: defaults.creditCode, creditName: defaults.creditName,
+    });
+    setAddingRow(true);
+  };
+
+  const handleSaveNew = async () => {
+    if (!selectedGroup) {
+      showToast('error', '请先选择或创建分组');
+      return;
+    }
+    if (!editForm.sellerName.trim()) {
+      showToast('error', '请输入供应商名称');
+      return;
+    }
+    const now = new Date().toISOString();
+    const mapping: SupplierSubjectMapping = {
+      id: `sm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      accountSetId: accountSetId!,
+      groupName: selectedGroup,
+      sellerName: editForm.sellerName.trim(),
+      supplierType: editForm.supplierType,
+      defaultDebitSubject: editForm.debitCode || undefined,
+      defaultDebitSubjectName: editForm.debitName || undefined,
+      defaultTaxSubject: editForm.taxCode || undefined,
+      defaultTaxSubjectName: editForm.taxName || undefined,
+      defaultCreditSubject: editForm.creditCode || undefined,
+      defaultCreditSubjectName: editForm.creditName || undefined,
+      createTime: now,
+      updateTime: now,
+    };
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.saveSupplierMapping(mapping);
+      await loadMappings();
+      setAddingRow(false);
+      resetEditForm();
+      showToast('success', '供应商已添加');
+    } catch (e) {
+      showToast('error', '保存失败: ' + e);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.deleteSupplierMapping(id);
+      await loadMappings();
+      showToast('success', '供应商已删除');
+    } catch (e) {
+      showToast('error', '删除失败');
+    }
+  };
+
+  const handleBatchImport = async () => {
+    if (!selectedGroup) {
+      showToast('error', '请先选择或创建分组');
+      return;
+    }
+    const names = batchText.split('\n').map(n => n.trim()).filter(Boolean);
+    if (names.length === 0) {
+      showToast('error', '请输入供应商名称');
+      return;
+    }
+    const now = new Date().toISOString();
+    const defaults = SUPPLIER_TYPE_DEFAULTS['material'];
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      for (const sellerName of names) {
+        const mapping: SupplierSubjectMapping = {
+          id: `sm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          accountSetId: accountSetId!,
+          groupName: selectedGroup,
+          sellerName,
+          supplierType: 'material',
+          defaultDebitSubject: defaults.debitCode || undefined,
+          defaultDebitSubjectName: defaults.debitName || undefined,
+          defaultTaxSubject: defaults.taxCode || undefined,
+          defaultTaxSubjectName: defaults.taxName || undefined,
+          defaultCreditSubject: defaults.creditCode || undefined,
+          defaultCreditSubjectName: defaults.creditName || undefined,
+          createTime: now,
+          updateTime: now,
+        };
+        await sqliteService.saveSupplierMapping(mapping);
+      }
+      await loadMappings();
+      setBatchImportOpen(false);
+      setBatchText('');
+      showToast('success', `已导入 ${names.length} 个供应商`);
+    } catch (e) {
+      showToast('error', '批量导入失败: ' + e);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Group selector */}
+      <div className="flex items-center gap-3">
+        <Select value={selectedGroup} onValueChange={setSelectedGroup}>
+          <SelectTrigger className="w-48 h-9 text-sm">
+            <SelectValue placeholder="选择分组" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map(g => (
+              <SelectItem key={g} value={g}>{g}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {!showNewGroupInput ? (
+          <Button variant="outline" size="sm" onClick={() => setShowNewGroupInput(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> 新建组
+          </Button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Input
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="输入组名"
+              className="w-36 h-8 text-sm"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
+            />
+            <Button size="sm" onClick={handleCreateGroup}>确定</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowNewGroupInput(false); setNewGroupName(''); }}>取消</Button>
+          </div>
+        )}
+
+        {selectedGroup && currentMappings.length === 0 && (
+          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={handleDeleteGroup}>
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> 删除组
+          </Button>
+        )}
+      </div>
+
+      {selectedGroup ? (
+        <>
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="搜索供应商名称..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 text-sm"
+            />
+          </div>
+
+          {/* Supplier table */}
+          <div className="border rounded-md overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">供应商名称</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 w-28">供应商类型</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">借方科目</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">税科目</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">贷方科目</th>
+                  <th className="px-3 py-2 w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {currentMappings.map((m) => (
+                  <SupplierRow key={m.id} mapping={m} onDelete={() => handleDelete(m.id)} />
+                ))}
+                {currentMappings.length === 0 && !addingRow && (
+                  <tr>
+                    <td colSpan={6} className="text-center py-6 text-slate-400 text-xs">
+                      该分组暂无供应商
+                    </td>
+                  </tr>
+                )}
+                {addingRow && (
+                  <tr className="bg-blue-50/50">
+                    <td className="px-3 py-2">
+                      <Input
+                        value={editForm.sellerName}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, sellerName: e.target.value }))}
+                        placeholder="供应商名称"
+                        className="h-7 text-xs"
+                        autoFocus
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={editForm.supplierType} onValueChange={(v) => handleTypeChange(v as SupplierType)}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {SUPPLIER_TYPE_OPTIONS.map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <SubjectPopoverPopup
+                        code={editForm.debitCode}
+                        name={editForm.debitName}
+                        onSelect={(code, name) => setEditForm(prev => ({ ...prev, debitCode: code, debitName: name }))}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <SubjectPopoverPopup
+                        code={editForm.taxCode}
+                        name={editForm.taxName}
+                        onSelect={(code, name) => setEditForm(prev => ({ ...prev, taxCode: code, taxName: name }))}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <SubjectPopoverPopup
+                        code={editForm.creditCode}
+                        name={editForm.creditName}
+                        onSelect={(code, name) => setEditForm(prev => ({ ...prev, creditCode: code, creditName: name }))}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600" onClick={handleSaveNew}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-400" onClick={() => { setAddingRow(false); resetEditForm(); }}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Add button */}
+          {!addingRow && (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={startAddSupplier} className="flex-1">
+                <Plus className="h-4 w-4 mr-2" /> 添加供应商
+              </Button>
+              <Button variant="outline" onClick={() => setBatchImportOpen(true)}>
+                <FileText className="h-4 w-4 mr-2" /> 批量导入
+              </Button>
+            </div>
+          )}
+
+          {/* Batch import dialog */}
+          {batchImportOpen && (
+            <div className="border rounded-md p-4 space-y-3 bg-slate-50">
+              <Label className="text-sm font-medium">批量导入供应商</Label>
+              <p className="text-xs text-slate-500">每行输入一个供应商名称，导入后将使用默认类型（原材料）和默认科目。</p>
+              <Textarea
+                value={batchText}
+                onChange={(e) => setBatchText(e.target.value)}
+                placeholder={"供应商A\n供应商B\n供应商C"}
+                rows={6}
+                className="text-sm"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setBatchImportOpen(false); setBatchText(''); }}>取消</Button>
+                <Button size="sm" onClick={handleBatchImport}>导入 ({batchText.split('\n').filter(n => n.trim()).length})</Button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="text-center text-sm text-slate-400 py-8">
+          请先创建或选择一个供应商分组
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupplierRow({ mapping, onDelete }: { mapping: SupplierSubjectMapping; onDelete: () => void }) {
+  const typeLabel = SUPPLIER_TYPE_OPTIONS.find(o => o.value === mapping.supplierType)?.label || mapping.supplierType;
+
+  return (
+    <tr className="hover:bg-slate-50">
+      <td className="px-3 py-2 text-sm">{mapping.sellerName}</td>
+      <td className="px-3 py-2">
+        <Badge className="bg-slate-100 text-slate-600 text-xs">{typeLabel}</Badge>
+      </td>
+      <td className="px-3 py-2">
+        {mapping.defaultDebitSubject ? (
+          <span className="text-xs text-blue-600">{mapping.defaultDebitSubject} {mapping.defaultDebitSubjectName}</span>
+        ) : <span className="text-xs text-slate-300">-</span>}
+      </td>
+      <td className="px-3 py-2">
+        {mapping.defaultTaxSubject ? (
+          <span className="text-xs text-blue-600">{mapping.defaultTaxSubject} {mapping.defaultTaxSubjectName}</span>
+        ) : <span className="text-xs text-slate-300">-</span>}
+      </td>
+      <td className="px-3 py-2">
+        {mapping.defaultCreditSubject ? (
+          <span className="text-xs text-blue-600">{mapping.defaultCreditSubject} {mapping.defaultCreditSubjectName}</span>
+        ) : <span className="text-xs text-slate-300">-</span>}
+      </td>
+      <td className="px-3 py-2">
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={onDelete}>
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Tab 3: Expense List ──────────────────────────────────────
+function ExpenseListTab() {
+  const { showToast } = useToast();
+  const accountSetId = useAccountSetStore((s) => s.currentAccountSetId);
+
+  const [records, setRecords] = useState<ExpenseReimbursement[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (accountSetId) loadRecords();
+  }, [accountSetId]);
+
+  const loadRecords = async () => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      const data = await sqliteService.getExpenseReimbursements();
+      setRecords(data);
+    } catch (e) {
+      console.error('加载费用清单失败:', e);
+    }
+  };
+
+  const filteredRecords = records.filter(r => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return r.invoiceCode?.toLowerCase().includes(q) || r.reimburserName?.toLowerCase().includes(q);
+  });
+
+  const handleDelete = async (id: string) => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.deleteExpenseReimbursement(id);
+      await loadRecords();
+      showToast('success', '记录已删除');
+    } catch (e) {
+      showToast('error', '删除失败');
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (records.length === 0) return;
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.clearExpenseReimbursements();
+      await loadRecords();
+      showToast('success', '所有记录已清除');
+    } catch (e) {
+      showToast('error', '清除失败');
+    }
+  };
+
+  const handleImportComplete = () => {
+    loadRecords();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Action bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-3.5 w-3.5 mr-1" /> 导入清单
+          </Button>
+          {records.length > 0 && (
+            <Button variant="outline" size="sm" className="text-red-500 hover:text-red-700" onClick={handleClearAll}>
+              <Trash2 className="h-3.5 w-3.5 mr-1" /> 清空全部
+            </Button>
+          )}
+        </div>
+        <span className="text-xs text-slate-400">共 {records.length} 条记录</span>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+        <Input
+          placeholder="搜索发票号码或报销人..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 h-9 text-sm"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="border rounded-md overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">发票号码</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">报销人</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">备注</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">导入时间</th>
+              <th className="px-3 py-2 w-10"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {filteredRecords.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="text-center py-6 text-slate-400 text-xs">
+                  {records.length === 0 ? '暂无记录，请导入费用清单' : '无匹配记录'}
+                </td>
+              </tr>
+            ) : (
+              filteredRecords.map(r => (
+                <tr key={r.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 text-sm font-mono">{r.invoiceCode || '-'}</td>
+                  <td className="px-3 py-2 text-sm">{r.reimburserName || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500 truncate max-w-[200px]">{r.notes || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-slate-400">
+                    {r.createTime ? new Date(r.createTime).toLocaleString('zh-CN') : '-'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={() => handleDelete(r.id)}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Import dialog */}
+      <ExpenseListImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onImportComplete={handleImportComplete}
+      />
+    </div>
+  );
+}
+
+// ─── Tab 4: Asset Category Mapping ────────────────────────────
+const DEPRECIATION_METHOD_OPTIONS: { value: string; label: string }[] = [
+  { value: 'straight_line', label: '直线法' },
+  { value: 'double_declining', label: '双倍余额递减法' },
+  { value: 'sum_of_years', label: '年数总和法' },
+  { value: 'units_of_production', label: '工作量法' },
+];
+
+function AssetCategoryTab() {
+  const { showToast } = useToast();
+  const accountSetId = useAccountSetStore((s) => s.currentAccountSetId);
+
+  const [mappings, setMappings] = useState<AssetCategoryMapping[]>([]);
+  const [addingRow, setAddingRow] = useState(false);
+  const [newForm, setNewForm] = useState({
+    assetCategory: '',
+    depreciationYears: 5,
+    depreciationMethod: 'straight_line' as string,
+    keywords: '',
+    residualRate: 5,
+  });
+
+  useEffect(() => {
+    if (accountSetId) loadMappings();
+  }, [accountSetId]);
+
+  const loadMappings = async () => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      const data = await sqliteService.getAssetCategoryMappings();
+      setMappings(data);
+    } catch (e) {
+      console.error('加载资产类别映射失败:', e);
+    }
+  };
+
+  const handleSaveNew = async () => {
+    if (!newForm.assetCategory.trim()) {
+      showToast('error', '请输入资产类别名称');
+      return;
+    }
+    const now = new Date().toISOString();
+    const mapping: AssetCategoryMapping = {
+      id: `acm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      accountSetId: accountSetId!,
+      assetCategory: newForm.assetCategory.trim(),
+      depreciationYears: newForm.depreciationYears,
+      depreciationMethod: newForm.depreciationMethod,
+      keywords: newForm.keywords.split(/[,，]/).map(k => k.trim()).filter(Boolean),
+      subjectCode: '',
+      residualRate: (newForm.residualRate || 5) / 100,
+      isSystem: false,
+      createTime: now,
+      updateTime: now,
+    };
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.saveAssetCategoryMapping(mapping);
+      await loadMappings();
+      setAddingRow(false);
+      setNewForm({ assetCategory: '', depreciationYears: 5, depreciationMethod: 'straight_line', keywords: '', residualRate: 5 });
+      showToast('success', '资产类别已添加');
+    } catch (e) {
+      showToast('error', '保存失败: ' + e);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.deleteAssetCategoryMapping(id);
+      await loadMappings();
+      showToast('success', '资产类别已删除');
+    } catch (e) {
+      showToast('error', '删除失败');
+    }
+  };
+
+  const handleUpdateField = async (mapping: AssetCategoryMapping, field: string, value: any) => {
+    const updated = { ...mapping, [field]: value, updateTime: new Date().toISOString() };
+    if (field === 'keywords' && typeof value === 'string') {
+      updated.keywords = (value as string).split(/[,，]/).map(k => k.trim()).filter(Boolean);
+    }
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.saveAssetCategoryMapping(updated);
+      await loadMappings();
+    } catch (e) {
+      showToast('error', '更新失败');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">配置资产类别的折旧参数和识别关键词。导入发票时，系统会根据关键词自动匹配资产类别。</p>
+
+      {/* Table */}
+      <div className="border rounded-md overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">资产类别</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 w-24">折旧年限(年)</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 w-36">折旧方法</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">关键词</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 w-24">残值率(%)</th>
+              <th className="px-3 py-2 w-10"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {mappings.map(m => (
+              <AssetRow key={m.id} mapping={m} onUpdate={handleUpdateField} onDelete={() => handleDelete(m.id)} />
+            ))}
+            {mappings.length === 0 && !addingRow && (
+              <tr>
+                <td colSpan={6} className="text-center py-6 text-slate-400 text-xs">
+                  暂无资产类别，点击下方按钮添加
+                </td>
+              </tr>
+            )}
+            {addingRow && (
+              <tr className="bg-blue-50/50">
+                <td className="px-3 py-2">
+                  <Input
+                    value={newForm.assetCategory}
+                    onChange={(e) => setNewForm(prev => ({ ...prev, assetCategory: e.target.value }))}
+                    placeholder="如：电子设备"
+                    className="h-7 text-xs"
+                    autoFocus
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <Input
+                    type="number"
+                    value={newForm.depreciationYears}
+                    onChange={(e) => setNewForm(prev => ({ ...prev, depreciationYears: parseInt(e.target.value) || 5 }))}
+                    className="h-7 text-xs w-20"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <Select value={newForm.depreciationMethod} onValueChange={(v) => setNewForm(prev => ({ ...prev, depreciationMethod: v }))}>
+                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {DEPRECIATION_METHOD_OPTIONS.map(o => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </td>
+                <td className="px-3 py-2">
+                  <Input
+                    value={newForm.keywords}
+                    onChange={(e) => setNewForm(prev => ({ ...prev, keywords: e.target.value }))}
+                    placeholder="关键词（逗号分隔）"
+                    className="h-7 text-xs"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <Input
+                    type="number"
+                    value={newForm.residualRate}
+                    onChange={(e) => setNewForm(prev => ({ ...prev, residualRate: parseFloat(e.target.value) || 5 }))}
+                    step="0.1"
+                    className="h-7 text-xs w-20"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600" onClick={handleSaveNew}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-400" onClick={() => { setAddingRow(false); setNewForm({ assetCategory: '', depreciationYears: 5, depreciationMethod: 'straight_line', keywords: '', residualRate: 5 }); }}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add button */}
+      {!addingRow && (
+        <Button variant="outline" onClick={() => setAddingRow(true)} className="w-full">
+          <Plus className="h-4 w-4 mr-2" /> 添加资产类别
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function AssetRow({ mapping, onUpdate, onDelete }: {
+  mapping: AssetCategoryMapping;
+  onUpdate: (m: AssetCategoryMapping, field: string, value: any) => void;
+  onDelete: () => void;
+}) {
+  const [editingKeywords, setEditingKeywords] = useState(false);
+  const [keywordsText, setKeywordsText] = useState(mapping.keywords.join(', '));
+
+  const handleKeywordsSave = () => {
+    onUpdate(mapping, 'keywords', keywordsText);
+    setEditingKeywords(false);
+  };
+
+  return (
+    <tr className="hover:bg-slate-50">
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Badge className={mapping.isSystem
+            ? 'bg-purple-50 text-purple-600 text-xs shrink-0'
+            : 'bg-blue-50 text-blue-600 text-xs shrink-0'
+          }>
+            {mapping.isSystem ? '系统' : '自定义'}
+          </Badge>
+          <span className="text-sm">{mapping.assetCategory}</span>
+        </div>
+      </td>
+      <td className="px-3 py-2">
+        <Input
+          type="number"
+          value={mapping.depreciationYears}
+          onChange={(e) => onUpdate(mapping, 'depreciationYears', parseInt(e.target.value) || 5)}
+          className="h-7 text-xs w-20"
+        />
+      </td>
+      <td className="px-3 py-2">
+        <Select
+          value={mapping.depreciationMethod || 'straight_line'}
+          onValueChange={(v) => onUpdate(mapping, 'depreciationMethod', v)}
+        >
+          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DEPRECIATION_METHOD_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </td>
+      <td className="px-3 py-2">
+        {editingKeywords ? (
+          <div className="flex items-center gap-1">
+            <Input
+              value={keywordsText}
+              onChange={(e) => setKeywordsText(e.target.value)}
+              className="h-7 text-xs flex-1"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleKeywordsSave()}
+              onBlur={handleKeywordsSave}
+            />
+          </div>
+        ) : (
+          <span
+            className="text-xs text-slate-600 cursor-pointer hover:text-blue-600 hover:underline"
+            onClick={() => { setEditingKeywords(true); setKeywordsText(mapping.keywords.join(', ')); }}
+            title="点击编辑关键词"
+          >
+            {mapping.keywords.length > 0 ? mapping.keywords.join('、') : '(点击添加关键词)'}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        <Input
+          type="number"
+          value={((mapping.residualRate || 0.05) * 100).toFixed(1)}
+          onChange={(e) => onUpdate(mapping, 'residualRate', parseFloat(e.target.value) / 100 || 0.05)}
+          step="0.1"
+          className="h-7 text-xs w-20"
+        />
+      </td>
+      <td className="px-3 py-2">
+        {mapping.isSystem ? (
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-300 cursor-not-allowed" onClick={() => {}}>
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={onDelete}>
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
+      </td>
+    </tr>
   );
 }
