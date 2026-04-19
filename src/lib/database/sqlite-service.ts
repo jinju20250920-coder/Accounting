@@ -9,7 +9,13 @@ import type {
   Partner as _Partner,
   VoucherFullTemplate as _VoucherTemplate,
   CommonSummary as _CommonSummary,
-  UserPreference as _UserPreference
+  UserPreference as _UserPreference,
+  InvoiceSmartRule as _InvoiceSmartRule,
+  SupplierSubjectMapping as _SupplierSubjectMapping,
+  ExpenseReimbursement as _ExpenseReimbursement,
+  ExpenseKeywordCategory as _ExpenseKeywordCategory,
+  AuxiliaryStrategyConfig as _AuxiliaryStrategyConfig,
+  AssetCategoryMapping as _AssetCategoryMapping,
 } from '@/types';
 
 // Re-export types for stores to import
@@ -23,6 +29,12 @@ export type Partner = _Partner;
 export type VoucherTemplate = _VoucherTemplate;
 export type CommonSummary = _CommonSummary;
 export type UserPreference = _UserPreference;
+export type InvoiceSmartRule = _InvoiceSmartRule;
+export type SupplierSubjectMapping = _SupplierSubjectMapping;
+export type ExpenseReimbursement = _ExpenseReimbursement;
+export type ExpenseKeywordCategory = _ExpenseKeywordCategory;
+export type AuxiliaryStrategyConfig = _AuxiliaryStrategyConfig;
+export type AssetCategoryMapping = _AssetCategoryMapping;
 
 // AuditLog interface
 export interface AuditLog {
@@ -133,6 +145,8 @@ class SQLiteService {
     await this.migrateCreateBankTransactionsTable();
     // 迁移：创建银行流水匹配规则表
     await this.migrateCreateBankRulesTable();
+    // 迁移：智能规则引擎相关表（替代 invoice_subject_rules）
+    await this.migrateSmartRuleEngine();
   }
 
   /**
@@ -619,6 +633,180 @@ class SQLiteService {
   }
 
   /**
+   * 迁移：智能规则引擎相关表（替代 invoice_subject_rules）
+   */
+  private async migrateSmartRuleEngine(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 检查 invoice_smart_rules 表是否存在（作为新表集的标记）
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='invoice_smart_rules'"
+      );
+
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating smart rule engine tables...');
+
+        // Drop old invoice_subject_rules (dev stage, data loss OK)
+        try {
+          this.dbInstance.exec('DROP TABLE IF EXISTS invoice_subject_rules');
+        } catch { /* ignore */ }
+
+        const createTables = `
+          CREATE TABLE IF NOT EXISTS invoice_smart_rules (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            name TEXT NOT NULL,
+            invoiceType TEXT NOT NULL DEFAULT 'both',
+            priority INTEGER NOT NULL DEFAULT 50,
+            conditions TEXT NOT NULL DEFAULT '[]',
+            actions TEXT NOT NULL DEFAULT '[]',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS supplier_subject_mapping (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            groupName TEXT NOT NULL,
+            sellerName TEXT NOT NULL,
+            supplierType TEXT NOT NULL DEFAULT 'material',
+            defaultDebitSubject TEXT,
+            defaultDebitSubjectName TEXT,
+            defaultTaxSubject TEXT,
+            defaultTaxSubjectName TEXT,
+            defaultCreditSubject TEXT,
+            defaultCreditSubjectName TEXT,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS expense_reimbursement (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            invoiceCode TEXT NOT NULL,
+            reimburserName TEXT NOT NULL,
+            reimburserId TEXT,
+            notes TEXT,
+            importBatchId TEXT,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS expense_keyword_categories (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            category TEXT NOT NULL,
+            keywords TEXT NOT NULL DEFAULT '[]',
+            expenseSubjectCode TEXT,
+            expenseSubjectName TEXT,
+            isSystem INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS auxiliary_strategy_config (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'auxiliary',
+            autoCreatePartner INTEGER NOT NULL DEFAULT 0,
+            autoDisableAuxiliaryOnSubAccount INTEGER NOT NULL DEFAULT 1,
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS asset_category_mapping (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            keywords TEXT NOT NULL DEFAULT '[]',
+            assetCategory TEXT NOT NULL,
+            depreciationYears INTEGER NOT NULL,
+            depreciationMethod TEXT NOT NULL,
+            subjectCode TEXT NOT NULL,
+            residualRate REAL NOT NULL DEFAULT 0.05,
+            isSystem INTEGER NOT NULL DEFAULT 0,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_isr_smart_accountSetId ON invoice_smart_rules(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
+          CREATE INDEX IF NOT EXISTS idx_er_accountSetId ON expense_reimbursement(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_ekc_accountSetId ON expense_keyword_categories(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_asc_accountSetId ON auxiliary_strategy_config(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_acm_accountSetId ON asset_category_mapping(accountSetId);
+        `;
+
+        this.dbInstance.exec(createTables);
+
+        // Insert system presets for expense_keyword_categories
+        const now = new Date().toISOString();
+        const expensePresets = [
+          { category: '交通', keywords: '["交通","打车","滴滴","出租","高铁","火车","机票","航班","航空","地铁","公交"]' },
+          { category: '餐饮', keywords: '["餐","饮食","外卖","饭店","快餐","食品","酒水"]' },
+          { category: '通讯', keywords: '["话费","通讯","流量","宽带","手机","电信","移动","联通"]' },
+          { category: '住宿', keywords: '["住宿","酒店","宾馆","旅店","民宿","房费"]' },
+          { category: '办公', keywords: '["办公","文具","打印","耗材","纸","笔","文件夹"]' },
+        ];
+        for (const preset of expensePresets) {
+          this.dbInstance.exec(
+            `INSERT INTO expense_keyword_categories (id, accountSetId, category, keywords, isSystem, enabled, createTime, updateTime)
+             VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
+            [`sys_ekc_${preset.category}`, this._accountSetId, preset.category, preset.keywords, now, now]
+          );
+        }
+
+        // Insert system presets for asset_category_mapping
+        const assetPresets = [
+          { cat: '电子设备', keywords: '["电脑","笔记本","服务器","打印机","显示器"]', years: 3, subjectCode: '1601' },
+          { cat: '办公家具', keywords: '["桌","椅","柜","沙发","家具"]', years: 5, subjectCode: '1601' },
+          { cat: '装修', keywords: '["装修","装饰","改造"]', years: 5, subjectCode: '1601' },
+          { cat: '运输工具', keywords: '["汽车","车辆","货车","叉车"]', years: 4, subjectCode: '1601' },
+        ];
+        for (const preset of assetPresets) {
+          this.dbInstance.exec(
+            `INSERT INTO asset_category_mapping (id, accountSetId, keywords, assetCategory, depreciationYears, depreciationMethod, subjectCode, residualRate, isSystem, createTime, updateTime)
+             VALUES (?, ?, ?, ?, ?, 'straight_line', ?, 0.05, 1, ?, ?)`,
+            [`sys_acm_${preset.cat}`, this._accountSetId, preset.keywords, preset.cat, preset.years, preset.subjectCode, now, now]
+          );
+        }
+
+        // Insert default auxiliary_strategy_config
+        this.dbInstance.exec(
+          `INSERT INTO auxiliary_strategy_config (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
+           VALUES (?, ?, 'auxiliary', 0, 1, ?)`,
+          [`sys_asc_default`, this._accountSetId, now]
+        );
+
+        console.log('Smart rule engine tables migration completed');
+      }
+
+      // ALTER invoices: add holdStatus and category columns
+      try {
+        const pragma = this.dbInstance.exec("PRAGMA table_info(invoices)");
+        const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+        if (!columns.includes('holdStatus')) {
+          this.dbInstance.exec(`ALTER TABLE invoices ADD COLUMN holdStatus TEXT DEFAULT 'normal'`);
+          console.log('invoices table: added holdStatus column');
+        }
+        if (!columns.includes('category')) {
+          this.dbInstance.exec(`ALTER TABLE invoices ADD COLUMN category TEXT`);
+          console.log('invoices table: added category column');
+        }
+      } catch (e) {
+        if (!e.message?.includes('duplicate column name')) {
+          console.warn('invoices ALTER warning:', e);
+        }
+      }
+    } catch (error) {
+      console.warn('Smart rule engine migration warning:', error);
+    }
+  }
+
+  /**
    * 迁移：为现有数据库添加 accountSetId 列
    * 这是为了兼容性，处理使用 accountSetDbManager 创建的旧数据库
    */
@@ -712,49 +900,6 @@ class SQLiteService {
       }
     } catch (e) {
       console.warn('custom_bank_configs migration warning:', e);
-    }
-
-    // --- Migration: invoice_subject_rules ---
-    try {
-      const checkRules = this.dbInstance.exec(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='invoice_subject_rules'"
-      );
-      if (!checkRules[0]?.values?.length) {
-        console.log('Migrating database: creating invoice_subject_rules table...');
-        this.dbInstance.exec(`
-          CREATE TABLE IF NOT EXISTS invoice_subject_rules (
-            id TEXT PRIMARY KEY,
-            accountSetId TEXT NOT NULL,
-            name TEXT NOT NULL,
-            keywords TEXT NOT NULL,
-            invoiceType TEXT NOT NULL,
-            matchTaxRate REAL,
-            inputDebitSubject TEXT,
-            inputDebitSubjectName TEXT,
-            inputTaxSubject TEXT,
-            inputTaxSubjectName TEXT,
-            inputCreditSubject TEXT,
-            inputCreditSubjectName TEXT,
-            outputDebitSubject TEXT,
-            outputDebitSubjectName TEXT,
-            outputCreditSubject TEXT,
-            outputCreditSubjectName TEXT,
-            outputTaxSubject TEXT,
-            outputTaxSubjectName TEXT,
-            priority INTEGER DEFAULT 0,
-            createTime TEXT,
-            updateTime TEXT
-          );
-          CREATE INDEX IF NOT EXISTS idx_isr_accountSetId ON invoice_subject_rules(accountSetId);
-        `);
-        console.log('invoice_subject_rules table migration completed');
-      }
-      // 补充列：matchTaxRate（旧表可能没有）
-      try {
-        this.dbInstance.exec(`ALTER TABLE invoice_subject_rules ADD COLUMN matchTaxRate REAL`);
-      } catch {} // 列已存在则忽略
-    } catch (e) {
-      console.warn('invoice_subject_rules migration warning:', e);
     }
   }
 
@@ -2407,11 +2552,13 @@ class SQLiteService {
     await this.persist();
   }
 
-  // --- Invoice Subject Rules ---
-  async getInvoiceSubjectRules(): Promise<any[]> {
+  // ========== 智能规则引擎操作 ==========
+
+  // --- Smart Rules ---
+  async getSmartRules(): Promise<InvoiceSmartRule[]> {
     await this.ensureInitialized();
     const result = this.dbInstance.exec(
-      `SELECT * FROM invoice_subject_rules WHERE accountSetId = ? ORDER BY priority DESC, name ASC`,
+      `SELECT * FROM invoice_smart_rules WHERE accountSetId = ? ORDER BY priority DESC, name ASC`,
       [this.accountSetId]
     );
     if (!result[0]?.values?.length) return [];
@@ -2419,41 +2566,363 @@ class SQLiteService {
     return result[0].values.map((row: any[]) => {
       const obj: any = {};
       cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      // 解析 keywords JSON
-      try { obj.keywords = JSON.parse(obj.keywords); } catch { obj.keywords = []; }
-      return obj;
+      try { obj.conditions = JSON.parse(obj.conditions); } catch { obj.conditions = []; }
+      try { obj.actions = JSON.parse(obj.actions); } catch { obj.actions = []; }
+      obj.enabled = !!obj.enabled;
+      return obj as InvoiceSmartRule;
     });
   }
 
-  async saveInvoiceSubjectRule(rule: any): Promise<void> {
+  async saveSmartRule(rule: InvoiceSmartRule): Promise<void> {
     await this.ensureInitialized();
-    const keywords = typeof rule.keywords === 'string' ? rule.keywords : JSON.stringify(rule.keywords || []);
+    const conditions = typeof rule.conditions === 'string' ? rule.conditions : JSON.stringify(rule.conditions || []);
+    const actions = typeof rule.actions === 'string' ? rule.actions : JSON.stringify(rule.actions || []);
     this.dbInstance.exec(
-      `INSERT OR REPLACE INTO invoice_subject_rules
-        (id, accountSetId, name, keywords, invoiceType, matchTaxRate,
-         inputDebitSubject, inputDebitSubjectName, inputTaxSubject, inputTaxSubjectName,
-         inputCreditSubject, inputCreditSubjectName,
-         outputDebitSubject, outputDebitSubjectName, outputCreditSubject, outputCreditSubjectName,
-         outputTaxSubject, outputTaxSubjectName,
-         priority, createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [rule.id, rule.accountSetId, rule.name, keywords, rule.invoiceType,
-       rule.matchTaxRate != null ? rule.matchTaxRate : null,
-       rule.inputDebitSubject || null, rule.inputDebitSubjectName || null,
-       rule.inputTaxSubject || null, rule.inputTaxSubjectName || null,
-       rule.inputCreditSubject || null, rule.inputCreditSubjectName || null,
-       rule.outputDebitSubject || null, rule.outputDebitSubjectName || null,
-       rule.outputCreditSubject || null, rule.outputCreditSubjectName || null,
-       rule.outputTaxSubject || null, rule.outputTaxSubjectName || null,
-       rule.priority || 0, rule.createTime, rule.updateTime]
+      `INSERT OR REPLACE INTO invoice_smart_rules
+        (id, accountSetId, name, invoiceType, priority, conditions, actions, enabled, createTime, updateTime)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [rule.id, rule.accountSetId || this.accountSetId, rule.name, rule.invoiceType || 'both',
+       rule.priority ?? 50, conditions, actions, rule.enabled !== false ? 1 : 0,
+       rule.createTime || new Date().toISOString(), rule.updateTime || new Date().toISOString()]
     );
     await this.persist();
   }
 
-  async deleteInvoiceSubjectRule(id: string): Promise<void> {
+  async deleteSmartRule(id: string): Promise<void> {
     await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM invoice_subject_rules WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    this.dbInstance.exec(`DELETE FROM invoice_smart_rules WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
+  }
+
+  // --- Supplier Subject Mapping ---
+  async getSupplierMappings(): Promise<SupplierSubjectMapping[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? ORDER BY groupName, sellerName`,
+      [this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return [];
+    const cols = result[0].columns;
+    return result[0].values.map((row: any[]) => {
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      return obj as SupplierSubjectMapping;
+    });
+  }
+
+  async getSupplierMappingsByGroup(groupName: string): Promise<SupplierSubjectMapping[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND groupName = ? ORDER BY sellerName`,
+      [this.accountSetId, groupName]
+    );
+    if (!result[0]?.values?.length) return [];
+    const cols = result[0].columns;
+    return result[0].values.map((row: any[]) => {
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      return obj as SupplierSubjectMapping;
+    });
+  }
+
+  async saveSupplierMapping(mapping: SupplierSubjectMapping): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO supplier_subject_mapping
+        (id, accountSetId, groupName, sellerName, supplierType,
+         defaultDebitSubject, defaultDebitSubjectName,
+         defaultTaxSubject, defaultTaxSubjectName,
+         defaultCreditSubject, defaultCreditSubjectName,
+         createTime, updateTime)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [mapping.id, mapping.accountSetId || this.accountSetId,
+       mapping.groupName, mapping.sellerName, mapping.supplierType || 'material',
+       mapping.defaultDebitSubject || null, mapping.defaultDebitSubjectName || null,
+       mapping.defaultTaxSubject || null, mapping.defaultTaxSubjectName || null,
+       mapping.defaultCreditSubject || null, mapping.defaultCreditSubjectName || null,
+       mapping.createTime || now, mapping.updateTime || now]
+    );
+    await this.persist();
+  }
+
+  async deleteSupplierMapping(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM supplier_subject_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
+  }
+
+  // --- Expense Reimbursement ---
+  async getExpenseReimbursements(): Promise<ExpenseReimbursement[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM expense_reimbursement WHERE accountSetId = ? ORDER BY createTime DESC`,
+      [this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return [];
+    const cols = result[0].columns;
+    return result[0].values.map((row: any[]) => {
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      return obj as ExpenseReimbursement;
+    });
+  }
+
+  async saveExpenseReimbursement(record: ExpenseReimbursement): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO expense_reimbursement
+        (id, accountSetId, invoiceCode, reimburserName, reimburserId, notes, importBatchId, createTime, updateTime)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [record.id, record.accountSetId || this.accountSetId,
+       record.invoiceCode, record.reimburserName,
+       record.reimburserId || null, record.notes || null, record.importBatchId || null,
+       record.createTime || now, record.updateTime || now]
+    );
+    await this.persist();
+  }
+
+  async updateExpenseReimbursement(id: string, updates: Partial<ExpenseReimbursement>): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    const updateFields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+    const values = [...Object.values(updates), now, id, this.accountSetId];
+    this.dbInstance.exec(
+      `UPDATE expense_reimbursement SET ${updateFields}, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+      values
+    );
+    await this.persist();
+  }
+
+  async deleteExpenseReimbursement(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM expense_reimbursement WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
+  }
+
+  async clearExpenseReimbursements(): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM expense_reimbursement WHERE accountSetId = ?`, [this.accountSetId]);
+    await this.persist();
+  }
+
+  // --- Expense Keyword Categories ---
+  async getExpenseKeywordCategories(): Promise<ExpenseKeywordCategory[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM expense_keyword_categories WHERE accountSetId = ? ORDER BY category`,
+      [this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return [];
+    const cols = result[0].columns;
+    return result[0].values.map((row: any[]) => {
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      try { obj.keywords = JSON.parse(obj.keywords); } catch { obj.keywords = []; }
+      obj.isSystem = !!obj.isSystem;
+      obj.enabled = !!obj.enabled;
+      return obj as ExpenseKeywordCategory;
+    });
+  }
+
+  async saveExpenseKeywordCategory(cat: ExpenseKeywordCategory): Promise<void> {
+    await this.ensureInitialized();
+    const keywords = typeof cat.keywords === 'string' ? cat.keywords : JSON.stringify(cat.keywords || []);
+    const now = new Date().toISOString();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO expense_keyword_categories
+        (id, accountSetId, category, keywords, expenseSubjectCode, expenseSubjectName,
+         isSystem, enabled, createTime, updateTime)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [cat.id, cat.accountSetId || this.accountSetId,
+       cat.category, keywords,
+       cat.expenseSubjectCode || null, cat.expenseSubjectName || null,
+       cat.isSystem ? 1 : 0, cat.enabled !== false ? 1 : 0,
+       cat.createTime || now, cat.updateTime || now]
+    );
+    await this.persist();
+  }
+
+  async deleteExpenseKeywordCategory(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM expense_keyword_categories WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
+  }
+
+  // --- Auxiliary Strategy ---
+  async getAuxiliaryStrategy(): Promise<AuxiliaryStrategyConfig | null> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM auxiliary_strategy_config WHERE accountSetId = ? LIMIT 1`,
+      [this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return null;
+    const cols = result[0].columns;
+    const row = result[0].values[0];
+    const obj: any = {};
+    cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+    obj.autoCreatePartner = !!obj.autoCreatePartner;
+    obj.autoDisableAuxiliaryOnSubAccount = !!obj.autoDisableAuxiliaryOnSubAccount;
+    return obj as AuxiliaryStrategyConfig;
+  }
+
+  async saveAuxiliaryStrategy(config: AuxiliaryStrategyConfig): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO auxiliary_strategy_config
+        (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
+       VALUES (?,?,?,?,?,?)`,
+      [config.id, config.accountSetId || this.accountSetId,
+       config.mode || 'auxiliary',
+       config.autoCreatePartner ? 1 : 0,
+       config.autoDisableAuxiliaryOnSubAccount !== false ? 1 : 0,
+       config.updateTime || new Date().toISOString()]
+    );
+    await this.persist();
+  }
+
+  // --- Asset Category Mapping ---
+  async getAssetCategoryMappings(): Promise<AssetCategoryMapping[]> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM asset_category_mapping WHERE accountSetId = ? ORDER BY assetCategory`,
+      [this.accountSetId]
+    );
+    if (!result[0]?.values?.length) return [];
+    const cols = result[0].columns;
+    return result[0].values.map((row: any[]) => {
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      try { obj.keywords = JSON.parse(obj.keywords); } catch { obj.keywords = []; }
+      obj.isSystem = !!obj.isSystem;
+      return obj as AssetCategoryMapping;
+    });
+  }
+
+  async saveAssetCategoryMapping(mapping: AssetCategoryMapping): Promise<void> {
+    await this.ensureInitialized();
+    const keywords = typeof mapping.keywords === 'string' ? mapping.keywords : JSON.stringify(mapping.keywords || []);
+    const now = new Date().toISOString();
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO asset_category_mapping
+        (id, accountSetId, keywords, assetCategory, depreciationYears, depreciationMethod,
+         subjectCode, residualRate, isSystem, createTime, updateTime)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [mapping.id, mapping.accountSetId || this.accountSetId,
+       keywords, mapping.assetCategory, mapping.depreciationYears,
+       mapping.depreciationMethod || 'straight_line',
+       mapping.subjectCode, mapping.residualRate ?? 0.05,
+       mapping.isSystem ? 1 : 0,
+       mapping.createTime || now, mapping.updateTime || now]
+    );
+    await this.persist();
+  }
+
+  async deleteAssetCategoryMapping(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.exec(`DELETE FROM asset_category_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.persist();
+  }
+
+  // --- Invoice hold/category updates ---
+  async updateInvoiceHoldStatus(id: string, holdStatus: 'normal' | 'on_hold'): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    this.dbInstance.exec(
+      `UPDATE invoices SET holdStatus = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+      [holdStatus, now, id, this.accountSetId]
+    );
+    await this.persist();
+  }
+
+  async updateInvoiceCategory(id: string, category: string | null): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    this.dbInstance.exec(
+      `UPDATE invoices SET category = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+      [category, now, id, this.accountSetId]
+    );
+    await this.persist();
+  }
+
+  // --- Legacy stubs (will be removed once consumers migrate to smart rules) ---
+  async getInvoiceSubjectRules(): Promise<any[]> {
+    // Backward-compatible: read from invoice_smart_rules mapped to old shape
+    const smartRules = await this.getSmartRules();
+    return smartRules.map(rule => {
+      // Extract keyword conditions and tax rate from conditions/actions
+      const keywordCondition = rule.conditions.find((c: any) => c.field === 'goodsName') as any;
+      const keywords: string[] = keywordCondition?.values || [];
+      const taxCondition = rule.conditions.find((c: any) => c.field === 'taxRate') as any;
+      const matchTaxRate = taxCondition ? Number(taxCondition.value) : null;
+      // Extract subject overrides from actions
+      const overrideAction = rule.actions.find((a: any) => a.type === 'override_subjects') as any;
+      const overrides = overrideAction?.subjectOverrides || {};
+      return {
+        id: rule.id,
+        accountSetId: rule.accountSetId,
+        name: rule.name,
+        keywords,
+        invoiceType: rule.invoiceType,
+        matchTaxRate,
+        inputDebitSubject: overrides.debit?.code || null,
+        inputDebitSubjectName: overrides.debit?.name || null,
+        inputTaxSubject: overrides.tax?.code || null,
+        inputTaxSubjectName: overrides.tax?.name || null,
+        inputCreditSubject: overrides.credit?.code || null,
+        inputCreditSubjectName: overrides.credit?.name || null,
+        outputDebitSubject: overrides.debit?.code || null,
+        outputDebitSubjectName: overrides.debit?.name || null,
+        outputCreditSubject: overrides.credit?.code || null,
+        outputCreditSubjectName: overrides.credit?.name || null,
+        outputTaxSubject: overrides.tax?.code || null,
+        outputTaxSubjectName: overrides.tax?.name || null,
+        priority: rule.priority,
+        enabled: rule.enabled,
+        createTime: rule.createTime,
+        updateTime: rule.updateTime,
+      };
+    });
+  }
+
+  async saveInvoiceSubjectRule(rule: any): Promise<void> {
+    // Convert old-format rule to InvoiceSmartRule and save
+    const conditions: any[] = [];
+    if (rule.keywords && Array.isArray(rule.keywords) && rule.keywords.length > 0) {
+      conditions.push({ field: 'goodsName', operator: 'contains', values: rule.keywords });
+    }
+    if (rule.matchTaxRate != null) {
+      conditions.push({ field: 'taxRate', operator: 'equals', value: rule.matchTaxRate });
+    }
+    const subjectOverrides: Record<string, { code: string; name: string }> = {};
+    if (rule.inputDebitSubject) subjectOverrides.debit = { code: rule.inputDebitSubject, name: rule.inputDebitSubjectName || '' };
+    if (rule.inputTaxSubject || rule.outputTaxSubject) subjectOverrides.tax = { code: rule.inputTaxSubject || rule.outputTaxSubject, name: rule.inputTaxSubjectName || rule.outputTaxSubjectName || '' };
+    if (rule.inputCreditSubject) subjectOverrides.credit = { code: rule.inputCreditSubject, name: rule.inputCreditSubjectName || '' };
+    if (rule.outputCreditSubject && !subjectOverrides.credit) subjectOverrides.credit = { code: rule.outputCreditSubject, name: rule.outputCreditSubjectName || '' };
+    if (rule.outputDebitSubject && !subjectOverrides.debit) subjectOverrides.debit = { code: rule.outputDebitSubject, name: rule.outputDebitSubjectName || '' };
+
+    const actions: any[] = [];
+    if (Object.keys(subjectOverrides).length > 0) {
+      actions.push({ type: 'override_subjects', subjectOverrides });
+    }
+    const now = new Date().toISOString();
+    await this.saveSmartRule({
+      id: rule.id,
+      accountSetId: rule.accountSetId || this.accountSetId,
+      name: rule.name,
+      invoiceType: rule.invoiceType || 'both',
+      priority: rule.priority || 50,
+      conditions,
+      actions,
+      enabled: rule.enabled !== false,
+      createTime: rule.createTime || now,
+      updateTime: rule.updateTime || now,
+    });
+  }
+
+  async deleteInvoiceSubjectRule(id: string): Promise<void> {
+    await this.deleteSmartRule(id);
   }
 }
 
