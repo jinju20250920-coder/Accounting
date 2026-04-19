@@ -76,13 +76,14 @@ interface PartnerStore {
   selectedPartnerId: string | null;
 
   // CRUD 操作
-  addPartner: (partner: Omit<Partner, 'id' | 'createTime' | 'updateTime'>) => Promise<void>;
+  addPartner: (partner: Omit<Partner, 'id' | 'createTime' | 'updateTime'>) => Promise<Partner>;
   updatePartner: (id: string, updates: Partial<Partner>) => Promise<void>;
   deletePartner: (id: string) => Promise<void>;
   toggleFrozen: (id: string) => Promise<void>;
   setSelectedPartnerId: (id: string | null) => void;
 
   // 查询操作
+  findByName: (name: string) => Partner | undefined;
   getPartnerById: (id: string) => Partner | undefined;
   getPartnersByType: (type: 'customer' | 'supplier' | 'employee') => Partner[];
   searchPartners: (query: string) => Partner[];
@@ -135,6 +136,8 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
       set({
         partners: [...state.partners, newPartner]
       });
+
+      return newPartner;
     } catch (error) {
       console.error('Failed to add partner:', error);
       throw error;
@@ -227,6 +230,10 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
   },
 
   // 查询方法
+  findByName: (name) => {
+    return get().partners.find(p => p.name === name);
+  },
+
   getPartnerById: (id) => {
     return get().partners.find(p => p.id === id);
   },

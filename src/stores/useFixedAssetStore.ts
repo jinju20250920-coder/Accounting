@@ -30,6 +30,7 @@ interface FixedAssetStore {
 
   // CRUD - 资产
   addAsset: (asset: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'>) => Promise<FixedAsset>;
+  createFromInvoice: (card: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'>) => Promise<FixedAsset>;
   updateAsset: (id: string, updates: Partial<FixedAsset>) => Promise<void>;
   deleteAsset: (id: string) => Promise<void>;
   getAssetById: (id: string) => FixedAsset | undefined;
@@ -221,6 +222,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       set({ error: error.message || '添加资产失败' });
       throw error;
     }
+  },
+
+  // 从发票创建资产（委托给 addAsset）
+  createFromInvoice: async (card) => {
+    return get().addAsset(card);
   },
 
   // 更新资产
