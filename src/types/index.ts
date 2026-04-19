@@ -1028,6 +1028,8 @@ export interface Invoice {
   accountSetId: string;             // 账套ID
   createTime: string;               // 创建时间
   updateTime: string;               // 更新时间
+  holdStatus?: 'normal' | 'on_hold';   // 发票处理状态，默认 normal
+  category?: 'purchase' | 'reimbursement' | 'fixed_asset' | null; // 规则引擎分类标签
 }
 
 // 发票核销记录
@@ -1068,6 +1070,201 @@ export interface InvoiceSubjectRule {
   priority: number;                 // 数字越大越优先，默认 0
   createTime: string;
   updateTime: string;
+}
+
+// ============================================================
+// Invoice Smart Rule Engine v2.0 Types
+// ============================================================
+
+// --- Condition Types ---
+export type ConditionField = 'goodsName' | 'sellerName' | 'notes' | 'totalAmount' | 'taxRate' | 'supplierInList';
+
+export type SmartRuleCondition = TextCondition | NumericCondition | SupplierListCondition;
+
+export interface TextCondition {
+  field: 'goodsName' | 'sellerName' | 'notes';
+  operator: 'contains' | 'equals';
+  values: string[];
+}
+
+export interface NumericCondition {
+  field: 'totalAmount' | 'taxRate';
+  operator: '>' | '<' | '>=' | '<=' | 'equals';
+  value: number;
+}
+
+export interface SupplierListCondition {
+  field: 'supplierInList';
+  groupName: string;
+}
+
+// --- Action Types ---
+export type SmartRuleAction =
+  | OverrideSubjectAction
+  | AssignAuxiliaryAction
+  | MarkAsAction
+  | CreateFixedAssetAction
+  | SupplierSubjectAction
+  | ReimbursementSubjectAction;
+
+export interface OverrideSubjectAction {
+  type: 'overrideSubject';
+  slot: 'debit' | 'tax' | 'credit';
+  subjectCode: string;
+  subjectName: string;
+}
+
+export interface AssignAuxiliaryAction {
+  type: 'assignAuxiliary';
+  auxiliaryType: 'employee' | 'project';
+  nameList: string[];
+  sourceField: 'notes' | 'sellerName';
+}
+
+export interface MarkAsAction {
+  type: 'markAs';
+  category: 'purchase' | 'reimbursement' | 'fixed_asset';
+}
+
+export interface CreateFixedAssetAction {
+  type: 'createFixedAsset';
+  assetCategory: string;
+  depreciationYears: number;
+  depreciationMethod: DepreciationMethod;
+  assetSubjectCode: string;
+  depreciationSubjectCode: string;
+  expenseSubjectCode: string;
+  residualRate: number;
+}
+
+export interface SupplierSubjectAction {
+  type: 'supplierSubject';
+  groupName: string;
+}
+
+export interface ReimbursementSubjectAction {
+  type: 'reimbursementSubject';
+  creditSubjectCode: string;
+  creditSubjectName: string;
+}
+
+// --- Rule Type ---
+export interface InvoiceSmartRule {
+  id: string;
+  accountSetId: string;
+  name: string;
+  invoiceType: 'input' | 'output' | 'both';
+  priority: number;
+  // Note: conditionLogic intentionally omitted — v2.0 is AND-only. Add field when OR is needed.
+  conditions: SmartRuleCondition[];
+  actions: SmartRuleAction[];
+  enabled: boolean;
+  createTime: string;
+  updateTime: string;
+}
+
+// --- Engine Result Types ---
+export interface AuxiliaryResult {
+  debitAuxiliary: string | null;
+  creditAuxiliary: string | null;
+  debitNeedsPrompt: boolean;
+  creditNeedsPrompt: boolean;
+  auxiliaryDisabled: boolean;
+  docNo: string;                     // 始终 = invoice.invoiceCode
+}
+
+export interface ReimbursementResult {
+  creditOverride: { code: string; name: string } | null;
+  reimburserName: string | null;
+  partnerCreated: boolean;
+}
+
+export interface ActionResult {
+  subjectOverrides: Record<string, { code: string; name: string }>;
+  auxiliaryResult: AuxiliaryResult | null;
+  markCategory: 'purchase' | 'reimbursement' | 'fixed_asset' | null;
+  fixedAssetCard: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> | null;
+  reimburserName: string | null;
+  partnerCreated: boolean;
+}
+
+// --- Supporting Types ---
+export type SupplierType = 'material' | 'inventory' | 'fixed_asset' | 'service' | 'other';
+
+export interface SupplierSubjectMapping {
+  id: string;
+  accountSetId: string;
+  groupName: string;
+  sellerName: string;
+  supplierType: SupplierType;
+  defaultDebitSubject?: string;
+  defaultDebitSubjectName?: string;
+  defaultTaxSubject?: string;
+  defaultTaxSubjectName?: string;
+  defaultCreditSubject?: string;
+  defaultCreditSubjectName?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+export interface ExpenseReimbursement {
+  id: string;
+  accountSetId: string;
+  invoiceCode: string;
+  reimburserName: string;
+  reimburserId?: string;
+  notes?: string;
+  importBatchId?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+export interface ExpenseKeywordCategory {
+  id: string;
+  accountSetId: string;
+  category: string;
+  keywords: string[];
+  expenseSubjectCode?: string;
+  expenseSubjectName?: string;
+  isSystem: boolean;
+  enabled: boolean;
+  createTime: string;
+  updateTime: string;
+}
+
+export interface AuxiliaryStrategyConfig {
+  id: string;
+  accountSetId: string;
+  mode: 'auxiliary' | 'sub_account';
+  autoCreatePartner: boolean;
+  autoDisableAuxiliaryOnSubAccount: boolean;
+  updateTime: string;
+}
+
+export interface AssetCategoryMapping {
+  id: string;
+  accountSetId: string;
+  keywords: string[];
+  assetCategory: string;
+  depreciationYears: number;
+  depreciationMethod: string;
+  subjectCode: string;
+  residualRate: number;
+  isSystem: boolean;
+  createTime: string;
+  updateTime: string;
+}
+
+// --- Engine Context (passed to executeActions) ---
+export interface EngineContext {
+  invoice: Invoice;
+  matchedRule: InvoiceSmartRule | null;
+  supplierMappings: SupplierSubjectMapping[];
+  expenseReimbursements: ExpenseReimbursement[];
+  auxiliaryStrategy: AuxiliaryStrategyConfig | null;
+  expenseKeywords: ExpenseKeywordCategory[];
+  assetMappings: AssetCategoryMapping[];
+  allRules: InvoiceSmartRule[];
 }
 
 // 发票筛选条件
