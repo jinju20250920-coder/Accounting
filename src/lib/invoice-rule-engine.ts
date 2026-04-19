@@ -61,7 +61,7 @@ export function hasAuxiliaryCapability(subject: Subject): boolean {
 // Step 1: Condition evaluation
 // ---------------------------------------------------------------------------
 
-function evaluateCondition(
+export function evaluateCondition(
   invoice: Invoice,
   condition: SmartRuleCondition,
   supplierMappings: SupplierSubjectMapping[],
@@ -107,7 +107,7 @@ function evaluateCondition(
   });
 }
 
-function evaluateConditions(
+export function evaluateConditions(
   invoice: Invoice,
   conditions: SmartRuleCondition[],
   supplierMappings: SupplierSubjectMapping[],
@@ -339,21 +339,21 @@ export function executeActions(context: EngineContext): ActionResult {
   let reimburserName: string | null = null;
   const partnerCreated = false;
 
+  // Collect overrides by priority tier
+  const overrideTier: Record<string, { code: string; name: string }>[] = [{}, {}, {}]; // [override, supplier, reimbursement]
+
   for (const action of matchedRule.actions) {
     switch (action.type) {
       case 'overrideSubject': {
         const oa = action as OverrideSubjectAction;
-        subjectOverrides[oa.slot] = { code: oa.subjectCode, name: oa.subjectName };
+        overrideTier[0][oa.slot] = { code: oa.subjectCode, name: oa.subjectName };
         break;
       }
       case 'supplierSubject': {
         const sa = action as SupplierSubjectAction;
         const supplierOverrides = resolveSupplierSubject(invoice, sa, supplierMappings);
-        // Supplier overrides have lower priority than direct overrides
         for (const [slot, val] of Object.entries(supplierOverrides)) {
-          if (!subjectOverrides[slot]) {
-            subjectOverrides[slot] = val;
-          }
+          overrideTier[1][slot] = val;
         }
         break;
       }
@@ -361,7 +361,7 @@ export function executeActions(context: EngineContext): ActionResult {
         const ra = action as ReimbursementSubjectAction;
         const result = resolveReimbursement(invoice, ra, expenseReimbursements);
         if (result.creditOverride) {
-          subjectOverrides['credit'] = result.creditOverride; // highest priority
+          overrideTier[2]['credit'] = result.creditOverride;
         }
         reimburserName = result.reimburserName;
         break;
@@ -373,7 +373,7 @@ export function executeActions(context: EngineContext): ActionResult {
       }
       case 'createFixedAsset': {
         const fa = action as CreateFixedAssetAction;
-        const assetCode = generateAssetCode(context.assetMappings.map((m) => m.id));
+        const assetCode = generateAssetCode([]); // store layer will pass real existing codes
         fixedAssetCard = buildAssetCard(invoice, fa, assetCode);
         break;
       }
@@ -382,6 +382,13 @@ export function executeActions(context: EngineContext): ActionResult {
         auxiliaryResult = resolveAuxiliaryStrategy(invoice, aa, auxiliaryStrategy);
         break;
       }
+    }
+  }
+
+  // Apply overrides with hardcoded priority: reimbursement > supplier > override
+  for (const tier of overrideTier) {
+    for (const [slot, val] of Object.entries(tier)) {
+      subjectOverrides[slot] = val;
     }
   }
 
