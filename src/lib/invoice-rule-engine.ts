@@ -13,7 +13,6 @@ import type {
   NumericCondition,
   SupplierListCondition,
   InvoiceSmartRule,
-  SmartRuleAction,
   OverrideSubjectAction,
   AssignAuxiliaryAction,
   MarkAsAction,
@@ -239,7 +238,7 @@ function buildAssetCard(
 function resolveAuxiliaryStrategy(
   invoice: Invoice,
   action: AssignAuxiliaryAction,
-  _strategy: AuxiliaryStrategyConfig | null,
+  _strategy: AuxiliaryStrategyConfig | null, // eslint-disable-line @typescript-eslint/no-unused-vars
 ): AuxiliaryResult {
   // Determine auxiliary name from source field
   let auxiliaryName: string | null = null;
