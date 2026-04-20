@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
@@ -43,6 +44,7 @@ import {
   Download,
   Upload,
   FileText,
+  ArrowRight,
 } from 'lucide-react';
 import { ExpenseListImportDialog } from './expense-list-import-dialog';
 import type {
@@ -1345,7 +1347,7 @@ function ReimbursementSubjectConfig({
   );
 }
 
-// ─── Subject Popover Popup ──────────────────────────────────
+// ─── Subject Popover Popup (Portal + Auto Placement) ─────────
 function SubjectPopoverPopup({
   code,
   name,
@@ -1358,16 +1360,56 @@ function SubjectPopoverPopup({
   const { subjects } = useSubjectStore();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
+  const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
 
-  const filteredSubjects = subjects.filter(s =>
-    s.code.includes(search) || s.name.includes(search)
-  ).slice(0, 50);
+  // Common accounts shown first
+  const PRIORITY_CODES = ['2202', '1403', '1405', '1501', '2221', '222101', '6602', '1002'];
+  const filteredSubjects = subjects
+    .filter(s => s.code.includes(search) || s.name.includes(search))
+    .sort((a, b) => {
+      const ai = PRIORITY_CODES.indexOf(a.code);
+      const bi = PRIORITY_CODES.indexOf(b.code);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return 0;
+    })
+    .slice(0, 50);
+
+  const reposition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const panelHeight = 280;
+    const goTop = spaceBelow < panelHeight && spaceAbove > spaceBelow;
+    setPlacement(goTop ? 'top' : 'bottom');
+    setPanelStyle(goTop
+      ? { position: 'fixed', bottom: window.innerHeight - rect.top + 4, left: rect.left, width: Math.max(rect.width, 240), zIndex: 9999 }
+      : { position: 'fixed', top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 240), zIndex: 9999 }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      reposition();
+      window.addEventListener('scroll', reposition, true);
+      window.addEventListener('resize', reposition);
+      return () => {
+        window.removeEventListener('scroll', reposition, true);
+        window.removeEventListener('resize', reposition);
+      };
+    }
+  }, [open, reposition]);
 
   if (code && name) {
     return (
-      <Badge className="bg-blue-50 text-blue-600 text-xs cursor-pointer" onClick={() => onSelect('', '')}>
+      <Badge className="bg-blue-50 text-blue-700 text-[11px] rounded-full px-2 py-0.5 cursor-pointer hover:bg-blue-100 transition-colors leading-tight" onClick={() => onSelect('', '')}>
         {code} {name}
-        <X className="h-3 w-3 ml-1" />
+        <X className="h-2.5 w-2.5 ml-1 opacity-60" />
       </Badge>
     );
   }
@@ -1376,57 +1418,65 @@ function SubjectPopoverPopup({
     const found = subjects.find(s => s.code === code);
     if (found) {
       return (
-        <Badge className="bg-blue-50 text-blue-600 text-xs cursor-pointer" onClick={() => onSelect('', '')}>
+        <Badge className="bg-blue-50 text-blue-700 text-[11px] rounded-full px-2 py-0.5 cursor-pointer hover:bg-blue-100 transition-colors leading-tight" onClick={() => onSelect('', '')}>
           {found.code} {found.name}
-          <X className="h-3 w-3 ml-1" />
+          <X className="h-2.5 w-2.5 ml-1 opacity-60" />
         </Badge>
       );
     }
   }
 
   return (
-    <div className="relative">
+    <>
       <button
-        className="flex items-center gap-1 px-2 py-1 border border-dashed border-slate-300 rounded text-xs text-slate-500 hover:border-blue-400 hover:text-blue-500"
-        onClick={() => setOpen(!open)}
+        ref={triggerRef}
+        className="flex items-center gap-1 px-2 py-1 border border-dashed border-slate-300 rounded-md text-[11px] text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-colors"
+        onClick={() => { setOpen(!open); setSearch(''); }}
       >
         <Search className="h-3 w-3" />
         选择科目
       </button>
-      {open && (
+      {open && typeof window !== 'undefined' && createPortal(
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-8 z-50 w-56 bg-white border rounded-md shadow-lg p-2">
-            <Input
-              placeholder="搜索科目..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-7 text-xs mb-2"
-              autoFocus
-            />
-            <div className="max-h-60 overflow-y-auto">
+          <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => { setOpen(false); setSearch(''); }} />
+          <div
+            ref={panelRef}
+            style={panelStyle}
+            className="bg-white border border-slate-200 rounded-lg shadow-xl"
+          >
+            <div className="p-2 border-b border-slate-100">
+              <Input
+                placeholder="搜索科目代码或名称..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-7 text-xs focus-visible:ring-blue-400 focus-visible:ring-2"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-60 overflow-y-auto overscroll-contain py-1">
               {filteredSubjects.map(s => (
                 <button
                   key={s.id}
-                  className="w-full text-left px-2 py-1 text-xs hover:bg-slate-100 rounded flex items-center gap-2"
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors flex items-center gap-2"
                   onClick={() => {
                     onSelect(s.code, s.name);
                     setOpen(false);
                     setSearch('');
                   }}
                 >
-                  <span className="font-mono text-blue-600">{s.code}</span>
-                  <span className="truncate">{s.name}</span>
+                  <span className="font-mono text-blue-600 shrink-0">{s.code}</span>
+                  <span className="truncate text-slate-700">{s.name}</span>
                 </button>
               ))}
               {filteredSubjects.length === 0 && (
-                <div className="text-xs text-slate-400 py-2 text-center">无匹配科目</div>
+                <div className="text-xs text-slate-400 py-4 text-center">无匹配科目</div>
               )}
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
@@ -1687,11 +1737,16 @@ function SupplierMappingTab() {
   };
 
   return (
-    <div className="space-y-4">
-      {/* Group selector */}
-      <div className="flex items-center gap-3">
+    <div className="space-y-3">
+      {/* Helper text */}
+      <p className="text-[11px] text-slate-400 leading-relaxed">
+        配置供应商与科目的映射关系，发票匹配时将自动生成对应分录。供应商名称来源于已导入的进项发票销方。
+      </p>
+
+      {/* Toolbar: group selector + search + actions, one line */}
+      <div className="flex items-center gap-2 flex-wrap">
         <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-          <SelectTrigger className="w-48 h-9 text-sm">
+          <SelectTrigger className="w-40 h-8 text-xs">
             <SelectValue placeholder="选择分组" />
           </SelectTrigger>
           <SelectContent>
@@ -1702,55 +1757,52 @@ function SupplierMappingTab() {
         </Select>
 
         {!showNewGroupInput ? (
-          <Button variant="outline" size="sm" onClick={() => setShowNewGroupInput(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> 新建组
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowNewGroupInput(true)}>
+            <Plus className="h-3 w-3 mr-1" /> 新建组
           </Button>
         ) : (
-          <div className="flex items-center gap-2">
-            <Input
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              placeholder="输入组名"
-              className="w-36 h-8 text-sm"
-              autoFocus
-              onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
-            />
-            <Button size="sm" onClick={handleCreateGroup}>确定</Button>
-            <Button variant="ghost" size="sm" onClick={() => { setShowNewGroupInput(false); setNewGroupName(''); }}>取消</Button>
+          <div className="flex items-center gap-1">
+            <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="组名" className="w-28 h-7 text-xs" autoFocus onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()} />
+            <Button size="sm" className="h-7 text-xs px-2" onClick={handleCreateGroup}>确定</Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => { setShowNewGroupInput(false); setNewGroupName(''); }}>取消</Button>
           </div>
         )}
 
         {selectedGroup && currentMappings.length === 0 && (
-          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={handleDeleteGroup}>
-            <Trash2 className="h-3.5 w-3.5 mr-1" /> 删除组
+          <Button variant="ghost" size="sm" className="h-8 text-xs text-red-500 hover:text-red-700" onClick={handleDeleteGroup}>
+            <Trash2 className="h-3 w-3 mr-1" /> 删除组
           </Button>
+        )}
+
+        <div className="flex-1" />
+
+        {selectedGroup && (
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+            <Input
+              placeholder="搜索供应商..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-7 h-8 text-xs w-44 focus-visible:ring-blue-400 focus-visible:ring-2"
+            />
+          </div>
         )}
       </div>
 
       {selectedGroup ? (
         <>
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="搜索供应商名称..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-9 text-sm"
-            />
-          </div>
-
           {/* Supplier table */}
           <div className="border rounded-md overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 border-b">
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">供应商名称</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 w-28">供应商类型</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">借方科目</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">税科目</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">贷方科目</th>
-                  <th className="px-3 py-2 w-10"></th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 w-44">供应商名称</th>
+                  <th className="px-2 py-2.5 w-6"></th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 w-28">类型</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500">借方科目</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500">税科目</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500">贷方科目</th>
+                  <th className="px-3 py-2.5 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -1759,20 +1811,20 @@ function SupplierMappingTab() {
                 ))}
                 {currentMappings.length === 0 && !addingRow && (
                   <tr>
-                    <td colSpan={6} className="text-center py-6 text-slate-400 text-xs">
-                      该分组暂无供应商
+                    <td colSpan={7} className="text-center py-8 text-slate-400 text-xs">
+                      该分组暂无供应商，点击下方按钮添加
                     </td>
                   </tr>
                 )}
                 {addingRow && (
-                  <tr className="bg-blue-50/50">
-                    <td className="px-3 py-2">
+                  <tr className="bg-blue-50/40">
+                    <td className="px-4 py-3">
                       <div className="relative">
                         <Input
                           value={editForm.sellerName}
                           onChange={(e) => setEditForm(prev => ({ ...prev, sellerName: e.target.value }))}
                           placeholder="选择或输入供应商"
-                          className="h-7 text-xs"
+                          className="h-7 text-xs focus-visible:ring-blue-400 focus-visible:ring-2"
                           autoFocus
                           list="seller-suggestions"
                         />
@@ -1784,7 +1836,8 @@ function SupplierMappingTab() {
                         </datalist>
                       </div>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-3"><ArrowRight className="h-3 w-3 text-slate-300" /></td>
+                    <td className="px-4 py-3">
                       <Select value={editForm.supplierType} onValueChange={(v) => handleTypeChange(v as SupplierType)}>
                         <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -1794,35 +1847,19 @@ function SupplierMappingTab() {
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="px-3 py-2">
-                      <SubjectPopoverPopup
-                        code={editForm.debitCode}
-                        name={editForm.debitName}
-                        onSelect={(code, name) => setEditForm(prev => ({ ...prev, debitCode: code, debitName: name }))}
-                      />
+                    <td className="px-4 py-3">
+                      <SubjectPopoverPopup code={editForm.debitCode} name={editForm.debitName} onSelect={(code, name) => setEditForm(prev => ({ ...prev, debitCode: code, debitName: name }))} />
                     </td>
-                    <td className="px-3 py-2">
-                      <SubjectPopoverPopup
-                        code={editForm.taxCode}
-                        name={editForm.taxName}
-                        onSelect={(code, name) => setEditForm(prev => ({ ...prev, taxCode: code, taxName: name }))}
-                      />
+                    <td className="px-4 py-3">
+                      <SubjectPopoverPopup code={editForm.taxCode} name={editForm.taxName} onSelect={(code, name) => setEditForm(prev => ({ ...prev, taxCode: code, taxName: name }))} />
                     </td>
-                    <td className="px-3 py-2">
-                      <SubjectPopoverPopup
-                        code={editForm.creditCode}
-                        name={editForm.creditName}
-                        onSelect={(code, name) => setEditForm(prev => ({ ...prev, creditCode: code, creditName: name }))}
-                      />
+                    <td className="px-4 py-3">
+                      <SubjectPopoverPopup code={editForm.creditCode} name={editForm.creditName} onSelect={(code, name) => setEditForm(prev => ({ ...prev, creditCode: code, creditName: name }))} />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600" onClick={handleSaveNew}>
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-400" onClick={() => { setAddingRow(false); resetEditForm(); }}>
-                          <X className="h-3 w-3" />
-                        </Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600" onClick={handleSaveNew}><Plus className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-400" onClick={() => { setAddingRow(false); resetEditForm(); }}><X className="h-3 w-3" /></Button>
                       </div>
                     </td>
                   </tr>
@@ -1831,33 +1868,27 @@ function SupplierMappingTab() {
             </table>
           </div>
 
-          {/* Add button */}
+          {/* Add buttons */}
           {!addingRow && (
             <div className="flex gap-2">
-              <Button variant="outline" onClick={startAddSupplier} className="flex-1">
-                <Plus className="h-4 w-4 mr-2" /> 添加供应商
+              <Button variant="outline" onClick={startAddSupplier} className="flex-1 h-8 text-xs">
+                <Plus className="h-3.5 w-3.5 mr-1" /> 添加供应商
               </Button>
-              <Button variant="outline" onClick={() => setBatchImportOpen(true)}>
-                <FileText className="h-4 w-4 mr-2" /> 批量导入
+              <Button variant="outline" onClick={() => setBatchImportOpen(true)} className="h-8 text-xs">
+                <FileText className="h-3.5 w-3.5 mr-1" /> 批量导入
               </Button>
             </div>
           )}
 
           {/* Batch import dialog */}
           {batchImportOpen && (
-            <div className="border rounded-md p-4 space-y-3 bg-slate-50">
-              <Label className="text-sm font-medium">批量导入供应商</Label>
-              <p className="text-xs text-slate-500">每行输入一个供应商名称，导入后将使用默认类型（原材料）和默认科目。</p>
-              <Textarea
-                value={batchText}
-                onChange={(e) => setBatchText(e.target.value)}
-                placeholder={"供应商A\n供应商B\n供应商C"}
-                rows={6}
-                className="text-sm"
-              />
+            <div className="border rounded-md p-3 space-y-2 bg-slate-50">
+              <Label className="text-xs font-medium">批量导入供应商</Label>
+              <p className="text-[11px] text-slate-400">每行一个供应商名称，使用默认类型和科目。</p>
+              <Textarea value={batchText} onChange={(e) => setBatchText(e.target.value)} placeholder={"供应商A\n供应商B\n供应商C"} rows={5} className="text-xs" />
               <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setBatchImportOpen(false); setBatchText(''); }}>取消</Button>
-                <Button size="sm" onClick={handleBatchImport}>导入 ({batchText.split('\n').filter(n => n.trim()).length})</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { setBatchImportOpen(false); setBatchText(''); }}>取消</Button>
+                <Button size="sm" className="h-7 text-xs" onClick={handleBatchImport}>导入 ({batchText.split('\n').filter(n => n.trim()).length})</Button>
               </div>
             </div>
           )}
@@ -1875,27 +1906,28 @@ function SupplierRow({ mapping, onDelete }: { mapping: SupplierSubjectMapping; o
   const typeLabel = SUPPLIER_TYPE_OPTIONS.find(o => o.value === mapping.supplierType)?.label || mapping.supplierType;
 
   return (
-    <tr className="hover:bg-slate-50">
-      <td className="px-3 py-2 text-sm">{mapping.sellerName}</td>
-      <td className="px-3 py-2">
-        <Badge className="bg-slate-100 text-slate-600 text-xs">{typeLabel}</Badge>
+    <tr className="hover:bg-slate-50/80 transition-colors">
+      <td className="px-4 py-3 text-sm font-medium">{mapping.sellerName}</td>
+      <td className="px-2 py-3"><ArrowRight className="h-3 w-3 text-slate-300" /></td>
+      <td className="px-4 py-3">
+        <Badge className="bg-slate-100 text-slate-600 text-[11px] rounded-full">{typeLabel}</Badge>
       </td>
-      <td className="px-3 py-2">
+      <td className="px-4 py-3">
         {mapping.defaultDebitSubject ? (
-          <span className="text-xs text-blue-600">{mapping.defaultDebitSubject} {mapping.defaultDebitSubjectName}</span>
-        ) : <span className="text-xs text-slate-300">-</span>}
+          <Badge className="bg-blue-50 text-blue-700 text-[11px] rounded-full px-2 py-0.5">{mapping.defaultDebitSubject} {mapping.defaultDebitSubjectName}</Badge>
+        ) : <span className="text-[11px] text-slate-300">-</span>}
       </td>
-      <td className="px-3 py-2">
+      <td className="px-4 py-3">
         {mapping.defaultTaxSubject ? (
-          <span className="text-xs text-blue-600">{mapping.defaultTaxSubject} {mapping.defaultTaxSubjectName}</span>
-        ) : <span className="text-xs text-slate-300">-</span>}
+          <Badge className="bg-blue-50 text-blue-700 text-[11px] rounded-full px-2 py-0.5">{mapping.defaultTaxSubject} {mapping.defaultTaxSubjectName}</Badge>
+        ) : <span className="text-[11px] text-slate-300">-</span>}
       </td>
-      <td className="px-3 py-2">
+      <td className="px-4 py-3">
         {mapping.defaultCreditSubject ? (
-          <span className="text-xs text-blue-600">{mapping.defaultCreditSubject} {mapping.defaultCreditSubjectName}</span>
-        ) : <span className="text-xs text-slate-300">-</span>}
+          <Badge className="bg-blue-50 text-blue-700 text-[11px] rounded-full px-2 py-0.5">{mapping.defaultCreditSubject} {mapping.defaultCreditSubjectName}</Badge>
+        ) : <span className="text-[11px] text-slate-300">-</span>}
       </td>
-      <td className="px-3 py-2">
+      <td className="px-3 py-3">
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={onDelete}>
           <Trash2 className="h-3 w-3" />
         </Button>
