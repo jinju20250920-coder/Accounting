@@ -287,6 +287,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             accountSetId,
             createTime: now,
             updateTime: now,
+            holdStatus: 'normal', // 新增：设置默认状态为正常
           };
 
           const stmt = db.prepare(

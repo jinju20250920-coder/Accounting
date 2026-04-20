@@ -995,6 +995,9 @@ export default function InputInvoicePage() {
         return filteredInvoices.filter(inv => !!inv.voucherId);
       case 'onhold':
         return filteredInvoices.filter(inv => inv.holdStatus === 'on_hold');
+      case 'expenses':
+        // 费用清单tab不显示发票，返回空数组
+        return [];
       default:
         return filteredInvoices;
     }
@@ -1301,7 +1304,19 @@ export default function InputInvoicePage() {
       </Card>
 
       {/* 发票列表 */}
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedIds(new Set()); }} className="flex flex-col">
+      <Tabs value={activeTab} onValueChange={(v) => {
+        // 只有在切换到发票相关的tab时才清除选中状态，费用清单tab不影响
+        if (['all', 'pending', 'vouchered', 'onhold'].includes(v) && ['expenses'].includes(activeTab)) {
+          setActiveTab(v);
+          setSelectedIds(new Set());
+        } else if (['expenses'].includes(v) && ['all', 'pending', 'vouchered', 'onhold'].includes(activeTab)) {
+          setActiveTab(v);
+          // 保留选中状态，以便切换回发票tab时仍能看到选中的内容
+        } else {
+          setActiveTab(v);
+          setSelectedIds(new Set());
+        }
+      }} className="flex flex-col">
         <TabsList>
           <TabsTrigger value="all" className="flex-1">全部({stats.total})</TabsTrigger>
           <TabsTrigger value="pending" className="flex-1">待生成({stats.pendingCount})</TabsTrigger>
