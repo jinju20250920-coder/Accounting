@@ -939,7 +939,6 @@ export default function InputInvoicePage() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState('all');
-  const [showExpenseListDialog, setShowExpenseListDialog] = useState(false);
 
   // 全选/取消全选
   const handleSelectAll = (checked: boolean) => {
@@ -1490,12 +1489,6 @@ export default function InputInvoicePage() {
         invoiceType="input"
       />
 
-      {/* 费用清单导入 */}
-      <ExpenseListImportDialog
-        open={showExpenseListDialog}
-        onOpenChange={setShowExpenseListDialog}
-        onImportComplete={() => initialize()}
-      />
 
       {/* 详情对话框 */}
       <InvoiceDetailDialog
