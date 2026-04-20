@@ -118,6 +118,7 @@ export function InvoiceSmartRuleDialog({ open, onOpenChange, invoiceType }: Invo
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <form autoComplete="off" onSubmit={e => e.preventDefault()} className="contents" data-form-type="other">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="h-5 w-5" />
@@ -154,6 +155,7 @@ export function InvoiceSmartRuleDialog({ open, onOpenChange, invoiceType }: Invo
             <AssetCategoryTab />
           </TabsContent>
         </Tabs>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -437,6 +439,10 @@ function StrategyTab() {
                             onChange={(e) => handleSubjectCodeChange(e.target.value)}
                             className="w-28 h-8 text-xs"
                             placeholder="科目代码"
+                            autoComplete="off"
+                            data-1p-ignore
+                            data-lpignore="true"
+                            data-form-type="other"
                           />
                           <span className="text-xs text-slate-500 truncate max-w-[120px]">
                             {catSubjectName}
@@ -478,7 +484,7 @@ function StrategyTab() {
               <div>
                 <Label className="text-xs text-slate-500">费用科目</Label>
                 <div className="flex items-center gap-1 mt-1">
-                  <Input value={newCatSubjectCode} onChange={(e) => { setNewCatSubjectCode(e.target.value); const f = subjects.find(s => s.code === e.target.value); setNewCatSubjectName(f ? f.name : ''); }} className="w-28 h-8 text-xs" placeholder="科目代码" />
+                  <Input value={newCatSubjectCode} onChange={(e) => { setNewCatSubjectCode(e.target.value); const f = subjects.find(s => s.code === e.target.value); setNewCatSubjectName(f ? f.name : ''); }} className="w-28 h-8 text-xs" placeholder="科目代码" autoComplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" />
                   <span className="text-xs text-slate-500 truncate max-w-[100px]">{newCatSubjectName}</span>
                   <SubjectPopoverPopup code={newCatSubjectCode} name={newCatSubjectName} onSelect={(code, name) => { setNewCatSubjectCode(code); setNewCatSubjectName(name); }} />
                 </div>
@@ -1451,6 +1457,10 @@ function SubjectPopoverPopup({
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-7 text-xs focus-visible:ring-blue-400 focus-visible:ring-2"
                 autoFocus
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
               />
             </div>
             <div className="max-h-60 overflow-y-auto overscroll-contain py-1">
