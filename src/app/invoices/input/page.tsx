@@ -389,7 +389,7 @@ function ImportDialog({
     const processFile = async () => {
       try {
         const data = await file.arrayBuffer();
-        const wb = XLSX.read(data);
+        const wb = XLSX.read(data, { type: 'array' });
         setWorkbook(wb);
 
         // 解析所有sheet的数据
