@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -122,7 +123,7 @@ export function InvoiceSmartRuleDialog({ open, onOpenChange, invoiceType }: Invo
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="strategy">辅助核算策略</TabsTrigger>
             <TabsTrigger value="rules">规则配置</TabsTrigger>
@@ -264,6 +265,37 @@ function StrategyTab() {
     setCatSubjectCode(code);
     const found = subjects.find(s => s.code === code);
     setCatSubjectName(found ? found.name : '');
+  };
+
+  // New category
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatKeywords, setNewCatKeywords] = useState('');
+  const [newCatSubjectCode, setNewCatSubjectCode] = useState('');
+  const [newCatSubjectName, setNewCatSubjectName] = useState('');
+
+  const handleAddCategory = async () => {
+    const name = newCatName.trim();
+    const keywords = newCatKeywords.split(/[,，]/).map(k => k.trim()).filter(Boolean);
+    if (!name) { showToast('error', '请输入分类名称'); return; }
+    if (keywords.length === 0) { showToast('error', '请输入至少一个关键词'); return; }
+    await saveCategory({
+      id: `cat_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      accountSetId: accountSetId!,
+      category: name,
+      keywords,
+      expenseSubjectCode: newCatSubjectCode || undefined,
+      expenseSubjectName: newCatSubjectName || undefined,
+      isSystem: false,
+      enabled: true,
+      createTime: new Date().toISOString(),
+      updateTime: new Date().toISOString(),
+    });
+    setShowNewCategory(false);
+    setNewCatName('');
+    setNewCatKeywords('');
+    setNewCatSubjectCode('');
+    setNewCatSubjectName('');
   };
 
   if (!strategy) return null;
@@ -427,6 +459,38 @@ function StrategyTab() {
               </div>
             ))}
           </div>
+        )}
+
+        {/* Add new category */}
+        {showNewCategory ? (
+          <div className="border rounded-md bg-slate-50 px-3 py-3 space-y-3">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs text-slate-500">分类名称</Label>
+                <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} className="h-8 text-xs mt-1" placeholder="如：通讯" />
+              </div>
+              <div>
+                <Label className="text-xs text-slate-500">关键词（逗号分隔）</Label>
+                <Input value={newCatKeywords} onChange={(e) => setNewCatKeywords(e.target.value)} className="h-8 text-xs mt-1" placeholder="话费,通讯,流量" />
+              </div>
+              <div>
+                <Label className="text-xs text-slate-500">费用科目</Label>
+                <div className="flex items-center gap-1 mt-1">
+                  <Input value={newCatSubjectCode} onChange={(e) => { setNewCatSubjectCode(e.target.value); const f = subjects.find(s => s.code === e.target.value); setNewCatSubjectName(f ? f.name : ''); }} className="w-28 h-8 text-xs" placeholder="科目代码" />
+                  <span className="text-xs text-slate-500 truncate max-w-[100px]">{newCatSubjectName}</span>
+                  <SubjectPopoverPopup code={newCatSubjectCode} name={newCatSubjectName} onSelect={(code, name) => { setNewCatSubjectCode(code); setNewCatSubjectName(name); }} />
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setShowNewCategory(false); setNewCatName(''); setNewCatKeywords(''); }}>取消</Button>
+              <Button size="sm" onClick={handleAddCategory}>保存</Button>
+            </div>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setShowNewCategory(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> 新增分类
+          </Button>
         )}
       </div>
     </div>
@@ -1399,6 +1463,7 @@ function SupplierMappingTab() {
   const [addingRow, setAddingRow] = useState(false);
   const [batchImportOpen, setBatchImportOpen] = useState(false);
   const [batchText, setBatchText] = useState('');
+  const [existingSellers, setExistingSellers] = useState<string[]>([]);
   const [editForm, setEditForm] = useState<{
     sellerName: string;
     supplierType: SupplierType;
@@ -1425,6 +1490,10 @@ function SupplierMappingTab() {
       if (groups.length > 0 && !selectedGroup) {
         setSelectedGroup(groups[0]);
       }
+      // Load existing seller names from invoice store for autocomplete
+      const invoices = useInvoiceStore.getState().invoices;
+      const sellers = [...new Set(invoices.map(inv => inv.sellerName).filter(Boolean))].sort();
+      setExistingSellers(sellers);
     } catch (e) {
       console.error('加载供应商映射失败:', e);
     }
@@ -1432,14 +1501,14 @@ function SupplierMappingTab() {
 
   const groups = [...new Set(allMappings.map(m => m.groupName))].sort();
   const currentMappings = allMappings
-    .filter(m => m.groupName === selectedGroup)
+    .filter(m => m.groupName === selectedGroup && m.sellerName !== '__placeholder__')
     .filter(m => {
       if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
       return m.sellerName.toLowerCase().includes(q);
     });
 
-  const handleCreateGroup = () => {
+  const handleCreateGroup = async () => {
     const name = newGroupName.trim();
     if (!name) {
       showToast('error', '请输入分组名称');
@@ -1449,20 +1518,48 @@ function SupplierMappingTab() {
       showToast('error', '该分组已存在');
       return;
     }
+    // Persist a placeholder entry so the group survives reload
+    const now = new Date().toISOString();
+    const placeholder: SupplierSubjectMapping = {
+      id: `sm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      accountSetId: accountSetId!,
+      groupName: name,
+      sellerName: `__placeholder__`,
+      supplierType: 'other',
+      createTime: now,
+      updateTime: now,
+    };
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.saveSupplierMapping(placeholder);
+      await loadMappings();
+    } catch (e) {
+      console.error('创建分组失败:', e);
+    }
     setSelectedGroup(name);
     setNewGroupName('');
     setShowNewGroupInput(false);
     showToast('success', `分组"${name}"已创建，请添加供应商`);
   };
 
-  const handleDeleteGroup = () => {
+  const handleDeleteGroup = async () => {
     if (currentMappings.length > 0) {
       showToast('error', '该分组下还有供应商，请先删除所有供应商');
       return;
     }
-    setAllMappings(prev => prev.filter(m => m.groupName !== selectedGroup));
-    setSelectedGroup(groups.find(g => g !== selectedGroup) || '');
-    showToast('success', '分组已删除');
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      // Delete placeholder and any remaining entries for this group
+      const groupEntries = allMappings.filter(m => m.groupName === selectedGroup);
+      for (const entry of groupEntries) {
+        await sqliteService.deleteSupplierMapping(entry.id);
+      }
+      await loadMappings();
+      setSelectedGroup(groups.find(g => g !== selectedGroup) || '');
+      showToast('success', '分组已删除');
+    } catch (e) {
+      showToast('error', '删除分组失败');
+    }
   };
 
   const resetEditForm = () => {
@@ -1670,13 +1767,22 @@ function SupplierMappingTab() {
                 {addingRow && (
                   <tr className="bg-blue-50/50">
                     <td className="px-3 py-2">
-                      <Input
-                        value={editForm.sellerName}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, sellerName: e.target.value }))}
-                        placeholder="供应商名称"
-                        className="h-7 text-xs"
-                        autoFocus
-                      />
+                      <div className="relative">
+                        <Input
+                          value={editForm.sellerName}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, sellerName: e.target.value }))}
+                          placeholder="选择或输入供应商"
+                          className="h-7 text-xs"
+                          autoFocus
+                          list="seller-suggestions"
+                        />
+                        <datalist id="seller-suggestions">
+                          {existingSellers
+                            .filter(s => !editForm.sellerName || s.toLowerCase().includes(editForm.sellerName.toLowerCase()))
+                            .slice(0, 20)
+                            .map(s => <option key={s} value={s} />)}
+                        </datalist>
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <Select value={editForm.supplierType} onValueChange={(v) => handleTypeChange(v as SupplierType)}>

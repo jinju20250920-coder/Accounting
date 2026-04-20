@@ -1172,12 +1172,12 @@ export default function InputInvoicePage() {
       </Card>
 
       {/* 发票列表 */}
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedIds(new Set()); }}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedIds(new Set()); }} className="flex flex-col">
         <TabsList>
-          <TabsTrigger value="all">全部({stats.total})</TabsTrigger>
-          <TabsTrigger value="pending">待生成({stats.pendingCount})</TabsTrigger>
-          <TabsTrigger value="vouchered">已入账({stats.voucherCount})</TabsTrigger>
-          <TabsTrigger value="onhold">暂不入账({stats.onHoldCount})</TabsTrigger>
+          <TabsTrigger value="all" className="flex-1">全部({stats.total})</TabsTrigger>
+          <TabsTrigger value="pending" className="flex-1">待生成({stats.pendingCount})</TabsTrigger>
+          <TabsTrigger value="vouchered" className="flex-1">已入账({stats.voucherCount})</TabsTrigger>
+          <TabsTrigger value="onhold" className="flex-1">暂不入账({stats.onHoldCount})</TabsTrigger>
         </TabsList>
 
         {/* 共用一个表体，内容随 tabFilteredInvoices 变化 */}
