@@ -127,11 +127,10 @@ export function InvoiceSmartRuleDialog({ open, onOpenChange, invoiceType }: Invo
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="strategy">辅助核算策略</TabsTrigger>
             <TabsTrigger value="rules">规则配置</TabsTrigger>
             <TabsTrigger value="suppliers">供应商映射</TabsTrigger>
-            <TabsTrigger value="expenses">费用清单</TabsTrigger>
             <TabsTrigger value="assets">资产类别</TabsTrigger>
           </TabsList>
 
@@ -145,10 +144,6 @@ export function InvoiceSmartRuleDialog({ open, onOpenChange, invoiceType }: Invo
 
           <TabsContent value="suppliers" className="mt-4">
             <SupplierMappingTab />
-          </TabsContent>
-
-          <TabsContent value="expenses" className="mt-4">
-            <ExpenseListTab />
           </TabsContent>
 
           <TabsContent value="assets" className="mt-4">

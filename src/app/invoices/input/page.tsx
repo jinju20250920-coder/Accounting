@@ -43,7 +43,7 @@ import { InvoiceSmartRuleDialog } from '@/components/invoice-smart-rule-dialog';
 import { ExpenseListImportDialog } from '@/components/expense-list-import-dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { sqliteService } from '@/lib/database/sqlite-service';
-import type { Invoice, InvoicePaymentStatus } from '@/types';
+import type { Invoice, InvoicePaymentStatus, ExpenseReimbursement } from '@/types';
 import * as XLSX from 'xlsx';
 
 // 生成唯一ID
@@ -763,6 +763,140 @@ function ImportDialog({
   );
 }
 
+// 费用清单Tab组件
+function ExpenseListTab() {
+  const { showToast } = useToast();
+  const accountSetId = useAccountSetStore((state) => state.currentAccountSetId);
+
+  const [records, setRecords] = useState<ExpenseReimbursement[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (accountSetId) loadRecords();
+  }, [accountSetId]);
+
+  const loadRecords = async () => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      const data = await sqliteService.getExpenseReimbursements();
+      setRecords(data);
+    } catch (e) {
+      console.error('加载费用清单失败:', e);
+    }
+  };
+
+  const filteredRecords = records.filter(r => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return r.invoiceCode?.toLowerCase().includes(q) || r.reimburserName?.toLowerCase().includes(q);
+  });
+
+  const handleDelete = async (id: string) => {
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.deleteExpenseReimbursement(id);
+      await loadRecords();
+      showToast('success', '记录已删除');
+    } catch (e) {
+      showToast('error', '删除失败');
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (records.length === 0) return;
+    try {
+      sqliteService.setAccountSetId(accountSetId!);
+      await sqliteService.clearExpenseReimbursements();
+      await loadRecords();
+      showToast('success', '所有记录已清除');
+    } catch (e) {
+      showToast('error', '清除失败');
+    }
+  };
+
+  const handleImportComplete = () => {
+    loadRecords();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Action bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-3.5 w-3.5 mr-1" /> 导入清单
+          </Button>
+          {records.length > 0 && (
+            <Button variant="outline" size="sm" className="text-red-500 hover:text-red-700" onClick={handleClearAll}>
+              <Trash2 className="h-3.5 w-3.5 mr-1" /> 清空全部
+            </Button>
+          )}
+        </div>
+        <span className="text-xs text-slate-400">共 {records.length} 条记录</span>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+        <Input
+          placeholder="搜索发票号码或报销人..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 h-9 text-sm"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="border rounded-md overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">发票号码</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">报销人</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">备注</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">导入时间</th>
+              <th className="px-3 py-2 w-10"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {filteredRecords.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="text-center py-6 text-slate-400 text-xs">
+                  {records.length === 0 ? '暂无记录，请导入费用清单' : '无匹配记录'}
+                </td>
+              </tr>
+            ) : (
+              filteredRecords.map(r => (
+                <tr key={r.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 text-sm font-mono">{r.invoiceCode || '-'}</td>
+                  <td className="px-3 py-2 text-sm">{r.reimburserName || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500 truncate max-w-[200px]">{r.notes || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-slate-400">
+                    {r.createTime ? new Date(r.createTime).toLocaleString('zh-CN') : '-'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={() => handleDelete(r.id)}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Import dialog */}
+      <ExpenseListImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onImportComplete={handleImportComplete}
+      />
+    </div>
+  );
+}
+
 export default function InputInvoicePage() {
   const { showToast } = useToast();
   const {
@@ -1040,10 +1174,6 @@ export default function InputInvoicePage() {
             <Upload className="h-4 w-4 mr-2" />
             导入Excel
           </Button>
-          <Button variant="outline" onClick={() => setShowExpenseListDialog(true)}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            费用清单
-          </Button>
           <Button variant="outline" onClick={() => setShowSubjectConfig(true)}>
             <Settings2 className="h-4 w-4 mr-2" />
             智能规则
@@ -1178,162 +1308,170 @@ export default function InputInvoicePage() {
           <TabsTrigger value="pending" className="flex-1">待生成({stats.pendingCount})</TabsTrigger>
           <TabsTrigger value="vouchered" className="flex-1">已入账({stats.voucherCount})</TabsTrigger>
           <TabsTrigger value="onhold" className="flex-1">暂不入账({stats.onHoldCount})</TabsTrigger>
+          <TabsTrigger value="expenses" className="flex-1">费用清单</TabsTrigger>
         </TabsList>
 
-        {/* 共用一个表体，内容随 tabFilteredInvoices 变化 */}
-        <TabsContent value={activeTab} className="mt-4">
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-slate-500 w-12">
-                        <Checkbox
-                          checked={tabFilteredInvoices.length > 0 && selectedIds.size === tabFilteredInvoices.length}
-                          onCheckedChange={handleSelectAll}
-                        />
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">发票号码</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">数电发票号码</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">日期</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">销售方</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">商品/服务</th>
-                      <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">金额</th>
-                      <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">税额</th>
-                      <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">含税金额</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">付款状态</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">凭证</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
+        {/* 发票列表内容 */}
+        {['all', 'pending', 'vouchered', 'onhold'].includes(activeTab) && (
+          <TabsContent value={activeTab} className="mt-4">
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50">
                       <tr>
-                        <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
-                          加载中...
-                        </td>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-slate-500 w-12">
+                          <Checkbox
+                            checked={tabFilteredInvoices.length > 0 && selectedIds.size === tabFilteredInvoices.length}
+                            onCheckedChange={handleSelectAll}
+                          />
+                        </th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">发票号码</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">数电发票号码</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">日期</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">销售方</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">商品/服务</th>
+                        <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">金额</th>
+                        <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">税额</th>
+                        <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">含税金额</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">付款状态</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">凭证</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">操作</th>
                       </tr>
-                    ) : tabFilteredInvoices.length === 0 ? (
-                      <tr>
-                        <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
-                          {activeTab === 'onhold' ? '暂无暂不入账的发票' : activeTab === 'vouchered' ? '暂无已入账的发票' : activeTab === 'pending' ? '暂无待生成凭证的发票' : '暂无发票数据，请导入税务局Excel'}
-                        </td>
-                      </tr>
-                    ) : (
-                      tabFilteredInvoices.map((invoice) => (
-                        <tr key={invoice.id} className={`border-t hover:bg-slate-50 ${selectedIds.has(invoice.id) ? 'bg-blue-50' : ''} ${invoice.holdStatus === 'on_hold' ? 'bg-orange-50/50' : ''}`}>
-                          <td className="px-4 py-3 text-center">
-                            <Checkbox
-                              checked={selectedIds.has(invoice.id)}
-                              onCheckedChange={(checked) => handleSelectOne(invoice.id, checked)}
-                            />
-                          </td>
-                          <td className="px-4 py-3 font-medium">{invoice.invoiceCode}</td>
-                          <td className="px-4 py-3 text-slate-500 text-sm">{invoice.digitalInvoiceNo || '-'}</td>
-                          <td className="px-4 py-3">{invoice.invoiceDate}</td>
-                          <td className="px-4 py-3">{invoice.sellerName}</td>
-                          <td className="px-4 py-3">{invoice.goodsName || '-'}</td>
-                          <td className="px-4 py-3 text-right">¥{invoice.amount.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-right">¥{invoice.taxAmount?.toFixed(2) || '-'}</td>
-                          <td className="px-4 py-3 text-right font-medium">¥{invoice.totalAmount.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <PaymentStatusBadge status={invoice.paymentStatus} />
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {invoice.voucherNo ? (
-                              <Badge variant="outline" className="bg-green-100 text-green-800">
-                                {invoice.voucherNo}
-                              </Badge>
-                            ) : invoice.holdStatus === 'on_hold' ? (
-                              <Badge variant="outline" className="bg-orange-100 text-orange-600">
-                                暂不入账
-                              </Badge>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedInvoice(invoice);
-                                  setShowDetailDialog(true);
-                                }}
-                              >
-                                查看
-                              </Button>
-                              {!invoice.voucherId && invoice.holdStatus !== 'on_hold' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleGenerateVoucher(invoice.id)}
-                                >
-                                  生成凭证
-                                </Button>
-                              )}
-                              {!invoice.voucherId && invoice.holdStatus !== 'on_hold' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-orange-600 hover:text-orange-700"
-                                  onClick={() => handleHoldInvoice(invoice.id)}
-                                >
-                                  <PauseCircle className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {invoice.holdStatus === 'on_hold' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-blue-600 hover:text-blue-700"
-                                  onClick={() => handleRestoreInvoice(invoice.id)}
-                                >
-                                  <PlayCircle className="h-4 w-4 mr-1" />
-                                  恢复
-                                </Button>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(invoice.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
-                            </div>
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr>
+                          <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
+                            加载中...
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                  {tabFilteredInvoices.length > 0 && (
-                    <tfoot className="bg-slate-100 font-medium">
-                      <tr className="border-t-2 border-slate-300">
-                        <td className="px-4 py-3 text-center">
-                          {selectedInvoices.length > 0 ? `${selectedInvoices.length}/${tabFilteredInvoices.length}` : tabFilteredInvoices.length}
-                        </td>
-                        <td className="px-4 py-3" colSpan={5}>
-                          {selectedInvoices.length > 0 ? '已选合计' : '全部合计'}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          ¥{(selectedInvoices.length > 0 ? selectedStats.amount : stats.amount).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          ¥{(selectedInvoices.length > 0 ? selectedStats.taxAmount : stats.taxAmount).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold">
-                          ¥{(selectedInvoices.length > 0 ? selectedStats.totalAmount : stats.totalAmount).toFixed(2)}
-                        </td>
-                        <td colSpan={3}></td>
-                      </tr>
-                    </tfoot>
-                )}
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                      ) : tabFilteredInvoices.length === 0 ? (
+                        <tr>
+                          <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
+                            {activeTab === 'onhold' ? '暂无暂不入账的发票' : activeTab === 'vouchered' ? '暂无已入账的发票' : activeTab === 'pending' ? '暂无待生成凭证的发票' : '暂无发票数据，请导入税务局Excel'}
+                          </td>
+                        </tr>
+                      ) : (
+                        tabFilteredInvoices.map((invoice) => (
+                          <tr key={invoice.id} className={`border-t hover:bg-slate-50 ${selectedIds.has(invoice.id) ? 'bg-blue-50' : ''} ${invoice.holdStatus === 'on_hold' ? 'bg-orange-50/50' : ''}`}>
+                            <td className="px-4 py-3 text-center">
+                              <Checkbox
+                                checked={selectedIds.has(invoice.id)}
+                                onCheckedChange={(checked) => handleSelectOne(invoice.id, checked)}
+                              />
+                            </td>
+                            <td className="px-4 py-3 font-medium">{invoice.invoiceCode}</td>
+                            <td className="px-4 py-3 text-slate-500 text-sm">{invoice.digitalInvoiceNo || '-'}</td>
+                            <td className="px-4 py-3">{invoice.invoiceDate}</td>
+                            <td className="px-4 py-3">{invoice.sellerName}</td>
+                            <td className="px-4 py-3">{invoice.goodsName || '-'}</td>
+                            <td className="px-4 py-3 text-right">¥{invoice.amount.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-right">¥{invoice.taxAmount?.toFixed(2) || '-'}</td>
+                            <td className="px-4 py-3 text-right font-medium">¥{invoice.totalAmount.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <PaymentStatusBadge status={invoice.paymentStatus} />
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {invoice.voucherNo ? (
+                                <Badge variant="outline" className="bg-green-100 text-green-800">
+                                  {invoice.voucherNo}
+                                </Badge>
+                              ) : invoice.holdStatus === 'on_hold' ? (
+                                <Badge variant="outline" className="bg-orange-100 text-orange-600">
+                                  暂不入账
+                                </Badge>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedInvoice(invoice);
+                                    setShowDetailDialog(true);
+                                  }}
+                                >
+                                  查看
+                                </Button>
+                                {!invoice.voucherId && invoice.holdStatus !== 'on_hold' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleGenerateVoucher(invoice.id)}
+                                  >
+                                    生成凭证
+                                  </Button>
+                                )}
+                                {!invoice.voucherId && invoice.holdStatus !== 'on_hold' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-orange-600 hover:text-orange-700"
+                                    onClick={() => handleHoldInvoice(invoice.id)}
+                                  >
+                                    <PauseCircle className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                {invoice.holdStatus === 'on_hold' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-blue-600 hover:text-blue-700"
+                                    onClick={() => handleRestoreInvoice(invoice.id)}
+                                  >
+                                    <PlayCircle className="h-4 w-4 mr-1" />
+                                    恢复
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDelete(invoice.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    {tabFilteredInvoices.length > 0 && (
+                      <tfoot className="bg-slate-100 font-medium">
+                        <tr className="border-t-2 border-slate-300">
+                          <td className="px-4 py-3 text-center">
+                            {selectedInvoices.length > 0 ? `${selectedInvoices.length}/${tabFilteredInvoices.length}` : tabFilteredInvoices.length}
+                          </td>
+                          <td className="px-4 py-3" colSpan={5}>
+                            {selectedInvoices.length > 0 ? '已选合计' : '全部合计'}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            ¥{(selectedInvoices.length > 0 ? selectedStats.amount : stats.amount).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            ¥{(selectedInvoices.length > 0 ? selectedStats.taxAmount : stats.taxAmount).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold">
+                            ¥{(selectedInvoices.length > 0 ? selectedStats.totalAmount : stats.totalAmount).toFixed(2)}
+                          </td>
+                          <td colSpan={3}></td>
+                        </tr>
+                      </tfoot>
+                  )}
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* 费用清单内容 */}
+        <TabsContent value="expenses" className="mt-4">
+          <ExpenseListTab />
         </TabsContent>
       </Tabs>
 
