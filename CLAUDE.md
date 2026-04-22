@@ -458,6 +458,7 @@ npm run lint
 - ✅ 发票凭证模板引擎集成 - generateInvoiceVoucher 走模板引擎，关键词科目映射，税率匹配，科目自动创建
 - ✅ 发票科目映射规则配置 - InvoiceSubjectConfigDialog 组件，invoice_subject_rules 表持久化
 - ✅ 发票Store数据库统一 - 全部 CRUD 使用 sqliteService（getDb() helper），修复列名不匹配问题
+- ✅ 业务组优先级功能 - 支持业务组优先级配置，上移/下移调整优先级，列表按优先级排序显示
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
