@@ -457,12 +457,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         expenseReimbursements,
         auxiliaryStrategy,
         expenseKeywords,
+        assetMappings,
       ] = await Promise.all([
         sqliteService.getSmartRules(),
         sqliteService.getSupplierMappings(),
         sqliteService.getExpenseReimbursements(),
         sqliteService.getAuxiliaryStrategy(),
         sqliteService.getExpenseKeywordCategories(),
+        sqliteService.getAssetCategoryMappings(),
       ]);
 
       // 2. 匹配规则（最高优先级的启用规则，条件全部 AND 满足）
@@ -479,7 +481,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         expenseReimbursements,
         auxiliaryStrategy,
         expenseKeywords,
-        assetMappings: [],   // store layer populates if needed
+        assetMappings,
         allRules: rules,
       };
       const result = executeActions(engineContext);

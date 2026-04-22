@@ -1238,6 +1238,37 @@ export interface AuxiliaryStrategyConfig {
   mode: 'auxiliary' | 'sub_account';
   autoCreatePartner: boolean;
   autoDisableAuxiliaryOnSubAccount: boolean;
+  // 智能路由开关
+  enableSmartRouting?: boolean;
+  // 多动作执行开关
+  enableMultiAction?: boolean;
+  updateTime: string;
+}
+
+export interface PurchaseInvoiceRuleConfig {
+  id: string;
+  accountSetId: string;
+  businessGroups: {
+    id: string;
+    name: string;
+    debitSubject: string;
+    taxSubject: string;
+    creditSubject: string;
+    partnerType: string;
+    assetThreshold?: number;
+  }[];
+  keywordRules: {
+    id: string;
+    keywords: string;
+    businessGroup: string;
+    threshold: number;
+  }[];
+  globalSettings: {
+    assetThreshold: number;
+    autoTaxSubject: boolean;
+    autoCheckDuplicate: boolean;
+    autoRecognizeReimburser: boolean;
+  };
   updateTime: string;
 }
 

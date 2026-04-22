@@ -16,6 +16,7 @@ import type {
   ExpenseKeywordCategory as _ExpenseKeywordCategory,
   AuxiliaryStrategyConfig as _AuxiliaryStrategyConfig,
   AssetCategoryMapping as _AssetCategoryMapping,
+  PurchaseInvoiceRuleConfig as _PurchaseInvoiceRuleConfig,
 } from '@/types';
 
 // Re-export types for stores to import
@@ -35,6 +36,7 @@ export type ExpenseReimbursement = _ExpenseReimbursement;
 export type ExpenseKeywordCategory = _ExpenseKeywordCategory;
 export type AuxiliaryStrategyConfig = _AuxiliaryStrategyConfig;
 export type AssetCategoryMapping = _AssetCategoryMapping;
+export type PurchaseInvoiceRuleConfig = _PurchaseInvoiceRuleConfig;
 
 // AuditLog interface
 export interface AuditLog {
@@ -147,6 +149,8 @@ class SQLiteService {
     await this.migrateCreateBankRulesTable();
     // 迁移：智能规则引擎相关表（替代 invoice_subject_rules）
     await this.migrateSmartRuleEngine();
+    // 迁移：创建采购发票规则配置表
+    await this.migratePurchaseInvoiceRuleConfig();
   }
 
   /**
@@ -633,6 +637,42 @@ class SQLiteService {
   }
 
   /**
+   * 迁移：创建采购发票规则配置表
+   */
+  private async migratePurchaseInvoiceRuleConfig(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 检查 purchase_invoice_rule_config 表是否存在
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='purchase_invoice_rule_config'"
+      );
+
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating purchase_invoice_rule_config table...');
+
+        const createTable = `
+          CREATE TABLE IF NOT EXISTS purchase_invoice_rule_config (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            businessGroups TEXT NOT NULL DEFAULT '[]',
+            keywordRules TEXT NOT NULL DEFAULT '[]',
+            globalSettings TEXT NOT NULL DEFAULT '{"assetThreshold":5000,"autoTaxSubject":true,"autoCheckDuplicate":true,"autoRecognizeReimburser":true}',
+            updateTime TEXT NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_pirc_accountSetId ON purchase_invoice_rule_config(accountSetId);
+        `;
+
+        this.dbInstance.exec(createTable);
+        console.log('Purchase invoice rule config table migration completed');
+      }
+    } catch (error) {
+      console.warn('Purchase invoice rule config table migration warning:', error);
+    }
+  }
+
+  /**
    * 迁移：智能规则引擎相关表（替代 invoice_subject_rules）
    */
   private async migrateSmartRuleEngine(): Promise<void> {
@@ -716,6 +756,15 @@ class SQLiteService {
             updateTime TEXT NOT NULL
           );
 
+          CREATE TABLE IF NOT EXISTS purchase_invoice_rule_config (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            businessGroups TEXT NOT NULL DEFAULT '[]',
+            keywordRules TEXT NOT NULL DEFAULT '[]',
+            globalSettings TEXT NOT NULL DEFAULT '{"assetThreshold":5000,"autoTaxSubject":true,"autoCheckDuplicate":true,"autoRecognizeReimburser":true}',
+            updateTime TEXT NOT NULL
+          );
+
           CREATE TABLE IF NOT EXISTS asset_category_mapping (
             id TEXT PRIMARY KEY,
             accountSetId TEXT NOT NULL,
@@ -737,6 +786,7 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_ekc_accountSetId ON expense_keyword_categories(accountSetId);
           CREATE INDEX IF NOT EXISTS idx_asc_accountSetId ON auxiliary_strategy_config(accountSetId);
           CREATE INDEX IF NOT EXISTS idx_acm_accountSetId ON asset_category_mapping(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_pirc_accountSetId ON purchase_invoice_rule_config(accountSetId);
         `;
 
         this.dbInstance.exec(createTables);
@@ -775,8 +825,8 @@ class SQLiteService {
 
         // Insert default auxiliary_strategy_config
         this.dbInstance.exec(
-          `INSERT INTO auxiliary_strategy_config (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
-           VALUES (?, ?, 'auxiliary', 0, 1, ?)`,
+          `INSERT INTO auxiliary_strategy_config (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, enableSmartRouting, enableMultiAction, updateTime)
+           VALUES (?, ?, 'auxiliary', 0, 1, 1, 1, ?)`,
           [`sys_asc_default`, this._accountSetId, now]
         );
 
@@ -799,6 +849,25 @@ class SQLiteService {
       } catch (e) {
         if (!e.message?.includes('duplicate column name')) {
           console.warn('invoices ALTER warning:', e);
+        }
+      }
+
+      // ALTER auxiliary_strategy_config: add new strategy fields
+      try {
+        const pragma = this.dbInstance.exec("PRAGMA table_info(auxiliary_strategy_config)");
+        const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+        if (!columns.includes('enableSmartRouting')) {
+          this.dbInstance.exec(`ALTER TABLE auxiliary_strategy_config ADD COLUMN enableSmartRouting INTEGER DEFAULT 1`);
+          console.log('auxiliary_strategy_config table: added enableSmartRouting column');
+        }
+        if (!columns.includes('enableMultiAction')) {
+          this.dbInstance.exec(`ALTER TABLE auxiliary_strategy_config ADD COLUMN enableMultiAction INTEGER DEFAULT 1`);
+          console.log('auxiliary_strategy_config table: added enableMultiAction column');
+        }
+      } catch (e) {
+        if (!e.message?.includes('duplicate column name')) {
+          console.warn('auxiliary_strategy_config ALTER warning:', e);
         }
       }
     } catch (error) {
@@ -2650,6 +2719,80 @@ class SQLiteService {
     await this.ensureInitialized();
     this.dbInstance.exec(`DELETE FROM supplier_subject_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
+  }
+
+  // --- Purchase Invoice Rule Config ---
+  async getPurchaseInvoiceRuleConfig(): Promise<PurchaseInvoiceRuleConfig> {
+    console.log('SQLite getPurchaseInvoiceRuleConfig called');
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM purchase_invoice_rule_config WHERE accountSetId = ?`,
+      [this.accountSetId]
+    );
+    console.log('SQLite getPurchaseInvoiceRuleConfig result:', result);
+    if (result[0]?.values?.length) {
+      const row = result[0].values[0];
+      const cols = result[0].columns;
+      const obj: any = {};
+      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      const parsedConfig = {
+        id: obj.id,
+        accountSetId: obj.accountSetId,
+        businessGroups: JSON.parse(obj.businessGroups),
+        keywordRules: JSON.parse(obj.keywordRules),
+        globalSettings: JSON.parse(obj.globalSettings),
+        updateTime: obj.updateTime,
+      };
+      console.log('SQLite getPurchaseInvoiceRuleConfig parsed:', parsedConfig);
+      return parsedConfig;
+    }
+    // 返回默认配置
+    const defaultConfig: PurchaseInvoiceRuleConfig = {
+      id: `pirc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      accountSetId: this.accountSetId,
+      businessGroups: [
+        { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商' },
+        { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商' },
+        { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '2221.01.{{税率}}', creditSubject: '2241 其他应付款', partnerType: '报销人' },
+        { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商' },
+      ],
+      keywordRules: [
+        { id: '1', keywords: '电脑, 服务器', businessGroup: 'fixed_asset', threshold: 5000 },
+        { id: '2', keywords: '滴滴, 打车', businessGroup: 'reimbursement', threshold: 0 },
+      ],
+      globalSettings: {
+        assetThreshold: 5000,
+        autoTaxSubject: true,
+        autoCheckDuplicate: true,
+        autoRecognizeReimburser: true,
+      },
+      updateTime: new Date().toISOString(),
+    };
+    await this.savePurchaseInvoiceRuleConfig(defaultConfig);
+    return defaultConfig;
+  }
+
+  async savePurchaseInvoiceRuleConfig(config: PurchaseInvoiceRuleConfig): Promise<void> {
+    console.log('SQLite savePurchaseInvoiceRuleConfig called with:', config);
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    const values = [
+      config.id,
+      config.accountSetId || this.accountSetId,
+      JSON.stringify(config.businessGroups),
+      JSON.stringify(config.keywordRules),
+      JSON.stringify(config.globalSettings),
+      config.updateTime || now,
+    ];
+    console.log('SQLite save values:', values);
+    this.dbInstance.exec(
+      `INSERT OR REPLACE INTO purchase_invoice_rule_config
+        (id, accountSetId, businessGroups, keywordRules, globalSettings, updateTime)
+       VALUES (?,?,?,?,?,?)`,
+      values
+    );
+    await this.persist();
+    console.log('SQLite savePurchaseInvoiceRuleConfig completed');
   }
 
   // --- Expense Reimbursement ---

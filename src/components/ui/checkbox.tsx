@@ -3,14 +3,14 @@
 import React from 'react';
 
 interface CheckboxProps {
-  checked: boolean;
+  checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   className?: string;
   disabled?: boolean;
 }
 
 export function Checkbox({
-  checked,
+  checked = false,
   onCheckedChange,
   className = '',
   disabled = false

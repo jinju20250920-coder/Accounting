@@ -29,6 +29,7 @@ import type {
   EngineContext,
   FixedAsset,
   Subject,
+  DepreciationMethod,
 } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -310,11 +311,13 @@ export function executeActions(context: EngineContext): ActionResult {
     supplierMappings,
     expenseReimbursements,
     auxiliaryStrategy,
+    expenseKeywords,
+    assetMappings,
   } = context;
 
-  // No rule matched — return empty defaults
+  // No rule matched — apply default logic
   if (!matchedRule) {
-    return {
+    const defaultResult = {
       subjectOverrides: {},
       auxiliaryResult: {
         debitAuxiliary: null,
@@ -329,6 +332,21 @@ export function executeActions(context: EngineContext): ActionResult {
       reimburserName: null,
       partnerCreated: false,
     };
+
+    // Apply dynamic tax subject logic even when no rule matches
+    const taxSubject = getDynamicTaxSubject(invoice);
+    if (taxSubject) {
+      defaultResult.subjectOverrides['tax'] = taxSubject;
+    }
+
+    // Apply automatic fixed asset classification based on amount threshold
+    const autoFixedAsset = getAutomaticFixedAsset(invoice, assetMappings);
+    if (autoFixedAsset) {
+      defaultResult.fixedAssetCard = autoFixedAsset;
+      defaultResult.markCategory = 'fixed_asset';
+    }
+
+    return defaultResult;
   }
 
   const subjectOverrides: Record<string, { code: string; name: string }> = {};
@@ -384,10 +402,30 @@ export function executeActions(context: EngineContext): ActionResult {
     }
   }
 
+  // Apply dynamic tax subject logic (overrides any rule-defined tax subject)
+  const taxSubject = getDynamicTaxSubject(invoice);
+  if (taxSubject) {
+    subjectOverrides['tax'] = taxSubject;
+  }
+
+  // Apply automatic fixed asset classification if not explicitly set by rule
+  if (!fixedAssetCard) {
+    const autoFixedAsset = getAutomaticFixedAsset(invoice, assetMappings);
+    if (autoFixedAsset) {
+      fixedAssetCard = autoFixedAsset;
+      if (!markCategory) {
+        markCategory = 'fixed_asset';
+      }
+    }
+  }
+
   // Apply overrides with hardcoded priority: reimbursement > supplier > override
   for (const tier of overrideTier) {
     for (const [slot, val] of Object.entries(tier)) {
-      subjectOverrides[slot] = val;
+      // Don't override tax subject if dynamic tax logic has already set it
+      if (slot !== 'tax' || !subjectOverrides['tax']) {
+        subjectOverrides[slot] = val;
+      }
     }
   }
 
@@ -411,6 +449,96 @@ export function executeActions(context: EngineContext): ActionResult {
     reimburserName,
     partnerCreated,
   };
+}
+
+/**
+ * Get dynamic tax subject based on invoice tax rate
+ * Parent subject (2221.01) + auto-find/create child based on tax rate (e.g., 2221.01.13%)
+ */
+function getDynamicTaxSubject(invoice: Invoice): { code: string; name: string } | null {
+  if (!invoice.taxRate) return null;
+
+  // Base tax subject code (2221 for input tax, 2221.02 for output tax)
+  const baseCode = invoice.invoiceType === 'input' ? '2221.01' : '2221.02';
+  const baseName = invoice.invoiceType === 'input' ? '进项税额' : '销项税额';
+
+  // Create dynamic tax subject code with tax rate
+  const taxCode = `${baseCode}.${Math.round(invoice.taxRate * 100)}%`;
+  const taxName = `${baseName}(${invoice.taxRate * 100}%)`;
+
+  return {
+    code: taxCode,
+    name: taxName,
+  };
+}
+
+/**
+ * Get automatic fixed asset card based on amount threshold and asset mappings
+ * Default threshold: 5000 yuan
+ */
+function getAutomaticFixedAsset(invoice: Invoice, assetMappings: any[]): Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> | null {
+  // Default amount threshold for fixed asset classification
+  const FIXED_ASSET_THRESHOLD = 5000;
+
+  if (invoice.totalAmount < FIXED_ASSET_THRESHOLD) return null;
+
+  // Match asset category based on keywords
+  const assetCategory = matchAssetCategory(invoice, assetMappings);
+  if (!assetCategory) return null;
+
+  // Generate asset code
+  const assetCode = generateAssetCode([]);
+
+  // Build asset card
+  return {
+    assetCode,
+    assetName: invoice.goodsName || '未命名资产',
+    categoryName: assetCategory.assetCategory,
+    quantity: invoice.quantity ?? 1,
+    unit: invoice.unit || '台',
+    specification: invoice.specification || '',
+    originalValue: invoice.totalAmount,
+    salvageValue: Math.round(invoice.totalAmount * 0.05 * 100) / 100, // 5% residual rate
+    depreciableValue: invoice.totalAmount - (Math.round(invoice.totalAmount * 0.05 * 100) / 100),
+    accumulatedDepreciation: 0,
+    netValue: invoice.totalAmount,
+    depreciationMethod: assetCategory.depreciationMethod as DepreciationMethod || 'straight_line',
+    usefulLifeYears: assetCategory.depreciationYears || 5,
+    usefulLifeMonths: (assetCategory.depreciationYears || 5) * 12,
+    acquisitionDate: invoice.invoiceDate,
+    depreciationStartDate: undefined, // manual confirmation needed
+    status: 'active', // active but depreciationStartDate empty = de facto draft
+    assetSubjectCode: assetCategory.subjectCode || '1601',
+    depreciationSubjectCode: '1602', // Default accumulated depreciation subject
+    expenseSubjectCode: '6602', // Default expense subject
+    supplierName: invoice.sellerName,
+    invoiceNo: invoice.invoiceCode,
+  };
+}
+
+/**
+ * Match asset category based on invoice goods name and asset mappings
+ */
+function matchAssetCategory(invoice: Invoice, assetMappings: any[]): any | null {
+  const text = `${invoice.goodsName || ''} ${invoice.notes || ''}`.toLowerCase();
+
+  for (const mapping of assetMappings) {
+    if (mapping.keywords.some((kw: string) => text.includes(kw.toLowerCase()))) {
+      return mapping;
+    }
+  }
+
+  // Default asset category if no mapping found (for high-value items)
+  if (invoice.totalAmount >= 10000) {
+    return {
+      assetCategory: '其他固定资产',
+      depreciationYears: 5,
+      depreciationMethod: 'straight_line',
+      subjectCode: '1601',
+    };
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
