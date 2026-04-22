@@ -48,6 +48,8 @@ import {
   ArrowRight,
   CheckCircle,
   GripVertical,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { ExpenseListImportDialog } from './expense-list-import-dialog';
 import type {
@@ -230,10 +232,10 @@ function PurchaseInvoiceRules({ open }: { open: boolean }) {
     id: '',
     accountSetId: '',
     businessGroups: [
-      { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商' },
-      { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商' },
-      { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '2221.01.{{税率}}', creditSubject: '2241 其他应付款', partnerType: '报销人' },
-      { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商' },
+      { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100 },
+      { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90 },
+      { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '2221.01.{{税率}}', creditSubject: '2241 其他应付款', partnerType: '报销人', priority: 80 },
+      { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70 },
     ],
     keywordRules: [
       { id: '1', keywords: '电脑, 服务器', businessGroup: 'fixed_asset', threshold: 5000 },
@@ -442,6 +444,7 @@ function PurchaseInvoiceRules({ open }: { open: boolean }) {
       creditSubject: newGroupForm.creditSubject,
       partnerType: newGroupForm.partnerType,
       assetThreshold: newGroupForm.assetThreshold,
+      priority: 50, // 默认优先级
     };
 
     setConfig({
@@ -651,7 +654,7 @@ function PurchaseInvoiceRules({ open }: { open: boolean }) {
       <section>
         <h3 className="text-lg font-semibold mb-2">智能科目模板</h3>
         <div className="space-y-2">
-          {config?.businessGroups.map((group) => (
+          {config?.businessGroups.sort((a, b) => (b.priority || 0) - (a.priority || 0)).map((group) => (
             <div key={group.id} className="rounded-lg border bg-white p-4 hover:border-slate-300 transition-colors">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -669,11 +672,44 @@ function PurchaseInvoiceRules({ open }: { open: boolean }) {
                           自定义
                         </span>
                       )}
+                      <span className="ml-2 px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded border border-slate-200">
+                        P{group.priority || 0}
+                      </span>
                     </div>
                     <div className="text-xs text-slate-500">{group.partnerType}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => {
+                      setConfig({
+                        ...config,
+                        businessGroups: config.businessGroups.map(g =>
+                          g.id === group.id ? { ...g, priority: (g.priority || 0) + 10 } : g
+                        )
+                      });
+                    }}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => {
+                      setConfig({
+                        ...config,
+                        businessGroups: config.businessGroups.map(g =>
+                          g.id === group.id ? { ...g, priority: (g.priority || 0) - 10 } : g
+                        )
+                      });
+                    }}
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

@@ -1256,6 +1256,7 @@ export interface PurchaseInvoiceRuleConfig {
     creditSubject: string;
     partnerType: string;
     assetThreshold?: number;
+    priority?: number; // 优先级，数值越高优先级越高
   }[];
   keywordRules: {
     id: string;
