@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, X } from 'lucide-react';
-import { SubjectVariableInput } from './subject-variable-input';
+import { Badge } from '@/components/ui/badge';
 
 interface BusinessGroupDrawerProps {
   open: boolean;
@@ -20,6 +20,13 @@ interface BusinessGroupDrawerProps {
 
 // 预设的合作伙伴类型选项
 const PRESET_PARTNER_TYPES = ['供应商', '客户', '员工', '其他'];
+
+// 常用变量列表
+const COMMON_VARIABLES = [
+  { name: '税率', value: '{{税率}}', color: 'bg-blue-100 text-blue-700' },
+  { name: '供应商', value: '{{供应商}}', color: 'bg-green-100 text-green-700' },
+  { name: '商品类型', value: '{{商品类型}}', color: 'bg-purple-100 text-purple-700' },
+];
 
 export function BusinessGroupDrawer({
   open,
@@ -139,6 +146,89 @@ export function BusinessGroupDrawer({
     }));
   };
 
+  // 插入变量到税金科目
+  const insertVariable = (variable: string) => {
+    setFormData(prev => ({
+      ...prev,
+      taxSubject: prev.taxSubject + variable,
+    }));
+  };
+
+  // 渲染税金科目输入框的内容
+  const renderTaxSubjectInput = () => {
+    const parts = [];
+    const regex = /{{.*?}}/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(formData.taxSubject)) !== null) {
+      // 添加变量前的普通文本
+      if (match.index > lastIndex) {
+        parts.push(formData.taxSubject.slice(lastIndex, match.index));
+      }
+      // 添加变量作为 Badge
+      parts.push(
+        <Badge
+          key={match.index}
+          className="inline-block bg-blue-100 text-blue-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-200 mr-1 mb-1"
+          onClick={() => {
+            // 点击变量时的处理（如选中或删除）
+            setFormData(prev => ({
+              ...prev,
+              taxSubject: prev.taxSubject.replace(match[0], ''),
+            }));
+          }}
+        >
+          {match[0]}
+        </Badge>
+      );
+      lastIndex = match.index + match[0].length;
+    }
+    // 添加最后的普通文本
+    if (lastIndex < formData.taxSubject.length) {
+      parts.push(formData.taxSubject.slice(lastIndex));
+    }
+    return parts;
+  };
+
+  // 计算实时预览的凭证分录
+  const getPreviewEntries = () => {
+    const entries = [];
+
+    if (formData.debitSubject) {
+      entries.push({
+        subject: formData.debitSubject,
+        subjectName: formData.debitSubjectName || formData.debitSubject,
+        debit: 1000.00, // 示例金额
+        credit: 0,
+      });
+    }
+
+    if (formData.taxSubject) {
+      // 计算示例税额
+      const taxAmount = 130.00;
+      entries.push({
+        subject: formData.taxSubject,
+        subjectName: '税金科目',
+        debit: taxAmount,
+        credit: 0,
+      });
+    }
+
+    if (formData.creditSubject) {
+      // 计算贷方总金额
+      const totalDebit = entries.reduce((sum, entry) => sum + entry.debit, 0);
+      entries.push({
+        subject: formData.creditSubject,
+        subjectName: formData.creditSubjectName || formData.creditSubject,
+        debit: 0,
+        credit: totalDebit,
+      });
+    }
+
+    return entries;
+  };
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="sm:max-w-lg">
@@ -151,7 +241,7 @@ export function BusinessGroupDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="space-y-6 p-6 max-h-[70vh] overflow-y-auto">
+        <div className="space-y-8 p-6 max-h-[70vh] overflow-y-auto">
           {/* 基本信息 */}
           <section>
             <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
@@ -234,22 +324,42 @@ export function BusinessGroupDrawer({
                   className="h-8 text-sm mt-1"
                 />
               </div>
+
               <div>
                 <Label className="text-xs">税金科目</Label>
-                <SubjectVariableInput
-                  value={formData.taxSubject}
-                  onChange={(value) => setFormData(prev => ({ ...prev, taxSubject: value }))}
-                  placeholder="例如：2221.01.{{税率}}"
-                  className="text-sm"
-                />
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-xs text-slate-500">自动匹配税率</span>
-                  <Switch
-                    checked={formData.autoTax}
-                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, autoTax: checked }))}
+                <div className="relative mt-1">
+                  <Input
+                    value={formData.taxSubject}
+                    onChange={(e) => setFormData(prev => ({ ...prev, taxSubject: e.target.value }))}
+                    placeholder="例如：2221.01.{{税率}}"
+                    className="h-8 text-sm pr-10"
                   />
+                  <div className="absolute right-1 top-1/2 transform -translate-y-1/2">
+                    <Switch
+                      checked={formData.autoTax}
+                      onCheckedChange={(checked) => setFormData(prev => ({ ...prev, autoTax: checked }))}
+                      className="h-4 w-8"
+                    />
+                  </div>
+                </div>
+
+                {/* 常用变量选择器 */}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {COMMON_VARIABLES.map((variable) => (
+                    <Button
+                      key={variable.name}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className={`h-7 px-2 text-xs border-${variable.color.split(' ')[0].replace('bg-', '')} text-${variable.color.split(' ')[1].replace('text-', '')}`}
+                      onClick={() => insertVariable(variable.value)}
+                    >
+                      {variable.name}
+                    </Button>
+                  ))}
                 </div>
               </div>
+
               <div>
                 <Label className="text-xs" required>贷方科目</Label>
                 <Input
@@ -332,19 +442,21 @@ export function BusinessGroupDrawer({
           <section>
             <h4 className="font-medium text-sm mb-3">凭证预览</h4>
             <div className="rounded-lg border bg-slate-50 p-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <div className="text-xs text-slate-500 mb-1">借方</div>
-                  <div className="font-medium">{formData.debitSubject || '(未选择)'}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 mb-1">贷方</div>
-                  <div className="font-medium">{formData.creditSubject || '(未选择)'}</div>
-                </div>
-                <div className="col-span-2">
-                  <div className="text-xs text-slate-500 mb-1">税金科目</div>
-                  <div className="font-medium">{formData.taxSubject || '(未设置)'}</div>
-                </div>
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                {getPreviewEntries().map((entry, index) => (
+                  <div key={index} className="grid grid-cols-4 gap-2 items-center">
+                    <div className="col-span-1 text-right text-xs text-slate-500">
+                      {entry.debit > 0 ? '借' : '贷'}
+                    </div>
+                    <div className="col-span-2">
+                      <div className="font-medium">{entry.subject || '(未选择)'}</div>
+                      <div className="text-xs text-slate-500">{entry.subjectName}</div>
+                    </div>
+                    <div className="col-span-1 text-right font-medium">
+                      {entry.debit > 0 ? entry.debit.toFixed(2) : entry.credit.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
               </div>
               <div className="mt-3 text-xs text-slate-500">
                 * 预览显示将根据实际业务数据动态调整

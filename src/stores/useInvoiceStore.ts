@@ -573,6 +573,10 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       const now = new Date().toISOString();
       const partnerName = isInput ? invoice.sellerName : invoice.buyerName;
 
+      // 获取当前账套的往来核算方式
+      const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      const partnerTrackingMethod = currentAccountSet?.accounting?.partnerTrackingMethod || 'card';
+
       // 9. INSERT 凭证 — docNo 始终设为发票号码
       const docNo = invoice.invoiceCode;
       let stmt = db.prepare(
@@ -588,8 +592,50 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         const entry = tplEntries[i];
         const entryId = `${voucherId}-${i + 1}`;
         const direction = entry.debit > 0 ? 'debit' : 'credit';
-        const customerName = isInput ? '' : partnerName;
-        const supplierName = isInput ? partnerName : '';
+        let customerName = isInput ? '' : partnerName;
+        let supplierName = isInput ? partnerName : '';
+        let subjectCode = entry.subjectCode;
+        let subjectName = entry.subjectName;
+
+        // 根据往来核算方式调整科目和往来信息
+        if (partnerTrackingMethod === 'subject') {
+          // 科目方式：创建往来单位明细科目
+          const往来科目前缀 = isInput ? '2202' : '1122'; // 应付账款/应收账款
+          if (subjectCode.startsWith('2202') || subjectCode.startsWith('1122')) {
+            // 为往来科目创建明细科目
+            const往来单位编码 = partnerName.replace(/\s+/g, '').substring(0, 4);
+            subjectCode = `${往来科目前缀}.${往来单位编码}`;
+            subjectName = `${entry.subjectName}-${partnerName}`;
+
+            // 检查科目是否已存在，不存在则创建
+            const existingSubject = subjects.find(s => s.code === subjectCode);
+            if (!existingSubject) {
+              await useSubjectStore.getState().addSubject({
+                code: subjectCode,
+                name: subjectName,
+                parentId: subjects.find(s => s.code ===往来科目前缀)?.id || null,
+                level: subjectCode.length <= 3 ? 1 : subjectCode.length <= 4 ? 2 : 3,
+                direction: subjectCode.startsWith('1') ? 'debit' : 'credit', // 资产借方，负债贷方
+                enableDept: false,
+                enableProject: false,
+                enableForeign: false,
+                isCustomer: !isInput,
+                isSupplier: isInput,
+                isEmployee: false,
+                enableCashFlow: false,
+                disabled: false,
+                block: false,
+              } as any);
+            }
+
+            // 科目方式下，清空往来卡片信息
+            customerName = '';
+            supplierName = '';
+          }
+        } else {
+          // 往来卡片方式：保持原科目，只记录往来单位信息
+          // 已经在上面设置好了 customerName 和 supplierName
+        }
 
         // 跳过金额为 0 的分录
         if (entry.debit === 0 && entry.credit === 0) continue;
@@ -598,7 +644,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, date, accountSetId, createTime, updateTime)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, entry.subjectCode, entry.subjectName, direction,
+        stmt.run([entryId, voucherId, subjectCode, subjectName, direction,
           entry.debit, entry.credit, entry.summary,
           customerName, supplierName, voucherDate, accountSetId, now, now]);
         stmt.free();

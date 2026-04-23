@@ -685,42 +685,51 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     try {
       const service = getCurrentService();
       const { usePartnerStore } = await import('@/stores/usePartnerStore');
+      const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
+      const { useSubjectStore } = await import('@/stores/useSubjectStore');
 
-      // 1. 自动创建不存在的往来单位
-      const partnersToCreate = editedEntries.filter(e => e.willCreatePartner && e.counterpartyName);
+      // 获取当前账套的往来核算方式
+      const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      const partnerTrackingMethod = currentAccountSet?.accounting?.partnerTrackingMethod || 'card';
+
+      // 1. 根据往来核算方式处理往来单位
       const createdPartnerNames = new Set<string>();
+      const partnersToCreate = editedEntries.filter(e => e.willCreatePartner && e.counterpartyName);
 
-      for (const entry of partnersToCreate) {
-        if (!entry.counterpartyName || createdPartnerNames.has(entry.counterpartyName)) continue;
+      if (partnerTrackingMethod === 'card') {
+        // 往来卡片方式：创建往来单位卡片
+        for (const entry of partnersToCreate) {
+          if (!entry.counterpartyName || createdPartnerNames.has(entry.counterpartyName)) continue;
 
-        try {
-          const isCustomer = !entry.isDebit; // 贷方(收款)=客户(应收账款)
-          const isSupplier = entry.isDebit;  // 借方(付款)=供应商(应付账款)
+          try {
+            const isCustomer = !entry.isDebit; // 贷方(收款)=客户(应收账款)
+            const isSupplier = entry.isDebit;  // 借方(付款)=供应商(应付账款)
 
-          // 生成编码：客户C001/C002..., 供应商V001/V002..., 两者都是B001...
-          const prefix = isCustomer && isSupplier ? 'B' : isCustomer ? 'C' : 'V';
-          const existingCodes = usePartnerStore.getState().partners.map(p => p.code);
-          let seq = 1;
-          while (existingCodes.includes(`${prefix}${String(seq).padStart(3, '0')}`)) {
-            seq++;
+            // 生成编码：客户C001/C002..., 供应商V001/V002..., 两者都是B001...
+            const prefix = isCustomer && isSupplier ? 'B' : isCustomer ? 'C' : 'V';
+            const existingCodes = usePartnerStore.getState().partners.map(p => p.code);
+            let seq = 1;
+            while (existingCodes.includes(`${prefix}${String(seq).padStart(3, '0')}`)) {
+              seq++;
+            }
+            const code = `${prefix}${String(seq).padStart(3, '0')}`;
+
+            await usePartnerStore.getState().addPartner({
+              code,
+              name: entry.counterpartyName,
+              isCustomer,
+              isSupplier,
+              isEmployee: false,
+              defaultSubjectCode: isCustomer ? '1122' : '2202',
+              defaultSubjectName: isCustomer ? '应收账款' : '应付账款',
+              bankAccount: entry.counterpartyAccount || '',
+              frozen: false,
+            });
+
+            createdPartnerNames.add(entry.counterpartyName);
+          } catch (error) {
+            console.error('自动创建往来单位失败:', entry.counterpartyName, error);
           }
-          const code = `${prefix}${String(seq).padStart(3, '0')}`;
-
-          await usePartnerStore.getState().addPartner({
-            code,
-            name: entry.counterpartyName,
-            isCustomer,
-            isSupplier,
-            isEmployee: false,
-            defaultSubjectCode: isCustomer ? '1122' : '2202',
-            defaultSubjectName: isCustomer ? '应收账款' : '应付账款',
-            bankAccount: entry.counterpartyAccount || '',
-            frozen: false,
-          });
-
-          createdPartnerNames.add(entry.counterpartyName);
-        } catch (error) {
-          console.error('自动创建往来单位失败:', entry.counterpartyName, error);
         }
       }
 
@@ -764,18 +773,63 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           // isDebit=false: 银行流水贷方=收款(钱流入)
           //   → 银行存款增加(借方), 对方科目减少(贷方,如应收账款)
 
+          let counterpartSubjectCode = previewEntry.counterpartSubjectCode;
+          let counterpartSubjectName = previewEntry.counterpartSubjectName;
+          let customerName = previewEntry.counterpartyName;
+          let supplierName = previewEntry.counterpartyName;
+
+          // 根据往来核算方式处理科目和往来信息
+          if (partnerTrackingMethod === 'subject') {
+            // 科目方式：为往来单位创建明细科目
+            const往来科目前缀 = isDebit ? '2202' : '1122'; // 应付账款/应收账款
+            if (counterpartSubjectCode.startsWith('2202') || counterpartSubjectCode.startsWith('1122')) {
+              // 为往来科目创建明细科目
+              const往来单位编码 = previewEntry.counterpartyName?.replace(/\s+/g, '').substring(0, 4) || '0001';
+              counterpartSubjectCode = `${往来科目前缀}.${往来单位编码}`;
+              counterpartSubjectName = `${previewEntry.counterpartSubjectName}-${previewEntry.counterpartyName}`;
+
+              // 检查科目是否已存在，不存在则创建
+              const existingSubject = useSubjectStore.getState().subjects.find(s => s.code === counterpartSubjectCode);
+              if (!existingSubject) {
+                await useSubjectStore.getState().addSubject({
+                  code: counterpartSubjectCode,
+                  name: counterpartSubjectName,
+                  parentId: useSubjectStore.getState().subjects.find(s => s.code ===往来科目前缀)?.id || null,
+                  level: counterpartSubjectCode.length <= 3 ? 1 : counterpartSubjectCode.length <= 4 ? 2 : 3,
+                  direction: counterpartSubjectCode.startsWith('1') ? 'debit' : 'credit', // 资产借方，负债贷方
+                  enableDept: false,
+                  enableProject: false,
+                  enableForeign: false,
+                  isCustomer: !isDebit,
+                  isSupplier: isDebit,
+                  isEmployee: false,
+                  enableCashFlow: false,
+                  disabled: false,
+                  block: false,
+                } as any);
+              }
+
+              // 科目方式下，清空往来卡片信息
+              customerName = '';
+              supplierName = '';
+            }
+          } else {
+            // 往来卡片方式：保持原科目，只记录往来单位信息
+            // 已经在上面设置好了 customerName 和 supplierName
+          }
+
           // 交易分录（对方科目）
           entries.push({
             id: `entry_${voucherId}_0`,
             voucherId,
             date: postingDate,
             summary: previewEntry.summary,
-            subjectCode: previewEntry.counterpartSubjectCode,
-            subjectName: previewEntry.counterpartSubjectName,
+            subjectCode: counterpartSubjectCode,
+            subjectName: counterpartSubjectName,
             debit: isDebit ? amount : 0,
             credit: isDebit ? 0 : amount,
-            customerName: previewEntry.counterpartyName,
-            supplierName: previewEntry.counterpartyName,
+            customerName,
+            supplierName,
             auxiliary: {},
             docNo: `${tx.voucherNo || ''}-${tx.transactionSerialNo || ''}`,
           });

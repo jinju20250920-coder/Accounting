@@ -47,6 +47,11 @@ export interface AccountSet {
   dbLastModified?: number;       // 文件最后修改时间
   dbStorageType?: 'fsa' | 'opfs' | 'local';  // 存储类型
   dbHandleId?: string;           // 文件句柄ID
+
+  // 会计核算设置
+  accounting?: {
+    partnerTrackingMethod?: 'subject' | 'card'; // 往来核算方式：科目方式 or 往来卡片方式
+  };
 }
 
 // 授权信息类型
@@ -225,7 +230,10 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastModifiedDate: '2026-03-10',
           isInitialized: true,
           lastVoucherNo: 0,  // 最后一个凭证号（序号部分）
-          lastVoucherFullNo: '记-202603-000'  // 完整的最后一个凭证号
+          lastVoucherFullNo: '记-202603-000',  // 完整的最后一个凭证号
+          accounting: {
+            partnerTrackingMethod: 'card'  // 默认使用往来卡片方式
+          }
         }
       ],
       currentAccountSetId: 'set_001',
@@ -363,7 +371,10 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastModifiedDate: now,
           isInitialized: true,
           lastVoucherNo: 0, // 最后一个凭证号（序号部分）
-          lastVoucherFullNo: `记-${yearMonth}-000` // 完整的最后一个凭证号
+          lastVoucherFullNo: `记-${yearMonth}-000`, // 完整的最后一个凭证号
+          accounting: {
+            partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card' // 默认使用往来卡片方式
+          }
         };
 
         // 获取当前套餐的功能配置

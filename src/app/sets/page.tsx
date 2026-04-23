@@ -49,6 +49,9 @@ interface AccountSetFormData {
   lastVoucherNo: number;
   currentPeriod: string;
   status: 'active' | 'closed' | 'archived' | 'trial';
+  accounting: {
+    partnerTrackingMethod: 'subject' | 'card';
+  };
 }
 
 export default function SetsPage() {
@@ -86,7 +89,10 @@ export default function SetsPage() {
     enableDate: '',
     lastVoucherNo: 0,
     currentPeriod: '',
-    status: 'active'
+    status: 'active',
+    accounting: {
+      partnerTrackingMethod: 'card' // 默认使用往来卡片方式
+    }
   });
 
   // 加载状态
@@ -128,7 +134,10 @@ export default function SetsPage() {
       enableDate: '',
       lastVoucherNo: 0,
       currentPeriod: '',
-      status: 'active'
+      status: 'active',
+      accounting: {
+        partnerTrackingMethod: 'card' // 默认使用往来卡片方式
+      }
     });
   };
 
@@ -146,7 +155,10 @@ export default function SetsPage() {
       enableDate: accountSet.enableDate,
       lastVoucherNo: accountSet.lastVoucherNo || 0,
       currentPeriod: accountSet.currentPeriod || '',
-      status: accountSet.status || 'active'
+      status: accountSet.status || 'active',
+      accounting: {
+        partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card'
+      }
     });
   };
 
@@ -833,6 +845,50 @@ export default function SetsPage() {
                 </select>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label required>往来核算方式</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label
+                    className="flex items-center gap-2"
+                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
+                  >
+                    <input
+                      type="radio"
+                      name="partnerTrackingMethod"
+                      value="card"
+                      checked={formData.accounting.partnerTrackingMethod === 'card'}
+                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    往来卡片方式
+                  </Label>
+                  <p className="text-xs text-slate-500 ml-6">
+                    使用辅助核算功能，每个往来单位作为一张独立的往来卡片，科目结构更简洁（推荐）
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label
+                    className="flex items-center gap-2"
+                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
+                  >
+                    <input
+                      type="radio"
+                      name="partnerTrackingMethod"
+                      value="subject"
+                      checked={formData.accounting.partnerTrackingMethod === 'subject'}
+                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    科目方式
+                  </Label>
+                  <p className="text-xs text-slate-500 ml-6">
+                    每个往来单位自动创建对应的明细科目，适合传统手工记账习惯
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
@@ -892,6 +948,50 @@ export default function SetsPage() {
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label required>往来核算方式</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label
+                    className="flex items-center gap-2"
+                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
+                  >
+                    <input
+                      type="radio"
+                      name="editPartnerTrackingMethod"
+                      value="card"
+                      checked={formData.accounting.partnerTrackingMethod === 'card'}
+                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    往来卡片方式
+                  </Label>
+                  <p className="text-xs text-slate-500 ml-6">
+                    使用辅助核算功能，每个往来单位作为一张独立的往来卡片，科目结构更简洁（推荐）
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label
+                    className="flex items-center gap-2"
+                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
+                  >
+                    <input
+                      type="radio"
+                      name="editPartnerTrackingMethod"
+                      value="subject"
+                      checked={formData.accounting.partnerTrackingMethod === 'subject'}
+                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    科目方式
+                  </Label>
+                  <p className="text-xs text-slate-500 ml-6">
+                    每个往来单位自动创建对应的明细科目，适合传统手工记账习惯
+                  </p>
+                </div>
               </div>
             </div>
           </div>
