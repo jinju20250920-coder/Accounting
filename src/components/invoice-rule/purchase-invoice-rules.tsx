@@ -463,121 +463,139 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                 </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {config.businessGroups
-                .sort((a, b) => (b.priority || 0) - (a.priority || 0))
-                .map((group) => (
-                  <div key={group.id} className="rounded-lg border bg-white p-4 hover:border-slate-300 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <GripVertical className="h-5 w-5 text-slate-300" />
-                        <div>
-                          <div className="font-medium text-sm">
-                            {group.name}
-                            {['inventory', 'material', 'reimbursement', 'fixed_asset'].includes(group.id) && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-purple-50 text-purple-600 border-purple-200">
-                                系统预设
+            <CardContent>
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          业务组名称
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          业务组描述
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          选择类型
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          借方科目
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          税金科目
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          贷方科目
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          操作
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-slate-200">
+                      {config.businessGroups
+                        .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+                        .map((group) => (
+                          <tr key={group.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <GripVertical className="h-5 w-5 text-slate-300" />
+                                <div className="font-medium text-sm">
+                                  {group.name}
+                                  {['inventory', 'material', 'reimbursement', 'fixed_asset'].includes(group.id) && (
+                                    <Badge variant="outline" className="ml-2 text-xs bg-purple-50 text-purple-600 border-purple-200">
+                                      系统预设
+                                    </Badge>
+                                  )}
+                                  {group.id.startsWith('custom_') && (
+                                    <Badge variant="outline" className="ml-2 text-xs bg-blue-50 text-blue-600 border-blue-200">
+                                      自定义
+                                    </Badge>
+                                  )}
+                                  <Badge variant="secondary" className="ml-2 text-xs">
+                                    P{group.priority || 0}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-xs text-slate-500">
+                                {group.description || '-'}{' '}
+                                {group.keywords && group.keywords.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {group.keywords.slice(0, 3).map((keyword, index) => (
+                                      <span
+                                        key={index}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded"
+                                      >
+                                        {keyword}
+                                      </span>
+                                    ))}
+                                    {group.keywords.length > 3 && (
+                                      <span className="text-xs text-slate-500">+{group.keywords.length - 3}个关键词</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant="outline" className="text-xs">
+                                {group.partnerType}
                               </Badge>
-                            )}
-                            {group.id.startsWith('custom_') && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-blue-50 text-blue-600 border-blue-200">
-                                自定义
-                              </Badge>
-                            )}
-                            <Badge variant="secondary" className="ml-2 text-xs">
-                              P{group.priority || 0}
-                            </Badge>
-                          </div>
-                          <div className="text-xs text-slate-500">{group.partnerType}</div>
-                          {group.description && (
-                            <div className="text-xs text-slate-400 mt-1">{group.description}</div>
-                          )}
-                          {group.keywords && group.keywords.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {group.keywords.slice(0, 3).map((keyword, index) => (
-                                <span
-                                  key={index}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded"
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-sm">{group.debitSubject}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-sm">{group.taxSubject}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-sm">{group.creditSubject}</div>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => updateGroupPriority(group.id, 10)}
                                 >
-                                  {keyword}
-                                </span>
-                              ))}
-                              {group.keywords.length > 3 && (
-                                <span className="text-xs text-slate-500">+{group.keywords.length - 3}个关键词</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => updateGroupPriority(group.id, 10)}
-                        >
-                          <ArrowUp className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => updateGroupPriority(group.id, -10)}
-                        >
-                          <ArrowDown className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleEditBusinessGroup(group)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        {!['inventory', 'material', 'reimbursement', 'fixed_asset'].includes(group.id) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
-                            onClick={() => handleDeleteBusinessGroup(group.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 科目配置 */}
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">借方科目</div>
-                        <div className="font-medium text-sm">{group.debitSubject}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">贷方科目</div>
-                        <div className="font-medium text-sm">{group.creditSubject}</div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="text-xs text-slate-500 mb-1">税金科目</div>
-                        <div className="font-medium text-sm">{group.taxSubject}</div>
-                      </div>
-                    </div>
-
-                    {/* 固定资产配置 */}
-                    {group.partnerType === '供应商' && group.assetThreshold !== undefined && (
-                      <div className="mt-3 p-3 bg-orange-50 rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <div className="text-xs text-orange-700">
-                            固定资产阈值: ¥{group.assetThreshold}
-                          </div>
-                          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                            修改
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                                  <ArrowUp className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => updateGroupPriority(group.id, -10)}
+                                >
+                                  <ArrowDown className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => handleEditBusinessGroup(group)}
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                                {!['inventory', 'material', 'reimbursement', 'fixed_asset'].includes(group.id) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
+                                    onClick={() => handleDeleteBusinessGroup(group.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
