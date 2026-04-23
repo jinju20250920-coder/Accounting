@@ -154,43 +154,6 @@ export function BusinessGroupDrawer({
     }));
   };
 
-  // 渲染税金科目输入框的内容
-  const renderTaxSubjectInput = () => {
-    const parts = [];
-    const regex = /{{.*?}}/g;
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(formData.taxSubject)) !== null) {
-      // 添加变量前的普通文本
-      if (match.index > lastIndex) {
-        parts.push(formData.taxSubject.slice(lastIndex, match.index));
-      }
-      // 添加变量作为 Badge
-      parts.push(
-        <Badge
-          key={match.index}
-          className="inline-block bg-blue-100 text-blue-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-200 mr-1 mb-1"
-          onClick={() => {
-            // 点击变量时的处理（如选中或删除）
-            setFormData(prev => ({
-              ...prev,
-              taxSubject: prev.taxSubject.replace(match[0], ''),
-            }));
-          }}
-        >
-          {match[0]}
-        </Badge>
-      );
-      lastIndex = match.index + match[0].length;
-    }
-    // 添加最后的普通文本
-    if (lastIndex < formData.taxSubject.length) {
-      parts.push(formData.taxSubject.slice(lastIndex));
-    }
-    return parts;
-  };
-
   // 计算实时预览的凭证分录
   const getPreviewEntries = () => {
     const entries = [];
@@ -231,7 +194,7 @@ export function BusinessGroupDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="sm:max-w-lg">
+      <DrawerContent className="sm:max-w-2xl">
         <DrawerHeader>
           <DrawerTitle>
             {defaultValues ? '编辑业务组' : '自定义业务组'}
@@ -241,80 +204,65 @@ export function BusinessGroupDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="space-y-8 p-6 max-h-[70vh] overflow-y-auto">
-          {/* 基本信息 */}
-          <section>
-            <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
-              基本信息
-              {formData.isPreset && (
-                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">系统预设</span>
-              )}
-            </h4>
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs" required>业务组名称</Label>
+        <div className="p-6 max-h-[70vh] overflow-y-auto">
+          {/* 双栏栅格布局 */}
+          <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+            {/* 第一行：业务组名称 + 合作伙伴类型 */}
+            <div>
+              <Label className="text-xs" required>业务组名称</Label>
+              <Input
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="例如：办公用品采购"
+                className="h-8 text-sm mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">合作伙伴类型</Label>
+              <Select
+                value={formData.partnerType}
+                onValueChange={handlePartnerTypeChange}
+              >
+                <SelectTrigger className="h-8 w-full mt-1">
+                  <SelectValue placeholder="选择合作伙伴类型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRESET_PARTNER_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 自定义合作伙伴类型 */}
+            {showCustomPartnerType && (
+              <div className="col-span-2">
+                <Label className="text-xs" required>自定义类型名称</Label>
                 <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="例如：办公用品采购、IT设备租赁、差旅费报销等"
+                  value={formData.customPartnerType}
+                  onChange={(e) => setFormData(prev => ({ ...prev, customPartnerType: e.target.value }))}
+                  placeholder="例如：服务商、承包商、代理商等"
                   className="h-8 text-sm mt-1"
                 />
               </div>
-              <div>
-                <Label className="text-xs">业务组描述</Label>
-                <Textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="描述这个业务组的用途，例如：用于公司日常办公用品采购的发票处理"
-                  className="h-20 text-sm mt-1 resize-none"
-                />
-              </div>
-            </div>
-          </section>
+            )}
 
-          {/* 合作伙伴类型 */}
-          <section>
-            <h4 className="font-medium text-sm mb-3">合作伙伴类型</h4>
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs">选择类型</Label>
-                <Select
-                  value={formData.partnerType}
-                  onValueChange={handlePartnerTypeChange}
-                >
-                  <SelectTrigger className="h-8 w-full mt-1">
-                    <SelectValue placeholder="选择合作伙伴类型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PRESET_PARTNER_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {showCustomPartnerType && (
-                <div>
-                  <Label className="text-xs" required>自定义类型名称</Label>
-                  <Input
-                    value={formData.customPartnerType}
-                    onChange={(e) => setFormData(prev => ({ ...prev, customPartnerType: e.target.value }))}
-                    placeholder="例如：服务商、承包商、代理商等"
-                    className="h-8 text-sm mt-1"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    输入自定义的合作伙伴类型名称
-                  </p>
-                </div>
-              )}
+            {/* 第二行：业务组描述（跨两栏） */}
+            <div className="col-span-2">
+              <Label className="text-xs">业务组描述</Label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="描述这个业务组的用途，例如：用于公司日常办公用品采购的发票处理"
+                className="h-16 text-sm mt-1 resize-none"
+              />
             </div>
-          </section>
 
-          {/* 会计科目模板 */}
-          <section>
-            <h4 className="font-medium text-sm mb-3">会计科目模板</h4>
-            <div className="space-y-3">
+            {/* 第三、四行：核心科目逻辑 */}
+            <div className="space-y-4">
+              {/* 借方科目 */}
               <div>
                 <Label className="text-xs" required>借方科目</Label>
                 <Input
@@ -325,7 +273,8 @@ export function BusinessGroupDrawer({
                 />
               </div>
 
-              <div>
+              {/* 税金科目（紧接借方下方） */}
+              <div className="border-l-2 border-blue-200 pl-4 -ml-1">
                 <Label className="text-xs">税金科目</Label>
                 <div className="relative mt-1">
                   <Input
@@ -342,7 +291,6 @@ export function BusinessGroupDrawer({
                     />
                   </div>
                 </div>
-
                 {/* 常用变量选择器 */}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {COMMON_VARIABLES.map((variable) => (
@@ -351,7 +299,7 @@ export function BusinessGroupDrawer({
                       type="button"
                       size="sm"
                       variant="outline"
-                      className={`h-7 px-2 text-xs border-${variable.color.split(' ')[0].replace('bg-', '')} text-${variable.color.split(' ')[1].replace('text-', '')}`}
+                      className="h-6 px-2 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
                       onClick={() => insertVariable(variable.value)}
                     >
                       {variable.name}
@@ -360,44 +308,9 @@ export function BusinessGroupDrawer({
                 </div>
               </div>
 
-              <div>
-                <Label className="text-xs" required>贷方科目</Label>
-                <Input
-                  value={formData.creditSubject}
-                  onChange={(e) => setFormData(prev => ({ ...prev, creditSubject: e.target.value }))}
-                  placeholder="例如：2202 应付账款"
-                  className="h-8 text-sm mt-1"
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* 特殊设置 */}
-          <section>
-            <h4 className="font-medium text-sm mb-3">特殊设置</h4>
-            <div className="space-y-3">
-              {(showCustomPartnerType ? formData.customPartnerType : formData.partnerType) === '供应商' && (
-                <div>
-                  <Label className="text-xs">固定资产阈值（元）</Label>
-                  <Input
-                    type="number"
-                    value={formData.assetThreshold}
-                    onChange={(e) => setFormData(prev => ({ ...prev, assetThreshold: Number(e.target.value) }))}
-                    placeholder="5000"
-                    className="h-8 text-sm mt-1"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    超过此金额的采购自动识别为固定资产
-                  </p>
-                </div>
-              )}
-
               {/* 关键词关联 */}
-              <div>
+              <div className="pt-2">
                 <Label className="text-xs">关联关键词</Label>
-                <p className="text-xs text-slate-500 mb-2">
-                  添加与该业务组相关的关键词，用于发票智能匹配
-                </p>
                 <div className="flex gap-2 mt-1">
                   <Input
                     value={formData.keywordInput}
@@ -436,10 +349,48 @@ export function BusinessGroupDrawer({
                 )}
               </div>
             </div>
-          </section>
 
-          {/* 凭证预览 */}
-          <section>
+            {/* 右侧：贷方科目 */}
+            <div className="space-y-4">
+              <div>
+                <Label className="text-xs" required>贷方科目</Label>
+                <Input
+                  value={formData.creditSubject}
+                  onChange={(e) => setFormData(prev => ({ ...prev, creditSubject: e.target.value }))}
+                  placeholder="例如：2202 应付账款"
+                  className="h-8 text-sm mt-1"
+                />
+              </div>
+
+              {/* 固定资产阈值（仅当供应商类型时显示） */}
+              {(showCustomPartnerType ? formData.customPartnerType : formData.partnerType) === '供应商' && (
+                <div>
+                  <Label className="text-xs">固定资产阈值（元）</Label>
+                  <Input
+                    type="number"
+                    value={formData.assetThreshold}
+                    onChange={(e) => setFormData(prev => ({ ...prev, assetThreshold: Number(e.target.value) }))}
+                    placeholder="5000"
+                    className="h-8 text-sm mt-1"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    超过此金额的采购自动识别为固定资产
+                  </p>
+                </div>
+              )}
+
+              {/* 系统预设标识 */}
+              {formData.isPreset && (
+                <div className="p-3 bg-purple-50 rounded-lg">
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">系统预设</span>
+                  <p className="text-xs text-purple-600 mt-2">此业务组为系统预设，建议保留以获得最佳匹配效果</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 凭证预览（底部全宽） */}
+          <div className="mt-8">
             <h4 className="font-medium text-sm mb-3">凭证预览</h4>
             <div className="rounded-lg border bg-slate-50 p-4">
               <div className="grid grid-cols-1 gap-3 text-sm">
@@ -462,7 +413,7 @@ export function BusinessGroupDrawer({
                 * 预览显示将根据实际业务数据动态调整
               </div>
             </div>
-          </section>
+          </div>
         </div>
 
         <DrawerFooter>
