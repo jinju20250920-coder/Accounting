@@ -1111,34 +1111,38 @@ export default function InputInvoicePage() {
       showToast('error', '操作失败');
     }
   };
-  const stats = {
-    total: filteredInvoices.length,
-    totalAmount: filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0),
-    amount: filteredInvoices.reduce((sum, inv) => sum + inv.amount, 0),
-    taxAmount: filteredInvoices.reduce((sum, inv) => sum + (inv.taxAmount || 0), 0),
-    // 已入账：有voucherId
-    voucherCount: filteredInvoices.filter(inv => !!inv.voucherId).length,
-    voucherAmount: filteredInvoices
-      .filter(inv => !!inv.voucherId)
-      .reduce((sum, inv) => sum + inv.totalAmount, 0),
-    // 待生成凭证：非暂不入账 且 无voucherId
-    pendingCount: filteredInvoices.filter(inv => inv.holdStatus !== 'on_hold' && !inv.voucherId).length,
-    pendingAmount: filteredInvoices
-      .filter(inv => inv.holdStatus !== 'on_hold' && !inv.voucherId)
-      .reduce((sum, inv) => sum + inv.totalAmount, 0),
-    // 暂不入账
-    onHoldCount: filteredInvoices.filter(inv => inv.holdStatus === 'on_hold').length,
-    onHoldAmount: filteredInvoices
-      .filter(inv => inv.holdStatus === 'on_hold')
-      .reduce((sum, inv) => sum + inv.totalAmount, 0),
-    // 本月合计
-    thisMonthCount: invoices.filter(inv => {
-      if (!inv.invoiceDate) return false;
-      const now = new Date();
-      const invDate = new Date(inv.invoiceDate);
-      return invDate.getFullYear() === now.getFullYear() && invDate.getMonth() === now.getMonth();
-    }).length,
+  // 详细统计数据
+  const getInvoiceStats = (invoiceList: Invoice[]) => {
+    const count = invoiceList.length;
+    const amount = invoiceList.reduce((sum, inv) => sum + inv.amount, 0);
+    const taxAmount = invoiceList.reduce((sum, inv) => sum + (inv.taxAmount || 0), 0);
+    const totalAmount = invoiceList.reduce((sum, inv) => sum + inv.totalAmount, 0);
+    return { count, amount, taxAmount, totalAmount };
   };
+
+  // 已入账统计
+  const voucheredInvoices = filteredInvoices.filter(inv => !!inv.voucherId);
+  const voucheredStats = getInvoiceStats(voucheredInvoices);
+
+  // 待生成凭证统计
+  const pendingInvoices = filteredInvoices.filter(inv => inv.holdStatus !== 'on_hold' && !inv.voucherId);
+  const pendingStats = getInvoiceStats(pendingInvoices);
+
+  // 暂不入账统计
+  const onHoldInvoices = filteredInvoices.filter(inv => inv.holdStatus === 'on_hold');
+  const onHoldStats = getInvoiceStats(onHoldInvoices);
+
+  // 本月合计统计（基于全部发票）
+  const thisMonthInvoices = invoices.filter(inv => {
+    if (!inv.invoiceDate) return false;
+    const now = new Date();
+    const invDate = new Date(inv.invoiceDate);
+    return invDate.getFullYear() === now.getFullYear() && invDate.getMonth() === now.getMonth();
+  });
+  const thisMonthStats = getInvoiceStats(thisMonthInvoices);
+
+  // 全部分类统计
+  const filteredStats = getInvoiceStats(filteredInvoices);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -1191,10 +1195,23 @@ export default function InputInvoicePage() {
               <div className="p-2 rounded-lg bg-green-100">
                 <CheckCircle className="h-5 w-5 text-green-600" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-500">已入账</p>
-                <p className="text-xl font-bold text-green-600">{stats.voucherCount}</p>
-                <p className="text-xs text-slate-400">¥{stats.voucherAmount.toFixed(2)}</p>
+                <p className="text-xl font-bold text-green-600">{voucheredStats.count} 条</p>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                  <div>
+                    <p className="text-slate-400">不含税</p>
+                    <p className="text-slate-700 font-medium">¥{voucheredStats.amount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">税额</p>
+                    <p className="text-slate-700 font-medium">¥{voucheredStats.taxAmount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">含税</p>
+                    <p className="text-slate-700 font-medium">¥{voucheredStats.totalAmount.toFixed(2)}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -1205,10 +1222,23 @@ export default function InputInvoicePage() {
               <div className="p-2 rounded-lg bg-blue-100">
                 <Clock className="h-5 w-5 text-blue-600" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-500">待生成凭证</p>
-                <p className="text-xl font-bold text-blue-600">{stats.pendingCount}</p>
-                <p className="text-xs text-slate-400">¥{stats.pendingAmount.toFixed(2)}</p>
+                <p className="text-xl font-bold text-blue-600">{pendingStats.count} 条</p>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                  <div>
+                    <p className="text-slate-400">不含税</p>
+                    <p className="text-slate-700 font-medium">¥{pendingStats.amount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">税额</p>
+                    <p className="text-slate-700 font-medium">¥{pendingStats.taxAmount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">含税</p>
+                    <p className="text-slate-700 font-medium">¥{pendingStats.totalAmount.toFixed(2)}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -1219,10 +1249,23 @@ export default function InputInvoicePage() {
               <div className="p-2 rounded-lg bg-orange-100">
                 <PauseCircle className="h-5 w-5 text-orange-600" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-500">暂不入账</p>
-                <p className="text-xl font-bold text-orange-600">{stats.onHoldCount}</p>
-                <p className="text-xs text-slate-400">¥{stats.onHoldAmount.toFixed(2)}</p>
+                <p className="text-xl font-bold text-orange-600">{onHoldStats.count} 条</p>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                  <div>
+                    <p className="text-slate-400">不含税</p>
+                    <p className="text-slate-700 font-medium">¥{onHoldStats.amount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">税额</p>
+                    <p className="text-slate-700 font-medium">¥{onHoldStats.taxAmount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">含税</p>
+                    <p className="text-slate-700 font-medium">¥{onHoldStats.totalAmount.toFixed(2)}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -1233,10 +1276,24 @@ export default function InputInvoicePage() {
               <div className="p-2 rounded-lg bg-slate-100">
                 <FileText className="h-5 w-5 text-slate-600" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-500">本月合计</p>
-                <p className="text-xl font-bold text-slate-700">{stats.thisMonthCount}</p>
-                <p className="text-xs text-slate-400">共 {stats.total} 条筛选结果</p>
+                <p className="text-xl font-bold text-slate-700">{thisMonthStats.count} 条</p>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                  <div>
+                    <p className="text-slate-400">不含税</p>
+                    <p className="text-slate-700 font-medium">¥{thisMonthStats.amount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">税额</p>
+                    <p className="text-slate-700 font-medium">¥{thisMonthStats.taxAmount.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">含税</p>
+                    <p className="text-slate-700 font-medium">¥{thisMonthStats.totalAmount.toFixed(2)}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">共 {filteredStats.count} 条筛选结果</p>
               </div>
             </div>
           </CardContent>
@@ -1318,10 +1375,10 @@ export default function InputInvoicePage() {
         }
       }} className="flex flex-col">
         <TabsList>
-          <TabsTrigger value="all" className="flex-1">全部({stats.total})</TabsTrigger>
-          <TabsTrigger value="pending" className="flex-1">待生成({stats.pendingCount})</TabsTrigger>
-          <TabsTrigger value="vouchered" className="flex-1">已入账({stats.voucherCount})</TabsTrigger>
-          <TabsTrigger value="onhold" className="flex-1">暂不入账({stats.onHoldCount})</TabsTrigger>
+          <TabsTrigger value="all" className="flex-1">全部({filteredStats.count})</TabsTrigger>
+          <TabsTrigger value="pending" className="flex-1">待生成({pendingStats.count})</TabsTrigger>
+          <TabsTrigger value="vouchered" className="flex-1">已入账({voucheredStats.count})</TabsTrigger>
+          <TabsTrigger value="onhold" className="flex-1">暂不入账({onHoldStats.count})</TabsTrigger>
           <TabsTrigger value="expenses" className="flex-1">费用清单</TabsTrigger>
         </TabsList>
 
@@ -1464,13 +1521,13 @@ export default function InputInvoicePage() {
                             {selectedInvoices.length > 0 ? '已选合计' : '全部合计'}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            ¥{(selectedInvoices.length > 0 ? selectedStats.amount : stats.amount).toFixed(2)}
+                            ¥{(selectedInvoices.length > 0 ? selectedStats.amount : filteredStats.amount).toFixed(2)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            ¥{(selectedInvoices.length > 0 ? selectedStats.taxAmount : stats.taxAmount).toFixed(2)}
+                            ¥{(selectedInvoices.length > 0 ? selectedStats.taxAmount : filteredStats.taxAmount).toFixed(2)}
                           </td>
                           <td className="px-4 py-3 text-right font-bold">
-                            ¥{(selectedInvoices.length > 0 ? selectedStats.totalAmount : stats.totalAmount).toFixed(2)}
+                            ¥{(selectedInvoices.length > 0 ? selectedStats.totalAmount : filteredStats.totalAmount).toFixed(2)}
                           </td>
                           <td colSpan={3}></td>
                         </tr>
