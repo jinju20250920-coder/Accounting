@@ -22,6 +22,8 @@ export const metadata: Metadata = {
   description: "现代化的Web会计凭证录入系统",
 };
 
+import { CurrentPeriodWrapper } from "@/components/layout/current-period-wrapper";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -38,8 +40,11 @@ export default function RootLayout({
               <DatabaseSyncWrapper />
               <div className="flex h-screen bg-slate-50">
                 <Sidebar />
-                <div className="flex-1 overflow-auto">
-                  {children}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <CurrentPeriodWrapper />
+                  <div className="flex-1 overflow-auto">
+                    {children}
+                  </div>
                 </div>
               </div>
             </FirstTimeWrapper>

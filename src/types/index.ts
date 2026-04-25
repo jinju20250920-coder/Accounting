@@ -1196,7 +1196,6 @@ export interface SupplierSubjectMapping {
   accountSetId: string;
   groupName: string;
   sellerName: string;
-  supplierType: SupplierType;
   defaultDebitSubject?: string;
   defaultDebitSubjectName?: string;
   defaultTaxSubject?: string;

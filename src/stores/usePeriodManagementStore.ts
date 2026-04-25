@@ -1,0 +1,337 @@
+'use client';
+
+import { create } from 'zustand';
+import { useAccountSetStore } from './useAccountSetStore';
+import type { AccountingPeriod } from './useAccountSetStore';
+
+// 期间模板接口
+export interface PeriodTemplate {
+  id: string;
+  name: string;
+  months: number[];
+  description: string;
+}
+
+// 期间管理状态接口
+interface PeriodManagementStore {
+  // 期间模板
+  periodTemplates: PeriodTemplate[];
+  // 是否显示创建期间模态框
+  showCreateModal: boolean;
+  // 当前激活的标签页
+  activeTab: 'periods' | 'templates' | 'settings';
+
+  // Actions - 期间管理（与账套关联）
+  getCurrentPeriod: () => AccountingPeriod | undefined;
+  getPeriodsForCurrentAccountSet: () => AccountingPeriod[];
+  selectPeriod: (periodId: string) => void;
+  createPeriod: (periodData: Omit<AccountingPeriod, 'id' | 'createdDate' | 'lastModifiedDate'>) => void;
+  updatePeriod: (id: string, updates: Partial<AccountingPeriod>) => void;
+  deletePeriod: (id: string) => void;
+  closePeriod: (id: string) => void;
+  reopenPeriod: (id: string) => void;
+  setCurrentPeriod: (id: string) => void;
+
+  // Actions - 模板管理
+  applyTemplate: (templateId: string) => void;
+  createTemplate: (templateData: Omit<PeriodTemplate, 'id'>) => void;
+  updateTemplate: (id: string, updates: Partial<PeriodTemplate>) => void;
+  deleteTemplate: (id: string) => void;
+
+  // Actions - UI 控制
+  toggleCreateModal: () => void;
+  setActiveTab: (tab: 'periods' | 'templates' | 'settings') => void;
+
+  // Actions - 期间操作
+  closeCurrentPeriod: () => void;
+  createNextPeriod: () => void;
+}
+
+// 生成默认期间数据（为新账套创建时使用）
+const generateDefaultPeriods = (): AccountingPeriod[] => {
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
+
+  const periods: AccountingPeriod[] = [];
+
+  // 生成最近 12 个月的期间
+  for (let i = 11; i >= 0; i--) {
+    const year = currentYear - Math.floor((currentMonth - 1 - i) / 12);
+    const month = ((currentMonth - 1 - i) % 12 + 12) % 12 + 1;
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+
+    const isCurrent = year === currentYear && month === currentMonth;
+
+    periods.push({
+      id: `${year}${String(month).padStart(2, '0')}`,
+      name: `${year}年${month}月`,
+      year,
+      month,
+      startDate,
+      endDate,
+      status: isCurrent ? 'open' : 'closed',
+      statusColor: isCurrent ? 'blue' : 'green',
+      voucherCount: isCurrent ? 0 : Math.floor(Math.random() * 50),
+      lastVoucherNo: `记-${year}${String(month).padStart(2, '0')}-000`,
+      closingBalance: isCurrent ? undefined : Math.floor(Math.random() * 3000000),
+      isCurrent,
+      canEdit: isCurrent,
+      canClose: isCurrent,
+      canReopen: !isCurrent && month !== currentMonth,
+    });
+  }
+
+  return periods;
+};
+
+// 初始化期间模板
+const defaultTemplates: PeriodTemplate[] = [
+  {
+    id: '1',
+    name: '自然年度',
+    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    description: '按自然年度划分，每年12个会计期间'
+  },
+  {
+    id: '2',
+    name: '财年4月制',
+    months: [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3],
+    description: '财年开始于4月，结束于次年3月'
+  },
+  {
+    id: '3',
+    name: '季度期间',
+    months: [1, 4, 7, 10],
+    description: '按季度划分，每年4个会计期间'
+  }
+];
+
+// 创建期间管理 store
+export const usePeriodManagementStore = create<PeriodManagementStore>()((set, get) => ({
+  periodTemplates: defaultTemplates,
+  showCreateModal: false,
+  activeTab: 'periods',
+
+  // 获取当前期间（从当前账套获取）
+  getCurrentPeriod: () => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    return currentAccountSet?.accountingPeriods?.find(period => period.isCurrent);
+  },
+
+  // 获取当前账套的期间列表
+  getPeriodsForCurrentAccountSet: () => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    return currentAccountSet?.accountingPeriods || [];
+  },
+
+  // 选择期间
+  selectPeriod: (periodId) => {
+    // 这里可以添加期间选择逻辑
+  },
+
+  // 创建期间
+  createPeriod: (periodData) => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet) {
+      const newPeriod: AccountingPeriod = {
+        ...periodData,
+        id: `${periodData.year}${String(periodData.month).padStart(2, '0')}`
+      };
+
+      useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
+        accountingPeriods: [...(currentAccountSet.accountingPeriods || []), newPeriod]
+      });
+    }
+  },
+
+  // 更新期间
+  updatePeriod: (id, updates) => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
+        accountingPeriods: currentAccountSet.accountingPeriods.map(period =>
+          period.id === id ? { ...period, ...updates } : period
+        )
+      });
+    }
+  },
+
+  // 删除期间
+  deletePeriod: (id) => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
+        accountingPeriods: currentAccountSet.accountingPeriods.filter(period => period.id !== id)
+      });
+    }
+  },
+
+  // 关闭期间
+  closePeriod: (id) => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
+        accountingPeriods: currentAccountSet.accountingPeriods.map(period =>
+          period.id === id ? {
+            ...period,
+            status: 'closed',
+            statusColor: 'green',
+            canEdit: false,
+            canClose: false,
+            canReopen: true
+          } : period
+        )
+      });
+    }
+  },
+
+  // 重新打开期间
+  reopenPeriod: (id) => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
+        accountingPeriods: currentAccountSet.accountingPeriods.map(period =>
+          period.id === id ? {
+            ...period,
+            status: 'open',
+            statusColor: 'blue',
+            canEdit: true,
+            canClose: true,
+            canReopen: false
+          } : period
+        )
+      });
+    }
+  },
+
+  // 设置当前期间
+  setCurrentPeriod: (id) => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
+        accountingPeriods: currentAccountSet.accountingPeriods.map(period => {
+          const isCurrent = period.id === id;
+          return {
+            ...period,
+            isCurrent,
+            status: isCurrent ? 'open' : (period.status === 'open' ? 'closed' : period.status),
+            statusColor: isCurrent ? 'blue' : period.statusColor,
+            canEdit: isCurrent,
+            canClose: isCurrent,
+            canReopen: !isCurrent && period.status !== 'locked'
+          };
+        })
+      });
+    }
+  },
+
+  // 应用模板
+  applyTemplate: (templateId) => {
+    const state = get();
+    const template = state.periodTemplates.find(t => t.id === templateId);
+    if (template) {
+      console.log('应用期间模板:', template.name);
+    }
+  },
+
+  // 创建模板
+  createTemplate: (templateData) => {
+    set((state) => ({
+      periodTemplates: [...state.periodTemplates, {
+        ...templateData,
+        id: `template_${Date.now()}`
+      }]
+    }));
+  },
+
+  // 更新模板
+  updateTemplate: (id, updates) => {
+    set((state) => ({
+      periodTemplates: state.periodTemplates.map(template =>
+        template.id === id ? { ...template, ...updates } : template
+      )
+    }));
+  },
+
+  // 删除模板
+  deleteTemplate: (id) => {
+    set((state) => ({
+      periodTemplates: state.periodTemplates.filter(template => template.id !== id)
+    }));
+  },
+
+  // 切换创建期间模态框
+  toggleCreateModal: () => set((state) => ({ showCreateModal: !state.showCreateModal })),
+
+  // 设置激活标签页
+  setActiveTab: (tab) => set({ activeTab: tab }),
+
+  // 关闭当前期间
+  closeCurrentPeriod: () => {
+    const currentPeriod = get().getCurrentPeriod();
+    if (currentPeriod) {
+      get().closePeriod(currentPeriod.id);
+    }
+  },
+
+  // 创建下一个期间
+  createNextPeriod: () => {
+    const currentPeriod = get().getCurrentPeriod();
+    if (currentPeriod) {
+      let nextYear = currentPeriod.year;
+      let nextMonth = currentPeriod.month + 1;
+
+      if (nextMonth > 12) {
+        nextYear += 1;
+        nextMonth = 1;
+      }
+
+      const startDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+      const endDate = new Date(nextYear, nextMonth, 0).toISOString().split('T')[0];
+
+      const newPeriod: Omit<AccountingPeriod, 'id' | 'createdDate' | 'lastModifiedDate'> = {
+        name: `${nextYear}年${nextMonth}月`,
+        year: nextYear,
+        month: nextMonth,
+        startDate,
+        endDate,
+        status: 'open',
+        statusColor: 'blue',
+        voucherCount: 0,
+        lastVoucherNo: `记-${nextYear}${String(nextMonth).padStart(2, '0')}-000`,
+        isCurrent: true,
+        canEdit: true,
+        canClose: true,
+        canReopen: false
+      };
+
+      // 先将当前期间标记为非当前
+      get().updatePeriod(currentPeriod.id, {
+        isCurrent: false,
+        status: 'closed',
+        statusColor: 'green',
+        canEdit: false,
+        canClose: false,
+        canReopen: true
+      });
+
+      // 然后创建新期间
+      get().createPeriod(newPeriod);
+    }
+  }
+}));
+
+// 在创建新账套时自动添加默认期间
+const originalAddAccountSet = useAccountSetStore.getState().addAccountSet;
+useAccountSetStore.setState({
+  addAccountSet: async (accountSetData) => {
+    const newAccountSet = await originalAddAccountSet({
+      ...accountSetData,
+      accountingPeriods: generateDefaultPeriods()
+    });
+    return newAccountSet;
+  }
+});

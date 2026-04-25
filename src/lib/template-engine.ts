@@ -432,16 +432,17 @@ export class TemplateEngine {
     }
 
     const partnerName = inputData.partner_name || '';
+    const voucherDate = inputData.invoice_date || new Date().toISOString().split('T')[0];
 
     const voucher = {
       id: generateId(),
       voucherNo: `自动-${Date.now()}`,
-      date: inputData.invoice_date || new Date().toISOString().split('T')[0],
+      date: voucherDate,
       summary: template.name,
       entries: entries.map(entry => ({
         id: generateId(),
         voucherId: '',
-        date: voucher.date,
+        date: voucherDate,
         summary: entry.description,
         subjectCode: entry.subject,
         subjectName: entry.subjectName,

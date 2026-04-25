@@ -3,6 +3,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+// 会计期间接口
+export interface AccountingPeriod {
+  id: string;
+  name: string;
+  year: number;
+  month: number;
+  startDate: string;
+  endDate: string;
+  status: 'draft' | 'open' | 'closed' | 'locked';
+  statusColor: 'gray' | 'blue' | 'green' | 'red';
+  voucherCount: number;
+  lastVoucherNo: string;
+  closingBalance?: number;
+  isCurrent: boolean;
+  canEdit: boolean;
+  canClose: boolean;
+  canReopen: boolean;
+}
+
 // 功能权限类型
 export interface FeaturePermission {
   id: string;
@@ -52,6 +71,10 @@ export interface AccountSet {
   accounting?: {
     partnerTrackingMethod?: 'subject' | 'card'; // 往来核算方式：科目方式 or 往来卡片方式
   };
+
+  // 会计期间相关字段
+  accountingPeriods?: AccountingPeriod[];
+  currentPeriod?: string;
 }
 
 // 授权信息类型
@@ -151,6 +174,46 @@ interface AccountSetStore {
 }
 
 // 初始化默认功能权限定义
+// 生成默认期间数据（为新账套创建时使用）
+const generateDefaultPeriods = (): AccountingPeriod[] => {
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
+
+  const periods: AccountingPeriod[] = [];
+
+  // 生成最近 12 个月的期间
+  for (let i = 11; i >= 0; i--) {
+    const year = currentYear - Math.floor((currentMonth - 1 - i) / 12);
+    const month = ((currentMonth - 1 - i) % 12 + 12) % 12 + 1;
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+
+    const isCurrent = year === currentYear && month === currentMonth;
+
+    periods.push({
+      id: `${year}${String(month).padStart(2, '0')}`,
+      name: `${year}年${month}月`,
+      year,
+      month,
+      startDate,
+      endDate,
+      status: isCurrent ? 'open' : 'closed',
+      statusColor: isCurrent ? 'blue' : 'green',
+      voucherCount: isCurrent ? 0 : Math.floor(Math.random() * 50),
+      lastVoucherNo: `记-${year}${String(month).padStart(2, '0')}-000`,
+      closingBalance: isCurrent ? undefined : Math.floor(Math.random() * 3000000),
+      isCurrent,
+      canEdit: isCurrent,
+      canClose: isCurrent,
+      canReopen: !isCurrent && month !== currentMonth,
+    });
+  }
+
+  return periods;
+};
+
 const defaultFeatureDefinitions: FeaturePermission[] = [
   { id: 'voucher-entry', name: '凭证录入', description: '创建和编辑会计凭证', enabled: true, category: 'core' },
   { id: 'balance-report', name: '余额查询', description: '查看科目余额表', enabled: true, category: 'reports' },
@@ -233,7 +296,8 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastVoucherFullNo: '记-202603-000',  // 完整的最后一个凭证号
           accounting: {
             partnerTrackingMethod: 'card'  // 默认使用往来卡片方式
-          }
+          },
+          accountingPeriods: generateDefaultPeriods()
         }
       ],
       currentAccountSetId: 'set_001',
@@ -374,7 +438,8 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastVoucherFullNo: `记-${yearMonth}-000`, // 完整的最后一个凭证号
           accounting: {
             partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card' // 默认使用往来卡片方式
-          }
+          },
+          accountingPeriods: generateDefaultPeriods() // 添加默认期间
         };
 
         // 获取当前套餐的功能配置

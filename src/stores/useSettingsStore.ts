@@ -28,6 +28,11 @@ interface AppSettings {
     enableExport: boolean;
   };
 
+  // 往来核算方式设置
+  accounting: {
+    partnerTrackingMethod: 'subject' | 'card'; // 科目方式 或 往来卡片方式
+  };
+
   // 界面设置
   ui: {
     theme: 'light' | 'dark' | 'auto';
@@ -73,6 +78,9 @@ const defaultSettings: AppSettings = {
     enableAI: true,
     enableAudit: true,
     enableExport: true
+  },
+  accounting: {
+    partnerTrackingMethod: 'card' // 默认使用往来卡片方式
   },
   ui: {
     theme: 'light',
@@ -169,6 +177,9 @@ export const useSettingsStore = create<SettingsStore>()(
       }),
       ...(newSettings.shortcuts && {
         shortcuts: { ...state.settings.shortcuts, ...newSettings.shortcuts }
+      }),
+      ...(newSettings.accounting && {
+        accounting: { ...state.settings.accounting, ...newSettings.accounting }
       })
     }
   })),

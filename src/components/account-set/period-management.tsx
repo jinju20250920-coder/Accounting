@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+'use client';
+
+import React, { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,129 +28,36 @@ import {
   Settings,
   ChevronRight
 } from 'lucide-react';
-
-interface AccountingPeriod {
-  id: string;
-  name: string;
-  year: number;
-  month: number;
-  startDate: string;
-  endDate: string;
-  status: 'draft' | 'open' | 'closed' | 'locked';
-  statusColor: 'gray' | 'blue' | 'green' | 'red';
-  voucherCount: number;
-  lastVoucherNo: string;
-  closingBalance?: number;
-  isCurrent: boolean;
-  canEdit: boolean;
-  canClose: boolean;
-  canReopen: boolean;
-}
-
-interface PeriodTemplate {
-  id: string;
-  name: string;
-  months: number[];
-  description: string;
-}
+import { usePeriodManagementStore, PeriodTemplate } from '@/stores/usePeriodManagementStore';
+import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
 
 export function PeriodManagement() {
+  const {
+    periodTemplates,
+    showCreateModal,
+    activeTab,
+    selectPeriod,
+    toggleCreateModal,
+    setActiveTab,
+    closePeriod,
+    reopenPeriod,
+    setCurrentPeriod,
+    getCurrentPeriod,
+    closeCurrentPeriod,
+    createNextPeriod
+  } = usePeriodManagementStore();
+
+  // 使用 useState 和 useEffect 来确保只在客户端更新
+  const [accountingPeriods, setAccountingPeriods] = useState<AccountingPeriod[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'periods' | 'templates' | 'settings'>('periods');
 
-  // 模拟会计期间数据
-  const accountingPeriods: AccountingPeriod[] = useMemo(() => [
-    {
-      id: '1',
-      name: '2026年3月',
-      year: 2026,
-      month: 3,
-      startDate: '2026-03-01',
-      endDate: '2026-03-31',
-      status: 'open',
-      statusColor: 'blue',
-      voucherCount: 45,
-      lastVoucherNo: '记-202603-045',
-      isCurrent: true,
-      canEdit: true,
-      canClose: true,
-      canReopen: false
-    },
-    {
-      id: '2',
-      name: '2026年2月',
-      year: 2026,
-      month: 2,
-      startDate: '2026-02-01',
-      endDate: '2026-02-29',
-      status: 'closed',
-      statusColor: 'green',
-      voucherCount: 38,
-      lastVoucherNo: '记-202602-038',
-      closingBalance: 2500000,
-      isCurrent: false,
-      canEdit: false,
-      canClose: false,
-      canReopen: true
-    },
-    {
-      id: '3',
-      name: '2026年1月',
-      year: 2026,
-      month: 1,
-      startDate: '2026-01-01',
-      endDate: '2026-01-31',
-      status: 'closed',
-      statusColor: 'green',
-      voucherCount: 42,
-      lastVoucherNo: '记-202601-042',
-      closingBalance: 2400000,
-      isCurrent: false,
-      canEdit: false,
-      canClose: false,
-      canReopen: true
-    },
-    {
-      id: '4',
-      name: '2025年12月',
-      year: 2025,
-      month: 12,
-      startDate: '2025-12-01',
-      endDate: '2025-12-31',
-      status: 'locked',
-      statusColor: 'red',
-      voucherCount: 56,
-      lastVoucherNo: '记-202512-056',
-      closingBalance: 2350000,
-      isCurrent: false,
-      canEdit: false,
-      canClose: false,
-      canReopen: false
+  // 从当前账套获取期间数据（只在客户端）
+  useEffect(() => {
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (currentAccountSet?.accountingPeriods) {
+      setAccountingPeriods(currentAccountSet.accountingPeriods);
     }
-  ], []);
-
-  // 期间模板
-  const periodTemplates: PeriodTemplate[] = [
-    {
-      id: '1',
-      name: '自然年度',
-      months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-      description: '按自然年度划分，每年12个会计期间'
-    },
-    {
-      id: '2',
-      name: '财年4月制',
-      months: [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3],
-      description: '财年开始于4月，结束于次年3月'
-    },
-    {
-      id: '3',
-      name: '季度期间',
-      months: [1, 4, 7, 10],
-      description: '按季度划分，每年4个会计期间'
-    }
-  ];
+  }, []);
 
   const getStatusBadge = (status: AccountingPeriod['status']) => {
     switch (status) {
@@ -170,11 +79,6 @@ export function PeriodManagement() {
       case 'red': return 'border-red-200 bg-red-50';
       case 'gray': return 'border-gray-200 bg-gray-50';
     }
-  };
-
-  const formatMonthName = (month: number) => {
-    const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
-    return months[month - 1];
   };
 
   // 统计数据
@@ -261,7 +165,7 @@ export function PeriodManagement() {
                 期间设置
               </Button>
             </div>
-            <Button>
+            <Button onClick={createNextPeriod}>
               <Plus className="h-4 w-4 mr-2" />
               新建期间
             </Button>
@@ -281,7 +185,7 @@ export function PeriodManagement() {
                 <div
                   key={period.id}
                   className={`border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-all ${getStatusColor(period.statusColor)} ${selectedPeriod === period.id ? 'ring-2 ring-blue-500' : ''}`}
-                  onClick={() => setSelectedPeriod(period.id)}
+                  onClick={() => selectPeriod(period.id)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
@@ -324,18 +228,29 @@ export function PeriodManagement() {
                         </Button>
                       )}
                       {period.canClose && (
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={(e) => {
+                          e.stopPropagation();
+                          closePeriod(period.id);
+                        }}>
                           <Pause className="h-4 w-4" />
                         </Button>
                       )}
                       {period.canReopen && (
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={(e) => {
+                          e.stopPropagation();
+                          reopenPeriod(period.id);
+                        }}>
                           <RotateCcw className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm">
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+                      {!period.isCurrent && (
+                        <Button variant="ghost" size="sm" onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentPeriod(period.id);
+                        }}>
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -429,14 +344,14 @@ export function PeriodManagement() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm text-muted-foreground block mb-1">会计年度</label>
-                  <Input defaultValue="2026" className="w-full" />
+                  <Input defaultValue={new Date().getFullYear().toString()} className="w-full" />
                 </div>
                 <div>
                   <label className="text-sm text-muted-foreground block mb-1">当前期间</label>
                   <select className="w-full p-2 border rounded">
-                    <option>2026年3月</option>
-                    <option>2026年2月</option>
-                    <option>2026年1月</option>
+                    {accountingPeriods.map(period => (
+                      <option key={period.id} value={period.id}>{period.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -487,7 +402,7 @@ export function PeriodManagement() {
 
       {/* 快速操作 */}
       <div className="flex gap-2">
-        <Button variant="outline">
+        <Button variant="outline" onClick={closeCurrentPeriod}>
           <Calendar className="h-4 w-4 mr-2" />
           期间结转
         </Button>
@@ -502,20 +417,20 @@ export function PeriodManagement() {
       </div>
 
       {/* 当前期间状态提示 */}
-      {accountingPeriods.find(p => p.isCurrent) && (
+      {getCurrentPeriod() && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
               <Play className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div>
                 <h4 className="font-medium text-blue-800 mb-1">
-                  当前期间: {accountingPeriods.find(p => p.isCurrent)?.name}
+                  当前期间: {getCurrentPeriod()?.name}
                 </h4>
                 <p className="text-sm text-blue-700">
-                  可以正常录入凭证。本期已录入 {accountingPeriods.find(p => p.isCurrent)?.voucherCount} 张凭证。
+                  可以正常录入凭证。本期已录入 {getCurrentPeriod()?.voucherCount} 张凭证。
                 </p>
                 <div className="flex gap-2 mt-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={closeCurrentPeriod}>
                     结转本期
                   </Button>
                   <Button variant="ghost" size="sm">

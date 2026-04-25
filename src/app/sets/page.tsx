@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Building2,
   RefreshCw,
@@ -23,8 +24,14 @@ import {
   Edit2,
   FolderOpen,
   HardDrive,
-  Settings
+  Settings,
+  Clock,
+  Play,
+  Pause,
+  RotateCcw,
+  ChevronRight
 } from 'lucide-react';
+import { PeriodManagement } from '@/components/account-set/period-management';
 import { useToast } from '@/components/ui/toast';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -578,31 +585,39 @@ export default function SetsPage() {
         </div>
       </div>
 
-      {/* 当前账套信息 */}
-      {getCurrentAccountSet() && (
-        <Card className="mb-6 bg-blue-50 border-blue-200">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Building2 className="h-5 w-5 text-blue-600" />
-                <div>
-                  <p className="text-sm text-slate-600">当前账套</p>
-                  <p className="text-lg font-semibold text-slate-900">
-                    {getCurrentAccountSet()?.name}
-                  </p>
-                </div>
-              </div>
-              <DbStatusIndicator
-                accountSetId={getCurrentAccountSet()!.id}
-                showDetails={true}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* 标签页导航 */}
+      <Tabs defaultValue="account-sets" className="mb-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="account-sets">账套管理</TabsTrigger>
+          <TabsTrigger value="period-management">会计期间</TabsTrigger>
+        </TabsList>
 
-      {/* 账套列表 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <TabsContent value="account-sets">
+          {/* 当前账套信息 */}
+          {getCurrentAccountSet() && (
+            <Card className="mb-6 bg-blue-50 border-blue-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Building2 className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="text-sm text-slate-600">当前账套</p>
+                      <p className="text-lg font-semibold text-slate-900">
+                        {getCurrentAccountSet()?.name}
+                      </p>
+                    </div>
+                  </div>
+                  <DbStatusIndicator
+                    accountSetId={getCurrentAccountSet()!.id}
+                    showDetails={true}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 账套列表 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {accountSets.map((accountSet) => {
           const dbInfo = accountSetDbInfos.get(accountSet.id);
           const isSelected = currentAccountSetId === accountSet.id;
@@ -708,24 +723,31 @@ export default function SetsPage() {
         })}
       </div>
 
-      {/* 空状态 */}
-      {accountSets.length === 0 && (
-        <Card>
-          <CardContent className="pt-12 pb-12 text-center">
-            <FolderKanban className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">
-              还没有账套
-            </h3>
-            <p className="text-slate-600 mb-6">
-              创建一个账套来开始管理您的财务数据
-            </p>
-            <Button onClick={handleCreate} className="gap-2">
-              <Plus className="h-4 w-4" />
-              创建第一个账套
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+          {/* 空状态 */}
+          {accountSets.length === 0 && (
+            <Card>
+              <CardContent className="pt-12 pb-12 text-center">
+                <FolderKanban className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                  还没有账套
+                </h3>
+                <p className="text-slate-600 mb-6">
+                  创建一个账套来开始管理您的财务数据
+                </p>
+                <Button onClick={handleCreate} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  创建第一个账套
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* 会计期间管理 */}
+        <TabsContent value="period-management">
+          <PeriodManagement />
+        </TabsContent>
+      </Tabs>
 
       {/* 创建账套对话框 */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>

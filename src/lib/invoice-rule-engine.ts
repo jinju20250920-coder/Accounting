@@ -458,13 +458,14 @@ export function executeActions(context: EngineContext): ActionResult {
 function getDynamicTaxSubject(invoice: Invoice): { code: string; name: string } | null {
   if (!invoice.taxRate) return null;
 
-  // Base tax subject code (2221 for input tax, 2221.02 for output tax)
-  const baseCode = invoice.invoiceType === 'input' ? '2221.01' : '2221.02';
+  // Base tax subject code (222101 for input tax, 222102 for output tax)
+  const baseCode = invoice.invoiceType === 'input' ? '222101' : '222102';
   const baseName = invoice.invoiceType === 'input' ? '进项税额' : '销项税额';
 
-  // Create dynamic tax subject code with tax rate
-  const taxCode = `${baseCode}.${Math.round(invoice.taxRate * 100)}%`;
-  const taxName = `${baseName}(${invoice.taxRate * 100}%)`;
+  // Create dynamic tax subject code with tax rate (纯数字格式)
+  const taxRatePercent = Math.round(invoice.taxRate * 100);
+  const taxCode = `${baseCode}${taxRatePercent.toString().padStart(2, '0')}`;
+  const taxName = `${baseName}(${taxRatePercent}%)`;
 
   return {
     code: taxCode,

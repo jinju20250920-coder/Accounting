@@ -60,8 +60,18 @@ const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36
 
 // 验证科目代码
 const validateSubjectCode = (code: string, existingCodes: string[]): { isValid: boolean; error?: string } => {
-  if (!/^\d{4}(\d{2})?$/.test(code)) {
-    return { isValid: false, error: '科目代码必须是4位或6位数字' };
+  console.log('验证科目代码:', code);
+
+  // 允许的科目代码格式：纯数字
+  // - 4位：一级科目
+  // - 6位：二级科目（4位+2位）
+  // - 8位：三级科目（6位+2位），以此类推
+  const isValidFormat = /^\d{4,12}$/.test(code);
+
+  console.log('格式验证结果:', isValidFormat);
+
+  if (!isValidFormat) {
+    return { isValid: false, error: `科目代码格式无效: ${code}` };
   }
   if (existingCodes.includes(code)) {
     return { isValid: false, error: '科目代码已存在' };
@@ -71,7 +81,13 @@ const validateSubjectCode = (code: string, existingCodes: string[]): { isValid: 
 
 // 计算科目层级
 const calculateSubjectLevel = (code: string): number => {
-  return Math.ceil(code.length / 2);
+  // 基于科目代码长度计算层级：
+  // - 4位：1级
+  // - 6位：2级
+  // - 8位：3级
+  // - 10位：4级
+  // - 12位：5级
+  return Math.floor((code.length - 2) / 2);
 };
 
 // 检查科目是否可以禁用

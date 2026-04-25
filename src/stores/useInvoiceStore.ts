@@ -429,7 +429,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 生成发票凭证（智能规则引擎 + 模板引擎 + 科目自动创建）
   generateInvoiceVoucher: async (invoiceId, voucherDate) => {
+    console.log('开始生成凭证，invoiceId:', invoiceId);
     const invoice = get().getInvoiceById(invoiceId);
+    console.log('获取到的发票信息:', invoice);
     if (!invoice) {
       set({ error: '发票不存在' });
       return null;
@@ -441,6 +443,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     }
 
     const accountSetId = useAccountSetStore.getState().currentAccountSetId;
+    console.log('当前账套ID:', accountSetId);
     if (!accountSetId) {
       set({ error: '请先选择账套' });
       return null;
@@ -536,6 +539,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         existingCodes.add(val.code);
       }
 
+      console.log('准备调用模板引擎，mappedOverrides:', mappedOverrides);
       // 7. 调用模板引擎
       const { templateEngine } = await import('@/lib/template-engine');
       const templateId = isInput ? 'tpl_purchase_invoice' : 'tpl_sale_invoice';
@@ -547,8 +551,10 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         invoice_date: invoice.invoiceDate,
         invoice_no: invoice.invoiceCode,
       };
+      console.log('模板输入数据:', inputData);
 
       const tplResult = templateEngine.generateVoucherWithOverrides(templateId, inputData, mappedOverrides);
+      console.log('模板引擎返回结果:', tplResult);
 
       if (!tplResult.success || !tplResult.voucher) {
         set({ error: tplResult.errors?.join('; ') || '模板引擎生成失败' });
@@ -583,7 +589,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         `INSERT INTO vouchers (id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmt.run([voucherId, voucherNo, voucherDate, '', 'draft', '系统', docNo, accountSetId, now, now]);
+      stmt.run([voucherId, voucherNo, voucherDate, '', 'posted', '系统', docNo, accountSetId, now, now]);
       stmt.free();
 
       // 10. INSERT 分录（从模板引擎输出转换）
@@ -602,10 +608,23 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           // 科目方式：创建往来单位明细科目
           const往来科目前缀 = isInput ? '2202' : '1122'; // 应付账款/应收账款
           if (subjectCode.startsWith('2202') || subjectCode.startsWith('1122')) {
-            // 为往来科目创建明细科目
-            const往来单位编码 = partnerName.replace(/\s+/g, '').substring(0, 4);
-            subjectCode = `${往来科目前缀}.${往来单位编码}`;
-            subjectName = `${entry.subjectName}-${partnerName}`;
+            // 查找已有的往来科目，确定下一个可用的序号
+            const existingPartnerSubjects = subjects.filter(s =>
+              s.code.startsWith(往来科目前缀) &&
+              s.code.length ===往来科目前缀.length + 2 // 确保是2位序号的明细科目
+            );
+            let nextSeq = 1;
+            const existingSeqs = existingPartnerSubjects.map(s => {
+              const seq = parseInt(s.code.substring(往来科目前缀.length), 10);
+              return isNaN(seq) ? 0 : seq;
+            }).filter(s => s > 0).sort((a, b) => b - a);
+            if (existingSeqs.length > 0) {
+              nextSeq = existingSeqs[0] + 1;
+            }
+
+            // 生成纯数字的科目代码
+            subjectCode = `${往来科目前缀}${nextSeq.toString().padStart(2, '0')}`;
+            subjectName = partnerName;
 
             // 检查科目是否已存在，不存在则创建
             const existingSubject = subjects.find(s => s.code === subjectCode);
@@ -614,7 +633,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
                 code: subjectCode,
                 name: subjectName,
                 parentId: subjects.find(s => s.code ===往来科目前缀)?.id || null,
-                level: subjectCode.length <= 3 ? 1 : subjectCode.length <= 4 ? 2 : 3,
+                level: 2, // 往来明细科目为2级
                 direction: subjectCode.startsWith('1') ? 'debit' : 'credit', // 资产借方，负债贷方
                 enableDept: false,
                 enableProject: false,
@@ -677,6 +696,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
       return { voucherId, voucherNo };
     } catch (error) {
+      console.error('生成凭证过程中出错:', error);
+      console.error('错误堆栈:', error instanceof Error ? error.stack : '无堆栈信息');
       set({ error: `生成凭证失败: ${error}` });
       return null;
     }
@@ -712,19 +733,26 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
   // 批量生成凭证
   generateInvoiceVouchers: async (ids: string[], voucherDate: string): Promise<{ success: number; errors: string[] }> => {
+    console.log('开始批量生成凭证，ids:', ids, 'voucherDate:', voucherDate);
     let success = 0;
     const errors: string[] = [];
 
     for (const id of ids) {
       try {
+        console.log('正在处理发票:', id);
         const result = await get().generateInvoiceVoucher(id, voucherDate);
         if (result) {
+          console.log('发票', id, '凭证生成成功:', result);
           success++;
+        } else {
+          const error = get().error;
+          console.log('发票', id, '凭证生成失败，错误:', error);
+          errors.push(`生成发票 ${id} 凭证失败: ${error}`);
         }
       } catch (error) {
+        console.error('处理发票', id, '时发生异常:', error);
         const errorMsg = error instanceof Error ? error.message : String(error);
         errors.push(`生成发票 ${id} 凭证失败: ${errorMsg}`);
-        console.error('Invoice voucher generation error:', error);
       }
     }
 

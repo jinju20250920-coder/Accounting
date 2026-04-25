@@ -100,11 +100,11 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const [supplierMappings, setSupplierMappings] = useState<SupplierSubjectMapping[]>([]);
   const [showSupplierDrawer, setShowSupplierDrawer] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<SupplierSubjectMapping | null>(null);
+  const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const [supplierSearch, setSupplierSearch] = useState('');
   const [supplierForm, setSupplierForm] = useState({
     groupName: '',
     sellerName: '',
-    supplierType: 'material' as const as 'material' | 'inventory' | 'fixed_asset' | 'service' | 'other',
   });
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -287,7 +287,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     setSupplierForm({
       groupName: config.businessGroups[0]?.name || '',
       sellerName: '',
-      supplierType: 'material',
     });
     setShowSupplierDrawer(true);
   };
@@ -298,7 +297,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     setSupplierForm({
       groupName: mapping.groupName,
       sellerName: mapping.sellerName,
-      supplierType: mapping.supplierType,
     });
     setShowSupplierDrawer(true);
   };
@@ -326,7 +324,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
         accountSetId: useAccountSetStore.getState().currentAccountSetId || 'default',
         groupName: supplierForm.groupName,
         sellerName: supplierForm.sellerName.trim(),
-        supplierType: supplierForm.supplierType,
         createTime: editingSupplier?.createTime || now,
         updateTime: now,
       };
@@ -345,18 +342,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     mapping.groupName.toLowerCase().includes(supplierSearch.toLowerCase())
   );
 
-  // 获取供应商类型显示名称
-  const getSupplierTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      material: '生产材料',
-      inventory: '库存商品',
-      fixed_asset: '固定资产',
-      service: '服务',
-      other: '其他',
-    };
-    return labels[type] || type;
-  };
-
   // 处理导入业务单据
   const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -368,19 +353,16 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     const mockPreview = [
       {
         sellerName: '阿里巴巴集团',
-        supplierType: 'service' as const as 'material' | 'inventory' | 'fixed_asset' | 'service' | 'other',
         estimatedGroup: '员工报销',
         confidence: 0.95,
       },
       {
         sellerName: '腾讯科技有限公司',
-        supplierType: 'service' as const as 'material' | 'inventory' | 'fixed_asset' | 'service' | 'other',
         estimatedGroup: '员工报销',
         confidence: 0.92,
       },
       {
         sellerName: '华为技术有限公司',
-        supplierType: 'material' as const as 'material' | 'inventory' | 'fixed_asset' | 'service' | 'other',
         estimatedGroup: '生产材料',
         confidence: 0.88,
       },
@@ -396,7 +378,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
         accountSetId: useAccountSetStore.getState().currentAccountSetId || 'default',
         groupName: item.estimatedGroup,
         sellerName: item.sellerName,
-        supplierType: item.supplierType,
         createTime: new Date().toISOString(),
         updateTime: new Date().toISOString(),
       };
@@ -642,7 +623,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                             供应商名称
                           </th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                            供应商类型
+                            所属业务组
                           </th>
                           <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
                             操作
@@ -659,35 +640,89 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                         ) : (
                           filteredSupplierMappings.map((mapping) => (
                             <tr key={mapping.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-4 py-3">
-                                <Badge variant="outline" className="text-xs">
-                                  {mapping.groupName}
-                                </Badge>
-                              </td>
-                              <td className="px-4 py-3 text-sm font-medium">{mapping.sellerName}</td>
-                              <td className="px-4 py-3">
-                                <Badge variant="secondary" className="text-xs">
-                                  {getSupplierTypeLabel(mapping.supplierType)}
-                                </Badge>
-                              </td>
-                              <td className="px-4 py-3 text-right space-x-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0"
-                                  onClick={() => handleEditSupplierMapping(mapping)}
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 text-red-500"
-                                  onClick={() => handleDeleteSupplierMapping(mapping.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </td>
+                              {editingSupplierId === mapping.id ? (
+                                <>
+                                  <td className="px-4 py-3">
+                                    <Badge variant="outline" className="text-xs">
+                                      {mapping.groupName}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Input
+                                      value={supplierForm.sellerName}
+                                      onChange={(e) => setSupplierForm({ ...supplierForm, sellerName: e.target.value })}
+                                      className="h-8 text-sm"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Select
+                                      value={supplierForm.groupName}
+                                      onValueChange={(value) => setSupplierForm({ ...supplierForm, groupName: value })}
+                                    >
+                                      <SelectTrigger className="h-8 w-full">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {config.businessGroups.map((group) => (
+                                          <SelectItem key={group.id} value={group.name}>
+                                            {group.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="px-4 py-3 text-right space-x-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-green-600"
+                                      onClick={() => handleSaveSupplierMappingInline(mapping.id)}
+                                    >
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => handleCancelEditSupplier()}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-4 py-3">
+                                    <Badge variant="outline" className="text-xs">
+                                      {mapping.groupName}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm font-medium">{mapping.sellerName}</td>
+                                  <td className="px-4 py-3">
+                                    <Badge variant="outline" className="text-xs">
+                                      {mapping.groupName}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 text-right space-x-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => handleEditSupplierMapping(mapping)}
+                                    >
+                                      <Edit2 className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-red-500"
+                                      onClick={() => handleDeleteSupplierMapping(mapping.id)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </td>
+                                </>
+                              )}
                             </tr>
                           ))
                         )}
@@ -918,24 +953,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label className="text-xs">供应商类型</Label>
-              <Select
-                value={supplierForm.supplierType}
-                onValueChange={(value: any) => setSupplierForm({ ...supplierForm, supplierType: value })}
-              >
-                <SelectTrigger className="h-8 w-full mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="material">生产材料</SelectItem>
-                  <SelectItem value="inventory">库存商品</SelectItem>
-                  <SelectItem value="fixed_asset">固定资产</SelectItem>
-                  <SelectItem value="service">服务</SelectItem>
-                  <SelectItem value="other">其他</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
           <DrawerFooter>
             <Button variant="outline" onClick={() => setShowSupplierDrawer(false)}>
@@ -985,9 +1002,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                           供应商名称
                         </th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">
-                          供应商类型
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">
                           预估业务组
                         </th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">
@@ -999,11 +1013,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                       {importPreview.map((item, index) => (
                         <tr key={index} className="hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-2 text-sm font-medium">{item.sellerName}</td>
-                          <td className="px-4 py-2">
-                            <Badge variant="secondary" className="text-xs">
-                              {getSupplierTypeLabel(item.supplierType)}
-                            </Badge>
-                          </td>
                           <td className="px-4 py-2">
                             <Badge variant="outline" className="text-xs">
                               {item.estimatedGroup}

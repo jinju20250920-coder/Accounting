@@ -151,6 +151,8 @@ class SQLiteService {
     await this.migrateSmartRuleEngine();
     // 迁移：创建采购发票规则配置表
     await this.migratePurchaseInvoiceRuleConfig();
+    // 迁移：从 supplier_subject_mapping 表移除 supplierType 列
+    await this.migrateRemoveSupplierTypeColumn();
   }
 
   /**
@@ -669,6 +671,73 @@ class SQLiteService {
       }
     } catch (error) {
       console.warn('Purchase invoice rule config table migration warning:', error);
+    }
+  }
+
+  /**
+   * 迁移：从 supplier_subject_mapping 表移除 supplierType 列
+   */
+  private async migrateRemoveSupplierTypeColumn(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      const pragma = this.dbInstance.exec("PRAGMA table_info(supplier_subject_mapping)");
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+      if (columns.includes('supplierType')) {
+        // 在 SQLite 中，要删除列需要创建新表并复制数据
+        console.log('Migrating database: removing supplierType column from supplier_subject_mapping...');
+
+        // 1. 创建临时表
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS supplier_subject_mapping_temp (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            groupName TEXT NOT NULL,
+            sellerName TEXT NOT NULL,
+            defaultDebitSubject TEXT,
+            defaultDebitSubjectName TEXT,
+            defaultTaxSubject TEXT,
+            defaultTaxSubjectName TEXT,
+            defaultCreditSubject TEXT,
+            defaultCreditSubjectName TEXT,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL
+          );
+        `);
+
+        // 2. 复制数据到临时表（不包括 supplierType）
+        this.dbInstance.exec(`
+          INSERT INTO supplier_subject_mapping_temp
+          (id, accountSetId, groupName, sellerName,
+           defaultDebitSubject, defaultDebitSubjectName,
+           defaultTaxSubject, defaultTaxSubjectName,
+           defaultCreditSubject, defaultCreditSubjectName,
+           createTime, updateTime)
+          SELECT id, accountSetId, groupName, sellerName,
+                 defaultDebitSubject, defaultDebitSubjectName,
+                 defaultTaxSubject, defaultTaxSubjectName,
+                 defaultCreditSubject, defaultCreditSubjectName,
+                 createTime, updateTime
+          FROM supplier_subject_mapping;
+        `);
+
+        // 3. 删除原表
+        this.dbInstance.exec("DROP TABLE supplier_subject_mapping");
+
+        // 4. 重命名临时表
+        this.dbInstance.exec("ALTER TABLE supplier_subject_mapping_temp RENAME TO supplier_subject_mapping");
+
+        // 5. 重新创建索引
+        this.dbInstance.exec(`
+          CREATE INDEX IF NOT EXISTS idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
+        `);
+
+        console.log('Migration completed: supplierType column removed from supplier_subject_mapping');
+      }
+    } catch (error) {
+      console.warn('Migration warning: Failed to remove supplierType column from supplier_subject_mapping', error);
     }
   }
 
@@ -2699,14 +2768,14 @@ class SQLiteService {
     const now = new Date().toISOString();
     this.dbInstance.exec(
       `INSERT OR REPLACE INTO supplier_subject_mapping
-        (id, accountSetId, groupName, sellerName, supplierType,
+        (id, accountSetId, groupName, sellerName,
          defaultDebitSubject, defaultDebitSubjectName,
          defaultTaxSubject, defaultTaxSubjectName,
          defaultCreditSubject, defaultCreditSubjectName,
          createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [mapping.id, mapping.accountSetId || this.accountSetId,
-       mapping.groupName, mapping.sellerName, mapping.supplierType || 'material',
+       mapping.groupName, mapping.sellerName,
        mapping.defaultDebitSubject || null, mapping.defaultDebitSubjectName || null,
        mapping.defaultTaxSubject || null, mapping.defaultTaxSubjectName || null,
        mapping.defaultCreditSubject || null, mapping.defaultCreditSubjectName || null,
