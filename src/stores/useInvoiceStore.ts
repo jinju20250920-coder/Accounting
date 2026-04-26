@@ -36,7 +36,7 @@ interface InvoiceStore {
   generateInvoiceVouchers: (ids: string[], voucherDate: string) => Promise<{ success: number; errors: string[] }>;
 
   // 批量导入
-  importInvoicesFromExcel: (invoices: Partial<Invoice>[], invoiceType: InvoiceType, options?: { autoGenerateVoucher?: boolean }) => Promise<{ success: number; errors: string[]; voucherCount?: number }>;
+  importInvoicesFromExcel: (invoices: Partial<Invoice>[], invoiceType: InvoiceType) => Promise<{ success: number; errors: string[] }>;
 
   // 核销
   addReconciliation: (rec: Omit<InvoiceReconciliation, 'id' | 'createTime'>) => Promise<InvoiceReconciliation>;
@@ -172,10 +172,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   },
 
   // 批量导入发票
-  importInvoicesFromExcel: async (invoicesData, invoiceType, options) => {
+  importInvoicesFromExcel: async (invoicesData, invoiceType) => {
     const errors: string[] = [];
     let success = 0;
-    let voucherCount = 0;
     const addedInvoices: Invoice[] = [];
 
     try {
@@ -327,30 +326,13 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         }));
       }
 
-      // 自动生成凭证
-      if (options?.autoGenerateVoucher && addedInvoices.length > 0) {
-        const today = new Date().toISOString().split('T')[0];
-        for (const invoice of addedInvoices) {
-          try {
-            const result = await get().generateInvoiceVoucher(invoice.id, invoice.invoiceDate || today);
-            if (result) {
-              voucherCount++;
-            }
-          } catch (error) {
-            const invoiceKey = invoice.digitalInvoiceNo
-              ? `${invoice.invoiceCode}/${invoice.digitalInvoiceNo}`
-              : invoice.invoiceCode;
-            errors.push(`发票 ${invoiceKey} 自动生成凭证失败: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-      }
-    } catch (error) {
+      } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       errors.push(`初始化失败: ${errorMsg}`);
       console.error('Invoice import initialization error:', error);
     }
 
-    return { success, errors, voucherCount };
+    return { success, errors };
   },
 
   // 添加核销记录
@@ -564,8 +546,23 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
       const partnerTrackingMethod = currentAccountSet?.accounting?.partnerTrackingMethod || 'card';
 
-      // 9. INSERT 凭证 — docNo 始终设为发票号码
-      const docNo = invoice.invoiceCode;
+      // 9. 构建单据号（发票号码+数电发票号码）并校验重复
+      const docNo = invoice.digitalInvoiceNo
+        ? `${invoice.invoiceCode}/${invoice.digitalInvoiceNo}`
+        : invoice.invoiceCode;
+
+      // 校验该单据号是否已在总账凭证中存在
+      const existingVoucher = db.exec(
+        `SELECT id, voucherNo FROM vouchers WHERE referenceNumber = ? AND accountSetId = ?`,
+        [docNo, accountSetId]
+      );
+      if (existingVoucher.length > 0 && existingVoucher[0].values.length > 0) {
+        const existingNo = existingVoucher[0].values[0][1] as string;
+        const msg = `单据号 ${docNo} 已在凭证 ${existingNo} 中入账，不允许重复入账`;
+        set({ error: msg });
+        return null;
+      }
+
       let stmt = db.prepare(
         `INSERT INTO vouchers (id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -644,7 +641,25 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           const { usePartnerStore } = await import('./usePartnerStore');
           const partners = usePartnerStore.getState().partners;
           const partnerNameToMatch = isInput ? invoice.sellerName : invoice.buyerName;
-          const matchedPartner = partners.find(p => p.name === partnerNameToMatch);
+          let matchedPartner = partners.find(p => p.name === partnerNameToMatch);
+
+          // 如果往来单位不存在，自动创建供应商/客户卡片
+          if (!matchedPartner && partnerNameToMatch) {
+            try {
+              matchedPartner = await usePartnerStore.getState().addPartner({
+                code: `P${Date.now()}`,
+                name: partnerNameToMatch,
+                isSupplier: isInput,
+                isCustomer: !isInput,
+                isEmployee: false,
+                taxNumber: isInput ? invoice.sellerTaxNo || undefined : invoice.buyerTaxNo || undefined,
+                frozen: false,
+              });
+            } catch (createErr) {
+              console.warn('自动创建往来单位失败:', createErr);
+            }
+          }
+
           if (matchedPartner) {
             auxiliaryJson = JSON.stringify({
               supplier: isInput ? matchedPartner.id : undefined,
