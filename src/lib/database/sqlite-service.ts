@@ -1109,6 +1109,10 @@ class SQLiteService {
         console.log('Migrating invoices table: adding groupName column');
         this.dbInstance.exec('ALTER TABLE invoices ADD COLUMN groupName TEXT;');
       }
+      if (!columns.includes('digitalInvoiceNo')) {
+        console.log('Migrating invoices table: adding digitalInvoiceNo column');
+        this.dbInstance.exec('ALTER TABLE invoices ADD COLUMN digitalInvoiceNo TEXT;');
+      }
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
         console.warn('Invoices table migration warning:', error);
@@ -2844,10 +2848,10 @@ class SQLiteService {
       id: `pirc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
       accountSetId: this.accountSetId,
       businessGroups: [
-        { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100 },
-        { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90 },
-        { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '2221.01.{{税率}}', creditSubject: '2241 其他应付款', partnerType: '报销人', priority: 80 },
-        { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70 },
+        { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['库存', '商品', '存货'] },
+        { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['材料', '原料', '配件'] },
+        { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '', creditSubject: '2241 其他应付款', partnerType: '员工', priority: 80, assetThreshold: 0, isPreset: true, autoTax: false, keywords: ['报销', '差旅', '办公'] },
+        { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['设备', '固定资产', '机器'] },
       ],
       keywordRules: [
         { id: '1', keywords: '电脑, 服务器', businessGroup: 'fixed_asset', threshold: 5000 },

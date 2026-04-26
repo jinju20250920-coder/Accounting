@@ -1066,7 +1066,7 @@ class AccountSetDbManager {
         id TEXT PRIMARY KEY,
         invoiceType TEXT NOT NULL,
         invoiceCode TEXT NOT NULL,
-        digitalInvoiceNo TEXT, -- 数电发票号码
+        digitalInvoiceNo TEXT,
         invoiceDate TEXT NOT NULL,
         sellerName TEXT,
         sellerTaxNo TEXT, -- 销方识别号

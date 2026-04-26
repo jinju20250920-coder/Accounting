@@ -97,14 +97,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
     const stmt = db.prepare(
       `INSERT INTO invoices (
-        id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
+        id, invoiceType, invoiceCode, invoiceDate, sellerName, sellerTaxNo,
         buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
         amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
         voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     stmt.run([
-      invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
+      invoice.id, invoice.invoiceType, invoice.invoiceCode,
       invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
       invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
       invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
@@ -144,6 +144,13 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
   // 删除发票
   deleteInvoice: async (id) => {
     const db = await getDb();
+
+    // 检查是否已生成凭证
+    const invoice = get().invoices.find(inv => inv.id === id);
+    if (invoice?.voucherId) {
+      set({ error: '该发票已生成凭证，不能删除。如需删除请先冲销关联凭证。' });
+      return;
+    }
 
     // 先删除相关的核销记录
     let stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE invoiceId = ?');
@@ -207,8 +214,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       for (const data of invoicesData) {
         const invoiceCode = data.invoiceCode || '';
         const digitalInvoiceNo = data.digitalInvoiceNo || '';
-        // 按"发票号码 + 数电发票号码"组合作为唯一键
-        const key = `${invoiceCode}|||${digitalInvoiceNo}`;
+        const key = digitalInvoiceNo ? `${invoiceCode}|||${digitalInvoiceNo}` : invoiceCode;
 
         if (groupedData.has(key)) {
           const group = groupedData.get(key)!;
@@ -225,7 +231,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             key,
             invoiceCode,
             digitalInvoiceNo,
-            firstRow: data,
+                firstRow: data,
             totalAmount: data.amount || 0,
             totalTaxAmount: data.taxAmount || 0,
             totalTotalAmount: data.totalAmount || 0,
@@ -238,24 +244,26 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
       console.log(`Invoice import: Grouped ${invoicesData.length} rows into ${groupedData.size} invoices`);
 
+      // 加载供应商映射和业务组配置，用于导入时匹配 groupName
+      const supplierMappings = await sqliteService.getSupplierMappings();
+      const ruleConfig = await sqliteService.getPurchaseInvoiceRuleConfig();
+
       // 导入汇总后的发票
       for (const [key, group] of groupedData) {
         try {
           const { invoiceCode, digitalInvoiceNo } = group;
           const data = group.firstRow;
 
-          // 检查发票号是否已存在 - 发票号码 + 数电发票号码 组合唯一
+          // 检查发票号是否已存在
           const checkStmt = db.prepare(
             'SELECT id FROM invoices WHERE invoiceCode = ? AND digitalInvoiceNo = ? AND invoiceType = ? AND accountSetId = ?'
           );
-          checkStmt.bind([invoiceCode, digitalInvoiceNo, invoiceType, accountSetId]);
+          checkStmt.bind([invoiceCode, digitalInvoiceNo || null, invoiceType, accountSetId]);
           const exists = checkStmt.step();
           checkStmt.free();
 
           if (exists) {
-            const invoiceKey = digitalInvoiceNo
-              ? `${invoiceCode}/${digitalInvoiceNo}`
-              : invoiceCode;
+            const invoiceKey = digitalInvoiceNo ? `${invoiceCode}/${digitalInvoiceNo}` : invoiceCode;
             errors.push(`发票 ${invoiceKey} 已存在，已跳过`);
             continue;
           }
@@ -265,7 +273,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             id: generateId(),
             invoiceType,
             invoiceCode: invoiceCode,
-            digitalInvoiceNo: digitalInvoiceNo || null,
+            digitalInvoiceNo: digitalInvoiceNo || undefined,
             invoiceDate: data.invoiceDate || '',
             sellerName: data.sellerName || '',
             sellerTaxNo: data.sellerTaxNo || null,
@@ -290,16 +298,61 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             holdStatus: 'normal', // 新增：设置默认状态为正常
           };
 
+          // 匹配业务组名称：优先供应商白名单 → 业务组关键词 → 关键词规则
+          let matchedGroupName: string | null = null;
+          const sellerName = invoice.sellerName?.trim();
+          if (sellerName) {
+            const supplierMatch = supplierMappings.find(m =>
+              m.sellerName?.trim() === sellerName
+            );
+            if (supplierMatch) {
+              matchedGroupName = supplierMatch.groupName;
+            }
+          }
+          if (!matchedGroupName) {
+            // 逐个商品名匹配（而非拼接后的字符串）
+            const goodsNames = group.goodsNames.length > 0 ? group.goodsNames : (invoice.goodsName ? [invoice.goodsName] : []);
+            const sortedGroups = [...ruleConfig.businessGroups].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+            for (const goodsItem of goodsNames) {
+              if (!goodsItem) continue;
+              const goodsLower = goodsItem.trim().toLowerCase();
+              // 优先匹配业务组自带的 keywords（按优先级排序）
+              for (const group of sortedGroups) {
+                if (group.keywords && group.keywords.some(kw => {
+                  const kwLower = kw.trim().toLowerCase();
+                  return goodsLower.includes(kwLower) || kwLower.includes(goodsLower);
+                })) {
+                  matchedGroupName = group.name;
+                  break;
+                }
+              }
+              if (matchedGroupName) break;
+              // 回退到 keywordRules
+              for (const rule of ruleConfig.keywordRules) {
+                const keywords = rule.keywords.split(/[,，]/).map(k => k.trim().toLowerCase()).filter(Boolean);
+                if (keywords.some(kw => goodsLower.includes(kw) || kw.includes(goodsLower))) {
+                  const group = ruleConfig.businessGroups.find(g => g.id === rule.businessGroup);
+                  if (group) {
+                    matchedGroupName = group.name;
+                    break;
+                  }
+                }
+              }
+              if (matchedGroupName) break;
+            }
+          }
+          invoice.groupName = matchedGroupName;
+
           const stmt = db.prepare(
             `INSERT INTO invoices (
               id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
               buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
               amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
               voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           );
           stmt.run([
-            invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
+            invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo || null,
             invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
             invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
             invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
@@ -314,9 +367,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           addedInvoices.push(invoice);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
-          const [invoiceCode, digitalInvoiceNo] = key.split('|||');
-          const invoiceKey = digitalInvoiceNo ? `${invoiceCode}/${digitalInvoiceNo}` : invoiceCode;
-          errors.push(`导入发票 ${invoiceKey} 失败: ${errorMsg}`);
+          errors.push(`导入发票 ${key} 失败: ${errorMsg}`);
           console.error('Invoice import error:', error);
         }
       }
@@ -497,6 +548,23 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       for (const [slot, val] of Object.entries(result.subjectOverrides)) {
         const entryId = slotMap[slot];
         if (entryId) mappedOverrides[entryId] = val;
+      }
+
+      // 5.5 业务组配置：如果匹配的业务组税金科目为空，则跳过税金分录
+      if (invoice.groupName) {
+        try {
+          const ruleConfig = await sqliteService.getPurchaseInvoiceRuleConfig();
+          const matchedGroup = ruleConfig.businessGroups.find(g => g.name === invoice.groupName);
+          if (matchedGroup && !matchedGroup.taxSubject) {
+            // 业务组明确不设税金科目，移除税金覆盖
+            const taxEntryId = slotMap['tax'];
+            if (taxEntryId) {
+              mappedOverrides[taxEntryId] = { code: '', name: '' };
+            }
+          }
+        } catch (e) {
+          console.warn('读取业务组配置失败:', e);
+        }
       }
 
       // 6. 科目校验 — 不存在的科目自动创建（税金科目等）

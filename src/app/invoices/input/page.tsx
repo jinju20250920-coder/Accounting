@@ -101,15 +101,14 @@ function InvoiceDetailDialog({
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Label className="text-slate-500">发票号码</Label>
-              <p className="font-medium">{invoice.invoiceCode}</p>
-            </div>
-            <div>
-              <Label className="text-slate-500">数电发票号码</Label>
-              <p className="font-medium">{invoice.digitalInvoiceNo || '-'}</p>
+              <p className="font-medium font-mono text-sm">{invoice.invoiceCode}</p>
+              {invoice.digitalInvoiceNo && (
+                <p className="font-mono text-xs text-slate-400 mt-0.5">{invoice.digitalInvoiceNo}</p>
+              )}
             </div>
             <div>
               <Label className="text-slate-500">开票日期</Label>
-              <p className="font-medium">{invoice.invoiceDate}</p>
+              <p className="font-medium">{invoice.invoiceDate ? invoice.invoiceDate.substring(0, 10) : ''}</p>
             </div>
           </div>
 
@@ -249,7 +248,9 @@ function ImportDialog({
 
     for (const inv of invoices) {
       // 按"发票号码 + 数电发票号码"组合作为唯一键
-      const key = `${inv.invoiceCode || ''}|||${inv.digitalInvoiceNo || ''}`;
+      const key = inv.digitalInvoiceNo
+        ? `${inv.invoiceCode}|||${inv.digitalInvoiceNo}`
+        : (inv.invoiceCode || '');
 
       console.log('处理行: invoiceCode=[' + inv.invoiceCode + '], digitalInvoiceNo=[' + inv.digitalInvoiceNo + '], totalAmount=' + inv.totalAmount + ', key=[' + key + ']');
 
@@ -337,15 +338,13 @@ function ImportDialog({
 
       let invoiceCode = '';
       let digitalInvoiceNo = '';
-
-      if (isValidDigitalNo) {
-        // 数电发票：数电发票号码是20位数字
+      if (isValidDigitalNo && rawDigitalNo) {
+        // 数电发票：发票号码和数电发票号码分开存储
         invoiceCode = rawInvoiceNumber || rawInvoiceCode || '';
         digitalInvoiceNo = rawDigitalNo;
       } else {
-        // 传统发票：数电发票号码为空、"--"或其他非20位数字
+        // 传统发票
         invoiceCode = rawInvoiceNumber || rawInvoiceCode || '';
-        digitalInvoiceNo = ''; // 不保存无效的数电发票号码
       }
 
       // 金额字段解析 - 确保转为数字
@@ -658,7 +657,6 @@ function ImportDialog({
                         />
                       </th>
                       <th className="px-3 py-2 text-left">发票号码</th>
-                      <th className="px-3 py-2 text-left">数电发票号码</th>
                       <th className="px-3 py-2 text-left">日期</th>
                       <th className="px-3 py-2 text-left">销售方</th>
                       <th className="px-3 py-2 text-right">金额</th>
@@ -683,8 +681,10 @@ function ImportDialog({
                             }}
                           />
                         </td>
-                        <td className="px-3 py-2">{inv.invoiceCode}</td>
-                        <td className="px-3 py-2 text-slate-500">{inv.digitalInvoiceNo || '-'}</td>
+                        <td className="px-3 py-2">
+                            <div className="font-mono text-xs">{inv.invoiceCode}</div>
+                            {inv.digitalInvoiceNo && <div className="font-mono text-xs text-slate-400 mt-0.5">{inv.digitalInvoiceNo}</div>}
+                          </td>
                         <td className="px-3 py-2">{inv.invoiceDate}</td>
                         <td className="px-3 py-2">{inv.sellerName}</td>
                         <td className="px-3 py-2 text-right">{inv.amount?.toFixed(2)}</td>
@@ -1011,6 +1011,11 @@ export default function InputInvoicePage() {
 
   // 单个删除
   const handleDelete = async (invoiceId: string) => {
+    const invoice = invoices.find(inv => inv.id === invoiceId);
+    if (invoice?.voucherId) {
+      showToast('warning', '该发票已生成凭证，不能删除。如需删除请先冲销关联凭证。');
+      return;
+    }
     const confirmed = window.confirm('确定要删除这条发票吗？');
     if (!confirmed) return;
 
@@ -1027,11 +1032,24 @@ export default function InputInvoicePage() {
   const handleBatchDelete = async () => {
     if (selectedInvoices.length === 0) return;
 
-    const confirmed = window.confirm(`确定要删除选中的 ${selectedInvoices.length} 条发票吗？`);
+    // 过滤掉已生成凭证的发票
+    const voucheredIds = selectedInvoices.filter(inv => inv.voucherId).map(inv => inv.id);
+    const deletableIds = Array.from(selectedIds).filter(id => !voucheredIds.includes(id));
+
+    if (deletableIds.length === 0) {
+      showToast('warning', '选中的发票均已生成凭证，不能删除。');
+      return;
+    }
+
+    if (voucheredIds.length > 0) {
+      showToast('info', `${voucheredIds.length} 条已生成凭证的发票已自动跳过`);
+    }
+
+    const confirmed = window.confirm(`确定要删除选中的 ${deletableIds.length} 条发票吗？`);
     if (!confirmed) return;
 
     try {
-      const result = await deleteInvoices(Array.from(selectedIds));
+      const result = await deleteInvoices(deletableIds);
       showToast('success', `成功删除 ${result.success} 条发票`);
       if (result.errors.length > 0) {
         showToast('error', `删除失败 ${result.errors.length} 条发票`);
@@ -1405,7 +1423,6 @@ export default function InputInvoicePage() {
                           />
                         </th>
                         <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">发票号码</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">数电发票号码</th>
                         <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">日期</th>
                         <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">销售方</th>
                         <th className="px-4 py-3 text-left text-sm font-medium text-slate-500">商品/服务</th>
@@ -1440,9 +1457,11 @@ export default function InputInvoicePage() {
                                 onCheckedChange={(checked) => handleSelectOne(invoice.id, checked)}
                               />
                             </td>
-                            <td className="px-4 py-3 font-medium">{invoice.invoiceCode}</td>
-                            <td className="px-4 py-3 text-slate-500 text-sm">{invoice.digitalInvoiceNo || '-'}</td>
-                            <td className="px-4 py-3">{invoice.invoiceDate}</td>
+                            <td className="px-4 py-3 font-medium font-mono text-sm">
+                            <div>{invoice.invoiceCode}</div>
+                            {invoice.digitalInvoiceNo && <div className="text-slate-400 text-xs mt-0.5">{invoice.digitalInvoiceNo}</div>}
+                          </td>
+                            <td className="px-4 py-3">{invoice.invoiceDate ? invoice.invoiceDate.substring(0, 10) : ''}</td>
                             <td className="px-4 py-3">{invoice.sellerName}</td>
                             <td className="px-4 py-3">{invoice.goodsName || '-'}</td>
                             <td className="px-4 py-3 text-right">¥{invoice.amount.toFixed(2)}</td>
@@ -1528,9 +1547,11 @@ export default function InputInvoicePage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  disabled={!!invoice.voucherId}
+                                  className={invoice.voucherId ? 'opacity-40' : ''}
                                   onClick={() => handleDelete(invoice.id)}
                                 >
-                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                  <Trash2 className={`h-4 w-4 ${invoice.voucherId ? 'text-slate-400' : 'text-red-500'}`} />
                                 </Button>
                               </div>
                             </td>

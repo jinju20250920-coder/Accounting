@@ -1003,7 +1003,7 @@ export interface Invoice {
   id: string;
   invoiceType: InvoiceType;         // 发票类型: input(进项)/output(销项)
   invoiceCode: string;              // 发票号码
-  digitalInvoiceNo?: string;        // 数电发票号码（全电发票专用）
+  digitalInvoiceNo?: string;        // 数电发票号码（与发票号码二选一）
   invoiceDate: string;              // 开票日期
   sellerName: string;               // 销售方名称
   sellerTaxNo?: string;             // 销售方税号
@@ -1252,11 +1252,18 @@ export interface PurchaseInvoiceRuleConfig {
     id: string;
     name: string;
     debitSubject: string;
+    debitSubjectName?: string;
     taxSubject: string;
+    taxSubjectName?: string;
     creditSubject: string;
+    creditSubjectName?: string;
     partnerType: string;
     assetThreshold?: number;
-    priority?: number; // 优先级，数值越高优先级越高
+    priority?: number;
+    description?: string;
+    isPreset?: boolean;
+    autoTax?: boolean;
+    keywords?: string[];
   }[];
   keywordRules: {
     id: string;
