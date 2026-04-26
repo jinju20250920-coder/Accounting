@@ -460,6 +460,17 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       // 2. 匹配规则（最高优先级的启用规则，条件全部 AND 满足）
       const matchedRule = matchRule(invoice, rules, supplierMappings);
 
+      // 2.5 从匹配规则中提取税金基础科目（用于自动税率匹配）
+      let baseTaxSubject: string | undefined;
+      if (matchedRule) {
+        const taxAction = matchedRule.actions.find(
+          (a: any) => a.type === 'overrideSubject' && a.slot === 'tax'
+        ) as any;
+        if (taxAction?.subjectCode) {
+          baseTaxSubject = taxAction.subjectCode;
+        }
+      }
+
       // 3. 检测费用类别（报销/差旅/招待等）
       const expenseCategory = detectExpenseCategory(invoice, expenseKeywords);
 
@@ -473,6 +484,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         expenseKeywords,
         assetMappings,
         allRules: rules,
+        baseTaxSubject,
       };
       const result = executeActions(engineContext);
 

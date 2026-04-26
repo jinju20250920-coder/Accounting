@@ -1296,6 +1296,7 @@ export interface EngineContext {
   expenseKeywords: ExpenseKeywordCategory[];
   assetMappings: AssetCategoryMapping[];
   allRules: InvoiceSmartRule[];
+  baseTaxSubject?: string;
 }
 
 // 发票筛选条件

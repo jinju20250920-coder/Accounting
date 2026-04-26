@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { getCurrentService } from '@/lib/database';
+import { getCurrentService, sqliteService } from '@/lib/database';
 import type { Subject } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
 import defaultSubjects from '@/lib/data/subjects.json';
@@ -521,6 +521,11 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       // 获取当前账套ID
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+      // 确保 sqliteService 的 accountSetId 与当前账套一致
+      if (currentAccountSet && sqliteService.accountSetId !== currentAccountSet.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+      }
 
       const state = get();
       console.log('初始化检查 - 当前科目:', state.subjects);

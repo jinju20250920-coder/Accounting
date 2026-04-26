@@ -10,11 +10,14 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerFooter, DrawerTitle, DrawerD
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings2, Plus, Trash2, Edit2, Search, Info, ChevronDown, ChevronUp, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Popover } from '@/components/ui/popover';
+import { Settings2, Plus, Trash2, Edit2, Search, Info, ChevronDown, ChevronUp, GripVertical, ArrowUp, ArrowDown, Check, X, Zap, Shield, UserCheck } from 'lucide-react';
 import { BusinessGroupDrawer } from './components/business-group-drawer';
 import { RuleConflictDetector } from './utils/rule-conflict-detector';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useToast } from '@/components/ui/toast';
 import type { SupplierSubjectMapping } from '@/types';
 
@@ -23,6 +26,7 @@ interface BusinessGroup {
   name: string;
   debitSubject: string;
   taxSubject: string;
+  taxSubjectName?: string;
   creditSubject: string;
   partnerType: string;
   assetThreshold: number;
@@ -62,6 +66,106 @@ interface PurchaseInvoiceRulesProps {
   open: boolean;
 }
 
+// 往来单位下拉选择器
+function PartnerPopover({
+  value,
+  onChange,
+  placeholder,
+  filterSupplier,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+  placeholder: string;
+  filterSupplier?: boolean;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const partners = usePartnerStore((s) => s.partners);
+
+  const filteredPartners = useMemo(() => {
+    const q = search.toLowerCase();
+    return partners
+      .filter((p) => !filterSupplier || p.isSupplier)
+      .filter((p) => p.name.toLowerCase().includes(q) || (p.code && p.code.toLowerCase().includes(q)))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [partners, search, filterSupplier]);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      content={
+        <div className="w-56 bg-white border border-slate-200/80 rounded-lg shadow-xl">
+          <div className="p-2 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索往来单位..."
+                className="w-full pl-7 pr-3 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 bg-slate-50"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
+            {filteredPartners.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-slate-500 text-center">无匹配往来单位</div>
+            ) : (
+              filteredPartners.map((p) => (
+                <button
+                  key={p.id}
+                  className={`w-full px-3 py-2 text-sm text-left hover:bg-blue-50 flex items-center gap-2 ${
+                    p.name === value ? 'bg-blue-50 text-blue-700' : ''
+                  }`}
+                  onClick={() => {
+                    onChange(p.name);
+                    setOpen(false);
+                    setSearch('');
+                  }}
+                >
+                  <span className="flex-1">{p.name}</span>
+                  {p.isSupplier && <Badge variant="outline" className="text-xs px-1 py-0">供应商</Badge>}
+                  {p.isCustomer && <Badge variant="outline" className="text-xs px-1 py-0">客户</Badge>}
+                  {p.name === value && <Check className="h-3.5 w-3.5 text-blue-600" />}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      }
+    >
+      <button
+        className={`h-8 w-full text-sm rounded-md px-3 text-left flex items-center gap-2 transition-colors ${
+          value
+            ? 'bg-slate-50 text-slate-800 border border-slate-200'
+            : 'border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
+        }`}
+        onClick={() => setOpen(!open)}
+      >
+        {value ? (
+          <>
+            <span className="flex-1 truncate">{value}</span>
+            <X
+              className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600 shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+                setOpen(false);
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <Search className="h-3.5 w-3.5 text-slate-400" />
+            <span>{placeholder}</span>
+          </>
+        )}
+      </button>
+    </Popover>
+  );
+}
+
 export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const [config, setConfig] = useState<PurchaseInvoiceRuleConfig>({
     id: '',
@@ -98,14 +202,13 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
 
   // 供应商白名单相关状态
   const [supplierMappings, setSupplierMappings] = useState<SupplierSubjectMapping[]>([]);
-  const [showSupplierDrawer, setShowSupplierDrawer] = useState(false);
-  const [editingSupplier, setEditingSupplier] = useState<SupplierSubjectMapping | null>(null);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const [supplierSearch, setSupplierSearch] = useState('');
   const [supplierForm, setSupplierForm] = useState({
     groupName: '',
     sellerName: '',
   });
+  const [isAddingSupplier, setIsAddingSupplier] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<any[]>([]);
@@ -281,24 +384,24 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     });
   };
 
-  // 处理新增供应商白名单
+  // 处理新增供应商（内联表格模式）
   const handleAddSupplierMapping = () => {
-    setEditingSupplier(null);
+    setIsAddingSupplier(true);
     setSupplierForm({
       groupName: config.businessGroups[0]?.name || '',
       sellerName: '',
     });
-    setShowSupplierDrawer(true);
+    setEditingSupplierId(null);
   };
 
-  // 处理编辑供应商白名单
+  // 处理编辑供应商（内联表格模式）
   const handleEditSupplierMapping = (mapping: SupplierSubjectMapping) => {
-    setEditingSupplier(mapping);
+    setEditingSupplierId(mapping.id);
     setSupplierForm({
       groupName: mapping.groupName,
       sellerName: mapping.sellerName,
     });
-    setShowSupplierDrawer(true);
+    setIsAddingSupplier(false);
   };
 
   // 处理删除供应商白名单
@@ -311,29 +414,65 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     }
   };
 
-  // 处理保存供应商白名单
-  const handleSaveSupplierMapping = async () => {
-    if (!supplierForm.sellerName.trim() || !supplierForm.groupName.trim()) {
+  // 内联保存供应商白名单
+  const handleSaveSupplierMappingInline = async (id: string) => {
+    if (!supplierForm.sellerName.trim() || !supplierForm.groupName.trim()) return;
+    // 检查重复（排除自身）
+    const duplicate = supplierMappings.find(m => m.sellerName === supplierForm.sellerName.trim() && m.id !== id);
+    if (duplicate) {
+      console.warn(`供应商"${supplierForm.sellerName.trim()}"已存在于业务组"${duplicate.groupName}"中`);
       return;
     }
-
     try {
       const now = new Date().toISOString();
+      const existing = supplierMappings.find(m => m.id === id);
       const mapping: SupplierSubjectMapping = {
-        id: editingSupplier?.id || `ssm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        id,
         accountSetId: useAccountSetStore.getState().currentAccountSetId || 'default',
         groupName: supplierForm.groupName,
         sellerName: supplierForm.sellerName.trim(),
-        createTime: editingSupplier?.createTime || now,
+        createTime: existing?.createTime || now,
         updateTime: now,
       };
       await sqliteService.saveSupplierMapping(mapping);
       await loadSupplierMappings();
-      setShowSupplierDrawer(false);
-      setEditingSupplier(null);
+      setEditingSupplierId(null);
     } catch (error) {
       console.error('保存供应商白名单失败:', error);
     }
+  };
+
+  // 内联保存新增供应商
+  const handleSaveNewSupplierInline = async () => {
+    if (!supplierForm.sellerName.trim() || !supplierForm.groupName.trim()) return;
+    // 检查重复
+    const duplicate = supplierMappings.find(m => m.sellerName === supplierForm.sellerName.trim());
+    if (duplicate) {
+      console.warn(`供应商"${supplierForm.sellerName.trim()}"已存在于业务组"${duplicate.groupName}"中`);
+      return;
+    }
+    try {
+      const now = new Date().toISOString();
+      const mapping: SupplierSubjectMapping = {
+        id: `ssm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        accountSetId: useAccountSetStore.getState().currentAccountSetId || 'default',
+        groupName: supplierForm.groupName,
+        sellerName: supplierForm.sellerName.trim(),
+        createTime: now,
+        updateTime: now,
+      };
+      await sqliteService.saveSupplierMapping(mapping);
+      await loadSupplierMappings();
+      setIsAddingSupplier(false);
+    } catch (error) {
+      console.error('保存供应商白名单失败:', error);
+    }
+  };
+
+  // 取消编辑/新增供应商
+  const handleCancelEditSupplier = () => {
+    setEditingSupplierId(null);
+    setIsAddingSupplier(false);
   };
 
   // 过滤供应商白名单
@@ -599,7 +738,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
               </div>
             </CardHeader>
             <CardContent>
-              {/* 供应商列表 */}
               <div className="space-y-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
@@ -611,120 +749,151 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                   />
                 </div>
                 <div className="border rounded-lg overflow-hidden">
-                  {/* 表格内容 */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50 border-b">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                            业务组
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                             供应商名称
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                            所属业务组
-                          </th>
+                          {config.businessGroups.map((group) => (
+                            <th key={group.id} className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                              {group.name}
+                            </th>
+                          ))}
                           <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
                             操作
                           </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-slate-200">
-                        {filteredSupplierMappings.length === 0 ? (
+                        {filteredSupplierMappings.length === 0 && !isAddingSupplier ? (
                           <tr>
-                            <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                              暂无供应商白名单数据
+                            <td colSpan={config.businessGroups.length + 2} className="px-4 py-8 text-center text-slate-500">
+                              暂无供应商白名单数据，点击"新增供应商"添加
                             </td>
                           </tr>
                         ) : (
-                          filteredSupplierMappings.map((mapping) => (
-                            <tr key={mapping.id} className="hover:bg-slate-50 transition-colors">
-                              {editingSupplierId === mapping.id ? (
-                                <>
-                                  <td className="px-4 py-3">
-                                    <Badge variant="outline" className="text-xs">
-                                      {mapping.groupName}
-                                    </Badge>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <Input
-                                      value={supplierForm.sellerName}
-                                      onChange={(e) => setSupplierForm({ ...supplierForm, sellerName: e.target.value })}
-                                      className="h-8 text-sm"
+                          <>
+                            {filteredSupplierMappings.map((mapping) => (
+                              <tr key={mapping.id} className="hover:bg-slate-50 transition-colors">
+                                {editingSupplierId === mapping.id ? (
+                                  <>
+                                    <td className="px-4 py-3">
+                                      <PartnerPopover
+                                        value={supplierForm.sellerName}
+                                        onChange={(name) => setSupplierForm({ ...supplierForm, sellerName: name })}
+                                        placeholder="选择供应商"
+                                        filterSupplier
+                                      />
+                                    </td>
+                                    {config.businessGroups.map((group) => (
+                                      <td key={group.id} className="px-4 py-3 text-center">
+                                        <input
+                                          type="radio"
+                                          name={`edit-group-${mapping.id}`}
+                                          checked={supplierForm.groupName === group.name}
+                                          onChange={() => setSupplierForm({ ...supplierForm, groupName: group.name })}
+                                          className="h-4 w-4 text-blue-600"
+                                        />
+                                      </td>
+                                    ))}
+                                    <td className="px-4 py-3 text-right space-x-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 text-green-600"
+                                        onClick={() => handleSaveSupplierMappingInline(mapping.id)}
+                                      >
+                                        <Check className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={handleCancelEditSupplier}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="px-4 py-3 text-sm font-medium">{mapping.sellerName}</td>
+                                    {config.businessGroups.map((group) => (
+                                      <td key={group.id} className="px-4 py-3 text-center">
+                                        {mapping.groupName === group.name ? (
+                                          <Check className="h-4 w-4 text-green-600 mx-auto" />
+                                        ) : (
+                                          <span className="text-slate-300">-</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                    <td className="px-4 py-3 text-right space-x-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => handleEditSupplierMapping(mapping)}
+                                      >
+                                        <Edit2 className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 text-red-500"
+                                        onClick={() => handleDeleteSupplierMapping(mapping.id)}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </td>
+                                  </>
+                                )}
+                              </tr>
+                            ))}
+                            {/* 新增供应商内联行 */}
+                            {isAddingSupplier && (
+                              <tr className="bg-blue-50/50">
+                                <td className="px-4 py-3">
+                                  <PartnerPopover
+                                    value={supplierForm.sellerName}
+                                    onChange={(name) => setSupplierForm({ ...supplierForm, sellerName: name })}
+                                    placeholder="选择供应商"
+                                    filterSupplier
+                                  />
+                                </td>
+                                {config.businessGroups.map((group) => (
+                                  <td key={group.id} className="px-4 py-3 text-center">
+                                    <input
+                                      type="radio"
+                                      name="new-supplier-group"
+                                      checked={supplierForm.groupName === group.name}
+                                      onChange={() => setSupplierForm({ ...supplierForm, groupName: group.name })}
+                                      className="h-4 w-4 text-blue-600"
                                     />
                                   </td>
-                                  <td className="px-4 py-3">
-                                    <Select
-                                      value={supplierForm.groupName}
-                                      onValueChange={(value) => setSupplierForm({ ...supplierForm, groupName: value })}
-                                    >
-                                      <SelectTrigger className="h-8 w-full">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {config.businessGroups.map((group) => (
-                                          <SelectItem key={group.id} value={group.name}>
-                                            {group.name}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </td>
-                                  <td className="px-4 py-3 text-right space-x-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 text-green-600"
-                                      onClick={() => handleSaveSupplierMappingInline(mapping.id)}
-                                    >
-                                      <Check className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => handleCancelEditSupplier()}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  </td>
-                                </>
-                              ) : (
-                                <>
-                                  <td className="px-4 py-3">
-                                    <Badge variant="outline" className="text-xs">
-                                      {mapping.groupName}
-                                    </Badge>
-                                  </td>
-                                  <td className="px-4 py-3 text-sm font-medium">{mapping.sellerName}</td>
-                                  <td className="px-4 py-3">
-                                    <Badge variant="outline" className="text-xs">
-                                      {mapping.groupName}
-                                    </Badge>
-                                  </td>
-                                  <td className="px-4 py-3 text-right space-x-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => handleEditSupplierMapping(mapping)}
-                                    >
-                                      <Edit2 className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 text-red-500"
-                                      onClick={() => handleDeleteSupplierMapping(mapping.id)}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </td>
-                                </>
-                              )}
-                            </tr>
-                          ))
+                                ))}
+                                <td className="px-4 py-3 text-right space-x-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-green-600"
+                                    onClick={handleSaveNewSupplierInline}
+                                  >
+                                    <Check className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={handleCancelEditSupplier}
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            )}
+                          </>
                         )}
                       </tbody>
                     </table>
@@ -796,39 +965,72 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
             <CardContent className="space-y-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">自动税金科目匹配</div>
-                    <div className="text-xs text-slate-500">
-                      根据发票税率自动匹配对应税金科目
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-50 rounded-lg">
+                      <Zap className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">自动税金科目匹配</div>
+                      <div className="text-xs text-slate-500">
+                        根据发票税率自动匹配对应税金科目（如13%→进项税额(13%)）
+                      </div>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm">
-                    配置
-                  </Button>
+                  <Switch
+                    checked={config.globalSettings.autoTaxSubject}
+                    onCheckedChange={(checked) =>
+                      setConfig({
+                        ...config,
+                        globalSettings: { ...config.globalSettings, autoTaxSubject: checked },
+                      })
+                    }
+                  />
                 </div>
                 <div className="h-px bg-slate-200" />
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">重复发票检查</div>
-                    <div className="text-xs text-slate-500">
-                      自动检查重复发票，避免重复录入
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-50 rounded-lg">
+                      <Shield className="h-4 w-4 text-green-600" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">重复发票检查</div>
+                      <div className="text-xs text-slate-500">
+                        入账时自动检查发票号码是否已存在，避免重复入账
+                      </div>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm">
-                    配置
-                  </Button>
+                  <Switch
+                    checked={config.globalSettings.autoCheckDuplicate}
+                    onCheckedChange={(checked) =>
+                      setConfig({
+                        ...config,
+                        globalSettings: { ...config.globalSettings, autoCheckDuplicate: checked },
+                      })
+                    }
+                  />
                 </div>
                 <div className="h-px bg-slate-200" />
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">报销人识别</div>
-                    <div className="text-xs text-slate-500">
-                      自动识别发票中的报销人信息
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-50 rounded-lg">
+                      <UserCheck className="h-4 w-4 text-purple-600" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">报销人识别</div>
+                      <div className="text-xs text-slate-500">
+                        自动识别发票中的报销人信息，匹配员工往来卡片
+                      </div>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm">
-                    配置
-                  </Button>
+                  <Switch
+                    checked={config.globalSettings.autoRecognizeReimburser}
+                    onCheckedChange={(checked) =>
+                      setConfig({
+                        ...config,
+                        globalSettings: { ...config.globalSettings, autoRecognizeReimburser: checked },
+                      })
+                    }
+                  />
                 </div>
               </div>
             </CardContent>
@@ -846,10 +1048,11 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
             ? {
                 name: editingGroup.name,
                 debitSubject: editingGroup.debitSubject,
-                debitSubjectName: '',
+                debitSubjectName: editingGroup.debitSubjectName || '',
                 taxSubject: editingGroup.taxSubject,
+                taxSubjectName: editingGroup.taxSubjectName || '',
                 creditSubject: editingGroup.creditSubject,
-                creditSubjectName: '',
+                creditSubjectName: editingGroup.creditSubjectName || '',
                 partnerType: editingGroup.partnerType,
                 assetThreshold: editingGroup.assetThreshold,
               }
@@ -910,55 +1113,6 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
               取消
             </Button>
             <Button onClick={handleSaveKeywordRule}>
-              保存
-            </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-
-      {/* 供应商白名单编辑抽屉 */}
-      <Drawer open={showSupplierDrawer} onOpenChange={setShowSupplierDrawer}>
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>{editingSupplier ? '编辑供应商白名单' : '新增供应商白名单'}</DrawerTitle>
-            <DrawerDescription>
-              配置供应商与业务组的映射关系，用于智能匹配
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="space-y-4 p-4">
-            <div>
-              <Label className="text-xs">供应商名称</Label>
-              <Input
-                value={supplierForm.sellerName}
-                onChange={(e) => setSupplierForm({ ...supplierForm, sellerName: e.target.value })}
-                placeholder="例如：阿里巴巴集团"
-                className="h-8 text-sm mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">所属业务组</Label>
-              <Select
-                value={supplierForm.groupName}
-                onValueChange={(value) => setSupplierForm({ ...supplierForm, groupName: value })}
-              >
-                <SelectTrigger className="h-8 w-full mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {config.businessGroups.map((group) => (
-                    <SelectItem key={group.id} value={group.name}>
-                      {group.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DrawerFooter>
-            <Button variant="outline" onClick={() => setShowSupplierDrawer(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSaveSupplierMapping}>
               保存
             </Button>
           </DrawerFooter>

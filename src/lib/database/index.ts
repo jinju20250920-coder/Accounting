@@ -30,3 +30,6 @@ export function setDatabaseType(type: DatabaseType) {
 export function getDatabaseType(): DatabaseType {
   return currentDatabase;
 }
+
+// Re-export sqliteService for direct access (e.g., accountSetId sync)
+export { sqliteService };

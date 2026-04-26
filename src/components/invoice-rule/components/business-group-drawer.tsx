@@ -1,6 +1,6 @@
 // src/components/invoice-rule/components/business-group-drawer.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, X } from 'lucide-react';
+import { Plus, Search, Check, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Popover } from '@/components/ui/popover';
+import { useSubjectStore } from '@/stores/useSubjectStore';
 
 interface BusinessGroupDrawerProps {
   open: boolean;
@@ -28,6 +30,108 @@ const COMMON_VARIABLES = [
   { name: '商品类型', value: '{{商品类型}}', color: 'bg-purple-100 text-purple-700' },
 ];
 
+// 科目下拉选择器组件
+function SubjectPopover({
+  value,
+  name,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  name: string;
+  onChange: (code: string, name: string) => void;
+  placeholder: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const subjects = useSubjectStore((s) => s.subjects);
+
+  const filteredSubjects = useMemo(() => {
+    const q = search.toLowerCase();
+    return subjects
+      .filter((s) => !s.disabled)
+      .filter((s) => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [subjects, search]);
+
+  const selected = subjects.find((s) => s.code === value);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      content={
+        <div className="w-64 bg-white border border-slate-200/80 rounded-lg shadow-xl">
+          <div className="p-2 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索科目代码或名称..."
+                className="w-full pl-7 pr-3 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 bg-slate-50"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight: '240px' }}>
+            {filteredSubjects.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-slate-500 text-center">无匹配科目</div>
+            ) : (
+              filteredSubjects.map((s) => (
+                <button
+                  key={s.id}
+                  className={`w-full px-3 py-2 text-sm text-left hover:bg-blue-50 flex items-center gap-2 ${
+                    s.code === value ? 'bg-blue-50 text-blue-700' : ''
+                  }`}
+                  onClick={() => {
+                    onChange(s.code, s.name);
+                    setOpen(false);
+                    setSearch('');
+                  }}
+                >
+                  <span className="font-medium text-xs w-16 text-slate-600">{s.code}</span>
+                  <span className="flex-1">{s.name}</span>
+                  {s.code === value && <Check className="h-3.5 w-3.5 text-blue-600" />}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      }
+    >
+      <button
+        className={`h-8 w-full text-sm mt-1 rounded-md px-3 text-left flex items-center gap-2 transition-colors ${
+          selected
+            ? 'bg-slate-50 text-slate-800 border border-slate-200'
+            : 'border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
+        }`}
+        onClick={() => setOpen(!open)}
+      >
+        {selected ? (
+          <>
+            <span className="text-xs font-medium text-blue-600">{selected.code}</span>
+            <span className="flex-1 truncate">{selected.name}</span>
+            <X
+              className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600 shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('', '');
+                setOpen(false);
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <Search className="h-3.5 w-3.5 text-slate-400" />
+            <span>{placeholder}</span>
+          </>
+        )}
+      </button>
+    </Popover>
+  );
+}
+
 export function BusinessGroupDrawer({
   open,
   onOpenChange,
@@ -39,6 +143,7 @@ export function BusinessGroupDrawer({
     debitSubject: '',
     debitSubjectName: '',
     taxSubject: '2221.01.{{税率}}',
+    taxSubjectName: '',
     creditSubject: '',
     creditSubjectName: '',
     partnerType: '供应商',
@@ -61,6 +166,7 @@ export function BusinessGroupDrawer({
         debitSubject: defaultValues.debitSubject || '',
         debitSubjectName: defaultValues.debitSubjectName || '',
         taxSubject: defaultValues.taxSubject || '2221.01.{{税率}}',
+        taxSubjectName: defaultValues.taxSubjectName || '',
         creditSubject: defaultValues.creditSubject || '',
         creditSubjectName: defaultValues.creditSubjectName || '',
         partnerType: isCustomPartnerType ? '其他' : defaultValues.partnerType,
@@ -80,6 +186,7 @@ export function BusinessGroupDrawer({
         debitSubject: '',
         debitSubjectName: '',
         taxSubject: '2221.01.{{税率}}',
+        taxSubjectName: '',
         creditSubject: '',
         creditSubjectName: '',
         partnerType: '供应商',
@@ -265,25 +372,20 @@ export function BusinessGroupDrawer({
               {/* 借方科目 */}
               <div>
                 <Label className="text-xs" required>借方科目</Label>
-                <Input
+                <SubjectPopover
                   value={formData.debitSubject}
-                  onChange={(e) => setFormData(prev => ({ ...prev, debitSubject: e.target.value }))}
-                  placeholder="例如：1403 原材料"
-                  className="h-8 text-sm mt-1"
+                  name={formData.debitSubjectName}
+                  onChange={(code, name) => setFormData(prev => ({ ...prev, debitSubject: code, debitSubjectName: name }))}
+                  placeholder="选择借方科目"
                 />
               </div>
 
               {/* 税金科目（紧接借方下方） */}
               <div className="border-l-2 border-blue-200 pl-4 -ml-1">
-                <Label className="text-xs">税金科目</Label>
-                <div className="relative mt-1">
-                  <Input
-                    value={formData.taxSubject}
-                    onChange={(e) => setFormData(prev => ({ ...prev, taxSubject: e.target.value }))}
-                    placeholder="例如：2221.01.{{税率}}"
-                    className="h-8 text-sm pr-10"
-                  />
-                  <div className="absolute right-1 top-1/2 transform -translate-y-1/2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">税金科目</Label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-500">自动</span>
                     <Switch
                       checked={formData.autoTax}
                       onCheckedChange={(checked) => setFormData(prev => ({ ...prev, autoTax: checked }))}
@@ -291,6 +393,12 @@ export function BusinessGroupDrawer({
                     />
                   </div>
                 </div>
+                <SubjectPopover
+                  value={formData.taxSubject}
+                  name={formData.taxSubjectName}
+                  onChange={(code, name) => setFormData(prev => ({ ...prev, taxSubject: code, taxSubjectName: name }))}
+                  placeholder="选择税金科目"
+                />
                 {/* 常用变量选择器 */}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {COMMON_VARIABLES.map((variable) => (
@@ -354,11 +462,11 @@ export function BusinessGroupDrawer({
             <div className="space-y-4">
               <div>
                 <Label className="text-xs" required>贷方科目</Label>
-                <Input
+                <SubjectPopover
                   value={formData.creditSubject}
-                  onChange={(e) => setFormData(prev => ({ ...prev, creditSubject: e.target.value }))}
-                  placeholder="例如：2202 应付账款"
-                  className="h-8 text-sm mt-1"
+                  name={formData.creditSubjectName}
+                  onChange={(code, name) => setFormData(prev => ({ ...prev, creditSubject: code, creditSubjectName: name }))}
+                  placeholder="选择贷方科目"
                 />
               </div>
 

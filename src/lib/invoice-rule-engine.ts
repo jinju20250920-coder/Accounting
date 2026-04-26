@@ -313,6 +313,7 @@ export function executeActions(context: EngineContext): ActionResult {
     auxiliaryStrategy,
     expenseKeywords,
     assetMappings,
+    baseTaxSubject,
   } = context;
 
   // No rule matched — apply default logic
@@ -334,7 +335,7 @@ export function executeActions(context: EngineContext): ActionResult {
     };
 
     // Apply dynamic tax subject logic even when no rule matches
-    const taxSubject = getDynamicTaxSubject(invoice);
+    const taxSubject = getDynamicTaxSubject(invoice, baseTaxSubject);
     if (taxSubject) {
       defaultResult.subjectOverrides['tax'] = taxSubject;
     }
@@ -403,7 +404,7 @@ export function executeActions(context: EngineContext): ActionResult {
   }
 
   // Apply dynamic tax subject logic (overrides any rule-defined tax subject)
-  const taxSubject = getDynamicTaxSubject(invoice);
+  const taxSubject = getDynamicTaxSubject(invoice, baseTaxSubject);
   if (taxSubject) {
     subjectOverrides['tax'] = taxSubject;
   }
@@ -452,25 +453,32 @@ export function executeActions(context: EngineContext): ActionResult {
 }
 
 /**
- * Get dynamic tax subject based on invoice tax rate
- * Parent subject (2221.01) + auto-find/create child based on tax rate (e.g., 2221.01.13%)
+ * Get dynamic tax subject based on invoice tax rate and base tax subject
+ * baseTaxSubject: e.g. "2221" → generates "22210113" (进项) or "22210213" (销项)
+ * The base code is extended with 01 (进项) or 02 (销项) + tax rate percentage
  */
-function getDynamicTaxSubject(invoice: Invoice): { code: string; name: string } | null {
+export function getDynamicTaxSubject(invoice: Invoice, baseTaxSubject?: string): { code: string; name: string } | null {
   if (!invoice.taxRate) return null;
 
-  // Base tax subject code (222101 for input tax, 222102 for output tax)
-  const baseCode = invoice.invoiceType === 'input' ? '222101' : '222102';
-  const baseName = invoice.invoiceType === 'input' ? '进项税额' : '销项税额';
-
-  // Create dynamic tax subject code with tax rate (纯数字格式)
   const taxRatePercent = Math.round(invoice.taxRate * 100);
-  const taxCode = `${baseCode}${taxRatePercent.toString().padStart(2, '0')}`;
-  const taxName = `${baseName}(${taxRatePercent}%)`;
+  const isInput = invoice.invoiceType === 'input';
+  const suffix = isInput ? '01' : '02';
+  const baseName = isInput ? '进项税额' : '销项税额';
 
-  return {
-    code: taxCode,
-    name: taxName,
-  };
+  // Use base tax subject if provided, otherwise default to 2221
+  const base = baseTaxSubject || '2221';
+
+  // Remove dots from base code (e.g. "2221.01" → "222101")
+  const cleanBase = base.replace(/\./g, '');
+
+  // If base already ends with 01/02, don't add suffix again
+  const code = cleanBase.endsWith('01') || cleanBase.endsWith('02')
+    ? `${cleanBase}${taxRatePercent.toString().padStart(2, '0')}`
+    : `${cleanBase}${suffix}${taxRatePercent.toString().padStart(2, '0')}`;
+
+  const name = `${baseName}(${taxRatePercent}%)`;
+
+  return { code, name };
 }
 
 /**

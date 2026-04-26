@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 
 interface PopoverProps {
@@ -29,6 +30,7 @@ export function Popover({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const [position, setPosition] = React.useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
   const open = controlledOpen ?? uncontrolledOpen;
 
@@ -40,6 +42,35 @@ export function Popover({
     },
     [disabled, onOpenChange]
   );
+
+  // 计算浮层位置（相对于视口）
+  const updatePosition = React.useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const scrollY = window.scrollY;
+    const scrollX = window.scrollX;
+
+    let top = rect.bottom + scrollY + sideOffset;
+    let left = rect.left + scrollX + alignOffset;
+
+    if (side === 'top') {
+      top = rect.top + scrollY - sideOffset;
+    }
+
+    if (align === 'center') {
+      left = rect.left + scrollX + rect.width / 2 - 128; // 128 = half of typical 256px width
+    } else if (align === 'end') {
+      left = rect.right + scrollX - 256 + alignOffset;
+    }
+
+    setPosition({ top, left, width: rect.width });
+  }, [side, sideOffset, align, alignOffset]);
+
+  React.useEffect(() => {
+    if (open) {
+      updatePosition();
+    }
+  }, [open, updatePosition]);
 
   // 点击外部关闭
   React.useEffect(() => {
@@ -74,11 +105,28 @@ export function Popover({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [open, handleOpenChange]);
 
+  // Portal 内容
+  const portalContent = open ? (
+    createPortal(
+      <div
+        ref={contentRef}
+        className="fixed z-[9999]"
+        style={{
+          top: position.top,
+          left: position.left,
+          minWidth: position.width,
+        }}
+      >
+        {content}
+      </div>,
+      document.body
+    )
+  ) : null;
+
   return (
     <div className="relative" ref={triggerRef}>
       <div
         onClick={() => {
-          // 只有在非受控模式下才响应点击
           if (controlledOpen === undefined) {
             handleOpenChange(!open);
           }
@@ -87,19 +135,7 @@ export function Popover({
       >
         {children}
       </div>
-
-      {open && (
-        <div
-          ref={contentRef}
-          className="absolute z-50 w-full mt-1"
-          style={{
-            top: '100%',
-            left: 0,
-          }}
-        >
-          {content}
-        </div>
-      )}
+      {portalContent}
     </div>
   );
 }
@@ -123,7 +159,7 @@ export const PopoverContent = ({
         'bg-white rounded-lg shadow-lg border border-slate-200 p-1',
         className
       )}
-      style={{ maxHeight: '320px', overflowY: 'auto', ...style }}
+      style={{ ...style }}
     >
       {children}
     </div>
