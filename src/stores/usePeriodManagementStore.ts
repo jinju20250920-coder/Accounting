@@ -115,10 +115,24 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
   showCreateModal: false,
   activeTab: 'periods',
 
-  // 获取当前期间（从当前账套获取）
+  // 获取当前期间（动态计算：最新的 open 状态期间）
   getCurrentPeriod: () => {
     const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
-    return currentAccountSet?.accountingPeriods?.find(period => period.isCurrent);
+    if (!currentAccountSet?.accountingPeriods?.length) return undefined;
+    // 优先找 isCurrent 标记的期间
+    const marked = currentAccountSet.accountingPeriods.find(p => p.isCurrent);
+    if (marked) return marked;
+    // fallback: 找最新的 open 状态期间
+    const openPeriods = currentAccountSet.accountingPeriods.filter(p => p.status === 'open');
+    if (openPeriods.length > 0) {
+      return openPeriods.reduce((latest, p) =>
+        (p.year * 12 + p.month) > (latest.year * 12 + latest.month) ? p : latest
+      );
+    }
+    // fallback: 找最新的期间
+    return currentAccountSet.accountingPeriods.reduce((latest, p) =>
+      (p.year * 12 + p.month) > (latest.year * 12 + latest.month) ? p : latest
+    );
   },
 
   // 获取当前账套的期间列表
@@ -279,36 +293,58 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
 
   // 创建下一个期间
   createNextPeriod: () => {
-    const currentPeriod = get().getCurrentPeriod();
-    if (currentPeriod) {
-      let nextYear = currentPeriod.year;
-      let nextMonth = currentPeriod.month + 1;
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (!currentAccountSet) return;
 
+    const currentPeriod = get().getCurrentPeriod();
+
+    let nextYear: number;
+    let nextMonth: number;
+
+    if (currentPeriod) {
+      nextYear = currentPeriod.year;
+      nextMonth = currentPeriod.month + 1;
       if (nextMonth > 12) {
         nextYear += 1;
         nextMonth = 1;
       }
+    } else {
+      // 没有当前期间，从账套启用日期推算，或使用当前年月
+      const enableDate = currentAccountSet.enableDate || new Date().toISOString().slice(0, 7);
+      const [ey, em] = enableDate.split('-').map(Number);
+      nextYear = ey || new Date().getFullYear();
+      nextMonth = em || new Date().getMonth() + 1;
+    }
 
-      const startDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-      const endDate = new Date(nextYear, nextMonth, 0).toISOString().split('T')[0];
+    // 检查该期间是否已存在
+    const existingPeriods = currentAccountSet.accountingPeriods || [];
+    const periodId = `${nextYear}${String(nextMonth).padStart(2, '0')}`;
+    if (existingPeriods.some(p => p.id === periodId)) {
+      console.warn('期间已存在:', periodId);
+      return;
+    }
 
-      const newPeriod: Omit<AccountingPeriod, 'id' | 'createdDate' | 'lastModifiedDate'> = {
-        name: `${nextYear}年${nextMonth}月`,
-        year: nextYear,
-        month: nextMonth,
-        startDate,
-        endDate,
-        status: 'open',
-        statusColor: 'blue',
-        voucherCount: 0,
-        lastVoucherNo: `记-${nextYear}${String(nextMonth).padStart(2, '0')}-000`,
-        isCurrent: true,
-        canEdit: true,
-        canClose: true,
-        canReopen: false
-      };
+    const startDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const endDate = new Date(nextYear, nextMonth, 0).toISOString().split('T')[0];
 
-      // 先将当前期间标记为非当前
+    const newPeriod: Omit<AccountingPeriod, 'id' | 'createdDate' | 'lastModifiedDate'> = {
+      name: `${nextYear}年${nextMonth}月`,
+      year: nextYear,
+      month: nextMonth,
+      startDate,
+      endDate,
+      status: 'open',
+      statusColor: 'blue',
+      voucherCount: 0,
+      lastVoucherNo: `记-${nextYear}${String(nextMonth).padStart(2, '0')}-000`,
+      isCurrent: true,
+      canEdit: true,
+      canClose: true,
+      canReopen: false
+    };
+
+    // 先将当前期间标记为非当前
+    if (currentPeriod) {
       get().updatePeriod(currentPeriod.id, {
         isCurrent: false,
         status: 'closed',
@@ -317,10 +353,10 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
         canClose: false,
         canReopen: true
       });
-
-      // 然后创建新期间
-      get().createPeriod(newPeriod);
     }
+
+    // 然后创建新期间
+    get().createPeriod(newPeriod);
   }
 }));
 

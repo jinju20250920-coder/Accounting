@@ -442,6 +442,11 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       return null;
     }
 
+    if (invoice.holdStatus === 'on_hold') {
+      set({ error: '该发票已标记为暂不入账，无法生成凭证' });
+      return null;
+    }
+
     const accountSetId = useAccountSetStore.getState().currentAccountSetId;
     console.log('当前账套ID:', accountSetId);
     if (!accountSetId) {
@@ -498,45 +503,21 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         if (entryId) mappedOverrides[entryId] = val;
       }
 
-      // 6. 科目自动创建（不存在的科目自动添加到 subjects 表）
+      // 6. 科目校验（不存在的科目提示用户，不自动创建）
       const { useSubjectStore } = await import('./useSubjectStore');
       const subjects = useSubjectStore.getState().subjects;
       const existingCodes = new Set(subjects.map(s => s.code));
 
+      const missingSubjects: string[] = [];
       for (const [, val] of Object.entries(mappedOverrides)) {
-        if (!val.code || existingCodes.has(val.code)) continue;
-        // 根据代码首位判断方向
-        const firstDigit = val.code.charAt(0);
-        const direction = ('245').includes(firstDigit) ? 'credit' : 'debit';
-        // 查找父科目
-        let parentId: string | null = null;
-        if (val.code.length > 1) {
-          for (let len = val.code.length - 1; len >= 1; len--) {
-            const parentCode = val.code.substring(0, len);
-            const parent = subjects.find(s => s.code === parentCode);
-            if (parent) {
-              parentId = parent.id;
-              break;
-            }
-          }
+        if (val.code && !existingCodes.has(val.code)) {
+          missingSubjects.push(`${val.code} ${val.name || val.code}`);
         }
-        await useSubjectStore.getState().addSubject({
-          code: val.code,
-          name: val.name || val.code,
-          parentId,
-          level: val.code.length <= 3 ? 1 : val.code.length <= 4 ? 2 : 3,
-          direction,
-          enableDept: false,
-          enableProject: false,
-          enableForeign: false,
-          isCustomer: false,
-          isSupplier: false,
-          isEmployee: false,
-          enableCashFlow: false,
-          disabled: false,
-          block: false,
-        } as any);
-        existingCodes.add(val.code);
+      }
+      if (missingSubjects.length > 0) {
+        const msg = `以下科目不存在，请先在科目管理中添加：${missingSubjects.join('、')}`;
+        set({ error: msg });
+        return null;
       }
 
       console.log('准备调用模板引擎，mappedOverrides:', mappedOverrides);
@@ -606,16 +587,16 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         // 根据往来核算方式调整科目和往来信息
         if (partnerTrackingMethod === 'subject') {
           // 科目方式：创建往来单位明细科目
-          const往来科目前缀 = isInput ? '2202' : '1122'; // 应付账款/应收账款
+          const partnerSubjectPrefix = isInput ? '2202' : '1122'; // 应付账款/应收账款
           if (subjectCode.startsWith('2202') || subjectCode.startsWith('1122')) {
             // 查找已有的往来科目，确定下一个可用的序号
             const existingPartnerSubjects = subjects.filter(s =>
-              s.code.startsWith(往来科目前缀) &&
-              s.code.length ===往来科目前缀.length + 2 // 确保是2位序号的明细科目
+              s.code.startsWith(partnerSubjectPrefix) &&
+              s.code.length === partnerSubjectPrefix.length + 2 // 确保是2位序号的明细科目
             );
             let nextSeq = 1;
             const existingSeqs = existingPartnerSubjects.map(s => {
-              const seq = parseInt(s.code.substring(往来科目前缀.length), 10);
+              const seq = parseInt(s.code.substring(partnerSubjectPrefix.length), 10);
               return isNaN(seq) ? 0 : seq;
             }).filter(s => s > 0).sort((a, b) => b - a);
             if (existingSeqs.length > 0) {
@@ -623,7 +604,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             }
 
             // 生成纯数字的科目代码
-            subjectCode = `${往来科目前缀}${nextSeq.toString().padStart(2, '0')}`;
+            subjectCode = `${partnerSubjectPrefix}${nextSeq.toString().padStart(2, '0')}`;
             subjectName = partnerName;
 
             // 检查科目是否已存在，不存在则创建
@@ -632,7 +613,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
               await useSubjectStore.getState().addSubject({
                 code: subjectCode,
                 name: subjectName,
-                parentId: subjects.find(s => s.code ===往来科目前缀)?.id || null,
+                parentId: subjects.find(s => s.code === partnerSubjectPrefix)?.id || null,
                 level: 2, // 往来明细科目为2级
                 direction: subjectCode.startsWith('1') ? 'debit' : 'credit', // 资产借方，负债贷方
                 enableDept: false,
@@ -652,20 +633,36 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             supplierName = '';
           }
         } else {
-          // 往来卡片方式：保持原科目，只记录往来单位信息
+          // 往来卡片方式：保持原科目，记录往来单位信息并写入辅助核算
           // 已经在上面设置好了 customerName 和 supplierName
+        }
+
+        // 构建辅助核算 JSON
+        let auxiliaryJson = '{}';
+        if (partnerTrackingMethod === 'card' && (subjectCode.startsWith('2202') || subjectCode.startsWith('1122'))) {
+          // 往来卡片方式下，对往来科目写入辅助核算
+          const { usePartnerStore } = await import('./usePartnerStore');
+          const partners = usePartnerStore.getState().partners;
+          const partnerNameToMatch = isInput ? invoice.sellerName : invoice.buyerName;
+          const matchedPartner = partners.find(p => p.name === partnerNameToMatch);
+          if (matchedPartner) {
+            auxiliaryJson = JSON.stringify({
+              supplier: isInput ? matchedPartner.id : undefined,
+              customer: !isInput ? matchedPartner.id : undefined,
+            });
+          }
         }
 
         // 跳过金额为 0 的分录
         if (entry.debit === 0 && entry.credit === 0) continue;
 
         stmt = db.prepare(
-          `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, date, accountSetId, createTime, updateTime)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, auxiliary, date, accountSetId, createTime, updateTime)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         stmt.run([entryId, voucherId, subjectCode, subjectName, direction,
           entry.debit, entry.credit, entry.summary,
-          customerName, supplierName, voucherDate, accountSetId, now, now]);
+          customerName, supplierName, auxiliaryJson, voucherDate, accountSetId, now, now]);
         stmt.free();
       }
 

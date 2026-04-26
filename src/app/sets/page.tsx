@@ -62,6 +62,7 @@ interface AccountSetFormData {
 }
 
 export default function SetsPage() {
+  const [mounted, setMounted] = useState(false);
   const { showToast } = useToast();
   const { vouchers } = useVoucherStore();
   const {
@@ -82,6 +83,8 @@ export default function SetsPage() {
 
   // 选中的账套
   const [selectedSet, setSelectedSet] = useState<AccountSet | null>(null);
+
+  useEffect(() => { setMounted(true); }, []);
 
   // 表单数据
   const [formData, setFormData] = useState<AccountSetFormData>({
@@ -594,7 +597,7 @@ export default function SetsPage() {
 
         <TabsContent value="account-sets">
           {/* 当前账套信息 */}
-          {getCurrentAccountSet() && (
+          {mounted && getCurrentAccountSet() && (
             <Card className="mb-6 bg-blue-50 border-blue-200">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
@@ -618,7 +621,7 @@ export default function SetsPage() {
 
           {/* 账套列表 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {accountSets.map((accountSet) => {
+        {mounted && accountSets.map((accountSet) => {
           const dbInfo = accountSetDbInfos.get(accountSet.id);
           const isSelected = currentAccountSetId === accountSet.id;
 

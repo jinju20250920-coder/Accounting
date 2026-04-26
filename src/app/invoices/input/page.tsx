@@ -1056,13 +1056,28 @@ export default function InputInvoicePage() {
   const handleBatchGenerateVoucher = async () => {
     if (selectedInvoices.length === 0) return;
 
-    const confirmed = window.confirm(`确定要为选中的 ${selectedInvoices.length} 条发票生成凭证吗？`);
+    // 过滤掉暂不入账和已生成凭证的发票
+    const validIds = Array.from(selectedIds).filter(id => {
+      const inv = invoices.find(i => i.id === id);
+      return inv && inv.holdStatus !== 'on_hold' && !inv.voucherId;
+    });
+
+    if (validIds.length === 0) {
+      showToast('warning', '选中的发票均已暂不入账或已生成凭证，无法批量生成');
+      return;
+    }
+
+    const onHoldCount = selectedInvoices.length - validIds.length;
+    const message = onHoldCount > 0
+      ? `确定要为 ${validIds.length} 条发票生成凭证吗？（${onHoldCount} 条暂不入账的发票已排除）`
+      : `确定要为选中的 ${validIds.length} 条发票生成凭证吗？`;
+
+    const confirmed = window.confirm(message);
     if (!confirmed) return;
 
     try {
-      // 使用当前日期作为凭证日期
       const voucherDate = new Date().toISOString().split('T')[0];
-      const result = await generateInvoiceVouchers(Array.from(selectedIds), voucherDate);
+      const result = await generateInvoiceVouchers(validIds, voucherDate);
       showToast('success', `成功生成 ${result.success} 条凭证`);
       if (result.errors.length > 0) {
         showToast('error', `生成失败 ${result.errors.length} 条凭证`);

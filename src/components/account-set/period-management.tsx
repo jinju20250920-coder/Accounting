@@ -1,12 +1,14 @@
 'use client';
 
-'use client';
-
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
+} from '@/components/ui/dialog';
 import {
   Calendar,
   Plus,
@@ -30,34 +32,68 @@ import {
 } from 'lucide-react';
 import { usePeriodManagementStore, PeriodTemplate } from '@/stores/usePeriodManagementStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
+import { useToast } from '@/components/ui/toast';
 
 export function PeriodManagement() {
+  const { showToast } = useToast();
   const {
-    periodTemplates,
-    showCreateModal,
     activeTab,
     selectPeriod,
-    toggleCreateModal,
     setActiveTab,
     closePeriod,
     reopenPeriod,
     setCurrentPeriod,
     getCurrentPeriod,
     closeCurrentPeriod,
-    createNextPeriod
+    createPeriod
   } = usePeriodManagementStore();
 
-  // 使用 useState 和 useEffect 来确保只在客户端更新
-  const [accountingPeriods, setAccountingPeriods] = useState<AccountingPeriod[]>([]);
+  // 直接从账套 store 订阅期间数据（响应式）
+  const accountingPeriods = useAccountSetStore(
+    (s) => s.accountSets.find(a => a.id === s.currentAccountSetId)?.accountingPeriods || []
+  );
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
 
-  // 从当前账套获取期间数据（只在客户端）
-  useEffect(() => {
-    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
-    if (currentAccountSet?.accountingPeriods) {
-      setAccountingPeriods(currentAccountSet.accountingPeriods);
+  // 新建期间对话框状态
+  const [showCreatePeriodDialog, setShowCreatePeriodDialog] = useState(false);
+  const [newPeriodMonth, setNewPeriodMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const handleCreatePeriod = () => {
+    const [yearStr, monthStr] = newPeriodMonth.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+    const periodId = `${year}${String(month).padStart(2, '0')}`;
+
+    if (accountingPeriods.some(p => p.id === periodId)) {
+      showToast('warning', `${year}年${month}月期间已存在`);
+      return;
     }
-  }, []);
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+
+    createPeriod({
+      name: `${year}年${month}月`,
+      year,
+      month,
+      startDate,
+      endDate,
+      status: 'open',
+      statusColor: 'blue',
+      voucherCount: 0,
+      lastVoucherNo: `记-${year}${String(month).padStart(2, '0')}-000`,
+      isCurrent: !accountingPeriods.some(p => p.isCurrent),
+      canEdit: true,
+      canClose: true,
+      canReopen: false
+    });
+
+    setShowCreatePeriodDialog(false);
+    showToast('success', `已创建 ${year}年${month}月期间`);
+  };
 
   const getStatusBadge = (status: AccountingPeriod['status']) => {
     switch (status) {
@@ -153,19 +189,13 @@ export function PeriodManagement() {
                 期间管理
               </Button>
               <Button
-                variant={activeTab === 'templates' ? 'default' : 'ghost'}
-                onClick={() => setActiveTab('templates')}
-              >
-                期间模板
-              </Button>
-              <Button
                 variant={activeTab === 'settings' ? 'default' : 'ghost'}
                 onClick={() => setActiveTab('settings')}
               >
                 期间设置
               </Button>
             </div>
-            <Button onClick={createNextPeriod}>
+            <Button onClick={() => setShowCreatePeriodDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               新建期间
             </Button>
@@ -284,53 +314,6 @@ export function PeriodManagement() {
         </Card>
       )}
 
-      {/* 期间模板 */}
-      {activeTab === 'templates' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>会计期间模板</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {periodTemplates.map((template) => (
-                <Card key={template.id} className="cursor-pointer hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{template.name}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground mb-3">{template.description}</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">包含期间:</span>
-                      <Badge variant="outline" className="text-xs">
-                        {template.months.length} 个月
-                      </Badge>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button variant="outline" size="sm" className="flex-1">
-                        应用
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h4 className="font-medium text-blue-800 mb-2">使用说明</h4>
-              <ul className="text-sm text-blue-700 space-y-1">
-                <li>• 选择适合企业会计制度的期间模板</li>
-                <li>• 可以自定义期间的起止日期</li>
-                <li>• 年度结转后自动锁定上年期间</li>
-                <li>• 支持跨年期间的连续性管理</li>
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* 期间设置 */}
       {activeTab === 'settings' && (
         <Card>
@@ -338,63 +321,79 @@ export function PeriodManagement() {
             <CardTitle>期间设置</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* 当前期间设置 */}
-            <div className="space-y-4">
-              <h4 className="font-medium">当前期间设置</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 当前期间信息 */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-sm text-muted-foreground block mb-1">会计年度</label>
-                  <Input defaultValue={new Date().getFullYear().toString()} className="w-full" />
+                  <p className="text-sm text-blue-700">当前期间</p>
+                  <p className="text-lg font-semibold text-blue-900">
+                    {getCurrentPeriod()?.name || '未设置'}
+                  </p>
                 </div>
-                <div>
-                  <label className="text-sm text-muted-foreground block mb-1">当前期间</label>
-                  <select className="w-full p-2 border rounded">
-                    {accountingPeriods.map(period => (
-                      <option key={period.id} value={period.id}>{period.name}</option>
-                    ))}
-                  </select>
-                </div>
+                {getCurrentPeriod() && (
+                  <Badge className="bg-blue-100 text-blue-700">
+                    {getCurrentPeriod()?.status === 'open' ? '已开启' : '已关闭'}
+                  </Badge>
+                )}
               </div>
             </div>
 
-            {/* 期间管理设置 */}
+            {/* 期间规则 */}
             <div className="space-y-4">
-              <h4 className="font-medium">期间管理设置</h4>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <div>
-                    <p className="font-medium text-sm">自动期间结转</p>
-                    <p className="text-xs text-muted-foreground">到期末自动进行期间结转</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    启用
-                  </Button>
+              <h4 className="font-medium text-slate-900">期间规则</h4>
+
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">结账后自动锁定</p>
+                  <p className="text-xs text-slate-500">关闭期间后自动锁定，防止修改已结账数据</p>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <div>
-                    <p className="font-medium text-sm">期间锁定</p>
-                    <p className="text-xs text-muted-foreground">结转后自动锁定期间</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    启用
-                  </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => showToast('info', '此功能将在后续版本中实现')}
+                >
+                  已启用
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">反结账需审批</p>
+                  <p className="text-xs text-slate-500">重新开启已关闭期间时需要确认操作</p>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <div>
-                    <p className="font-medium text-sm">跨期间凭证</p>
-                    <p className="text-xs text-muted-foreground">允许录入跨期间的凭证</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    禁用
-                  </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => showToast('info', '此功能将在后续版本中实现')}
+                >
+                  已禁用
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">跨年自动结转</p>
+                  <p className="text-xs text-slate-500">年末自动结转损益并创建新年度期间</p>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => showToast('info', '此功能将在后续版本中实现')}
+                >
+                  已禁用
+                </Button>
               </div>
             </div>
 
-            {/* 保存设置 */}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline">重置</Button>
-              <Button>保存设置</Button>
+            {/* 操作说明 */}
+            <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+              <h4 className="font-medium text-amber-800 mb-2">操作说明</h4>
+              <ul className="text-sm text-amber-700 space-y-1">
+                <li>• 在"期间管理"中新建或管理会计期间</li>
+                <li>• 关闭期间后将无法录入该期间的凭证</li>
+                <li>• 重新开启期间需要确认操作</li>
+                <li>• 当前期间标识正在使用的会计期间</li>
+              </ul>
             </div>
           </CardContent>
         </Card>
@@ -442,6 +441,26 @@ export function PeriodManagement() {
           </CardContent>
         </Card>
       )}
+
+      {/* 新建期间对话框 */}
+      <Dialog open={showCreatePeriodDialog} onOpenChange={setShowCreatePeriodDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>新建会计期间</DialogTitle>
+            <DialogDescription>选择要创建的会计期间年月</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <ChineseMonthPicker
+              value={newPeriodMonth}
+              onChange={setNewPeriodMonth}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreatePeriodDialog(false)}>取消</Button>
+            <Button onClick={handleCreatePeriod}>确认创建</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

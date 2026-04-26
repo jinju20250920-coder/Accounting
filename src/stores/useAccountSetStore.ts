@@ -858,3 +858,36 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
 
 // 导出 store
 export { useAccountSetStoreBase as useAccountSetStore };
+
+// 修正期间数据：确保 isCurrent 标记指向最新的 open 状态期间
+// persist 从 localStorage 恢复旧数据后，isCurrent 可能停留在过去的期间
+let isFixingPeriods = false;
+useAccountSetStoreBase.subscribe((state) => {
+  if (isFixingPeriods) return;
+  for (const accountSet of state.accountSets) {
+    if (!accountSet.accountingPeriods?.length) continue;
+    const currentMarked = accountSet.accountingPeriods.find(p => p.isCurrent);
+    // 找最新的 open 状态期间
+    const latestOpen = accountSet.accountingPeriods
+      .filter(p => p.status === 'open')
+      .reduce((latest, p) =>
+        (p.year * 12 + p.month) > (latest.year * 12 + latest.month) ? p : latest
+      , accountSet.accountingPeriods[0]);
+    // 如果 isCurrent 标记不是最新的 open 期间，修正它
+    if (latestOpen && currentMarked?.id !== latestOpen.id) {
+      isFixingPeriods = true;
+      const corrected: AccountingPeriod[] = accountSet.accountingPeriods.map(p => ({
+        ...p,
+        isCurrent: p.id === latestOpen.id,
+        status: (p.id === latestOpen.id ? 'open' : (p.status === 'open' ? 'closed' : p.status)) as AccountingPeriod['status'],
+        statusColor: (p.id === latestOpen.id ? 'blue' : (p.status === 'open' ? 'green' : p.statusColor)) as AccountingPeriod['statusColor'],
+        canEdit: p.id === latestOpen.id,
+        canClose: p.id === latestOpen.id,
+        canReopen: p.id !== latestOpen.id && p.status !== 'locked',
+      }));
+      useAccountSetStoreBase.getState().updateAccountSet(accountSet.id, { accountingPeriods: corrected });
+      isFixingPeriods = false;
+      break; // 一次只修一个账套，下一轮 subscribe 会继续修
+    }
+  }
+});
