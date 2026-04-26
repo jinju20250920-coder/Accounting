@@ -113,7 +113,7 @@ src/
 │   ├── invoice-rule/               # 发票智能规则组件
 │   │   ├── purchase-invoice-rules.tsx # 采购发票规则设置（业务组表格、供应商矩阵）
 │   │   └── components/
-│   │       ├── business-group-drawer.tsx # 业务组抽屉（科目Popover选择、变量输入）
+│   │       ├── business-group-drawer.tsx # 业务组编辑面板（弹出式双栏布局、凭证预览、Framer Motion动画）
 │   │       ├── subject-variable-input.tsx # 科目变量输入
 │   │       └── utils/              # 规则工具函数
 │   ├── partner/                    # 往来单位组件（2个）
@@ -412,7 +412,7 @@ npm run lint
    - 已选：蓝色代码 + 名称 + × 清除按钮
    - 弹出层：`shadow-xl` + `border-slate-200/80`，支持模糊搜索（按代码或名称实时过滤）
    - Portal渲染：使用 `createPortal` 渲染到 `document.body`，避免被父级 overflow 截断
-   - 参考 `business-group-drawer.tsx` 中的 `SubjectPopover` 组件
+   - 参考 `business-group-drawer.tsx` 中的 `SubjectPopover` 组件和 `BusinessGroupEditor` 组件
 
 2. **编辑表单** — 使用行内展开抽屉（Drawer）模式，不用大面积折叠区
    - 默认隐藏，点击"编辑"时从该行底部展开（`border-t bg-slate-50`）
@@ -485,12 +485,19 @@ npm run lint
 - ✅ 供应商矩阵表格 - 白名单改为行=供应商、列=业务组的单选矩阵模式
 - ✅ 往来卡片下拉选择 - PartnerPopover组件，供应商名称从往来卡片下拉选择
 - ✅ Popover Portal渲染 - 使用createPortal渲染到body，避免overflow截断
+- ✅ 业务组编辑面板重构 - 从Drawer抽屉改为弹出式双栏布局（左：基础信息+科目规则+关键词，右：蓝色凭证预览+税金逻辑+操作按钮），Framer Motion动画，计税/自动匹配开关，灰色自动匹配开关
 - ✅ 全局设置功能开关 - 配置按钮改为Switch开关（自动税金科目、重复检查、报销人识别）
 - ✅ 税金科目自动生成 - 基础科目+税率自动生成完整税金科目代码
 - ✅ 供应商重复检查 - 防止添加重复供应商到同一业务组
 - ✅ 科目accountSetId同步 - initializeSubjects前同步sqliteService.accountSetId，修复刷新后数据丢失
 - ✅ 发票业务组字段 - Invoice.groupName记录匹配的业务组名称，进项/销项发票页面可编辑选择业务组
 - ✅ 科目自动创建 - 凭证生成时自动创建不存在的科目（如税金子科目），避免生成失败
+- ✅ 发票删除保护 - 已生成凭证的发票不可删除，删除按钮置灰+Toast提示
+- ✅ 发票导入业务组匹配 - 3级匹配：供应商白名单→业务组关键词(按优先级)→keywordRules
+- ✅ 员工报销不计税 - 业务组taxSubject为空时跳过税金分录，模板引擎过滤空科目
+- ✅ 编辑业务组重置修复 - taxSubject/autoTax使用!==undefined替代||，避免空字符串被重置
+- ✅ 发票日期显示 - 仅显示年月日(YYYY-MM-DD)，不显示时间
+- ✅ 业务组编辑面板重构 - 从Drawer抽屉改为弹出式双栏布局（左：基础信息+科目规则+关键词，右：蓝色凭证预览+税金逻辑+操作按钮），Framer Motion动画，计税/自动匹配开关，灰色自动匹配开关
 - ✅ TypeScript错误修复 - supplierType、中文变量名、重复currentPeriod等14个预存错误
 
 ### 待完善功能

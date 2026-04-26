@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Popover } from '@/components/ui/popover';
 import { Settings2, Plus, Trash2, Edit2, Search, Info, ChevronDown, ChevronUp, GripVertical, ArrowUp, ArrowDown, Check, X, Zap, Shield, UserCheck } from 'lucide-react';
-import { BusinessGroupDrawer } from './components/business-group-drawer';
+import { BusinessGroupEditor } from './components/business-group-drawer';
 import { RuleConflictDetector } from './utils/rule-conflict-detector';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -170,16 +170,8 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const [config, setConfig] = useState<PurchaseInvoiceRuleConfig>({
     id: '',
     accountSetId: '',
-    businessGroups: [
-      { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100, assetThreshold: 5000, description: '用于库存商品采购的发票处理', isPreset: true, autoTax: true, keywords: ['库存', '商品', '存货'] },
-      { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90, assetThreshold: 5000, description: '用于生产原材料采购的发票处理', isPreset: true, autoTax: true, keywords: ['材料', '原料', '配件'] },
-      { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '2221.01.{{税率}}', creditSubject: '2241 其他应付款', partnerType: '员工', priority: 80, assetThreshold: 0, description: '用于员工日常费用报销的发票处理', isPreset: true, autoTax: true, keywords: ['报销', '差旅', '办公'] },
-      { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70, assetThreshold: 5000, description: '用于固定资产采购的发票处理', isPreset: true, autoTax: true, keywords: ['设备', '固定资产', '机器'] },
-    ],
-    keywordRules: [
-      { id: '1', keywords: '电脑, 服务器', businessGroup: 'fixed_asset', threshold: 5000 },
-      { id: '2', keywords: '滴滴, 打车', businessGroup: 'reimbursement', threshold: 0 },
-    ],
+    businessGroups: [],
+    keywordRules: [],
     globalSettings: {
       assetThreshold: 5000,
       autoTaxSubject: true,
@@ -188,10 +180,11 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
     },
     updateTime: new Date().toISOString(),
   });
+  const [configLoaded, setConfigLoaded] = useState(false);
 
-  const [showAddGroupDrawer, setShowAddGroupDrawer] = useState(false);
-  const [conflicts, setConflicts] = useState<any[]>([]);
   const [editingGroup, setEditingGroup] = useState<BusinessGroup | null>(null);
+  const [showGroupEditor, setShowGroupEditor] = useState(false);
+  const [conflicts, setConflicts] = useState<any[]>([]);
   const [editingRule, setEditingRule] = useState<KeywordRule | null>(null);
   const [showKeywordEditor, setShowKeywordEditor] = useState(false);
   const [keywordForm, setKeywordForm] = useState({
@@ -213,14 +206,53 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<any[]>([]);
 
+  // 从数据库加载配置
+  useEffect(() => {
+    if (!open) return;
+    loadConfig();
+  }, [open]);
+
+  const loadConfig = async () => {
+    try {
+      const saved = await sqliteService.getPurchaseInvoiceRuleConfig();
+      // 映射数据库类型到本地类型（补充可选字段的默认值）
+      const mapped: PurchaseInvoiceRuleConfig = {
+        ...saved,
+        businessGroups: saved.businessGroups.map(g => ({
+          assetThreshold: 0,
+          priority: 0,
+          ...g,
+        })),
+      };
+      setConfig(mapped);
+      setConfigLoaded(true);
+    } catch (error) {
+      console.error('加载采购发票规则配置失败:', error);
+    }
+  };
+
+  // 保存配置到数据库
+  const saveConfig = async (newConfig: PurchaseInvoiceRuleConfig) => {
+    setConfig(newConfig);
+    try {
+      await sqliteService.savePurchaseInvoiceRuleConfig({
+        ...newConfig,
+        updateTime: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('保存采购发票规则配置失败:', error);
+    }
+  };
+
   // 检测规则冲突
   useEffect(() => {
+    if (!configLoaded) return;
     const detectedConflicts = RuleConflictDetector.detectKeywordOverlaps(
       config.keywordRules,
       config.businessGroups
     );
     setConflicts(detectedConflicts);
-  }, [config]);
+  }, [config, configLoaded]);
 
   // 加载供应商白名单数据
   useEffect(() => {
@@ -241,7 +273,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const handleSaveNewGroup = (group: any) => {
     if (editingGroup) {
       // 更新模式
-      setConfig({
+      const newConfig = {
         ...config,
         businessGroups: config.businessGroups.map(g =>
           g.id === editingGroup.id
@@ -261,7 +293,8 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
               }
             : g
         ),
-      });
+      };
+      saveConfig(newConfig);
     } else {
       // 新增模式
       const newGroup: BusinessGroup = {
@@ -281,7 +314,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
         keywords: group.keywords || [],
       };
 
-      setConfig({
+      saveConfig({
         ...config,
         businessGroups: [...config.businessGroups, newGroup],
       });
@@ -291,23 +324,15 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   // 编辑业务组
   const handleEditBusinessGroup = (group: BusinessGroup) => {
     setEditingGroup(group);
-    setShowAddGroupDrawer(true);
+    setShowGroupEditor(true);
   };
 
   // 删除业务组
   const handleDeleteBusinessGroup = (groupId: string) => {
-    setConfig({
+    saveConfig({
       ...config,
       businessGroups: config.businessGroups.filter(g => g.id !== groupId),
     });
-  };
-
-  // 处理抽屉关闭
-  const handleDrawerOpenChange = (open: boolean) => {
-    setShowAddGroupDrawer(open);
-    if (!open) {
-      setEditingGroup(null);
-    }
   };
 
   // 处理关键词规则编辑
@@ -323,7 +348,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
 
   // 处理关键词规则删除
   const handleDeleteKeywordRule = (ruleId: string) => {
-    setConfig({
+    saveConfig({
       ...config,
       keywordRules: config.keywordRules.filter(r => r.id !== ruleId),
     });
@@ -333,7 +358,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const handleSaveKeywordRule = () => {
     if (editingRule) {
       // 更新模式
-      setConfig({
+      saveConfig({
         ...config,
         keywordRules: config.keywordRules.map(r =>
           r.id === editingRule.id
@@ -354,7 +379,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
         businessGroup: keywordForm.businessGroup,
         threshold: keywordForm.threshold,
       };
-      setConfig({
+      saveConfig({
         ...config,
         keywordRules: [...config.keywordRules, newRule],
       });
@@ -376,7 +401,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
 
   // 更新业务组优先级
   const updateGroupPriority = (groupId: string, change: number) => {
-    setConfig({
+    saveConfig({
       ...config,
       businessGroups: config.businessGroups.map(group =>
         group.id === groupId ? { ...group, priority: (group.priority || 0) + change } : group
@@ -577,7 +602,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 智能科目模板
-                <Button onClick={() => setShowAddGroupDrawer(true)}>
+                <Button onClick={() => { setEditingGroup(null); setShowGroupEditor(true); }}>
                   <Plus className="h-4 w-4 mr-2" />
                   新增业务组
                 </Button>
@@ -667,7 +692,9 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                               <div className="font-medium text-sm">{group.debitSubject}</div>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="font-medium text-sm">{group.taxSubject}</div>
+                              <div className="font-medium text-sm">
+                                {group.taxSubject || <span className="text-orange-500 text-xs">无税金</span>}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <div className="font-medium text-sm">{group.creditSubject}</div>
@@ -979,7 +1006,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                   <Switch
                     checked={config.globalSettings.autoTaxSubject}
                     onCheckedChange={(checked) =>
-                      setConfig({
+                      saveConfig({
                         ...config,
                         globalSettings: { ...config.globalSettings, autoTaxSubject: checked },
                       })
@@ -1002,7 +1029,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                   <Switch
                     checked={config.globalSettings.autoCheckDuplicate}
                     onCheckedChange={(checked) =>
-                      setConfig({
+                      saveConfig({
                         ...config,
                         globalSettings: { ...config.globalSettings, autoCheckDuplicate: checked },
                       })
@@ -1025,7 +1052,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                   <Switch
                     checked={config.globalSettings.autoRecognizeReimburser}
                     onCheckedChange={(checked) =>
-                      setConfig({
+                      saveConfig({
                         ...config,
                         globalSettings: { ...config.globalSettings, autoRecognizeReimburser: checked },
                       })
@@ -1038,27 +1065,36 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
         </TabsContent>
       </Tabs>
 
-      {/* 业务组新增/编辑抽屉 */}
-      <BusinessGroupDrawer
-        open={showAddGroupDrawer}
-        onOpenChange={handleDrawerOpenChange}
-        onSave={handleSaveNewGroup}
-        defaultValues={
-          editingGroup
-            ? {
-                name: editingGroup.name,
-                debitSubject: editingGroup.debitSubject,
-                debitSubjectName: editingGroup.debitSubjectName || '',
-                taxSubject: editingGroup.taxSubject,
-                taxSubjectName: editingGroup.taxSubjectName || '',
-                creditSubject: editingGroup.creditSubject,
-                creditSubjectName: editingGroup.creditSubjectName || '',
-                partnerType: editingGroup.partnerType,
-                assetThreshold: editingGroup.assetThreshold,
+      {/* 业务组编辑弹出面板 */}
+      {showGroupEditor && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[5vh] bg-black/40" onClick={() => { setShowGroupEditor(false); setEditingGroup(null); }}>
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <BusinessGroupEditor
+              onSave={(group) => { handleSaveNewGroup(group); setShowGroupEditor(false); setEditingGroup(null); }}
+              onCancel={() => { setShowGroupEditor(false); setEditingGroup(null); }}
+              defaultValues={
+                editingGroup
+                  ? {
+                      name: editingGroup.name,
+                      debitSubject: editingGroup.debitSubject,
+                      debitSubjectName: editingGroup.debitSubjectName || '',
+                      taxSubject: editingGroup.taxSubject,
+                      taxSubjectName: editingGroup.taxSubjectName || '',
+                      creditSubject: editingGroup.creditSubject,
+                      creditSubjectName: editingGroup.creditSubjectName || '',
+                      partnerType: editingGroup.partnerType,
+                      assetThreshold: editingGroup.assetThreshold,
+                      description: editingGroup.description,
+                      isPreset: editingGroup.isPreset,
+                      autoTax: editingGroup.autoTax,
+                      keywords: editingGroup.keywords,
+                    }
+                  : undefined
               }
-            : undefined
-        }
-      />
+            />
+          </div>
+        </div>
+      )}
 
       {/* 关键词规则编辑抽屉 */}
       <Drawer open={showKeywordEditor} onOpenChange={setShowKeywordEditor}>
