@@ -12,6 +12,7 @@ import { Plus, Search, Check, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Popover } from '@/components/ui/popover';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useToast } from '@/components/ui/toast';
 
 interface BusinessGroupDrawerProps {
   open: boolean;
@@ -44,7 +45,12 @@ function SubjectPopover({
 }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newCode, setNewCode] = useState('');
+  const [newName, setNewName] = useState('');
   const subjects = useSubjectStore((s) => s.subjects);
+  const addSubject = useSubjectStore((s) => s.addSubject);
+  const { showToast } = useToast();
 
   const filteredSubjects = useMemo(() => {
     const q = search.toLowerCase();
@@ -56,10 +62,54 @@ function SubjectPopover({
 
   const selected = subjects.find((s) => s.code === value);
 
+  const handleAddSubject = async () => {
+    const code = newCode.trim();
+    const subjectName = newName.trim();
+    if (!code || !subjectName) return;
+
+    // 检查是否已存在
+    if (subjects.some(s => s.code === code)) {
+      showToast('warning', `科目代码 ${code} 已存在`);
+      return;
+    }
+
+    const level = Math.floor((code.length - 2) / 2);
+    const parentCode = code.length > 4 ? code.substring(0, code.length - 2) : null;
+    const parentSubject = parentCode ? subjects.find(ps => ps.code === parentCode) : null;
+
+    try {
+      await addSubject({
+        code,
+        name: subjectName,
+        level,
+        direction: parentSubject?.direction || 'debit',
+        parentId: parentSubject?.id || null,
+        isCustomer: false,
+        isSupplier: false,
+        isEmployee: false,
+        enableDept: false,
+        enableProject: false,
+        enableForeign: false,
+        enableCashFlow: false,
+        disabled: false,
+        block: false,
+      });
+      onChange(code, subjectName);
+      setOpen(false);
+      setSearch('');
+      setShowAdd(false);
+      setNewCode('');
+      setNewName('');
+      showToast('success', `科目 ${code} ${subjectName} 创建成功`);
+    } catch (e) {
+      showToast('error', '创建科目失败');
+    }
+  };
+
   return (
     <Popover
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(v) => { setOpen(v); if (!v) { setShowAdd(false); setSearch(''); } }}
       content={
         <div className="w-64 bg-white border border-slate-200/80 rounded-lg shadow-xl">
           <div className="p-2 border-b border-slate-100">
@@ -74,8 +124,8 @@ function SubjectPopover({
               />
             </div>
           </div>
-          <div className="overflow-y-auto" style={{ maxHeight: '240px' }}>
-            {filteredSubjects.length === 0 ? (
+          <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
+            {filteredSubjects.length === 0 && !showAdd ? (
               <div className="px-3 py-4 text-sm text-slate-500 text-center">无匹配科目</div>
             ) : (
               filteredSubjects.map((s) => (
@@ -97,6 +147,43 @@ function SubjectPopover({
               ))
             )}
           </div>
+          {/* 新增科目区域 */}
+          {showAdd ? (
+            <div className="p-2 border-t border-slate-100 space-y-2">
+              <Input
+                value={newCode}
+                onChange={(e) => setNewCode(e.target.value)}
+                placeholder="科目代码"
+                className="h-7 text-xs"
+                autoComplete="off"
+              />
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="科目名称"
+                className="h-7 text-xs"
+                autoComplete="off"
+              />
+              <div className="flex gap-1">
+                <Button size="sm" className="h-6 text-xs flex-1" onClick={handleAddSubject}>确认</Button>
+                <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => setShowAdd(false)}>取消</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2 border-t border-slate-100">
+              <button
+                className="w-full px-2 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded flex items-center gap-1"
+                onClick={() => {
+                  setShowAdd(true);
+                  setNewCode(search.trim());
+                  setNewName('');
+                }}
+              >
+                <Plus className="h-3 w-3" />
+                新增科目
+              </button>
+            </div>
+          )}
         </div>
       }
     >

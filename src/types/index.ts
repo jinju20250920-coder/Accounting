@@ -1030,6 +1030,7 @@ export interface Invoice {
   updateTime: string;               // 更新时间
   holdStatus?: 'normal' | 'on_hold';   // 发票处理状态，默认 normal
   category?: 'purchase' | 'reimbursement' | 'fixed_asset' | null; // 规则引擎分类标签
+  groupName?: string; // 匹配的业务组名称，空则使用默认科目
 }
 
 // 发票核销记录

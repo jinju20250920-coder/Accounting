@@ -1867,7 +1867,6 @@ function SupplierMappingTab() {
       accountSetId: accountSetId!,
       groupName: name,
       sellerName: `__placeholder__`,
-      supplierType: 'other',
       createTime: now,
       updateTime: now,
     };
@@ -1954,7 +1953,6 @@ function SupplierMappingTab() {
       accountSetId: accountSetId!,
       groupName: selectedGroup,
       sellerName: editForm.sellerName.trim(),
-      supplierType: editForm.supplierType,
       defaultDebitSubject: editForm.debitCode || undefined,
       defaultDebitSubjectName: editForm.debitName || undefined,
       defaultTaxSubject: editForm.taxCode || undefined,
@@ -2007,7 +2005,6 @@ function SupplierMappingTab() {
           accountSetId: accountSetId!,
           groupName: selectedGroup,
           sellerName,
-          supplierType: 'material',
           defaultDebitSubject: defaults.debitCode || undefined,
           defaultDebitSubjectName: defaults.debitName || undefined,
           defaultTaxSubject: defaults.taxCode || undefined,
@@ -2195,7 +2192,7 @@ function SupplierMappingTab() {
 }
 
 function SupplierRow({ mapping, onDelete }: { mapping: SupplierSubjectMapping; onDelete: () => void }) {
-  const typeLabel = SUPPLIER_TYPE_OPTIONS.find(o => o.value === mapping.supplierType)?.label || mapping.supplierType;
+  const typeLabel = mapping.groupName;
 
   return (
     <tr className="hover:bg-slate-50/80 transition-colors">

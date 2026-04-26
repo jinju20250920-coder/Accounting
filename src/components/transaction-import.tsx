@@ -781,11 +781,11 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           // 根据往来核算方式处理科目和往来信息
           if (partnerTrackingMethod === 'subject') {
             // 科目方式：为往来单位创建明细科目
-            const往来科目前缀 = isDebit ? '2202' : '1122'; // 应付账款/应收账款
+            const partnerSubjectPrefix = isDebit ? '2202' : '1122'; // 应付账款/应收账款
             if (counterpartSubjectCode.startsWith('2202') || counterpartSubjectCode.startsWith('1122')) {
               // 为往来科目创建明细科目
-              const往来单位编码 = previewEntry.counterpartyName?.replace(/\s+/g, '').substring(0, 4) || '0001';
-              counterpartSubjectCode = `${往来科目前缀}.${往来单位编码}`;
+              const partnerCode = previewEntry.counterpartyName?.replace(/\s+/g, '').substring(0, 4) || '0001';
+              counterpartSubjectCode = `${partnerSubjectPrefix}.${partnerCode}`;
               counterpartSubjectName = `${previewEntry.counterpartSubjectName}-${previewEntry.counterpartyName}`;
 
               // 检查科目是否已存在，不存在则创建
@@ -794,7 +794,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                 await useSubjectStore.getState().addSubject({
                   code: counterpartSubjectCode,
                   name: counterpartSubjectName,
-                  parentId: useSubjectStore.getState().subjects.find(s => s.code ===往来科目前缀)?.id || null,
+                  parentId: useSubjectStore.getState().subjects.find(s => s.code === partnerSubjectPrefix)?.id || null,
                   level: counterpartSubjectCode.length <= 3 ? 1 : counterpartSubjectCode.length <= 4 ? 2 : 3,
                   direction: counterpartSubjectCode.startsWith('1') ? 'debit' : 'credit', // 资产借方，负债贷方
                   enableDept: false,

@@ -74,7 +74,6 @@ export interface AccountSet {
 
   // 会计期间相关字段
   accountingPeriods?: AccountingPeriod[];
-  currentPeriod?: string;
 }
 
 // 授权信息类型

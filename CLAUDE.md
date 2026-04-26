@@ -52,6 +52,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 7. **报表查询** - 科目余额表、明细账、资产负债表、损益表、现金流量表
 8. **往来管理** - 应收账款账龄、应付账款账龄分析、核销
 9. **账套管理** - 多账套支持、期初余额录入、期间管理、OPFS存储
+10. **会计期间管理** - 当前期间指示、期间切换、结账/反结账
 10. **基础档案管理** - 科目层级树形显示、新增/编辑/删除/冻结、部门、项目、币别、往来单位
 11. **固定资产管理** - 固定资产卡片、无形资产、待摊费用、折旧/摊销计算
 12. **汇兑损益** - 外币科目、汇率管理、期末自动调汇
@@ -96,6 +97,8 @@ src/
 ├── components/
 │   ├── ui/                         # shadcn/ui 组件（16个）+ 中文日期/月份选择器
 │   ├── layout/                     # 布局（sidebar, VoucherLayout）
+│   │   ├── current-period-bar.tsx   # 当前期间指示栏
+│   │   └── current-period-wrapper.tsx # 当前期间包装器
 │   ├── voucher/                    # 凭证相关组件（15个）
 │   │   ├── voucher-entry-grid.tsx  # Excel-like 凭证录入网格
 │   │   ├── subject-search.tsx      # 科目搜索
@@ -107,6 +110,12 @@ src/
 │   ├── reports/                    # 报表组件（5个）
 │   ├── database/                   # 数据库管理组件（7个）
 │   ├── account-set/                # 账套管理组件（3个）
+│   ├── invoice-rule/               # 发票智能规则组件
+│   │   ├── purchase-invoice-rules.tsx # 采购发票规则设置（业务组表格、供应商矩阵）
+│   │   └── components/
+│   │       ├── business-group-drawer.tsx # 业务组抽屉（科目Popover选择、变量输入）
+│   │       ├── subject-variable-input.tsx # 科目变量输入
+│   │       └── utils/              # 规则工具函数
 │   ├── partner/                    # 往来单位组件（2个）
 │   ├── project/                    # 项目管理组件（9个）
 │   ├── transaction-import.tsx      # 银行流水导入（支持AI智能匹配）
@@ -151,11 +160,13 @@ src/
 │   ├── useIntangibleAssetStore.ts  # 无形资产
 │   ├── usePrepaidExpenseStore.ts   # 待摊费用
 │   ├── useSettingsStore.ts         # 系统设置
+│   ├── usePeriodManagementStore.ts # 期间管理
 │   ├── useAccountStore.ts          # 账户管理
 │   ├── useFinancialProjectStore.ts # 财务项目
 │   └── useProjectStore.ts          # 项目管理
 ├── lib/                            # 核心业务逻辑
 │   ├── accounting.ts               # 会计引擎核心（含 getSmartMatch）
+│   ├── invoice-rule-engine.ts      # 发票智能规则引擎（条件匹配、动作执行、税金科目自动生成）
 │   ├── ai-learning.ts              # AI学习模块
 │   ├── template-engine.ts          # 自动化模板引擎（4个系统模板，支持科目覆盖）
 │   ├── parser.ts                   # Excel解析器（银行流水等）
@@ -288,22 +299,29 @@ npm run lint
 - 不存在的科目代码自动创建（direction 按代码首位判断）
 - 自动生成凭证字号：`记-YYYYMM-NNN` 格式
 - 所有数据库操作统一使用 `sqliteService`（`getDb()` helper）
+- 生成凭证时记录匹配的业务组名称到 `invoice.groupName`
 
-#### 发票科目映射规则（关键词驱动）
+#### 发票科目映射规则（业务组驱动）
 配置入口：进项/销项发票页面 → "科目配置" 按钮
 
 ```
-匹配优先级：关键词规则（priority 最高者）> 默认科目
-规则维度：关键词(goodsName) + 可选税率(taxRate) → 覆盖6个科目槽位
-  进项：借方(费用/采购) + 进项税 + 贷方(应付)
-  销项：借方(应收) + 贷方(收入) + 销项税
+匹配优先级：业务组优先级（priority 最高者）> 默认科目
+业务组维度：关键词(goodsName) + 合作伙伴类型 → 覆盖3个科目槽位
+  进项：借方(费用/采购) + 税金(自动按税率生成) + 贷方(应付)
+  销项：借方(应收) + 贷方(收入) + 税金(自动按税率生成)
 ```
 
+业务组配置：
+- 科目选择：借方/贷方/税金科目均使用 `SubjectPopover` 下拉选择器（支持模糊搜索）
+- 供应商白名单：矩阵表格模式（行=供应商，列=业务组，单选按钮），供应商名称从往来卡片下拉选择
+- 税金科目：支持自动模式（基础科目 + 税率自动生成）和手动选择两种方式
+- 优先级管理：支持上移/下移调整业务组优先级，列表按优先级排序
+- 重复检查：防止添加重复供应商到同一业务组
+
 示例：
-- 关键词"滴滴,打车" → 进项借方=差旅费，贷方=其他应付款（员工报销）
-- 关键词"餐费,招待" → 进项借方=招待费
-- 关键词"服务,咨询" + 税率6% → 税科目=进项税额(6%)
-- 无匹配 → 使用默认：材料采购/进项税/应付账款 或 应收/收入/销项税
+- 业务组"办公用品采购" → 借方=管理费用，税金=2221（自动→22210113），贷方=应付账款
+- 业务组"差旅报销" → 借方=差旅费，贷方=其他应付款
+- 供应商"滴滴出行" → 自动匹配到"差旅报销"业务组
 
 持久化：`invoice_subject_rules` SQLite 表，`InvoiceSubjectRule` 类型定义
 
@@ -365,11 +383,13 @@ npm run lint
 - 支持 OPFS（Origin Private File System）持久化
 - 自动数据库迁移（添加新表、新列）
 - 所有操作带 `accountSetId` 隔离
+- `sqliteService` 通过 `@/lib/database` 导出，供 store 直接访问（如 `accountSetId` 同步）
 
 #### 数据库索引
 - `lib/database/index.ts` 提供统一入口
 - `getCurrentService()` 返回当前数据库服务（默认 SQLite）
 - `getCurrentManager()` 返回当前数据库管理器
+- `sqliteService` 直接导出，用于 store 层同步 `accountSetId`
 
 ### 审计追踪 (useAuditStore)
 - 记录所有凭证状态变更
@@ -387,11 +407,12 @@ npm run lint
 
 #### 交互模式规范（参照银行流水匹配规则页重构）
 
-1. **科目选择器** — 统一使用 Popover 模式（非内联展开）
+1. **科目选择器** — 统一使用 Popover + Portal 模式（非内联展开）
    - 未选：虚线边框 + 搜索图标 `[🔍 选择科目]`
-   - 已选：蓝色 Badge `[1002 银行存款 ×]`，点击 × 清除
-   - 弹出层：`max-h-60` + 阴影，支持模糊搜索（按代码或名称实时过滤）
-   - 参考 `transaction-import.tsx` 中的 `SubjectPopover` 组件
+   - 已选：蓝色代码 + 名称 + × 清除按钮
+   - 弹出层：`shadow-xl` + `border-slate-200/80`，支持模糊搜索（按代码或名称实时过滤）
+   - Portal渲染：使用 `createPortal` 渲染到 `document.body`，避免被父级 overflow 截断
+   - 参考 `business-group-drawer.tsx` 中的 `SubjectPopover` 组件
 
 2. **编辑表单** — 使用行内展开抽屉（Drawer）模式，不用大面积折叠区
    - 默认隐藏，点击"编辑"时从该行底部展开（`border-t bg-slate-50`）
@@ -455,10 +476,22 @@ npm run lint
 - ✅ 银行子科目自动匹配 - 导入时自动匹配/创建1002子科目（bankAccountNumber字段）
 - ✅ 业务单据号 - 入账凭证docNo使用 账户明细编号-交易流水号
 - ✅ 流水匹配规则页UI重构 - Popover科目选择、行内编辑抽屉、搜索过滤、标签化
-- ✅ 发票凭证模板引擎集成 - generateInvoiceVoucher 走模板引擎，关键词科目映射，税率匹配，科目自动创建
-- ✅ 发票科目映射规则配置 - InvoiceSubjectConfigDialog 组件，invoice_subject_rules 表持久化
-- ✅ 发票Store数据库统一 - 全部 CRUD 使用 sqliteService（getDb() helper），修复列名不匹配问题
+- ✅ 发票凭证模板引擎集成 - generateInvoiceVoucher 走模板引擎+规则引擎，关键词科目映射，税率匹配，科目校验
+- ✅ 发票科目映射规则配置 - InvoiceSubjectConfigDialog 组件，invoice_subject_rules 表持久化，业务组驱动
+- ✅ 发票Store数据库统一 - 全部 CRUD 使用 sqliteService（getDb() helper），修复列名不匹配问题，accountSetId同步
 - ✅ 业务组优先级功能 - 支持业务组优先级配置，上移/下移调整优先级，列表按优先级排序显示
+- ✅ 发票智能规则引擎 - 纯逻辑模块，6种动作类型，条件匹配+动作执行分离
+- ✅ 科目下拉选择器 - SubjectPopover组件，支持模糊搜索、Portal渲染、清空选择
+- ✅ 供应商矩阵表格 - 白名单改为行=供应商、列=业务组的单选矩阵模式
+- ✅ 往来卡片下拉选择 - PartnerPopover组件，供应商名称从往来卡片下拉选择
+- ✅ Popover Portal渲染 - 使用createPortal渲染到body，避免overflow截断
+- ✅ 全局设置功能开关 - 配置按钮改为Switch开关（自动税金科目、重复检查、报销人识别）
+- ✅ 税金科目自动生成 - 基础科目+税率自动生成完整税金科目代码
+- ✅ 供应商重复检查 - 防止添加重复供应商到同一业务组
+- ✅ 科目accountSetId同步 - initializeSubjects前同步sqliteService.accountSetId，修复刷新后数据丢失
+- ✅ 发票业务组字段 - Invoice.groupName记录匹配的业务组名称，进项/销项发票页面可编辑选择业务组
+- ✅ 科目自动创建 - 凭证生成时自动创建不存在的科目（如税金子科目），避免生成失败
+- ✅ TypeScript错误修复 - supplierType、中文变量名、重复currentPeriod等14个预存错误
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
@@ -467,6 +500,8 @@ npm run lint
 4. **自定义报表** - `reports/page.tsx` 3个按钮无 onClick
 5. **现金流量表** - 计算逻辑简化，需更复杂分析
 6. **模板引擎与银行流水集成** - `template-engine.ts` 的银行模板（bank_deposit/bank_payment）未与银行导入流程集成
+7. **往来卡片辅助核算** - 生成凭证时往来科目分录未写入auxiliary字段中的供应商/客户卡片信息
+8. **销项发票业务组** - 销项发票页面暂未实现业务组配置（仅进项发票有业务组规则）
 
 ---
 
@@ -576,6 +611,8 @@ draft → review → posted → reversed
 - 进项发票：借-材料采购/进项税，贷-应付账款
 - 销项发票：借-应收账款，贷-主营业务收入/销项税
 - 自动生成凭证字号，批量处理
+- 智能规则引擎：6种动作类型，按优先级匹配业务组
+- 税金科目自动生成：基础科目代码 + 税率 → 完整税金科目（如 2221 + 13%进项 → 22210113）
 
 ### 5. 统一往来单位管理架构
 - **单一卡片原则**：一个公司在系统中只有一个唯一ID

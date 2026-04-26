@@ -153,6 +153,8 @@ class SQLiteService {
     await this.migratePurchaseInvoiceRuleConfig();
     // 迁移：从 supplier_subject_mapping 表移除 supplierType 列
     await this.migrateRemoveSupplierTypeColumn();
+    // 迁移：invoices 表增加 groupName 列（旧 templateId 列重命名）
+    await this.migrateAddInvoiceGroupName();
   }
 
   /**
@@ -1088,6 +1090,28 @@ class SQLiteService {
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
         console.warn('Subjects table migration warning:', error);
+      }
+    }
+  }
+
+  private async migrateAddInvoiceGroupName(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      const pragma = this.dbInstance.exec("PRAGMA table_info(invoices)");
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+      // Migrate old templateId column to groupName
+      if (columns.includes('templateId') && !columns.includes('groupName')) {
+        console.log('Migrating invoices table: renaming templateId to groupName');
+        this.dbInstance.exec('ALTER TABLE invoices RENAME COLUMN templateId TO groupName;');
+      } else if (!columns.includes('groupName')) {
+        console.log('Migrating invoices table: adding groupName column');
+        this.dbInstance.exec('ALTER TABLE invoices ADD COLUMN groupName TEXT;');
+      }
+    } catch (error) {
+      if (!error.message?.includes('duplicate column name')) {
+        console.warn('Invoices table migration warning:', error);
       }
     }
   }

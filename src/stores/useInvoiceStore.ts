@@ -100,8 +100,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
         buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
         amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
-        voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     stmt.run([
       invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
@@ -110,7 +110,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
       invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
       invoice.voucherId, invoice.voucherNo, invoice.partnerId, invoice.partnerName,
-      invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime
+      invoice.notes, invoice.accountSetId, invoice.createTime, invoice.updateTime,
+      invoice.groupName || null
     ]);
     stmt.free();
 
@@ -294,8 +295,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
               id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
               buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
               amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
-              voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           );
           stmt.run([
             invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo,
@@ -304,7 +305,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
             invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
             invoice.taxAmount, invoice.totalAmount, invoice.paymentStatus, invoice.paidAmount,
             invoice.voucherId || null, invoice.voucherNo || null, invoice.partnerId || null, invoice.partnerName || null,
-            invoice.notes || null, invoice.accountSetId, invoice.createTime, invoice.updateTime
+            invoice.notes || null, invoice.accountSetId, invoice.createTime, invoice.updateTime,
+            invoice.groupName || null
           ]);
           stmt.free();
 
@@ -497,27 +499,53 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         if (entryId) mappedOverrides[entryId] = val;
       }
 
-      // 6. 科目校验（不存在的科目提示用户，不自动创建）
+      // 6. 科目校验 — 不存在的科目自动创建（税金科目等）
       const { useSubjectStore } = await import('./useSubjectStore');
-      const subjects = useSubjectStore.getState().subjects;
+      const subjectStore = useSubjectStore.getState();
+      let subjects = subjectStore.subjects;
       const existingCodes = new Set(subjects.map(s => s.code));
 
-      const missingSubjects: string[] = [];
+      const missingSubjects: { code: string; name: string }[] = [];
       for (const [, val] of Object.entries(mappedOverrides)) {
         if (val.code && !existingCodes.has(val.code)) {
-          missingSubjects.push(`${val.code} ${val.name || val.code}`);
+          missingSubjects.push({ code: val.code, name: val.name || val.code });
         }
       }
+
       if (missingSubjects.length > 0) {
-        const msg = `以下科目不存在，请先在科目管理中添加：${missingSubjects.join('、')}`;
-        set({ error: msg });
-        return null;
+        // 自动创建缺失的科目
+        for (const s of missingSubjects) {
+          const level = Math.floor((s.code.length - 2) / 2);
+          // 查找父科目：取科目代码的前缀（去掉最后2位），用 code 查找实际 id
+          const parentCode = s.code.length > 4 ? s.code.substring(0, s.code.length - 2) : null;
+          const parentSubject = parentCode ? subjects.find(ps => ps.code === parentCode) : null;
+
+          await subjectStore.addSubject({
+            code: s.code,
+            name: s.name,
+            level,
+            direction: parentSubject?.direction || 'credit',
+            parentId: parentSubject?.id || null,
+            isCustomer: false,
+            isSupplier: false,
+            isEmployee: false,
+            enableDept: false,
+            enableProject: false,
+            enableForeign: false,
+            enableCashFlow: false,
+            disabled: false,
+            block: false,
+          });
+        }
+        // 重新获取科目列表（addSubject 会更新 store）
+        subjects = useSubjectStore.getState().subjects;
       }
 
       console.log('准备调用模板引擎，mappedOverrides:', mappedOverrides);
       // 7. 调用模板引擎
       const { templateEngine } = await import('@/lib/template-engine');
-      const templateId = isInput ? 'tpl_purchase_invoice' : 'tpl_sale_invoice';
+      const defaultTemplateId = isInput ? 'tpl_purchase_invoice' : 'tpl_sale_invoice';
+      const templateId = defaultTemplateId;
       const inputData = {
         total_amount: invoice.totalAmount,
         tax_amount: invoice.taxAmount || 0,
@@ -712,10 +740,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         }
       }
 
-      // 13. 更新发票的凭证信息
+      // 13. 更新发票的凭证信息和业务组名称
+      const groupName = invoice.groupName || matchedRule?.name || null;
       await get().updateInvoice(invoiceId, {
         voucherId,
         voucherNo,
+        groupName,
       });
 
       return { voucherId, voucherNo };

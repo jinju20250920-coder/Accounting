@@ -923,6 +923,14 @@ export default function InputInvoicePage() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState('all');
+  const [businessGroupNames, setBusinessGroupNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    sqliteService.getPurchaseInvoiceRuleConfig().then(config => {
+      const names = (config?.businessGroups || []).map(g => g.name);
+      setBusinessGroupNames(names);
+    }).catch(() => {});
+  }, []);
 
   // 全选/取消全选
   const handleSelectAll = (checked: boolean) => {
@@ -1406,19 +1414,20 @@ export default function InputInvoicePage() {
                         <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">含税金额</th>
                         <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">付款状态</th>
                         <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">凭证</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">业务组</th>
                         <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">操作</th>
                       </tr>
                     </thead>
                     <tbody>
                       {loading ? (
                         <tr>
-                          <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
+                          <td colSpan={13} className="px-4 py-8 text-center text-slate-500">
                             加载中...
                           </td>
                         </tr>
                       ) : tabFilteredInvoices.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
+                          <td colSpan={13} className="px-4 py-8 text-center text-slate-500">
                             {activeTab === 'onhold' ? '暂无暂不入账的发票' : activeTab === 'vouchered' ? '暂无已入账的发票' : activeTab === 'pending' ? '暂无待生成凭证的发票' : '暂无发票数据，请导入税务局Excel'}
                           </td>
                         </tr>
@@ -1454,6 +1463,25 @@ export default function InputInvoicePage() {
                               ) : (
                                 <span className="text-slate-400">-</span>
                               )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Select
+                                value={invoice.groupName || '__default__'}
+                                onValueChange={(v) => {
+                                  const newName = v === '__default__' ? '' : v;
+                                  updateInvoice(invoice.id, { groupName: newName });
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-24 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__default__">默认</SelectItem>
+                                  {businessGroupNames.map(name => (
+                                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </td>
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
