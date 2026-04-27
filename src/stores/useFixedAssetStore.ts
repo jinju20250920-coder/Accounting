@@ -167,13 +167,24 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       throw new Error(error);
     }
 
-    // 自动生成编码（如果未提供）
+    // 自动生成编码（如果未提供且规则为自动编码）
     let assetCode = assetData.assetCode;
-    if (!assetCode) {
-      const codeManager = CodeRuleManager.getInstance();
-      const rule = codeManager.getRuleByType('fixed_asset');
+    const codeManager = CodeRuleManager.getInstance();
+    const rule = codeManager.getRuleByType('fixed_asset');
+
+    if (!assetCode && rule.autoIncrement) {
       const existingCodes = state.assets.map(a => a.assetCode).filter(Boolean);
-      assetCode = generateCode(rule, existingCodes);
+      const result = generateCode(rule, existingCodes);
+      assetCode = result.code;
+      // 更新规则状态
+      codeManager.setRule(result.updatedRule);
+    }
+
+    // 如果没有编码且不是自动编码模式，提示用户输入
+    if (!assetCode) {
+      const error = '请输入资产编码';
+      set({ error });
+      throw new Error(error);
     }
 
     // 检查编码是否重复

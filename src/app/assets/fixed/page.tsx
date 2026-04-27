@@ -32,6 +32,7 @@ import {
   Upload,
   Package,
   AlertCircle,
+  Settings,
 } from 'lucide-react';
 import type { FixedAsset, AssetCategory } from '@/types';
 import { getDepreciationMethodName } from '@/lib/depreciation';
@@ -40,6 +41,8 @@ import {
   exportFixedAssetsToExcel,
   generateAssetImportTemplate,
 } from '@/lib/parser';
+import { CodeRuleConfigDialog } from '@/components/code-rule-config-dialog';
+import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
 
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
@@ -363,12 +366,21 @@ export default function FixedAssetsPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null);
+  const [codeRule, setCodeRule] = useState<CodeRule | null>(null);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // 加载编码规则
+  useEffect(() => {
+    const manager = CodeRuleManager.getInstance();
+    const rule = manager.getRuleByType('fixed_asset');
+    setCodeRule(rule);
+  }, [showCodeRuleDialog]);
 
   // 应用筛选
   useEffect(() => {
@@ -492,6 +504,10 @@ export default function FixedAssetsPage() {
           <p className="text-slate-500 text-sm mt-1">管理企业固定资产卡片和折旧</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowCodeRuleDialog(true)}>
+            <Settings className="h-4 w-4 mr-2" />
+            编码设置
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowImportDialog(true)}>
             <Upload className="h-4 w-4 mr-2" />
             导入
@@ -727,6 +743,16 @@ export default function FixedAssetsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 编码规则设置对话框 */}
+      <CodeRuleConfigDialog
+        open={showCodeRuleDialog}
+        onOpenChange={setShowCodeRuleDialog}
+        ruleType="fixed_asset"
+        title="固定资产"
+        existingCodes={assets.map(a => a.assetCode).filter(Boolean)}
+        onSave={(rule) => setCodeRule(rule)}
+      />
     </div>
   );
 }

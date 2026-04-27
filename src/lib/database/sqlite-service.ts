@@ -428,6 +428,22 @@ class SQLiteService {
             FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
           );
 
+          -- 编码规则表
+          CREATE TABLE IF NOT EXISTS codeRules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            prefix TEXT,
+            suffix TEXT,
+            padding INTEGER DEFAULT 4,
+            separator TEXT DEFAULT '',
+            autoIncrement INTEGER DEFAULT 1,
+            resetPeriod TEXT DEFAULT 'none',
+            lastNumber INTEGER DEFAULT 0,
+            lastResetDate TEXT,
+            accountSetId TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+
           -- 发票表
           CREATE TABLE IF NOT EXISTS invoices (
             id TEXT PRIMARY KEY,

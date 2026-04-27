@@ -71,14 +71,15 @@ export default function ProjectsPage() {
   // 获取编码规则
   const { rules, updateRule } = useCodeRules();
   const codeRule = useMemo(() => {
-    return rules.find(rule => rule.id === 'project_rule_1') || {
-      id: 'project_rule_1',
+    return rules.find(rule => rule.id === 'project_rule') || {
+      id: 'project_rule',
       name: '项目编码',
       prefix: 'PRJ',
       suffix: '',
       padding: 3,
       separator: '-' as const,
       autoIncrement: true,
+      resetPeriod: 'none' as const,
       lastNumber: 0
     };
   }, [rules]);
@@ -190,8 +191,11 @@ export default function ProjectsPage() {
       } else {
         // 使用自动编码
         const existingCodes = projects.map(p => p.code);
-        finalCode = generateCode(codeRule, existingCodes);
+        const result = generateCode(codeRule, existingCodes);
+        finalCode = result.code;
         showToast('info', `自动生成编码：${finalCode}`);
+        // 更新规则状态
+        updateRule(codeRule.id, result.updatedRule);
       }
 
       projectData = {
@@ -204,9 +208,6 @@ export default function ProjectsPage() {
         endDate: formData.endDate || undefined,
         frozen: formData.frozen
       };
-
-      // 更新规则的最后编号
-      updateRule(codeRule.id, { lastNumber: parseInt(finalCode.replace(/\D/g, '')) || 0 });
     }
 
     if (editingId) {

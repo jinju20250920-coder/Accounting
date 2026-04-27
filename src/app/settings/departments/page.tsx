@@ -158,8 +158,11 @@ export default function DepartmentsPage() {
       } else {
         // 使用自动编码
         const existingCodes = departments.map(d => d.code);
-        finalCode = generateCode(codeRule, existingCodes);
+        const result = generateCode(codeRule, existingCodes);
+        finalCode = result.code;
         showToast('info', `自动生成编码：${finalCode}`);
+        // 更新规则状态
+        codeRuleManager.setRule(result.updatedRule);
       }
 
       deptData = {
@@ -169,9 +172,6 @@ export default function DepartmentsPage() {
         level: 1, // Default level, should be calculated based on hierarchy
         frozen: formData.frozen
       };
-
-      // 更新规则的最后编号
-      codeRuleManager.updateRule(codeRule.id, { lastNumber: parseInt(finalCode.replace(/\D/g, '')) || 0 });
     }
 
     if (editingId) {
