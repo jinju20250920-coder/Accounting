@@ -516,6 +516,7 @@ npm run lint
 - ✅ 凭证摘要业务组名称 - 使用业务组名称替代科目编号作为摘要
 - ✅ 凭证列表往来列 - 详情弹窗增加往来/辅助列，显示供应商/客户名称
 - ✅ 发票导入自动创建往来卡片 - 匹配业务组后根据requirePartnerCard决定是否创建
+- ✅ sql.js参数化查询修复 - 所有Store统一使用db.prepare().run().free()模式，修复固定资产/待摊费用/无形资产Store的数据库操作
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
@@ -604,6 +605,10 @@ if (type === 'sale_invoice') {
     - ✅ 禁止在 label 文本中直接写 `*`
 13. **端口占用处理** - 不要使用 `taskkill /f /im node.exe` 终止所有 node 进程
     - ✅ Windows 示例：`netstat -ano | findstr :3000` 找到 PID，然后 `taskkill /f /pid <PID>`
+14. **sql.js 参数化查询** - 必须使用 `db.prepare(sql).run(params).free()` 模式
+    - ❌ 错误：`db.run(sql, params)` - sql.js 不支持此语法
+    - ✅ 正确：`const stmt = db.prepare(sql); stmt.run(params); stmt.free();`
+    - 所有 Store（useInvoiceStore、useFixedAssetStore、usePrepaidExpenseStore、useIntangibleAssetStore）已统一使用正确模式
 
 ---
 
