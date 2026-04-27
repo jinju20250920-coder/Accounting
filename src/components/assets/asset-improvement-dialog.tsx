@@ -103,7 +103,7 @@ export function AssetImprovementDialog({
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-slate-500">当前原值</span>
-              <span>¥{asset.originalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+              <span>¥{(asset.originalValue ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-slate-500">使用年限</span>

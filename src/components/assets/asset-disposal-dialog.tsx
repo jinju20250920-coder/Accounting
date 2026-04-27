@@ -126,7 +126,7 @@ export function AssetDisposalDialog({
             <div className="flex justify-between mt-1">
               <span className="text-slate-500">账面净值</span>
               <span className="font-medium text-blue-600">
-                ¥{asset.netValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                ¥{(asset.netValue ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>
@@ -191,15 +191,15 @@ export function AssetDisposalDialog({
             <div className="p-3 bg-blue-50 rounded-lg text-sm space-y-1">
               <div className="flex justify-between">
                 <span className="text-slate-600">处置原值</span>
-                <span>¥{disposalCalc.disposedOriginalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                <span>¥{(disposalCalc.disposedOriginalValue ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">处置累计折旧</span>
-                <span>¥{disposalCalc.disposedAccumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                <span>¥{(disposalCalc.disposedAccumulatedDepreciation ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between font-medium border-t pt-1 mt-1">
                 <span className="text-slate-700">处置净值</span>
-                <span className="text-blue-600">¥{disposalCalc.disposedNetValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                <span className="text-blue-600">¥{(disposalCalc.disposedNetValue ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
           )}
