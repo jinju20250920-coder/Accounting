@@ -160,8 +160,14 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const accountSetStore = useAccountSetStore.getState();
     const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
+    if (!currentAccountSet?.id) {
+      const error = '请先选择账套';
+      set({ error });
+      throw new Error(error);
+    }
+
     // 检查编码是否重复
-    if (state.assets.some(a => a.assetCode === assetData.assetCode)) {
+    if (assetData.assetCode && state.assets.some(a => a.assetCode === assetData.assetCode)) {
       const error = '资产编码已存在';
       set({ error });
       throw new Error(error);
@@ -182,7 +188,14 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       // 保存到数据库
       const { sqliteService } = await import('@/lib/database/sqlite-service');
+      // 同步账套ID
+      if (currentAccountSet?.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+      }
       const db = await sqliteService.getDatabase();
+      if (!db) {
+        throw new Error('数据库未初始化');
+      }
       const stmt = db.prepare(
         `INSERT INTO fixedAssets (
           id, assetCode, assetName, categoryId, categoryName, specification, unit, quantity,
@@ -220,8 +233,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       return newAsset;
     } catch (error: any) {
-      set({ error: error.message || '添加资产失败' });
-      throw error;
+      console.error('添加资产失败:', error);
+      const errorMsg = error?.message || error?.toString() || '添加资产失败';
+      set({ error: errorMsg });
+      throw new Error(errorMsg);
     }
   },
 
@@ -254,7 +269,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      if (currentAccountSet?.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+      }
       const db = await sqliteService.getDatabase();
+      if (!db) {
+        throw new Error('数据库未初始化');
+      }
       const stmt = db.prepare(
         `UPDATE fixedAssets SET
           assetName=?, categoryId=?, categoryName=?, specification=?, unit=?, quantity=?,
@@ -316,7 +339,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      if (currentAccountSet?.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+      }
       const db = await sqliteService.getDatabase();
+      if (!db) {
+        throw new Error('数据库未初始化');
+      }
       // 删除折旧记录
       const stmt1 = db.prepare('DELETE FROM depreciationRecords WHERE assetId = ?');
       stmt1.run([id]);
