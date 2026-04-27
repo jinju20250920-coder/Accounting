@@ -517,6 +517,10 @@ npm run lint
 - ✅ 凭证列表往来列 - 详情弹窗增加往来/辅助列，显示供应商/客户名称
 - ✅ 发票导入自动创建往来卡片 - 匹配业务组后根据requirePartnerCard决定是否创建
 - ✅ sql.js参数化查询修复 - 所有Store统一使用db.prepare().run().free()模式，修复固定资产/待摊费用/无形资产Store的数据库操作
+- ✅ 固定资产批量标签打印 - 数量>1的资产生成多个标签，格式如"FA0001 1/10"
+- ✅ 固定资产入账规则配置 - 双栏布局对话框，Portal科目选择器，折旧参数与科目映射
+- ✅ 会计期间endDate修复 - 使用本地日期方法避免toISOString时区问题，提取getMonthEndDate工具函数
+- ✅ 资产编号持久化 - 从现有编码提取最大值+1，避免重复编号
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
