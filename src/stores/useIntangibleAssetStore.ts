@@ -73,8 +73,33 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
     const accountSetStore = useAccountSetStore.getState();
     const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
+    if (!currentAccountSet?.id) {
+      const error = '请先选择账套';
+      set({ error });
+      throw new Error(error);
+    }
+
+    // 自动生成编码（如果未提供且规则为自动编码）
+    let assetCode = assetData.assetCode;
+    const { CodeRuleManager, generateCode } = await import('@/lib/code-generator');
+    const codeManager = CodeRuleManager.getInstance();
+    const rule = codeManager.getRuleByType('intangible_asset');
+
+    if (!assetCode && rule.autoIncrement) {
+      const existingCodes = state.assets.map(a => a.assetCode).filter(Boolean);
+      const result = generateCode(rule, existingCodes);
+      assetCode = result.code;
+      codeManager.setRule(result.updatedRule);
+    }
+
+    if (!assetCode) {
+      const error = '请输入资产编码';
+      set({ error });
+      throw new Error(error);
+    }
+
     // 检查编码是否重复
-    if (state.assets.some(a => a.assetCode === assetData.assetCode)) {
+    if (state.assets.some(a => a.assetCode === assetCode)) {
       const error = '资产编码已存在';
       set({ error });
       throw new Error(error);
@@ -83,6 +108,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
     const now = new Date().toISOString();
     const newAsset: IntangibleAsset = {
       ...assetData,
+      assetCode,
       id: generateId(),
       netValue: assetData.originalValue - (assetData.accumulatedAmortization || 0),
       status: assetData.status || 'active',
@@ -93,6 +119,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
 
     try {
       const db = await getCurrentManager().getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
       const stmt = db.prepare(
         `INSERT INTO intangibleAssets (
           id, assetCode, assetName, assetType, originalValue, residualValue,
@@ -104,19 +132,19 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
-        newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.assetType,
-        newAsset.originalValue, newAsset.residualValue,
-        newAsset.accumulatedAmortization, newAsset.netValue,
-        newAsset.amortizationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
-        newAsset.totalUnits, newAsset.unitsUsed,
-        newAsset.acquisitionDate, newAsset.amortizationStartDate,
-        newAsset.lastAmortizationDate, newAsset.expiryDate,
-        newAsset.status, newAsset.assetSubjectCode, newAsset.assetSubjectName,
-        newAsset.amortizationSubjectCode, newAsset.amortizationSubjectName,
-        newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
-        newAsset.registrationNo, newAsset.legalLifeYears,
-        newAsset.departmentCode, newAsset.departmentName,
-        newAsset.notes, newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
+        newAsset.id, newAsset.assetCode, newAsset.assetName, safeValue(newAsset.assetType),
+        newAsset.originalValue, safeValue(newAsset.residualValue),
+        safeValue(newAsset.accumulatedAmortization), newAsset.netValue,
+        safeValue(newAsset.amortizationMethod), safeValue(newAsset.usefulLifeYears), safeValue(newAsset.usefulLifeMonths),
+        safeValue(newAsset.totalUnits), safeValue(newAsset.unitsUsed),
+        safeValue(newAsset.acquisitionDate), safeValue(newAsset.amortizationStartDate),
+        safeValue(newAsset.lastAmortizationDate), safeValue(newAsset.expiryDate),
+        newAsset.status, safeValue(newAsset.assetSubjectCode), safeValue(newAsset.assetSubjectName),
+        safeValue(newAsset.amortizationSubjectCode), safeValue(newAsset.amortizationSubjectName),
+        safeValue(newAsset.expenseSubjectCode), safeValue(newAsset.expenseSubjectName),
+        safeValue(newAsset.registrationNo), safeValue(newAsset.legalLifeYears),
+        safeValue(newAsset.departmentCode), safeValue(newAsset.departmentName),
+        safeValue(newAsset.notes), newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
       ]);
       stmt.free();
 
@@ -155,6 +183,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
 
     try {
       const db = await getCurrentManager().getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
       const stmt = db.prepare(
         `UPDATE intangibleAssets SET
           assetName=?, assetType=?, originalValue=?, residualValue=?,
@@ -169,20 +199,20 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         WHERE id=?`
       );
       stmt.run([
-        updatedAsset.assetName, updatedAsset.assetType,
-        updatedAsset.originalValue, updatedAsset.residualValue,
-        updatedAsset.accumulatedAmortization, updatedAsset.netValue,
-        updatedAsset.amortizationMethod,
-        updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
-        updatedAsset.totalUnits, updatedAsset.unitsUsed,
-        updatedAsset.acquisitionDate, updatedAsset.amortizationStartDate,
-        updatedAsset.lastAmortizationDate, updatedAsset.expiryDate,
-        updatedAsset.status, updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
-        updatedAsset.amortizationSubjectCode, updatedAsset.amortizationSubjectName,
-        updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
-        updatedAsset.registrationNo, updatedAsset.legalLifeYears,
-        updatedAsset.departmentCode, updatedAsset.departmentName,
-        updatedAsset.notes, updatedAsset.updateTime, id,
+        updatedAsset.assetName, safeValue(updatedAsset.assetType),
+        updatedAsset.originalValue, safeValue(updatedAsset.residualValue),
+        safeValue(updatedAsset.accumulatedAmortization), updatedAsset.netValue,
+        safeValue(updatedAsset.amortizationMethod),
+        safeValue(updatedAsset.usefulLifeYears), safeValue(updatedAsset.usefulLifeMonths),
+        safeValue(updatedAsset.totalUnits), safeValue(updatedAsset.unitsUsed),
+        safeValue(updatedAsset.acquisitionDate), safeValue(updatedAsset.amortizationStartDate),
+        safeValue(updatedAsset.lastAmortizationDate), safeValue(updatedAsset.expiryDate),
+        updatedAsset.status, safeValue(updatedAsset.assetSubjectCode), safeValue(updatedAsset.assetSubjectName),
+        safeValue(updatedAsset.amortizationSubjectCode), safeValue(updatedAsset.amortizationSubjectName),
+        safeValue(updatedAsset.expenseSubjectCode), safeValue(updatedAsset.expenseSubjectName),
+        safeValue(updatedAsset.registrationNo), safeValue(updatedAsset.legalLifeYears),
+        safeValue(updatedAsset.departmentCode), safeValue(updatedAsset.departmentName),
+        safeValue(updatedAsset.notes), updatedAsset.updateTime, id,
       ]);
       stmt.free();
 
@@ -347,6 +377,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
   saveAmortizationRecords: async (records) => {
     try {
       const db = await getCurrentManager().getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
 
       for (const record of records) {
         const stmt = db.prepare(
@@ -361,8 +393,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
           record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
           record.period, record.amortizationDate,
           record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
-          record.unitsThisPeriod, record.voucherId, record.voucherNo,
-          record.status, record.notes,
+          safeValue(record.unitsThisPeriod), safeValue(record.voucherId), safeValue(record.voucherNo),
+          record.status, safeValue(record.notes),
           record.accountSetId, record.createTime, record.updateTime,
         ]);
         stmt.free();
@@ -648,16 +680,28 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;
 
+      if (!accountSetId) {
+        set({ error: '请先选择账套' });
+        return null;
+      }
+
+      sqliteService.setAccountSetId(accountSetId);
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        set({ error: '数据库未初始化' });
+        return null;
+      }
+
       // 生成凭证号
       const yearMonth = voucherDate.substring(0, 7).replace('-', '');
       const vouchersResult = db.exec(
-        'SELECT voucherNo FROM vouchers WHERE voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
-        [`记-${yearMonth}-%`]
+        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [accountSetId, `记-${yearMonth}-%`]
       );
       let lastSeq = 0;
       if (vouchersResult[0]?.values?.length > 0) {
@@ -710,20 +754,42 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
       for (const [, expense] of expenseMap) {
         const entryId = generateId();
         stmt = db.prepare(
-          `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (
+            id, voucherId, subjectCode, subjectName, direction, debit, credit,
+            summary, customerName, supplierName, auxiliary, recRefNo,
+            departmentCode, departmentName, projectCode, projectName,
+            currencyCode, exchangeRate, originalAmount, date, accountSetId,
+            createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, voucherDate, '无形资产摊销', expense.code, expense.name, expense.amount, 0, accountSetId]);
+        stmt.run([
+          entryId, voucherId, expense.code, expense.name, 'debit', expense.amount, 0,
+          '无形资产摊销', '', '', '{}', '',
+          '', '', '', '',
+          '', 0, 0, voucherDate, accountSetId,
+          now, now
+        ]);
         stmt.free();
       }
 
       // 创建分录 - 贷方：累计摊销
       const creditEntryId = generateId();
       stmt = db.prepare(
-        `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO entries (
+          id, voucherId, subjectCode, subjectName, direction, debit, credit,
+          summary, customerName, supplierName, auxiliary, recRefNo,
+          departmentCode, departmentName, projectCode, projectName,
+          currencyCode, exchangeRate, originalAmount, date, accountSetId,
+          createTime, updateTime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmt.run([creditEntryId, voucherId, voucherDate, '无形资产摊销', '1702', '累计摊销', 0, totalAmortization, accountSetId]);
+      stmt.run([
+        creditEntryId, voucherId, '1702', '累计摊销', 'credit', 0, totalAmortization,
+        '无形资产摊销', '', '', '{}', '',
+        '', '', '', '',
+        '', 0, 0, voucherDate, accountSetId,
+        now, now
+      ]);
       stmt.free();
 
       // 更新摊销记录，关联凭证

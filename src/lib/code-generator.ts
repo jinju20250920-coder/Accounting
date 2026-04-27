@@ -115,6 +115,19 @@ const getPeriodKey = (resetPeriod: ResetPeriod): string => {
   }
 };
 
+// 获取编码中的时间部分（年份/月份）
+const getPeriodCode = (resetPeriod: ResetPeriod, separator: string): string => {
+  const now = new Date();
+  switch (resetPeriod) {
+    case 'monthly':
+      return `${separator}${now.getFullYear()}${separator}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    case 'yearly':
+      return `${separator}${now.getFullYear()}`;
+    default:
+      return '';
+  }
+};
+
 // 检查是否需要重置编号
 const shouldReset = (rule: CodeRule): boolean => {
   if (rule.resetPeriod === 'none') return false;
@@ -136,20 +149,30 @@ export const generateCode = (
     number = 1;
   }
 
+  const prefix = rule.prefix || '';
+  const suffix = rule.suffix || '';
+  const separator = rule.separator || '';
+  const periodCode = getPeriodCode(rule.resetPeriod, separator);
+
   // 如果启用了自动递增，确保编码不重复
   if (rule.autoIncrement) {
-    const prefix = rule.prefix || '';
-    const suffix = rule.suffix || '';
+    // 构建匹配模式：前缀 + 分隔符 + (年份 + 分隔符 + 月份)? + 分隔符 + 序号 + 后缀
+    const periodPattern = rule.resetPeriod === 'monthly'
+      ? `\\d{4}${separator}\\d{2}`
+      : rule.resetPeriod === 'yearly'
+        ? '\\d{4}'
+        : '';
+
     while (existingCodes.some(code => {
-      const pattern = new RegExp(`^${prefix}${rule.separator}\\d{${rule.padding}}${suffix}$`);
+      const pattern = new RegExp(`^${prefix}${separator}${periodPattern ? periodPattern + separator : ''}\\d{${rule.padding}}${suffix}$`);
       return pattern.test(code);
     })) {
       number++;
     }
   }
 
-  // 生成编码
-  const code = `${rule.prefix}${rule.separator}${String(number).padStart(rule.padding, '0')}${rule.suffix || ''}`;
+  // 生成编码：前缀 + 时间部分 + 序号
+  const code = `${prefix}${periodCode}${separator}${String(number).padStart(rule.padding, '0')}${suffix}`;
 
   // 更新规则
   const updatedRule: CodeRule = {
@@ -167,7 +190,18 @@ export const previewCode = (rule: Partial<CodeRule>): string => {
   const separator = rule.separator || '';
   const padding = rule.padding || 4;
   const suffix = rule.suffix || '';
-  return `${prefix}${separator}${String(1).padStart(padding, '0')}${suffix}`;
+  const resetPeriod = rule.resetPeriod || 'none';
+
+  // 根据重置周期生成预览（使用当前日期）
+  const now = new Date();
+  let periodCode = '';
+  if (resetPeriod === 'monthly') {
+    periodCode = `${separator}${now.getFullYear()}${separator}${String(now.getMonth() + 1).padStart(2, '0')}`;
+  } else if (resetPeriod === 'yearly') {
+    periodCode = `${separator}${now.getFullYear()}`;
+  }
+
+  return `${prefix}${periodCode}${separator}${String(1).padStart(padding, '0')}${suffix}`;
 };
 
 // 编码规则管理器
@@ -268,7 +302,7 @@ export class CodeRuleManager {
       for (const rule of this.rules.values()) {
         const stmt = db.prepare(
           `INSERT OR REPLACE INTO codeRules (
-            id, name, prefix, suffix, padding, separator, autoIncrement,
+            id, name, prefix, suffix, padding, separator, auto_inc,
             resetPeriod, lastNumber, lastResetDate, accountSetId
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
         );

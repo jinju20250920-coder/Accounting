@@ -177,14 +177,14 @@ export function CodeRuleConfigDialog({
               <div className="space-y-2">
                 <Label>分隔符</Label>
                 <Select
-                  value={formData.separator || ''}
-                  onValueChange={(v) => setFormData(prev => ({ ...prev, separator: v as '-' | '_' | '' }))}
+                  value={formData.separator === '' ? 'none' : formData.separator}
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, separator: v === 'none' ? '' : v as '-' | '_' | '' }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">无分隔符</SelectItem>
+                    <SelectItem value="none">无分隔符</SelectItem>
                     <SelectItem value="-">横线 (-)</SelectItem>
                     <SelectItem value="_">下划线 (_)</SelectItem>
                   </SelectContent>
@@ -215,7 +215,14 @@ export function CodeRuleConfigDialog({
                 <div className="text-lg font-mono font-bold text-blue-700">{preview}</div>
                 {formData.resetPeriod !== 'none' && (
                   <div className="text-xs text-blue-500 mt-1">
-                    {formData.resetPeriod === 'monthly' ? '每月从001重新开始' : '每年从001重新开始'}
+                    {formData.resetPeriod === 'monthly'
+                      ? '格式：前缀_年份_月份_序号，每月序号重置为001'
+                      : '格式：前缀_年份_序号，每年序号重置为001'}
+                  </div>
+                )}
+                {formData.resetPeriod === 'none' && (
+                  <div className="text-xs text-blue-500 mt-1">
+                    格式：前缀_序号，序号连续递增不重置
                   </div>
                 )}
               </div>

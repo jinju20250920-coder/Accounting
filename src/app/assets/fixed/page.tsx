@@ -33,16 +33,20 @@ import {
   Package,
   AlertCircle,
   Settings,
+  History,
+  QrCode,
+  TrendingUp,
+  AlertTriangle,
 } from 'lucide-react';
-import type { FixedAsset, AssetCategory } from '@/types';
-import { getDepreciationMethodName } from '@/lib/depreciation';
-import {
-  parseFixedAssetsExcel,
-  exportFixedAssetsToExcel,
-  generateAssetImportTemplate,
-} from '@/lib/parser';
-import { CodeRuleConfigDialog } from '@/components/code-rule-config-dialog';
+import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
+import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
+import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
+import { AssetImprovementDialog } from '@/components/assets/asset-improvement-dialog';
+import { AssetChangeRecordList } from '@/components/assets/asset-change-record-list';
+import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
+import { getDepreciationMethodName } from '@/lib/depreciation';
+import type { FixedAsset, AssetCategory } from '@/types';
 
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
@@ -67,6 +71,8 @@ function AssetCardDialog({
     assetName: '',
     categoryId: '',
     specification: '',
+    quantity: 1,
+    unit: '台',
     originalValue: 0,
     salvageValue: 0,
     depreciationMethod: 'straight_line',
@@ -78,6 +84,9 @@ function AssetCardDialog({
     supplierName: '',
     invoiceNo: '',
     notes: '',
+    serialNumber: '',
+    assignedUser: '',
+    acquisitionType: 'purchase',
   });
 
   useEffect(() => {
@@ -89,6 +98,8 @@ function AssetCardDialog({
         assetName: '',
         categoryId: '',
         specification: '',
+        quantity: 1,
+        unit: '台',
         originalValue: 0,
         salvageValue: 0,
         depreciationMethod: 'straight_line',
@@ -100,6 +111,9 @@ function AssetCardDialog({
         supplierName: '',
         invoiceNo: '',
         notes: '',
+        serialNumber: '',
+        assignedUser: '',
+        acquisitionType: 'purchase',
       });
     }
   }, [asset, open]);
@@ -134,9 +148,13 @@ function AssetCardDialog({
     }
 
     const usefulLifeMonths = (formData.usefulLifeYears || 5) * 12;
+    const quantity = formData.quantity || 1;
     onSave({
       ...formData,
       usefulLifeMonths,
+      quantity,
+      remainingQuantity: quantity,
+      unitPrice: (formData.originalValue || 0) / quantity,
       assetCode: formData.assetCode || `FA-${Date.now()}`,
       assetSubjectCode: '1501',
       depreciationSubjectCode: '1502',
@@ -193,6 +211,58 @@ function AssetCardDialog({
               onChange={(e) => setFormData(prev => ({ ...prev, specification: e.target.value }))}
               placeholder="请输入规格型号"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>数量</Label>
+            <Input
+              type="number"
+              min={1}
+              value={formData.quantity || 1}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                quantity: parseInt(e.target.value) || 1
+              }))}
+              placeholder="1"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>计量单位</Label>
+            <Select
+              value={formData.unit || '台'}
+              onValueChange={(v) => setFormData(prev => ({ ...prev, unit: v }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="台">台</SelectItem>
+                <SelectItem value="把">把</SelectItem>
+                <SelectItem value="套">套</SelectItem>
+                <SelectItem value="个">个</SelectItem>
+                <SelectItem value="辆">辆</SelectItem>
+                <SelectItem value="件">件</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>取得方式</Label>
+            <Select
+              value={formData.acquisitionType || 'purchase'}
+              onValueChange={(v) => setFormData(prev => ({ ...prev, acquisitionType: v as any }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="purchase">购入</SelectItem>
+                <SelectItem value="opening_balance">开账导入</SelectItem>
+                <SelectItem value="cip_conversion">在建转固</SelectItem>
+                <SelectItem value="invoice">发票入账</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
@@ -290,6 +360,24 @@ function AssetCardDialog({
             />
           </div>
 
+          <div className="space-y-2">
+            <Label>序列号</Label>
+            <Input
+              value={formData.serialNumber || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, serialNumber: e.target.value }))}
+              placeholder="高价值资产填写"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>使用人</Label>
+            <Input
+              value={formData.assignedUser || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, assignedUser: e.target.value }))}
+              placeholder="资产使用人"
+            />
+          </div>
+
           <div className="col-span-2 space-y-2">
             <Label>备注</Label>
             <Input
@@ -367,6 +455,10 @@ export default function FixedAssetsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
+  const [showDisposalDialog, setShowDisposalDialog] = useState(false);
+  const [showImprovementDialog, setShowImprovementDialog] = useState(false);
+  const [showQRLabelDialog, setShowQRLabelDialog] = useState(false);
+  const [showChangeRecordDialog, setShowChangeRecordDialog] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null);
   const [codeRule, setCodeRule] = useState<CodeRule | null>(null);
@@ -482,7 +574,8 @@ export default function FixedAssetsPage() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const formatMoney = (value: number) => {
+  const formatMoney = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '0.00';
     return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
@@ -640,10 +733,11 @@ export default function FixedAssetsPage() {
                       <td className="p-4 text-sm">{asset.acquisitionDate}</td>
                       <td className="p-4">{getStatusBadge(asset.status)}</td>
                       <td className="p-4">
-                        <div className="flex justify-center gap-2">
+                        <div className="flex justify-center gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
+                            title="编辑"
                             onClick={() => {
                               setSelectedAsset(asset);
                               setShowAddDialog(true);
@@ -651,10 +745,61 @@ export default function FixedAssetsPage() {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
+                          {asset.status === 'active' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="改造"
+                                className="text-blue-500 hover:text-blue-700"
+                                onClick={() => {
+                                  setSelectedAsset(asset);
+                                  setShowImprovementDialog(true);
+                                }}
+                              >
+                                <TrendingUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="处置"
+                                className="text-amber-500 hover:text-amber-700"
+                                onClick={() => {
+                                  setSelectedAsset(asset);
+                                  setShowDisposalDialog(true);
+                                }}
+                              >
+                                <AlertTriangle className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="标签"
+                            onClick={() => {
+                              setSelectedAsset(asset);
+                              setShowQRLabelDialog(true);
+                            }}
+                          >
+                            <QrCode className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="变动记录"
+                            onClick={() => {
+                              setSelectedAsset(asset);
+                              setShowChangeRecordDialog(true);
+                            }}
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-red-500 hover:text-red-700"
+                            title="删除"
                             onClick={() => {
                               setSelectedAsset(asset);
                               setShowDeleteConfirm(true);
@@ -745,13 +890,78 @@ export default function FixedAssetsPage() {
       </Dialog>
 
       {/* 编码规则设置对话框 */}
-      <CodeRuleConfigDialog
+      <AssetCodeRuleDialog
         open={showCodeRuleDialog}
         onOpenChange={setShowCodeRuleDialog}
-        ruleType="fixed_asset"
-        title="固定资产"
-        existingCodes={assets.map(a => a.assetCode).filter(Boolean)}
-        onSave={(rule) => setCodeRule(rule)}
+        defaultType="fixed_asset"
+        existingCodes={{
+          fixed_asset: assets.map(a => a.assetCode).filter(Boolean),
+          intangible_asset: [],
+          prepaid_expense: [],
+        }}
+        onSave={() => {
+          const manager = CodeRuleManager.getInstance();
+          setCodeRule(manager.getRuleByType('fixed_asset'));
+        }}
+      />
+
+      {/* 资产处置对话框 */}
+      <AssetDisposalDialog
+        asset={selectedAsset}
+        open={showDisposalDialog}
+        onOpenChange={setShowDisposalDialog}
+        onSuccess={() => {
+          initialize();
+          setSelectedAsset(null);
+        }}
+      />
+
+      {/* 资产改造对话框 */}
+      <AssetImprovementDialog
+        asset={selectedAsset}
+        open={showImprovementDialog}
+        onOpenChange={setShowImprovementDialog}
+        onSuccess={() => {
+          initialize();
+          setSelectedAsset(null);
+        }}
+      />
+
+      {/* QR标签对话框 */}
+      <Dialog open={showQRLabelDialog} onOpenChange={setShowQRLabelDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>资产标签</DialogTitle>
+          </DialogHeader>
+          {selectedAsset && (
+            <div className="flex justify-center p-4 bg-white border rounded-lg">
+              <div className="flex items-center gap-4 p-3 border-2 border-dashed border-slate-300 rounded">
+                <AssetQRLabel asset={selectedAsset} size={100} />
+                <div className="text-sm space-y-1">
+                  <div className="font-bold text-slate-900">{selectedAsset.assetCode}</div>
+                  <div className="text-slate-700">{selectedAsset.assetName}</div>
+                  {selectedAsset.specification && (
+                    <div className="text-slate-500 text-xs">规格: {selectedAsset.specification}</div>
+                  )}
+                  <div className="text-slate-500 text-xs">入账: {selectedAsset.acquisitionDate}</div>
+                  {selectedAsset.departmentName && (
+                    <div className="text-slate-500 text-xs">部门: {selectedAsset.departmentName}</div>
+                  )}
+                  {selectedAsset.assignedUser && (
+                    <div className="text-slate-500 text-xs">使用人: {selectedAsset.assignedUser}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 变动记录对话框 */}
+      <AssetChangeRecordList
+        asset={selectedAsset}
+        open={showChangeRecordDialog}
+        onOpenChange={setShowChangeRecordDialog}
       />
     </div>
   );

@@ -17,6 +17,9 @@ import type {
   BatchDepreciationResult,
   AssetFilter,
   DepreciationMethod,
+  AssetImprovement,
+  AssetDisposal,
+  AssetChangeRecord,
 } from '@/types';
 
 interface FixedAssetStore {
@@ -59,6 +62,19 @@ interface FixedAssetStore {
 
   // 凭证生成
   generateDepreciationVoucher: (recordIds: string[], voucherDate: string) => Promise<{ voucherId: string; voucherNo: string } | null>;
+
+  // 资产生命周期管理
+  improveAsset: (assetId: string, improvement: Omit<AssetImprovement, 'id' | 'createTime'>) => Promise<void>;
+  disposeAsset: (assetId: string, disposal: Omit<AssetDisposal, 'id' | 'createTime' | 'disposedOriginalValue' | 'disposedAccumulatedDepreciation' | 'disposedNetValue' | 'netGainLoss'>) => Promise<void>;
+  convertFromCIP: (cipData: { assetName: string; originalValue: number; acquisitionDate: string; cipSubjectCode: string; usefulLifeMonths: number; depreciationMethod: DepreciationMethod }) => Promise<FixedAsset>;
+
+  // 变动记录
+  getAssetChangeRecords: (assetId: string) => AssetChangeRecord[];
+  logAssetChange: (record: Omit<AssetChangeRecord, 'id' | 'createTime'>) => Promise<void>;
+
+  // 校验
+  shouldDepreciateThisMonth: (assetId: string, period: string) => boolean;
+  calculatePartialDisposal: (assetId: string, disposeQty: number) => { disposedOriginalValue: number; disposedAccumulatedDepreciation: number; disposedNetValue: number } | null;
 
   // 状态管理
   setSelectedAssetId: (id: string | null) => void;
@@ -195,12 +211,30 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     const now = new Date().toISOString();
+    // 将 undefined 转为 null，避免 SQL.js 报错
+    const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
+
+    // 生成唯一ID
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // 计算单价和默认值
+    const quantity = assetData.quantity || 1;
+    const unitPrice = assetData.unitPrice || (assetData.originalValue / quantity);
+
     const newAsset: FixedAsset = {
       ...assetData,
+      id,
       assetCode,
-      id: generateId(),
+      quantity,
+      remainingQuantity: assetData.remainingQuantity || quantity,
+      unitPrice,
+      unit: assetData.unit || '台',
+      acquisitionType: assetData.acquisitionType || 'purchase',
       depreciableValue: assetData.originalValue - (assetData.salvageValue || 0),
       netValue: assetData.originalValue - (assetData.accumulatedDepreciation || 0),
+      depreciatedMonths: assetData.depreciatedMonths || 0,
+      improvementHistory: assetData.improvementHistory || [],
+      disposalHistory: assetData.disposalHistory || [],
       status: assetData.status || 'active',
       accountSetId: currentAccountSet?.id,
       createTime: now,
@@ -218,29 +252,44 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const stmt = db.prepare(
         `INSERT INTO fixedAssets (
           id, assetCode, assetName, categoryId, categoryName, specification, unit, quantity,
+          remainingQuantity, unitPrice,
           originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
-          depreciationMethod, usefulLifeYears, usefulLifeMonths, totalUnits, unitsUsed,
+          depreciationMethod, usefulLifeYears, usefulLifeMonths, originalUsefulLifeMonths, depreciatedMonths,
+          totalUnits, unitsUsed,
           acquisitionDate, depreciationStartDate, lastDepreciationDate, disposalDate,
           status, location, departmentCode, departmentName,
           assetSubjectCode, assetSubjectName, depreciationSubjectCode, depreciationSubjectName,
-          expenseSubjectCode, expenseSubjectName, supplierName, invoiceNo, notes,
+          expenseSubjectCode, expenseSubjectName,
+          cipSubjectCode, cipSubjectName, disposalSubjectCode, disposalSubjectName,
+          acquisitionType, sourceInvoiceId, sourceVoucherId,
+          serialNumber, assignedUser,
+          improvementHistory, disposalHistory,
+          supplierName, invoiceNo, notes,
           accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
-        newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.categoryId, newAsset.categoryName,
-        newAsset.specification, newAsset.unit, newAsset.quantity,
-        newAsset.originalValue, newAsset.salvageValue, newAsset.depreciableValue,
-        newAsset.accumulatedDepreciation, newAsset.netValue,
-        newAsset.depreciationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
-        newAsset.totalUnits, newAsset.unitsUsed,
-        newAsset.acquisitionDate, newAsset.depreciationStartDate, newAsset.lastDepreciationDate,
-        newAsset.disposalDate, newAsset.status, newAsset.location,
-        newAsset.departmentCode, newAsset.departmentName,
-        newAsset.assetSubjectCode, newAsset.assetSubjectName,
-        newAsset.depreciationSubjectCode, newAsset.depreciationSubjectName,
-        newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
-        newAsset.supplierName, newAsset.invoiceNo, newAsset.notes,
+        newAsset.id, newAsset.assetCode, newAsset.assetName,
+        safeValue(newAsset.categoryId), safeValue(newAsset.categoryName),
+        safeValue(newAsset.specification), safeValue(newAsset.unit), safeValue(newAsset.quantity),
+        safeValue(newAsset.remainingQuantity), safeValue(newAsset.unitPrice),
+        newAsset.originalValue, safeValue(newAsset.salvageValue), newAsset.depreciableValue,
+        safeValue(newAsset.accumulatedDepreciation), newAsset.netValue,
+        safeValue(newAsset.depreciationMethod), safeValue(newAsset.usefulLifeYears), safeValue(newAsset.usefulLifeMonths),
+        safeValue(newAsset.originalUsefulLifeMonths), safeValue(newAsset.depreciatedMonths),
+        safeValue(newAsset.totalUnits), safeValue(newAsset.unitsUsed),
+        safeValue(newAsset.acquisitionDate), safeValue(newAsset.depreciationStartDate), safeValue(newAsset.lastDepreciationDate),
+        safeValue(newAsset.disposalDate), newAsset.status, safeValue(newAsset.location),
+        safeValue(newAsset.departmentCode), safeValue(newAsset.departmentName),
+        safeValue(newAsset.assetSubjectCode), safeValue(newAsset.assetSubjectName),
+        safeValue(newAsset.depreciationSubjectCode), safeValue(newAsset.depreciationSubjectName),
+        safeValue(newAsset.expenseSubjectCode), safeValue(newAsset.expenseSubjectName),
+        safeValue(newAsset.cipSubjectCode), safeValue(newAsset.cipSubjectName),
+        safeValue(newAsset.disposalSubjectCode), safeValue(newAsset.disposalSubjectName),
+        safeValue(newAsset.acquisitionType), safeValue(newAsset.sourceInvoiceId), safeValue(newAsset.sourceVoucherId),
+        safeValue(newAsset.serialNumber), safeValue(newAsset.assignedUser),
+        JSON.stringify(newAsset.improvementHistory || []), JSON.stringify(newAsset.disposalHistory || []),
+        safeValue(newAsset.supplierName), safeValue(newAsset.invoiceNo), safeValue(newAsset.notes),
         newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
       ]);
       stmt.free();
@@ -297,33 +346,49 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       if (!db) {
         throw new Error('数据库未初始化');
       }
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
       const stmt = db.prepare(
         `UPDATE fixedAssets SET
           assetName=?, categoryId=?, categoryName=?, specification=?, unit=?, quantity=?,
+          remainingQuantity=?, unitPrice=?,
           originalValue=?, salvageValue=?, depreciableValue=?, accumulatedDepreciation=?, netValue=?,
-          depreciationMethod=?, usefulLifeYears=?, usefulLifeMonths=?, totalUnits=?, unitsUsed=?,
+          depreciationMethod=?, usefulLifeYears=?, usefulLifeMonths=?, originalUsefulLifeMonths=?, depreciatedMonths=?,
+          totalUnits=?, unitsUsed=?,
           acquisitionDate=?, depreciationStartDate=?, lastDepreciationDate=?, disposalDate=?,
           status=?, location=?, departmentCode=?, departmentName=?,
           assetSubjectCode=?, assetSubjectName=?, depreciationSubjectCode=?, depreciationSubjectName=?,
-          expenseSubjectCode=?, expenseSubjectName=?, supplierName=?, invoiceNo=?, notes=?,
+          expenseSubjectCode=?, expenseSubjectName=?,
+          cipSubjectCode=?, cipSubjectName=?, disposalSubjectCode=?, disposalSubjectName=?,
+          acquisitionType=?, sourceInvoiceId=?, sourceVoucherId=?,
+          serialNumber=?, assignedUser=?,
+          improvementHistory=?, disposalHistory=?,
+          supplierName=?, invoiceNo=?, notes=?,
           updateTime=?
         WHERE id=?`
       );
       stmt.run([
-        updatedAsset.assetName, updatedAsset.categoryId, updatedAsset.categoryName,
-        updatedAsset.specification, updatedAsset.unit, updatedAsset.quantity,
-        updatedAsset.originalValue, updatedAsset.salvageValue, updatedAsset.depreciableValue,
-        updatedAsset.accumulatedDepreciation, updatedAsset.netValue,
-        updatedAsset.depreciationMethod, updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
-        updatedAsset.totalUnits, updatedAsset.unitsUsed,
-        updatedAsset.acquisitionDate, updatedAsset.depreciationStartDate,
-        updatedAsset.lastDepreciationDate, updatedAsset.disposalDate,
-        updatedAsset.status, updatedAsset.location,
-        updatedAsset.departmentCode, updatedAsset.departmentName,
-        updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
-        updatedAsset.depreciationSubjectCode, updatedAsset.depreciationSubjectName,
-        updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
-        updatedAsset.supplierName, updatedAsset.invoiceNo, updatedAsset.notes,
+        updatedAsset.assetName, safeValue(updatedAsset.categoryId), safeValue(updatedAsset.categoryName),
+        safeValue(updatedAsset.specification), safeValue(updatedAsset.unit), safeValue(updatedAsset.quantity),
+        safeValue(updatedAsset.remainingQuantity), safeValue(updatedAsset.unitPrice),
+        updatedAsset.originalValue, safeValue(updatedAsset.salvageValue), updatedAsset.depreciableValue,
+        safeValue(updatedAsset.accumulatedDepreciation), updatedAsset.netValue,
+        safeValue(updatedAsset.depreciationMethod), safeValue(updatedAsset.usefulLifeYears), safeValue(updatedAsset.usefulLifeMonths),
+        safeValue(updatedAsset.originalUsefulLifeMonths), safeValue(updatedAsset.depreciatedMonths),
+        safeValue(updatedAsset.totalUnits), safeValue(updatedAsset.unitsUsed),
+        safeValue(updatedAsset.acquisitionDate), safeValue(updatedAsset.depreciationStartDate),
+        safeValue(updatedAsset.lastDepreciationDate), safeValue(updatedAsset.disposalDate),
+        updatedAsset.status, safeValue(updatedAsset.location),
+        safeValue(updatedAsset.departmentCode), safeValue(updatedAsset.departmentName),
+        safeValue(updatedAsset.assetSubjectCode), safeValue(updatedAsset.assetSubjectName),
+        safeValue(updatedAsset.depreciationSubjectCode), safeValue(updatedAsset.depreciationSubjectName),
+        safeValue(updatedAsset.expenseSubjectCode), safeValue(updatedAsset.expenseSubjectName),
+        safeValue(updatedAsset.cipSubjectCode), safeValue(updatedAsset.cipSubjectName),
+        safeValue(updatedAsset.disposalSubjectCode), safeValue(updatedAsset.disposalSubjectName),
+        safeValue(updatedAsset.acquisitionType), safeValue(updatedAsset.sourceInvoiceId), safeValue(updatedAsset.sourceVoucherId),
+        safeValue(updatedAsset.serialNumber), safeValue(updatedAsset.assignedUser),
+        JSON.stringify(updatedAsset.improvementHistory || []), JSON.stringify(updatedAsset.disposalHistory || []),
+        safeValue(updatedAsset.supplierName), safeValue(updatedAsset.invoiceNo), safeValue(updatedAsset.notes),
         updatedAsset.updateTime, id,
       ]);
       stmt.free();
@@ -626,6 +691,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
 
       for (const record of records) {
         const stmt = db.prepare(
@@ -640,8 +707,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           record.id, record.assetId, record.assetCode, record.assetName,
           record.period, record.depreciationDate,
           record.periodDepreciation, record.accumulatedDepreciation, record.netValueAfter,
-          record.unitsThisPeriod, record.unitDepreciationRate,
-          record.voucherId, record.voucherNo, record.status, record.notes,
+          safeValue(record.unitsThisPeriod), safeValue(record.unitDepreciationRate),
+          safeValue(record.voucherId), safeValue(record.voucherNo), record.status, safeValue(record.notes),
           record.accountSetId, record.createTime, record.updateTime,
         ]);
         stmt.free();
@@ -927,8 +994,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         categoryId: row[3],
         categoryName: row[4],
         specification: row[5],
-        unit: row[6],
-        quantity: row[7],
+        unit: row[6] || '台',
+        quantity: row[7] || 1,
+        remainingQuantity: row[38] || row[7] || 1, // 新字段，兼容旧数据
+        unitPrice: row[39] || (row[8] / (row[7] || 1)),
         originalValue: row[8],
         salvageValue: row[9],
         depreciableValue: row[10],
@@ -937,6 +1006,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         depreciationMethod: row[13],
         usefulLifeYears: row[14],
         usefulLifeMonths: row[15],
+        originalUsefulLifeMonths: row[40] || row[15],
+        depreciatedMonths: row[41] || 0,
         totalUnits: row[16],
         unitsUsed: row[17],
         acquisitionDate: row[18],
@@ -953,6 +1024,17 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         depreciationSubjectName: row[29],
         expenseSubjectCode: row[30],
         expenseSubjectName: row[31],
+        cipSubjectCode: row[42],
+        cipSubjectName: row[43],
+        disposalSubjectCode: row[44],
+        disposalSubjectName: row[45],
+        acquisitionType: row[46] || 'purchase',
+        sourceInvoiceId: row[47],
+        sourceVoucherId: row[48],
+        serialNumber: row[49],
+        assignedUser: row[50],
+        improvementHistory: JSON.parse(row[51] || '[]'),
+        disposalHistory: JSON.parse(row[52] || '[]'),
         supplierName: row[32],
         invoiceNo: row[33],
         notes: row[34],
@@ -1068,16 +1150,27 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
-      const db = await sqliteService.getDatabase();
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;
 
+      if (!accountSetId) {
+        set({ error: '请先选择账套' });
+        return null;
+      }
+
+      sqliteService.setAccountSetId(accountSetId);
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        set({ error: '数据库未初始化' });
+        return null;
+      }
+
       // 生成凭证号
       const yearMonth = voucherDate.substring(0, 7).replace('-', '');
       const vouchersResult = db.exec(
-        'SELECT voucherNo FROM vouchers WHERE voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
-        [`记-${yearMonth}-%`]
+        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [accountSetId, `记-${yearMonth}-%`]
       );
       let lastSeq = 0;
       if (vouchersResult[0]?.values?.length > 0) {
@@ -1130,20 +1223,42 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       for (const [, expense] of expenseMap) {
         const entryId = generateId();
         const stmtEntry = db.prepare(
-          `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (
+            id, voucherId, subjectCode, subjectName, direction, debit, credit,
+            summary, customerName, supplierName, auxiliary, recRefNo,
+            departmentCode, departmentName, projectCode, projectName,
+            currencyCode, exchangeRate, originalAmount, date, accountSetId,
+            createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmtEntry.run([entryId, voucherId, voucherDate, '固定资产折旧', expense.code, expense.name, expense.amount, 0, accountSetId]);
+        stmtEntry.run([
+          entryId, voucherId, expense.code, expense.name, 'debit', expense.amount, 0,
+          '固定资产折旧', '', '', '{}', '',
+          '', '', '', '',
+          '', 0, 0, voucherDate, accountSetId,
+          now, now
+        ]);
         stmtEntry.free();
       }
 
       // 创建分录 - 贷方：累计折旧
       const creditEntryId = generateId();
       const stmtCredit = db.prepare(
-        `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO entries (
+          id, voucherId, subjectCode, subjectName, direction, debit, credit,
+          summary, customerName, supplierName, auxiliary, recRefNo,
+          departmentCode, departmentName, projectCode, projectName,
+          currencyCode, exchangeRate, originalAmount, date, accountSetId,
+          createTime, updateTime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmtCredit.run([creditEntryId, voucherId, voucherDate, '固定资产折旧', '1502', '累计折旧', 0, totalDepreciation, accountSetId]);
+      stmtCredit.run([
+        creditEntryId, voucherId, '1502', '累计折旧', 'credit', 0, totalDepreciation,
+        '固定资产折旧', '', '', '{}', '',
+        '', '', '', '',
+        '', 0, 0, voucherDate, accountSetId,
+        now, now
+      ]);
       stmtCredit.free();
 
       // 更新折旧记录，关联凭证
@@ -1167,6 +1282,244 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     } catch (error: any) {
       set({ error: error.message || '生成折旧凭证失败' });
       throw error;
+    }
+  },
+
+  // 当月新增不折旧校验
+  shouldDepreciateThisMonth: (assetId, period) => {
+    const asset = get().assets.find(a => a.id === assetId);
+    if (!asset) return false;
+
+    // 获取取得期间的年月（YYYY-MM）
+    const acquisitionPeriod = asset.acquisitionDate.substring(0, 7);
+    // 当月新增，下月开始折旧
+    return period > acquisitionPeriod;
+  },
+
+  // 部分处置计算
+  calculatePartialDisposal: (assetId, disposeQty) => {
+    const asset = get().assets.find(a => a.id === assetId);
+    if (!asset || asset.quantity < 1) return null;
+
+    if (disposeQty <= 0 || disposeQty > asset.remainingQuantity) {
+      return null;
+    }
+
+    // 按比例计算处置金额
+    const ratio = disposeQty / asset.quantity;
+    return {
+      disposedOriginalValue: asset.originalValue * ratio,
+      disposedAccumulatedDepreciation: asset.accumulatedDepreciation * ratio,
+      disposedNetValue: asset.netValue * ratio,
+    };
+  },
+
+  // 资产改造
+  improveAsset: async (assetId, improvement) => {
+    const state = get();
+    const asset = state.assets.find(a => a.id === assetId);
+    if (!asset) {
+      set({ error: '资产不存在' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const improvementRecord: AssetImprovement = {
+      ...improvement,
+      id: generateId(),
+      createTime: now,
+    };
+
+    // 计算新的原值和使用年限
+    const newOriginalValue = asset.originalValue + improvement.addedValue;
+    const newUsefulLifeMonths = asset.usefulLifeMonths + improvement.extendedMonths;
+
+    // 重新计算应计折旧额
+    const newDepreciableValue = newOriginalValue - asset.salvageValue;
+
+    const updatedAsset: FixedAsset = {
+      ...asset,
+      originalValue: newOriginalValue,
+      depreciableValue: newDepreciableValue,
+      netValue: newOriginalValue - asset.accumulatedDepreciation,
+      usefulLifeMonths: newUsefulLifeMonths,
+      originalUsefulLifeMonths: asset.originalUsefulLifeMonths || asset.usefulLifeMonths,
+      improvementHistory: [...(asset.improvementHistory || []), improvementRecord],
+      updateTime: now,
+    };
+
+    try {
+      await get().updateAsset(assetId, updatedAsset);
+
+      // 记录变动
+      await get().logAssetChange({
+        assetId,
+        assetCode: asset.assetCode,
+        assetName: asset.assetName,
+        accountSetId: asset.accountSetId || '',
+        changeType: 'improvement',
+        changeDate: improvement.date,
+        period: improvement.date.substring(0, 7),
+        fieldName: 'originalValue',
+        beforeValue: String(asset.originalValue),
+        afterValue: String(newOriginalValue),
+        voucherId: improvement.voucherId,
+        voucherNo: improvement.voucherNo,
+        reason: improvement.reason,
+      });
+    } catch (error: any) {
+      set({ error: error.message || '资产改造失败' });
+      throw error;
+    }
+  },
+
+  // 资产处置
+  disposeAsset: async (assetId, disposal) => {
+    const state = get();
+    const asset = state.assets.find(a => a.id === assetId);
+    if (!asset) {
+      set({ error: '资产不存在' });
+      return;
+    }
+
+    // 计算处置金额
+    const disposalCalc = get().calculatePartialDisposal(assetId, disposal.quantity);
+    if (!disposalCalc) {
+      set({ error: '处置数量无效' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const netGainLoss = disposal.disposalIncome - disposal.disposalExpense - disposalCalc.disposedNetValue;
+
+    const disposalRecord: AssetDisposal = {
+      ...disposal,
+      id: generateId(),
+      disposedOriginalValue: disposalCalc.disposedOriginalValue,
+      disposedAccumulatedDepreciation: disposalCalc.disposedAccumulatedDepreciation,
+      disposedNetValue: disposalCalc.disposedNetValue,
+      netGainLoss,
+      createTime: now,
+    };
+
+    // 更新资产
+    const newRemainingQty = asset.remainingQuantity - disposal.quantity;
+    const ratio = disposal.quantity / asset.quantity;
+    const updatedAsset: FixedAsset = {
+      ...asset,
+      remainingQuantity: newRemainingQty,
+      originalValue: asset.originalValue - disposalCalc.disposedOriginalValue,
+      accumulatedDepreciation: asset.accumulatedDepreciation - disposalCalc.disposedAccumulatedDepreciation,
+      netValue: asset.netValue - disposalCalc.disposedNetValue,
+      depreciableValue: asset.depreciableValue - disposalCalc.disposedOriginalValue,
+      disposalHistory: [...(asset.disposalHistory || []), disposalRecord],
+      disposalDate: newRemainingQty === 0 ? disposal.date : asset.disposalDate,
+      status: newRemainingQty === 0 ? 'disposed' : asset.status,
+      updateTime: now,
+    };
+
+    try {
+      await get().updateAsset(assetId, updatedAsset);
+
+      // 记录变动
+      await get().logAssetChange({
+        assetId,
+        assetCode: asset.assetCode,
+        assetName: asset.assetName,
+        accountSetId: asset.accountSetId || '',
+        changeType: 'disposal',
+        changeDate: disposal.date,
+        period: disposal.date.substring(0, 7),
+        fieldName: 'status',
+        beforeValue: asset.status,
+        afterValue: updatedAsset.status,
+        voucherId: disposal.voucherIds?.[0],
+        voucherNo: disposal.voucherNos?.[0],
+        reason: disposal.reason,
+      });
+    } catch (error: any) {
+      set({ error: error.message || '资产处置失败' });
+      throw error;
+    }
+  },
+
+  // 在建转固
+  convertFromCIP: async (cipData) => {
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+
+    if (!currentAccountSet?.id) {
+      set({ error: '请先选择账套' });
+      throw new Error('请先选择账套');
+    }
+
+    const newAsset = await get().addAsset({
+      assetCode: '', // 自动生成
+      assetName: cipData.assetName,
+      quantity: 1,
+      remainingQuantity: 1,
+      unit: '套',
+      unitPrice: cipData.originalValue,
+      originalValue: cipData.originalValue,
+      salvageValue: 0,
+      depreciableValue: cipData.originalValue,
+      accumulatedDepreciation: 0,
+      netValue: cipData.originalValue,
+      depreciationMethod: cipData.depreciationMethod,
+      usefulLifeYears: Math.floor(cipData.usefulLifeMonths / 12),
+      usefulLifeMonths: cipData.usefulLifeMonths,
+      acquisitionDate: cipData.acquisitionDate,
+      acquisitionType: 'cip_conversion',
+      cipSubjectCode: cipData.cipSubjectCode,
+      assetSubjectCode: '1501',
+      depreciationSubjectCode: '1502',
+      expenseSubjectCode: '660204',
+      status: 'active',
+      accountSetId: currentAccountSet.id,
+    } as any);
+
+    return newAsset;
+  },
+
+  // 获取资产变动记录
+  getAssetChangeRecords: (assetId) => {
+    // 从内存中获取（如果已加载）
+    return [];
+  },
+
+  // 记录资产变动
+  logAssetChange: async (record) => {
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      if (currentAccountSet?.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+      }
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        throw new Error('数据库未初始化');
+      }
+
+      const now = new Date().toISOString();
+      const id = generateId();
+
+      const stmt = db.prepare(
+        `INSERT INTO assetChangeRecords (
+          id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+          fieldName, beforeValue, afterValue, voucherId, voucherNo, reason, operatorId, createTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      );
+      stmt.run([
+        id, record.assetId, record.assetCode, record.assetName, record.accountSetId,
+        record.changeType, record.changeDate, record.period,
+        record.fieldName, record.beforeValue || '', record.afterValue || '',
+        record.voucherId || '', record.voucherNo || '', record.reason || '', record.operatorId || '',
+        now,
+      ]);
+      stmt.free();
+    } catch (error: any) {
+      console.warn('记录资产变动失败:', error);
     }
   },
 }));

@@ -159,7 +159,8 @@ export default function BatchDepreciationPage() {
     }
   };
 
-  const formatMoney = (value: number) => {
+  const formatMoney = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '0.00';
     return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 

@@ -32,9 +32,11 @@ import {
   Upload,
   Lightbulb,
   AlertCircle,
+  Settings,
 } from 'lucide-react';
 import type { IntangibleAsset, IntangibleAssetType } from '@/types';
 import { getAmortizationMethodName, getIntangibleAssetTypeName } from '@/lib/amortization';
+import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
@@ -339,6 +341,7 @@ export default function IntangibleAssetsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<IntangibleAsset | null>(null);
 
   useEffect(() => {
@@ -392,7 +395,8 @@ export default function IntangibleAssetsPage() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const formatMoney = (value: number) => {
+  const formatMoney = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '0.00';
     return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
@@ -414,6 +418,10 @@ export default function IntangibleAssetsPage() {
           <p className="text-slate-500 text-sm mt-1">管理专利、商标、软件等无形资产</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowCodeRuleDialog(true)}>
+            <Settings className="h-4 w-4 mr-2" />
+            编码设置
+          </Button>
           <Button variant="outline" size="sm">
             <Upload className="h-4 w-4 mr-2" />
             导入
@@ -594,6 +602,18 @@ export default function IntangibleAssetsPage() {
         title="确认删除"
         message={`确定要删除无形资产 "${selectedAsset?.assetName}" 吗？此操作不可撤销。`}
         onConfirm={handleDelete}
+      />
+
+      {/* 编码规则设置对话框 */}
+      <AssetCodeRuleDialog
+        open={showCodeRuleDialog}
+        onOpenChange={setShowCodeRuleDialog}
+        defaultType="intangible_asset"
+        existingCodes={{
+          fixed_asset: [],
+          intangible_asset: assets.map(a => a.assetCode).filter(Boolean),
+          prepaid_expense: [],
+        }}
       />
     </div>
   );

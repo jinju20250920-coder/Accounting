@@ -155,6 +155,95 @@ class SQLiteService {
     await this.migrateRemoveSupplierTypeColumn();
     // 迁移：invoices 表增加 groupName 列（旧 templateId 列重命名）
     await this.migrateAddInvoiceGroupName();
+    await this.migrateFixedAssetLifecycle();
+  }
+
+  /**
+   * 迁移：固定资产全生命周期管理扩展
+   */
+  private async migrateFixedAssetLifecycle(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      const pragma = this.dbInstance.exec("PRAGMA table_info(fixedAssets)");
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+      // 新增字段
+      const newColumns = [
+        { name: 'remainingQuantity', sql: 'ALTER TABLE fixedAssets ADD COLUMN remainingQuantity INTEGER DEFAULT 1' },
+        { name: 'unitPrice', sql: 'ALTER TABLE fixedAssets ADD COLUMN unitPrice REAL' },
+        { name: 'acquisitionType', sql: "ALTER TABLE fixedAssets ADD COLUMN acquisitionType TEXT DEFAULT 'purchase'" },
+        { name: 'sourceInvoiceId', sql: 'ALTER TABLE fixedAssets ADD COLUMN sourceInvoiceId TEXT' },
+        { name: 'sourceVoucherId', sql: 'ALTER TABLE fixedAssets ADD COLUMN sourceVoucherId TEXT' },
+        { name: 'originalUsefulLifeMonths', sql: 'ALTER TABLE fixedAssets ADD COLUMN originalUsefulLifeMonths INTEGER' },
+        { name: 'depreciatedMonths', sql: 'ALTER TABLE fixedAssets ADD COLUMN depreciatedMonths INTEGER DEFAULT 0' },
+        { name: 'serialNumber', sql: 'ALTER TABLE fixedAssets ADD COLUMN serialNumber TEXT' },
+        { name: 'assignedUser', sql: 'ALTER TABLE fixedAssets ADD COLUMN assignedUser TEXT' },
+        { name: 'improvementHistory', sql: "ALTER TABLE fixedAssets ADD COLUMN improvementHistory TEXT DEFAULT '[]'" },
+        { name: 'disposalHistory', sql: "ALTER TABLE fixedAssets ADD COLUMN disposalHistory TEXT DEFAULT '[]'" },
+        { name: 'cipSubjectCode', sql: 'ALTER TABLE fixedAssets ADD COLUMN cipSubjectCode TEXT' },
+        { name: 'cipSubjectName', sql: 'ALTER TABLE fixedAssets ADD COLUMN cipSubjectName TEXT' },
+        { name: 'disposalSubjectCode', sql: 'ALTER TABLE fixedAssets ADD COLUMN disposalSubjectCode TEXT' },
+        { name: 'disposalSubjectName', sql: 'ALTER TABLE fixedAssets ADD COLUMN disposalSubjectName TEXT' },
+      ];
+
+      for (const col of newColumns) {
+        if (!columns.includes(col.name)) {
+          this.dbInstance.exec(col.sql);
+          console.log(`fixedAssets table: added ${col.name} column`);
+        }
+      }
+
+      // 初始化现有数据的默认值
+      this.dbInstance.exec(`
+        UPDATE fixedAssets SET remainingQuantity = quantity WHERE remainingQuantity IS NULL OR remainingQuantity = 1;
+        UPDATE fixedAssets SET unitPrice = originalValue / quantity WHERE unitPrice IS NULL AND quantity > 0;
+        UPDATE fixedAssets SET acquisitionType = 'opening_balance' WHERE acquisitionType IS NULL;
+      `);
+    } catch (error) {
+      if (!error.message?.includes('duplicate column name')) {
+        console.warn('FixedAsset lifecycle migration warning:', error);
+      }
+    }
+
+    // 创建资产变动记录表
+    try {
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='assetChangeRecords'"
+      );
+
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating assetChangeRecords table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS assetChangeRecords (
+            id TEXT PRIMARY KEY,
+            assetId TEXT NOT NULL,
+            assetCode TEXT NOT NULL,
+            assetName TEXT NOT NULL,
+            accountSetId TEXT NOT NULL,
+            changeType TEXT NOT NULL,
+            changeDate TEXT NOT NULL,
+            period TEXT NOT NULL,
+            fieldName TEXT NOT NULL,
+            beforeValue TEXT,
+            afterValue TEXT,
+            voucherId TEXT,
+            voucherNo TEXT,
+            reason TEXT,
+            operatorId TEXT,
+            createTime TEXT NOT NULL,
+            FOREIGN KEY (assetId) REFERENCES fixedAssets(id),
+            FOREIGN KEY (voucherId) REFERENCES vouchers(id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_acr_assetId ON assetChangeRecords(assetId);
+          CREATE INDEX IF NOT EXISTS idx_acr_period ON assetChangeRecords(period);
+          CREATE INDEX IF NOT EXISTS idx_acr_changeType ON assetChangeRecords(changeType);
+        `);
+        console.log('assetChangeRecords table migration completed');
+      }
+    } catch (error) {
+      console.warn('assetChangeRecords table migration warning:', error);
+    }
   }
 
   /**
@@ -436,7 +525,7 @@ class SQLiteService {
             suffix TEXT,
             padding INTEGER DEFAULT 4,
             separator TEXT DEFAULT '',
-            autoIncrement INTEGER DEFAULT 1,
+            auto_inc INTEGER DEFAULT 1,
             resetPeriod TEXT DEFAULT 'none',
             lastNumber INTEGER DEFAULT 0,
             lastResetDate TEXT,
@@ -1132,6 +1221,22 @@ class SQLiteService {
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
         console.warn('Invoices table migration warning:', error);
+      }
+    }
+
+    // codeRules 表迁移：autoIncrement -> auto_inc（避免保留字冲突）
+    try {
+      const codeRulesCols = this.dbInstance.exec("PRAGMA table_info(codeRules)");
+      if (codeRulesCols.length > 0 && codeRulesCols[0].values.length > 0) {
+        const hasOldCol = codeRulesCols[0].values.some((col: any[]) => col[1] === 'autoIncrement');
+        const hasNewCol = codeRulesCols[0].values.some((col: any[]) => col[1] === 'auto_inc');
+        if (hasOldCol && !hasNewCol) {
+          this.dbInstance.exec('ALTER TABLE codeRules RENAME COLUMN autoIncrement TO auto_inc;');
+        }
+      }
+    } catch (error) {
+      if (!error.message?.includes('no such table')) {
+        console.warn('codeRules table migration warning:', error);
       }
     }
   }

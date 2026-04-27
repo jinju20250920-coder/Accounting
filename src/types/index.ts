@@ -608,8 +608,10 @@ export interface FixedAsset {
   categoryId?: string; // 分类ID
   categoryName?: string; // 分类名称
   specification?: string; // 规格型号
-  unit?: string; // 计量单位
-  quantity: number; // 数量
+  unit: string; // 计量单位（台/把/套/个）
+  quantity: number; // 入账数量
+  remainingQuantity: number; // 在库数量（入账 - 已处置）
+  unitPrice: number; // 单价 = 原值 / 数量
 
   // 财务数据
   originalValue: number; // 原值
@@ -622,6 +624,8 @@ export interface FixedAsset {
   depreciationMethod: DepreciationMethod;
   usefulLifeYears: number; // 使用年限
   usefulLifeMonths: number; // 使用月数
+  originalUsefulLifeMonths?: number; // 原始使用月数（改造前）
+  depreciatedMonths?: number; // 已折旧月数
   totalUnits?: number; // 总工作量（工作量法）
   unitsUsed?: number; // 已使用工作量
 
@@ -637,6 +641,11 @@ export interface FixedAsset {
   departmentCode?: string; // 使用部门代码
   departmentName?: string; // 使用部门名称
 
+  // 取得方式
+  acquisitionType: 'purchase' | 'opening_balance' | 'cip_conversion' | 'invoice'; // 取得方式
+  sourceInvoiceId?: string; // 来源发票ID
+  sourceVoucherId?: string; // 取得凭证ID
+
   // 科目映射
   assetSubjectCode: string; // 资产科目（如1501）
   assetSubjectName?: string;
@@ -644,6 +653,20 @@ export interface FixedAsset {
   depreciationSubjectName?: string;
   expenseSubjectCode: string; // 费用科目（如660204）
   expenseSubjectName?: string;
+  cipSubjectCode?: string; // 在建工程科目（转固用）
+  cipSubjectName?: string;
+  disposalSubjectCode?: string; // 固定资产清理科目
+  disposalSubjectName?: string;
+
+  // 单体管理（高价值资产）
+  serialNumber?: string; // 序列号
+  assignedUser?: string; // 使用人
+
+  // 改造记录
+  improvementHistory?: AssetImprovement[];
+
+  // 处置记录（支持多次部分处置）
+  disposalHistory?: AssetDisposal[];
 
   // 其他信息
   supplierName?: string; // 供应商
@@ -652,6 +675,62 @@ export interface FixedAsset {
   accountSetId?: string;
   createTime: string;
   updateTime: string;
+}
+
+// 资产改造记录
+export interface AssetImprovement {
+  id: string;
+  date: string; // 改造日期
+  addedValue: number; // 增加原值
+  extendedMonths: number; // 延长月数
+  reason?: string; // 改造原因
+  voucherId?: string; // 凭证ID
+  voucherNo?: string; // 凭证号
+  createTime: string;
+}
+
+// 资产处置记录
+export interface AssetDisposal {
+  id: string;
+  date: string; // 处置日期
+  type: 'scrapped' | 'sold' | 'lost'; // 报废/出售/盘亏
+  quantity: number; // 处置数量
+  disposedOriginalValue: number; // 处置原值
+  disposedAccumulatedDepreciation: number; // 处置累计折旧
+  disposedNetValue: number; // 处置净值
+  disposalIncome: number; // 清理收入
+  disposalExpense: number; // 清理费用
+  netGainLoss: number; // 净损益
+  reason?: string; // 处置原因
+  voucherIds?: string[]; // 凭证ID列表（处置可能生成多张凭证）
+  voucherNos?: string[]; // 凭证号列表
+  createTime: string;
+}
+
+// 资产变动记录
+export interface AssetChangeRecord {
+  id: string;
+  assetId: string;
+  assetCode: string;
+  assetName: string;
+  accountSetId: string;
+
+  changeType: 'acquisition' | 'depreciation' | 'improvement' | 'disposal' | 'transfer' | 'status_change';
+  changeDate: string;
+  period: string; // 会计期间 YYYY-MM
+
+  // 变更详情
+  fieldName: string; // 变更字段
+  beforeValue: string; // 变更前值（JSON序列化）
+  afterValue: string; // 变更后值（JSON序列化）
+
+  // 凭证关联
+  voucherId?: string;
+  voucherNo?: string;
+
+  reason?: string; // 变更原因
+  operatorId?: string; // 操作人
+  createTime: string;
 }
 
 // 折旧记录

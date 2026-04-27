@@ -67,8 +67,33 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
     const accountSetStore = useAccountSetStore.getState();
     const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
+    if (!currentAccountSet?.id) {
+      const error = '请先选择账套';
+      set({ error });
+      throw new Error(error);
+    }
+
+    // 自动生成编码（如果未提供且规则为自动编码）
+    let expenseCode = expenseData.expenseCode;
+    const { CodeRuleManager, generateCode } = await import('@/lib/code-generator');
+    const codeManager = CodeRuleManager.getInstance();
+    const rule = codeManager.getRuleByType('prepaid_expense');
+
+    if (!expenseCode && rule.autoIncrement) {
+      const existingCodes = state.expenses.map(e => e.expenseCode).filter(Boolean);
+      const result = generateCode(rule, existingCodes);
+      expenseCode = result.code;
+      codeManager.setRule(result.updatedRule);
+    }
+
+    if (!expenseCode) {
+      const error = '请输入费用编码';
+      set({ error });
+      throw new Error(error);
+    }
+
     // 检查编码是否重复
-    if (state.expenses.some(e => e.expenseCode === expenseData.expenseCode)) {
+    if (state.expenses.some(e => e.expenseCode === expenseCode)) {
       const error = '费用编码已存在';
       set({ error });
       throw new Error(error);
@@ -84,6 +109,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
     const newExpense: PrepaidExpense = {
       ...expenseData,
+      expenseCode,
       id: generateId(),
       periodAmount,
       amortizedAmount: expenseData.amortizedAmount || 0,
@@ -97,6 +123,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
     try {
       const db = await getCurrentManager().getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
       const stmt = db.prepare(
         `INSERT INTO prepaidExpenses (
           id, expenseCode, expenseName, expenseType, originalAmount,
@@ -109,17 +137,17 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       );
       stmt.run([
         newExpense.id, newExpense.expenseCode, newExpense.expenseName,
-        newExpense.expenseType, newExpense.originalAmount,
+        safeValue(newExpense.expenseType), newExpense.originalAmount,
         newExpense.amortizedAmount, newExpense.remainingAmount,
-        newExpense.amortizationMethod, newExpense.amortizationPeriods,
+        safeValue(newExpense.amortizationMethod), newExpense.amortizationPeriods,
         newExpense.amortizedPeriods, newExpense.periodAmount,
-        newExpense.paymentDate, newExpense.startDate, newExpense.endDate,
-        newExpense.lastAmortizationDate, newExpense.status,
-        newExpense.prepaidSubjectCode, newExpense.prepaidSubjectName,
-        newExpense.expenseSubjectCode, newExpense.expenseSubjectName,
-        newExpense.supplierName, newExpense.invoiceNo, newExpense.contractNo,
-        newExpense.departmentCode, newExpense.departmentName,
-        newExpense.notes, newExpense.accountSetId, newExpense.createTime, newExpense.updateTime,
+        safeValue(newExpense.paymentDate), safeValue(newExpense.startDate), safeValue(newExpense.endDate),
+        safeValue(newExpense.lastAmortizationDate), newExpense.status,
+        safeValue(newExpense.prepaidSubjectCode), safeValue(newExpense.prepaidSubjectName),
+        safeValue(newExpense.expenseSubjectCode), safeValue(newExpense.expenseSubjectName),
+        safeValue(newExpense.supplierName), safeValue(newExpense.invoiceNo), safeValue(newExpense.contractNo),
+        safeValue(newExpense.departmentCode), safeValue(newExpense.departmentName),
+        safeValue(newExpense.notes), newExpense.accountSetId, newExpense.createTime, newExpense.updateTime,
       ]);
       stmt.free();
 
@@ -165,6 +193,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
     try {
       const db = await getCurrentManager().getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
       const stmt = db.prepare(
         `UPDATE prepaidExpenses SET
           expenseName=?, expenseType=?, originalAmount=?,
@@ -179,17 +209,17 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         WHERE id=?`
       );
       stmt.run([
-        updatedExpense.expenseName, updatedExpense.expenseType, updatedExpense.originalAmount,
+        updatedExpense.expenseName, safeValue(updatedExpense.expenseType), updatedExpense.originalAmount,
         updatedExpense.amortizedAmount, updatedExpense.remainingAmount,
-        updatedExpense.amortizationMethod, updatedExpense.amortizationPeriods,
+        safeValue(updatedExpense.amortizationMethod), updatedExpense.amortizationPeriods,
         updatedExpense.amortizedPeriods, updatedExpense.periodAmount,
-        updatedExpense.paymentDate, updatedExpense.startDate, updatedExpense.endDate,
-        updatedExpense.lastAmortizationDate, updatedExpense.status,
-        updatedExpense.prepaidSubjectCode, updatedExpense.prepaidSubjectName,
-        updatedExpense.expenseSubjectCode, updatedExpense.expenseSubjectName,
-        updatedExpense.supplierName, updatedExpense.invoiceNo, updatedExpense.contractNo,
-        updatedExpense.departmentCode, updatedExpense.departmentName,
-        updatedExpense.notes, updatedExpense.updateTime, id,
+        safeValue(updatedExpense.paymentDate), safeValue(updatedExpense.startDate), safeValue(updatedExpense.endDate),
+        safeValue(updatedExpense.lastAmortizationDate), updatedExpense.status,
+        safeValue(updatedExpense.prepaidSubjectCode), safeValue(updatedExpense.prepaidSubjectName),
+        safeValue(updatedExpense.expenseSubjectCode), safeValue(updatedExpense.expenseSubjectName),
+        safeValue(updatedExpense.supplierName), safeValue(updatedExpense.invoiceNo), safeValue(updatedExpense.contractNo),
+        safeValue(updatedExpense.departmentCode), safeValue(updatedExpense.departmentName),
+        safeValue(updatedExpense.notes), updatedExpense.updateTime, id,
       ]);
       stmt.free();
 
@@ -326,6 +356,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
   saveAmortizationRecords: async (records) => {
     try {
       const db = await getCurrentManager().getDatabase();
+      // 将 undefined 转为 null，避免 SQL.js 报错
+      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
 
       for (const record of records) {
         const stmt = db.prepare(
@@ -340,8 +372,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
           record.period, record.amortizationDate,
           record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
-          record.unitsThisPeriod, record.voucherId, record.voucherNo,
-          record.status, record.notes,
+          safeValue(record.unitsThisPeriod), safeValue(record.voucherId), safeValue(record.voucherNo),
+          record.status, safeValue(record.notes),
           record.accountSetId, record.createTime, record.updateTime,
         ]);
         stmt.free();
@@ -640,16 +672,28 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
     }
 
     try {
-      const db = await getCurrentManager().getDatabase();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;
 
+      if (!accountSetId) {
+        set({ error: '请先选择账套' });
+        return null;
+      }
+
+      sqliteService.setAccountSetId(accountSetId);
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        set({ error: '数据库未初始化' });
+        return null;
+      }
+
       // 生成凭证号
       const yearMonth = voucherDate.substring(0, 7).replace('-', '');
       const vouchersResult = db.exec(
-        'SELECT voucherNo FROM vouchers WHERE voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
-        [`记-${yearMonth}-%`]
+        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [accountSetId, `记-${yearMonth}-%`]
       );
       let lastSeq = 0;
       if (vouchersResult[0]?.values?.length > 0) {
@@ -718,10 +762,21 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       for (const [, expense] of expenseMap) {
         const entryId = generateId();
         stmt = db.prepare(
-          `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (
+            id, voucherId, subjectCode, subjectName, direction, debit, credit,
+            summary, customerName, supplierName, auxiliary, recRefNo,
+            departmentCode, departmentName, projectCode, projectName,
+            currencyCode, exchangeRate, originalAmount, date, accountSetId,
+            createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, voucherDate, '待摊费用摊销', expense.code, expense.name, expense.amount, 0, accountSetId]);
+        stmt.run([
+          entryId, voucherId, expense.code, expense.name, 'debit', expense.amount, 0,
+          '待摊费用摊销', '', '', '{}', '',
+          '', '', '', '',
+          '', 0, 0, voucherDate, accountSetId,
+          now, now
+        ]);
         stmt.free();
       }
 
@@ -729,10 +784,21 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       for (const [, prepaid] of prepaidMap) {
         const entryId = generateId();
         stmt = db.prepare(
-          `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (
+            id, voucherId, subjectCode, subjectName, direction, debit, credit,
+            summary, customerName, supplierName, auxiliary, recRefNo,
+            departmentCode, departmentName, projectCode, projectName,
+            currencyCode, exchangeRate, originalAmount, date, accountSetId,
+            createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, voucherDate, '待摊费用摊销', prepaid.code, prepaid.name, 0, prepaid.amount, accountSetId]);
+        stmt.run([
+          entryId, voucherId, prepaid.code, prepaid.name, 'credit', 0, prepaid.amount,
+          '待摊费用摊销', '', '', '{}', '',
+          '', '', '', '',
+          '', 0, 0, voucherDate, accountSetId,
+          now, now
+        ]);
         stmt.free();
       }
 
