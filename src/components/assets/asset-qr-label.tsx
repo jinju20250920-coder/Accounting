@@ -16,6 +16,8 @@ import type { FixedAsset } from '@/types';
 interface AssetQRLabelProps {
   asset: FixedAsset;
   size?: number;
+  showBatch?: boolean;
+  batchIndex?: number; // 当前序号（1-based）
 }
 
 interface QRLabelData {
@@ -28,7 +30,7 @@ interface QRLabelData {
   location?: string;
 }
 
-export function AssetQRLabel({ asset, size = 128 }: AssetQRLabelProps) {
+export function AssetQRLabel({ asset, size = 128, showBatch = false, batchIndex = 1 }: AssetQRLabelProps) {
   const labelData: QRLabelData = {
     assetCode: asset.assetCode,
     assetName: asset.assetName,
@@ -41,10 +43,15 @@ export function AssetQRLabel({ asset, size = 128 }: AssetQRLabelProps) {
 
   const qrValue = JSON.stringify(labelData);
 
+  // 批次格式：FA0001 1/10（如果有数量）
+  const batchDisplay = showBatch && asset.quantity > 1
+    ? `${asset.assetCode} ${batchIndex}/${asset.quantity}`
+    : asset.assetCode;
+
   return (
     <div className="flex flex-col items-center p-2 bg-white border border-slate-200 rounded print:border-none">
       <QRCodeSVG value={qrValue} size={size} level="M" />
-      <div className="mt-1 text-xs font-mono text-slate-600">{asset.assetCode}</div>
+      <div className="mt-1 text-xs font-mono text-slate-600">{batchDisplay}</div>
     </div>
   );
 }
@@ -52,11 +59,17 @@ export function AssetQRLabel({ asset, size = 128 }: AssetQRLabelProps) {
 interface AssetQRLabelPrintProps {
   asset: FixedAsset;
   trigger?: React.ReactNode;
+  showBatch?: boolean; // 是否显示批次格式
 }
 
-export function AssetQRLabelPrint({ asset, trigger }: AssetQRLabelPrintProps) {
+export function AssetQRLabelPrint({ asset, trigger, showBatch = false }: AssetQRLabelPrintProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+
+  // 批次格式显示
+  const batchDisplay = showBatch && asset.quantity > 1
+    ? `${asset.assetCode} 1/${asset.quantity}`
+    : asset.assetCode;
 
   const handlePrint = () => {
     const printContent = printRef.current;
@@ -69,7 +82,7 @@ export function AssetQRLabelPrint({ asset, trigger }: AssetQRLabelPrintProps) {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>资产标签 - ${asset.assetCode}</title>
+        <title>资产标签 - ${batchDisplay}</title>
         <style>
           body {
             margin: 0;
@@ -124,10 +137,11 @@ export function AssetQRLabelPrint({ asset, trigger }: AssetQRLabelPrintProps) {
             </svg>
           </div>
           <div class="info-section">
-            <div class="asset-code">${asset.assetCode}</div>
+            <div class="asset-code">${batchDisplay}</div>
             <div class="asset-name">${asset.assetName}</div>
             ${asset.specification ? `<div class="detail">规格: ${asset.specification}</div>` : ''}
             <div class="detail">入账: ${asset.acquisitionDate}</div>
+            ${asset.quantity > 1 ? `<div class="detail">数量: ${asset.quantity}${asset.unit || '台'}</div>` : ''}
             ${asset.departmentName ? `<div class="detail">部门: ${asset.departmentName}</div>` : ''}
             ${asset.assignedUser ? `<div class="detail">使用人: ${asset.assignedUser}</div>` : ''}
             ${asset.location ? `<div class="detail">位置: ${asset.location}</div>` : ''}
@@ -236,27 +250,50 @@ export function AssetQRLabelPrint({ asset, trigger }: AssetQRLabelPrintProps) {
 interface AssetQRLabelBatchProps {
   assets: FixedAsset[];
   trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function AssetQRLabelBatch({ assets, trigger }: AssetQRLabelBatchProps) {
-  const [open, setOpen] = useState(false);
+export function AssetQRLabelBatch({ assets, trigger, open: externalOpen, onOpenChange: externalOnOpenChange }: AssetQRLabelBatchProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = externalOnOpenChange || setInternalOpen;
+
+  // 展开批量资产：数量>1的资产生成多个标签
+  const expandedLabels = assets.flatMap(asset => {
+    if (asset.quantity > 1) {
+      return Array.from({ length: asset.quantity }, (_, i) => ({
+        asset,
+        batchIndex: i + 1,
+        isBatch: true,
+      }));
+    }
+    return [{ asset, batchIndex: 1, isBatch: false }];
+  });
 
   const handlePrintAll = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const labelsHtml = assets.map(asset => `
-      <div class="label-container">
-        <div class="qr-placeholder" data-code="${asset.assetCode}" data-name="${asset.assetName}" data-spec="${asset.specification || ''}" data-date="${asset.acquisitionDate}"></div>
-        <div class="info-section">
-          <div class="asset-code">${asset.assetCode}</div>
-          <div class="asset-name">${asset.assetName}</div>
-          ${asset.specification ? `<div class="detail">规格: ${asset.specification}</div>` : ''}
-          <div class="detail">入账: ${asset.acquisitionDate}</div>
-          ${asset.departmentName ? `<div class="detail">部门: ${asset.departmentName}</div>` : ''}
+    const labelsHtml = expandedLabels.map(({ asset, batchIndex, isBatch }) => {
+      const batchDisplay = isBatch
+        ? `${asset.assetCode} ${batchIndex}/${asset.quantity}`
+        : asset.assetCode;
+
+      return `
+        <div class="label-container">
+          <div class="qr-placeholder" data-code="${asset.assetCode}" data-name="${asset.assetName}" data-spec="${asset.specification || ''}" data-date="${asset.acquisitionDate}" data-batch="${batchDisplay}"></div>
+          <div class="info-section">
+            <div class="asset-code">${batchDisplay}</div>
+            <div class="asset-name">${asset.assetName}</div>
+            ${asset.specification ? `<div class="detail">规格: ${asset.specification}</div>` : ''}
+            <div class="detail">入账: ${asset.acquisitionDate}</div>
+            ${asset.departmentName ? `<div class="detail">部门: ${asset.departmentName}</div>` : ''}
+            ${asset.assignedUser ? `<div class="detail">使用人: ${asset.assignedUser}</div>` : ''}
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -297,26 +334,30 @@ export function AssetQRLabelBatch({ assets, trigger }: AssetQRLabelBatchProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger || (
-          <Button variant="outline">
-            <QrCode className="h-4 w-4 mr-1" />
-            批量打印标签
-          </Button>
-        )}
-      </DialogTrigger>
+      {trigger !== null && (
+        <DialogTrigger asChild>
+          {trigger || (
+            <Button variant="outline">
+              <QrCode className="h-4 w-4 mr-1" />
+              批量打印标签
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
         <DialogHeader>
-          <DialogTitle>批量打印资产标签 ({assets.length} 个)</DialogTitle>
+          <DialogTitle>批量打印资产标签 ({expandedLabels.length} 个标签，{assets.length} 种资产)</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-4 p-4">
-          {assets.map(asset => (
-            <div key={asset.id} className="flex items-center gap-2 p-2 border rounded">
-              <AssetQRLabel asset={asset} size={64} />
-              <div className="text-xs">
-                <div className="font-medium">{asset.assetCode}</div>
-                <div className="text-slate-600 truncate max-w-[120px]">{asset.assetName}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 max-h-[60vh] overflow-auto">
+          {expandedLabels.map(({ asset, batchIndex, isBatch }) => (
+            <div key={`${asset.id}-${batchIndex}`} className="flex items-center gap-2 p-2 border rounded bg-white">
+              <AssetQRLabel asset={asset} size={64} showBatch={isBatch} batchIndex={batchIndex} />
+              <div className="text-xs min-w-0">
+                <div className="font-medium font-mono">
+                  {isBatch ? `${asset.assetCode} ${batchIndex}/${asset.quantity}` : asset.assetCode}
+                </div>
+                <div className="text-slate-600 truncate">{asset.assetName}</div>
               </div>
             </div>
           ))}

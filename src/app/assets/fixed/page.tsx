@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
@@ -41,6 +42,7 @@ import {
   Calculator,
 } from 'lucide-react';
 import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
+import { AssetCategoryDialog } from '@/components/assets/asset-category-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
 import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
@@ -147,7 +149,7 @@ function AssetCardDialog({
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.assetName) {
       showToast('error', '请输入资产名称');
       return;
@@ -179,16 +181,20 @@ function AssetCardDialog({
       }
     }
 
-    onSave({
-      ...formData,
-      assetCode,
-      usefulLifeMonths,
-      quantity,
-      remainingQuantity: quantity,
-      unitPrice: (formData.originalValue || 0) / quantity,
-      assetSubjectCode: '1501',
-      depreciationSubjectCode: '1502',
-    });
+    try {
+      await onSave({
+        ...formData,
+        assetCode,
+        usefulLifeMonths,
+        quantity,
+        remainingQuantity: quantity,
+        unitPrice: (formData.originalValue || 0) / quantity,
+        assetSubjectCode: '1501',
+        depreciationSubjectCode: '1502',
+      });
+    } catch (error: any) {
+      showToast('error', error.message || '保存失败');
+    }
   };
 
   // 计算折旧预览
@@ -303,6 +309,26 @@ function AssetCardDialog({
                     placeholder="1"
                     autoComplete="off"
                   />
+                  {/* 编辑模式显示当前数量 */}
+                  {asset && formData.remainingQuantity !== undefined && formData.remainingQuantity !== formData.quantity && (
+                    <p className="text-xs text-orange-600">
+                      当前数量: {formData.remainingQuantity} {formData.unit}
+                    </p>
+                  )}
+                </div>
+                {/* 单价展示 */}
+                <div className="space-y-1.5">
+                  <Label className="text-slate-500">单价</Label>
+                  <div className="px-3 py-2 bg-slate-50 border rounded text-sm text-slate-600">
+                    {(formData.originalValue && formData.quantity) ? (
+                      <span>
+                        ¥{formatMoney(formData.originalValue / formData.quantity)}
+                        <span className="text-slate-400 ml-1">/ {formData.unit || '台'}</span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">输入原值和数量后计算</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -558,9 +584,11 @@ export default function FixedAssetsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
+  const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [showDisposalDialog, setShowDisposalDialog] = useState(false);
   const [showImprovementDialog, setShowImprovementDialog] = useState(false);
   const [showQRLabelDialog, setShowQRLabelDialog] = useState(false);
+  const [showBatchLabelDialog, setShowBatchLabelDialog] = useState(false);
   const [showChangeRecordDialog, setShowChangeRecordDialog] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null);
@@ -572,9 +600,26 @@ export default function FixedAssetsPage() {
 
   // 加载编码规则
   useEffect(() => {
-    const manager = CodeRuleManager.getInstance();
-    const rule = manager.getRuleByType('fixed_asset');
-    setCodeRule(rule);
+    const loadCodeRules = async () => {
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      if (currentAccountSet?.id) {
+        const manager = CodeRuleManager.getInstance();
+        await manager.loadFromDB(currentAccountSet.id);
+        const rule = manager.getRuleByType('fixed_asset');
+        setCodeRule(rule);
+      }
+    };
+    loadCodeRules();
+  }, [initialize]);
+
+  // 编码规则对话框关闭后刷新
+  useEffect(() => {
+    if (!showCodeRuleDialog) {
+      const manager = CodeRuleManager.getInstance();
+      const rule = manager.getRuleByType('fixed_asset');
+      setCodeRule(rule);
+    }
   }, [showCodeRuleDialog]);
 
   // 应用筛选
@@ -596,6 +641,13 @@ export default function FixedAssetsPage() {
       } else {
         await addAsset(data as any);
         showToast('success', '资产添加成功');
+        // 保存编码规则到数据库（更新 lastNumber）
+        const accountSetStore = useAccountSetStore.getState();
+        const currentAccountSet = accountSetStore.getCurrentAccountSet();
+        if (currentAccountSet?.id) {
+          const manager = CodeRuleManager.getInstance();
+          await manager.saveToDB(currentAccountSet.id);
+        }
       }
       setShowAddDialog(false);
       setSelectedAsset(null);
@@ -700,8 +752,16 @@ export default function FixedAssetsPage() {
           <p className="text-slate-500 text-sm mt-1">管理企业固定资产卡片和折旧</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowCodeRuleDialog(true)}>
+          <Button variant="outline" size="sm" onClick={() => setShowCategoryDialog(true)}>
             <Settings className="h-4 w-4 mr-2" />
+            入账规则
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowBatchLabelDialog(true)}>
+            <Printer className="h-4 w-4 mr-2" />
+            批量打印标签
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowCodeRuleDialog(true)}>
+            <QrCode className="h-4 w-4 mr-2" />
             编码设置
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowImportDialog(true)}>
@@ -801,6 +861,7 @@ export default function FixedAssetsPage() {
                   <th className="text-left p-4 font-medium text-sm">资产编码</th>
                   <th className="text-left p-4 font-medium text-sm">资产名称</th>
                   <th className="text-left p-4 font-medium text-sm">分类</th>
+                  <th className="text-center p-4 font-medium text-sm">数量</th>
                   <th className="text-right p-4 font-medium text-sm">原值</th>
                   <th className="text-right p-4 font-medium text-sm">累计折旧</th>
                   <th className="text-right p-4 font-medium text-sm">净值</th>
@@ -813,13 +874,13 @@ export default function FixedAssetsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="text-center p-8 text-slate-500">
+                    <td colSpan={11} className="text-center p-8 text-slate-500">
                       加载中...
                     </td>
                   </tr>
                 ) : filteredAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center p-8 text-slate-500">
+                    <td colSpan={11} className="text-center p-8 text-slate-500">
                       暂无资产数据
                     </td>
                   </tr>
@@ -829,6 +890,17 @@ export default function FixedAssetsPage() {
                       <td className="p-4 text-sm font-mono">{asset.assetCode}</td>
                       <td className="p-4 text-sm font-medium">{asset.assetName}</td>
                       <td className="p-4 text-sm text-slate-600">{asset.categoryName || '-'}</td>
+                      <td className="p-4 text-sm text-center">
+                        {asset.remainingQuantity !== undefined && asset.remainingQuantity < (asset.quantity || 1) ? (
+                          <span className="text-orange-600">
+                            {asset.remainingQuantity}/{asset.quantity || 1}{asset.unit || '台'}
+                          </span>
+                        ) : (
+                          <span>
+                            {asset.quantity || 1}{asset.unit || '台'}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-4 text-sm text-right">¥{formatMoney(asset.originalValue)}</td>
                       <td className="p-4 text-sm text-right text-orange-600">¥{formatMoney(asset.accumulatedDepreciation)}</td>
                       <td className="p-4 text-sm text-right font-medium">¥{formatMoney(asset.netValue)}</td>
@@ -993,6 +1065,20 @@ export default function FixedAssetsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* 批量打印标签对话框 */}
+      <AssetQRLabelBatch
+        assets={assets.filter(a => a.status === 'active')}
+        trigger={null}
+        open={showBatchLabelDialog}
+        onOpenChange={setShowBatchLabelDialog}
+      />
+
+      {/* 入账规则设置对话框 */}
+      <AssetCategoryDialog
+        open={showCategoryDialog}
+        onOpenChange={setShowCategoryDialog}
+      />
+
       {/* 编码规则设置对话框 */}
       <AssetCodeRuleDialog
         open={showCodeRuleDialog}
@@ -1041,14 +1127,23 @@ export default function FixedAssetsPage() {
             <div className="space-y-4">
               <div className="flex justify-center p-4 bg-white border rounded-lg">
                 <div className="flex items-center gap-4 p-3 border-2 border-dashed border-slate-300 rounded">
-                  <AssetQRLabel asset={selectedAsset} size={100} />
+                  <AssetQRLabel asset={selectedAsset} size={100} showBatch={selectedAsset.quantity > 1} />
                   <div className="text-sm space-y-1">
-                    <div className="font-bold text-slate-900">{selectedAsset.assetCode}</div>
+                    <div className="font-bold text-slate-900">
+                      {selectedAsset.quantity > 1
+                        ? `${selectedAsset.assetCode} 1/${selectedAsset.quantity}`
+                        : selectedAsset.assetCode}
+                    </div>
                     <div className="text-slate-700">{selectedAsset.assetName}</div>
                     {selectedAsset.specification && (
                       <div className="text-slate-500 text-xs">规格: {selectedAsset.specification}</div>
                     )}
                     <div className="text-slate-500 text-xs">入账: {selectedAsset.acquisitionDate}</div>
+                    {selectedAsset.quantity > 1 && (
+                      <div className="text-slate-500 text-xs">
+                        数量: {selectedAsset.quantity}{selectedAsset.unit || '台'}
+                      </div>
+                    )}
                     {selectedAsset.departmentName && (
                       <div className="text-slate-500 text-xs">部门: {selectedAsset.departmentName}</div>
                     )}
@@ -1059,7 +1154,7 @@ export default function FixedAssetsPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <AssetQRLabelPrint asset={selectedAsset} trigger={
+                <AssetQRLabelPrint asset={selectedAsset} showBatch={selectedAsset.quantity > 1} trigger={
                   <Button variant="outline" size="sm">
                     <Printer className="h-4 w-4 mr-2" />
                     打印标签

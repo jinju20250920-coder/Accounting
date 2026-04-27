@@ -34,6 +34,7 @@ import {
 import { usePeriodManagementStore, PeriodTemplate } from '@/stores/usePeriodManagementStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
+import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 
 export function PeriodManagement() {
   const { showToast } = useToast();
@@ -73,8 +74,8 @@ export function PeriodManagement() {
       return;
     }
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    const startDate = getMonthStartDate(year, month);
+    const endDate = getMonthEndDate(year, month);
 
     createPeriod({
       name: `${year}年${month}月`,

@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { useAccountSetStore } from './useAccountSetStore';
 import type { AccountingPeriod } from './useAccountSetStore';
+import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 
 // 期间模板接口
 export interface PeriodTemplate {
@@ -60,8 +61,8 @@ const generateDefaultPeriods = (): AccountingPeriod[] => {
     const year = currentYear - Math.floor((currentMonth - 1 - i) / 12);
     const month = ((currentMonth - 1 - i) % 12 + 12) % 12 + 1;
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    const startDate = getMonthStartDate(year, month);
+    const endDate = getMonthEndDate(year, month);
 
     const isCurrent = year === currentYear && month === currentMonth;
 

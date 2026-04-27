@@ -141,13 +141,9 @@ export const generateCode = (
   rule: CodeRule,
   existingCodes: string[] = []
 ): { code: string; updatedRule: CodeRule } => {
-  let number = rule.lastNumber + 1;
-
   // 检查是否需要重置
   const needReset = shouldReset(rule);
-  if (needReset) {
-    number = 1;
-  }
+  let number = needReset ? 1 : rule.lastNumber + 1;
 
   const prefix = rule.prefix || '';
   const suffix = rule.suffix || '';
@@ -156,22 +152,34 @@ export const generateCode = (
 
   // 如果启用了自动递增，确保编码不重复
   if (rule.autoIncrement) {
-    // 构建匹配模式：前缀 + 分隔符 + (年份 + 分隔符 + 月份)? + 分隔符 + 序号 + 后缀
+    // 构建匹配模式：前缀 + (时间部分)? + 分隔符? + 序号 + 后缀
     const periodPattern = rule.resetPeriod === 'monthly'
       ? `\\d{4}${separator}\\d{2}`
       : rule.resetPeriod === 'yearly'
         ? '\\d{4}'
         : '';
 
-    while (existingCodes.some(code => {
-      const pattern = new RegExp(`^${prefix}${separator}${periodPattern ? periodPattern + separator : ''}\\d{${rule.padding}}${suffix}$`);
-      return pattern.test(code);
-    })) {
-      number++;
+    // 从现有编码中提取最大编号
+    const pattern = new RegExp(`^${prefix}${periodPattern ? periodPattern + separator : ''}(\\d{${rule.padding}})${suffix}$`);
+    let maxNumber = 0;
+
+    for (const code of existingCodes) {
+      const match = code.match(pattern);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    }
+
+    // 如果现有最大编号大于当前编号，使用最大编号 + 1
+    if (maxNumber >= number) {
+      number = maxNumber + 1;
     }
   }
 
-  // 生成编码：前缀 + 时间部分 + 序号
+  // 生成编码：前缀 + 时间部分 + 分隔符 + 序号
   const code = `${prefix}${periodCode}${separator}${String(number).padStart(rule.padding, '0')}${suffix}`;
 
   // 更新规则

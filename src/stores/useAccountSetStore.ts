@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 
 // 会计期间接口
 export interface AccountingPeriod {
@@ -186,8 +187,8 @@ const generateDefaultPeriods = (): AccountingPeriod[] => {
     const year = currentYear - Math.floor((currentMonth - 1 - i) / 12);
     const month = ((currentMonth - 1 - i) % 12 + 12) % 12 + 1;
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    const startDate = getMonthStartDate(year, month);
+    const endDate = getMonthEndDate(year, month);
 
     const isCurrent = year === currentYear && month === currentMonth;
 
@@ -860,22 +861,36 @@ export { useAccountSetStoreBase as useAccountSetStore };
 
 // 修正期间数据：确保 isCurrent 标记指向最新的 open 状态期间
 // persist 从 localStorage 恢复旧数据后，isCurrent 可能停留在过去的期间
+// 同时修复 endDate 因 toISOString 时区问题导致的日期错误
 let isFixingPeriods = false;
 useAccountSetStoreBase.subscribe((state) => {
   if (isFixingPeriods) return;
   for (const accountSet of state.accountSets) {
     if (!accountSet.accountingPeriods?.length) continue;
-    const currentMarked = accountSet.accountingPeriods.find(p => p.isCurrent);
+
+    // 检查是否需要修复日期（endDate 不匹配正确计算）
+    let needsDateFix = false;
+    const fixedPeriods = accountSet.accountingPeriods.map(p => {
+      const correctEndDate = getMonthEndDate(p.year, p.month);
+      if (p.endDate !== correctEndDate) {
+        needsDateFix = true;
+        return { ...p, endDate: correctEndDate };
+      }
+      return p;
+    });
+
+    const currentMarked = fixedPeriods.find(p => p.isCurrent);
     // 找最新的 open 状态期间
-    const latestOpen = accountSet.accountingPeriods
+    const latestOpen = fixedPeriods
       .filter(p => p.status === 'open')
       .reduce((latest, p) =>
         (p.year * 12 + p.month) > (latest.year * 12 + latest.month) ? p : latest
-      , accountSet.accountingPeriods[0]);
-    // 如果 isCurrent 标记不是最新的 open 期间，修正它
-    if (latestOpen && currentMarked?.id !== latestOpen.id) {
+      , fixedPeriods[0]);
+
+    // 如果需要修复日期或 isCurrent 标记不正确
+    if (needsDateFix || (latestOpen && currentMarked?.id !== latestOpen.id)) {
       isFixingPeriods = true;
-      const corrected: AccountingPeriod[] = accountSet.accountingPeriods.map(p => ({
+      const corrected: AccountingPeriod[] = fixedPeriods.map(p => ({
         ...p,
         isCurrent: p.id === latestOpen.id,
         status: (p.id === latestOpen.id ? 'open' : (p.status === 'open' ? 'closed' : p.status)) as AccountingPeriod['status'],
