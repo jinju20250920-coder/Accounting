@@ -37,6 +37,8 @@ import {
   QrCode,
   TrendingUp,
   AlertTriangle,
+  Printer,
+  Calculator,
 } from 'lucide-react';
 import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
@@ -51,18 +53,42 @@ import type { FixedAsset, AssetCategory } from '@/types';
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
+// 计算月折旧额
+const calculateMonthlyDepreciation = (
+  originalValue: number,
+  salvageValue: number,
+  usefulLifeYears: number,
+  method: string
+): number => {
+  if (originalValue <= 0 || usefulLifeYears <= 0) return 0;
+  const months = usefulLifeYears * 12;
+  switch (method) {
+    case 'straight_line':
+      return (originalValue - salvageValue) / months;
+    case 'double_declining':
+      return (originalValue * 2) / months;
+    case 'sum_of_years':
+      const sumOfYears = (usefulLifeYears * (usefulLifeYears + 1)) / 2;
+      return ((originalValue - salvageValue) * usefulLifeYears) / (sumOfYears * 12);
+    default:
+      return (originalValue - salvageValue) / months;
+  }
+};
+
 // 资产卡片对话框组件
 function AssetCardDialog({
   open,
   onOpenChange,
   asset,
   categories,
+  existingCodes,
   onSave,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   asset?: FixedAsset | null;
   categories: AssetCategory[];
+  existingCodes: string[];
   onSave: (data: Partial<FixedAsset>) => void;
 }) {
   const { showToast } = useToast();
@@ -93,8 +119,18 @@ function AssetCardDialog({
     if (asset) {
       setFormData(asset);
     } else {
+      // 新增时自动生成编码
+      const manager = CodeRuleManager.getInstance();
+      const rule = manager.getRuleByType('fixed_asset');
+      let autoCode = '';
+      if (rule.autoIncrement) {
+        const result = generateCode(rule, existingCodes);
+        autoCode = result.code;
+        manager.setRule(result.updatedRule);
+      }
+
       setFormData({
-        assetCode: '',
+        assetCode: autoCode,
         assetName: '',
         categoryId: '',
         specification: '',
@@ -116,7 +152,7 @@ function AssetCardDialog({
         acquisitionType: 'purchase',
       });
     }
-  }, [asset, open]);
+  }, [asset, open, existingCodes]);
 
   // 当选择分类时，自动填充默认值
   const handleCategoryChange = (categoryId: string) => {
@@ -149,248 +185,323 @@ function AssetCardDialog({
 
     const usefulLifeMonths = (formData.usefulLifeYears || 5) * 12;
     const quantity = formData.quantity || 1;
+
+    // 如果没有编码，尝试自动生成
+    let assetCode = formData.assetCode;
+    if (!assetCode) {
+      const manager = CodeRuleManager.getInstance();
+      const rule = manager.getRuleByType('fixed_asset');
+      if (rule.autoIncrement) {
+        const result = generateCode(rule, existingCodes);
+        assetCode = result.code;
+        manager.setRule(result.updatedRule);
+      } else {
+        showToast('error', '请输入资产编码');
+        return;
+      }
+    }
+
     onSave({
       ...formData,
+      assetCode,
       usefulLifeMonths,
       quantity,
       remainingQuantity: quantity,
       unitPrice: (formData.originalValue || 0) / quantity,
-      assetCode: formData.assetCode || `FA-${Date.now()}`,
       assetSubjectCode: '1501',
       depreciationSubjectCode: '1502',
     });
   };
 
+  // 计算折旧预览
+  const monthlyDepreciation = calculateMonthlyDepreciation(
+    formData.originalValue || 0,
+    formData.salvageValue || 0,
+    formData.usefulLifeYears || 5,
+    formData.depreciationMethod || 'straight_line'
+  );
+
+  const formatMoney = (value: number) => {
+    return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{asset ? '编辑资产' : '新增资产'}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {asset ? '编辑资产' : '新增资产'}
+            {!asset && (
+              <span className="text-sm font-normal text-slate-500">
+                快速录入固定资产，系统将自动计算初始折旧计划
+              </span>
+            )}
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-4 py-4">
-          <div className="space-y-2">
-            <Label required>资产编码</Label>
-            <Input
-              value={formData.assetCode || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, assetCode: e.target.value }))}
-              placeholder="自动生成或手动输入"
-            />
+        <div className="space-y-6 py-4">
+          {/* SECTION 1 & 2: 核心信息 + 财务与折旧 */}
+          <div className="grid grid-cols-2 gap-6">
+            {/* SECTION 1: 资产核心 */}
+            <div className="space-y-4">
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+                资产核心
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label required>资产名称</Label>
+                  <Input
+                    value={formData.assetName || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, assetName: e.target.value }))}
+                    placeholder="请输入资产名称"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>资产分类</Label>
+                  <Select
+                    value={formData.categoryId || ''}
+                    onValueChange={handleCategoryChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择分类" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.filter(c => c.enabled).map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>资产编码</Label>
+                  <Input
+                    value={formData.assetCode || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, assetCode: e.target.value }))}
+                    placeholder="自动生成或手动输入"
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>规格型号</Label>
+                  <Input
+                    value={formData.specification || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, specification: e.target.value }))}
+                    placeholder="请输入规格型号"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>计量单位</Label>
+                  <Select
+                    value={formData.unit || '台'}
+                    onValueChange={(v) => setFormData(prev => ({ ...prev, unit: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="台">台</SelectItem>
+                      <SelectItem value="把">把</SelectItem>
+                      <SelectItem value="套">套</SelectItem>
+                      <SelectItem value="个">个</SelectItem>
+                      <SelectItem value="辆">辆</SelectItem>
+                      <SelectItem value="件">件</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>数量</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={formData.quantity || 1}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      quantity: parseInt(e.target.value) || 1
+                    }))}
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 2: 财务与折旧 */}
+            <div className="space-y-4">
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+                财务与折旧
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label required>原值 (CNY)</Label>
+                  <Input
+                    type="number"
+                    value={formData.originalValue || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      originalValue: parseFloat(e.target.value) || 0
+                    }))}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>折旧方法</Label>
+                  <Select
+                    value={formData.depreciationMethod || 'straight_line'}
+                    onValueChange={(v) => setFormData(prev => ({
+                      ...prev,
+                      depreciationMethod: v as any
+                    }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="straight_line">直线法</SelectItem>
+                      <SelectItem value="double_declining">双倍余额递减法</SelectItem>
+                      <SelectItem value="sum_of_years">年数总和法</SelectItem>
+                      <SelectItem value="units_of_production">工作量法</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>残值</Label>
+                  <Input
+                    type="number"
+                    value={formData.salvageValue || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      salvageValue: parseFloat(e.target.value) || 0
+                    }))}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className={formData.originalValue > 0 ? 'text-blue-600' : ''}>
+                    使用年限（年）
+                  </Label>
+                  <Input
+                    type="number"
+                    value={formData.usefulLifeYears || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      usefulLifeYears: parseInt(e.target.value) || 5
+                    }))}
+                    placeholder="5"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label required>购置日期</Label>
+                  <ChineseDatePicker
+                    value={formData.acquisitionDate || ''}
+                    onChange={(v) => setFormData(prev => ({ ...prev, acquisitionDate: v }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>费用科目</Label>
+                  <Input
+                    value={formData.expenseSubjectCode || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, expenseSubjectCode: e.target.value }))}
+                    placeholder="660204"
+                    className="font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* 折旧预览卡片 */}
+              {formData.originalValue > 0 && formData.usefulLifeYears > 0 && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-700 text-xs font-medium mb-2">
+                    <Calculator className="h-3.5 w-3.5" />
+                    折旧预览
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">应计折旧额</span>
+                      <span className="font-medium">¥{formatMoney((formData.originalValue || 0) - (formData.salvageValue || 0))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">折旧月数</span>
+                      <span className="font-medium">{(formData.usefulLifeYears || 0) * 12} 个月</span>
+                    </div>
+                    <div className="col-span-2 flex justify-between border-t border-blue-100 pt-2 mt-1">
+                      <span className="text-blue-700 font-medium">预计月折旧额</span>
+                      <span className="text-blue-700 font-bold">¥{formatMoney(monthlyDepreciation)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label required>资产名称</Label>
-            <Input
-              value={formData.assetName || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, assetName: e.target.value }))}
-              placeholder="请输入资产名称"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>资产分类</Label>
-            <Select
-              value={formData.categoryId || ''}
-              onValueChange={handleCategoryChange}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="选择分类" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.filter(c => c.enabled).map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>规格型号</Label>
-            <Input
-              value={formData.specification || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, specification: e.target.value }))}
-              placeholder="请输入规格型号"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>数量</Label>
-            <Input
-              type="number"
-              min={1}
-              value={formData.quantity || 1}
-              onChange={(e) => setFormData(prev => ({
-                ...prev,
-                quantity: parseInt(e.target.value) || 1
-              }))}
-              placeholder="1"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>计量单位</Label>
-            <Select
-              value={formData.unit || '台'}
-              onValueChange={(v) => setFormData(prev => ({ ...prev, unit: v }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="台">台</SelectItem>
-                <SelectItem value="把">把</SelectItem>
-                <SelectItem value="套">套</SelectItem>
-                <SelectItem value="个">个</SelectItem>
-                <SelectItem value="辆">辆</SelectItem>
-                <SelectItem value="件">件</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>取得方式</Label>
-            <Select
-              value={formData.acquisitionType || 'purchase'}
-              onValueChange={(v) => setFormData(prev => ({ ...prev, acquisitionType: v as any }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="purchase">购入</SelectItem>
-                <SelectItem value="opening_balance">开账导入</SelectItem>
-                <SelectItem value="cip_conversion">在建转固</SelectItem>
-                <SelectItem value="invoice">发票入账</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label required>原值</Label>
-            <Input
-              type="number"
-              value={formData.originalValue || ''}
-              onChange={(e) => setFormData(prev => ({
-                ...prev,
-                originalValue: parseFloat(e.target.value) || 0
-              }))}
-              placeholder="0.00"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>残值</Label>
-            <Input
-              type="number"
-              value={formData.salvageValue || ''}
-              onChange={(e) => setFormData(prev => ({
-                ...prev,
-                salvageValue: parseFloat(e.target.value) || 0
-              }))}
-              placeholder="0.00"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>折旧方法</Label>
-            <Select
-              value={formData.depreciationMethod || 'straight_line'}
-              onValueChange={(v) => setFormData(prev => ({
-                ...prev,
-                depreciationMethod: v as any
-              }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="straight_line">直线法</SelectItem>
-                <SelectItem value="double_declining">双倍余额递减法</SelectItem>
-                <SelectItem value="sum_of_years">年数总和法</SelectItem>
-                <SelectItem value="units_of_production">工作量法</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>使用年限（年）</Label>
-            <Input
-              type="number"
-              value={formData.usefulLifeYears || ''}
-              onChange={(e) => setFormData(prev => ({
-                ...prev,
-                usefulLifeYears: parseInt(e.target.value) || 5
-              }))}
-              placeholder="5"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label required>购置日期</Label>
-            <ChineseDatePicker
-              value={formData.acquisitionDate || ''}
-              onChange={(v) => setFormData(prev => ({ ...prev, acquisitionDate: v }))}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>存放地点</Label>
-            <Input
-              value={formData.location || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
-              placeholder="请输入存放地点"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>费用科目</Label>
-            <Input
-              value={formData.expenseSubjectCode || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, expenseSubjectCode: e.target.value }))}
-              placeholder="660204"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>供应商</Label>
-            <Input
-              value={formData.supplierName || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
-              placeholder="请输入供应商"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>序列号</Label>
-            <Input
-              value={formData.serialNumber || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, serialNumber: e.target.value }))}
-              placeholder="高价值资产填写"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>使用人</Label>
-            <Input
-              value={formData.assignedUser || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, assignedUser: e.target.value }))}
-              placeholder="资产使用人"
-            />
-          </div>
-
-          <div className="col-span-2 space-y-2">
-            <Label>备注</Label>
-            <Input
-              value={formData.notes || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-              placeholder="请输入备注"
-            />
+          {/* SECTION 3: 管理与物流 */}
+          <div className="border-t pt-4">
+            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">
+              管理与物流
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <div className="space-y-1.5">
+                <Label>取得方式</Label>
+                <Select
+                  value={formData.acquisitionType || 'purchase'}
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, acquisitionType: v as any }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="purchase">购入</SelectItem>
+                    <SelectItem value="opening_balance">开账导入</SelectItem>
+                    <SelectItem value="cip_conversion">在建转固</SelectItem>
+                    <SelectItem value="invoice">发票入账</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>存放地点</Label>
+                <Input
+                  value={formData.location || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="请输入存放地点"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>供应商</Label>
+                <Input
+                  value={formData.supplierName || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
+                  placeholder="请输入供应商"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>序列号</Label>
+                <Input
+                  value={formData.serialNumber || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, serialNumber: e.target.value }))}
+                  placeholder="高价值资产填写"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>使用人</Label>
+                <Input
+                  value={formData.assignedUser || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, assignedUser: e.target.value }))}
+                  placeholder="资产使用人"
+                />
+              </div>
+              <div className="col-span-3 space-y-1.5">
+                <Label>备注</Label>
+                <Input
+                  value={formData.notes || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="请输入备注信息..."
+                />
+              </div>
+            </div>
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={handleSubmit}>保存</Button>
+          <Button onClick={handleSubmit}>保存资产</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -824,6 +935,7 @@ export default function FixedAssetsPage() {
         onOpenChange={setShowAddDialog}
         asset={selectedAsset}
         categories={categories}
+        existingCodes={assets.map(a => a.assetCode).filter(Boolean)}
         onSave={handleSave}
       />
 
@@ -927,30 +1039,40 @@ export default function FixedAssetsPage() {
         }}
       />
 
-      {/* QR标签对话框 */}
+      {/* QR标签对话框 - 支持打印 */}
       <Dialog open={showQRLabelDialog} onOpenChange={setShowQRLabelDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>资产标签</DialogTitle>
           </DialogHeader>
           {selectedAsset && (
-            <div className="flex justify-center p-4 bg-white border rounded-lg">
-              <div className="flex items-center gap-4 p-3 border-2 border-dashed border-slate-300 rounded">
-                <AssetQRLabel asset={selectedAsset} size={100} />
-                <div className="text-sm space-y-1">
-                  <div className="font-bold text-slate-900">{selectedAsset.assetCode}</div>
-                  <div className="text-slate-700">{selectedAsset.assetName}</div>
-                  {selectedAsset.specification && (
-                    <div className="text-slate-500 text-xs">规格: {selectedAsset.specification}</div>
-                  )}
-                  <div className="text-slate-500 text-xs">入账: {selectedAsset.acquisitionDate}</div>
-                  {selectedAsset.departmentName && (
-                    <div className="text-slate-500 text-xs">部门: {selectedAsset.departmentName}</div>
-                  )}
-                  {selectedAsset.assignedUser && (
-                    <div className="text-slate-500 text-xs">使用人: {selectedAsset.assignedUser}</div>
-                  )}
+            <div className="space-y-4">
+              <div className="flex justify-center p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-4 p-3 border-2 border-dashed border-slate-300 rounded">
+                  <AssetQRLabel asset={selectedAsset} size={100} />
+                  <div className="text-sm space-y-1">
+                    <div className="font-bold text-slate-900">{selectedAsset.assetCode}</div>
+                    <div className="text-slate-700">{selectedAsset.assetName}</div>
+                    {selectedAsset.specification && (
+                      <div className="text-slate-500 text-xs">规格: {selectedAsset.specification}</div>
+                    )}
+                    <div className="text-slate-500 text-xs">入账: {selectedAsset.acquisitionDate}</div>
+                    {selectedAsset.departmentName && (
+                      <div className="text-slate-500 text-xs">部门: {selectedAsset.departmentName}</div>
+                    )}
+                    {selectedAsset.assignedUser && (
+                      <div className="text-slate-500 text-xs">使用人: {selectedAsset.assignedUser}</div>
+                    )}
+                  </div>
                 </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <AssetQRLabelPrint asset={selectedAsset} trigger={
+                  <Button variant="outline" size="sm">
+                    <Printer className="h-4 w-4 mr-2" />
+                    打印标签
+                  </Button>
+                } />
               </div>
             </div>
           )}
