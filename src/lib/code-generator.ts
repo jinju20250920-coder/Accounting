@@ -53,6 +53,36 @@ const defaultRules: CodeRule[] = [
     separator: '-',
     autoIncrement: true,
     lastNumber: 0
+  },
+  {
+    id: 'fixed_asset_rule_1',
+    name: '固定资产编码',
+    prefix: 'FA',
+    suffix: '',
+    padding: 4,
+    separator: '',
+    autoIncrement: true,
+    lastNumber: 0
+  },
+  {
+    id: 'intangible_asset_rule_1',
+    name: '无形资产编码',
+    prefix: 'IA',
+    suffix: '',
+    padding: 4,
+    separator: '',
+    autoIncrement: true,
+    lastNumber: 0
+  },
+  {
+    id: 'prepaid_expense_rule_1',
+    name: '待摊费用编码',
+    prefix: 'PE',
+    suffix: '',
+    padding: 4,
+    separator: '',
+    autoIncrement: true,
+    lastNumber: 0
   }
 ];
 
@@ -107,7 +137,7 @@ export class CodeRuleManager {
   }
 
   // 根据类型获取规则
-  getRuleByType(type: 'department' | 'subject' | 'project' | 'auxiliary'): CodeRule {
+  getRuleByType(type: 'department' | 'subject' | 'project' | 'auxiliary' | 'fixed_asset' | 'intangible_asset' | 'prepaid_expense'): CodeRule {
     switch (type) {
       case 'department':
         return this.rules.get('dept_rule_1') || defaultRules[0];
@@ -117,6 +147,12 @@ export class CodeRuleManager {
         return this.rules.get('project_rule_1') || defaultRules[2];
       case 'auxiliary':
         return this.rules.get('auxiliary_rule_1') || defaultRules[3];
+      case 'fixed_asset':
+        return this.rules.get('fixed_asset_rule_1') || defaultRules[4];
+      case 'intangible_asset':
+        return this.rules.get('intangible_asset_rule_1') || defaultRules[5];
+      case 'prepaid_expense':
+        return this.rules.get('prepaid_expense_rule_1') || defaultRules[6];
       default:
         throw new Error(`未知的编码类型: ${type}`);
     }

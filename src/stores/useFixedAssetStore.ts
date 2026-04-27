@@ -8,6 +8,7 @@ import {
   getDepreciationMethodName,
   parseDepreciationMethod,
 } from '@/lib/depreciation';
+import { CodeRuleManager, generateCode } from '@/lib/code-generator';
 import type {
   FixedAsset,
   DepreciationRecord,
@@ -166,8 +167,17 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       throw new Error(error);
     }
 
+    // 自动生成编码（如果未提供）
+    let assetCode = assetData.assetCode;
+    if (!assetCode) {
+      const codeManager = CodeRuleManager.getInstance();
+      const rule = codeManager.getRuleByType('fixed_asset');
+      const existingCodes = state.assets.map(a => a.assetCode).filter(Boolean);
+      assetCode = generateCode(rule, existingCodes);
+    }
+
     // 检查编码是否重复
-    if (assetData.assetCode && state.assets.some(a => a.assetCode === assetData.assetCode)) {
+    if (state.assets.some(a => a.assetCode === assetCode)) {
       const error = '资产编码已存在';
       set({ error });
       throw new Error(error);
@@ -176,6 +186,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const now = new Date().toISOString();
     const newAsset: FixedAsset = {
       ...assetData,
+      assetCode,
       id: generateId(),
       depreciableValue: assetData.originalValue - (assetData.salvageValue || 0),
       netValue: assetData.originalValue - (assetData.accumulatedDepreciation || 0),
@@ -188,10 +199,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       // 保存到数据库
       const { sqliteService } = await import('@/lib/database/sqlite-service');
-      // 同步账套ID
-      if (currentAccountSet?.id) {
-        sqliteService.setAccountSetId(currentAccountSet.id);
-      }
+      sqliteService.setAccountSetId(currentAccountSet.id);
       const db = await sqliteService.getDatabase();
       if (!db) {
         throw new Error('数据库未初始化');
