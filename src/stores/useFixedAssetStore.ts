@@ -183,7 +183,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 保存到数据库
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `INSERT INTO fixedAssets (
           id, assetCode, assetName, categoryId, categoryName, specification, unit, quantity,
           originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
@@ -193,24 +193,25 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           assetSubjectCode, assetSubjectName, depreciationSubjectCode, depreciationSubjectName,
           expenseSubjectCode, expenseSubjectName, supplierName, invoiceNo, notes,
           accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.categoryId, newAsset.categoryName,
-          newAsset.specification, newAsset.unit, newAsset.quantity,
-          newAsset.originalValue, newAsset.salvageValue, newAsset.depreciableValue,
-          newAsset.accumulatedDepreciation, newAsset.netValue,
-          newAsset.depreciationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
-          newAsset.totalUnits, newAsset.unitsUsed,
-          newAsset.acquisitionDate, newAsset.depreciationStartDate, newAsset.lastDepreciationDate,
-          newAsset.disposalDate, newAsset.status, newAsset.location,
-          newAsset.departmentCode, newAsset.departmentName,
-          newAsset.assetSubjectCode, newAsset.assetSubjectName,
-          newAsset.depreciationSubjectCode, newAsset.depreciationSubjectName,
-          newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
-          newAsset.supplierName, newAsset.invoiceNo, newAsset.notes,
-          newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
-        ]
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
+      stmt.run([
+        newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.categoryId, newAsset.categoryName,
+        newAsset.specification, newAsset.unit, newAsset.quantity,
+        newAsset.originalValue, newAsset.salvageValue, newAsset.depreciableValue,
+        newAsset.accumulatedDepreciation, newAsset.netValue,
+        newAsset.depreciationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
+        newAsset.totalUnits, newAsset.unitsUsed,
+        newAsset.acquisitionDate, newAsset.depreciationStartDate, newAsset.lastDepreciationDate,
+        newAsset.disposalDate, newAsset.status, newAsset.location,
+        newAsset.departmentCode, newAsset.departmentName,
+        newAsset.assetSubjectCode, newAsset.assetSubjectName,
+        newAsset.depreciationSubjectCode, newAsset.depreciationSubjectName,
+        newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
+        newAsset.supplierName, newAsset.invoiceNo, newAsset.notes,
+        newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
+      ]);
+      stmt.free();
 
       set((state) => ({
         assets: [...state.assets, newAsset],
@@ -254,7 +255,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `UPDATE fixedAssets SET
           assetName=?, categoryId=?, categoryName=?, specification=?, unit=?, quantity=?,
           originalValue=?, salvageValue=?, depreciableValue=?, accumulatedDepreciation=?, netValue=?,
@@ -264,25 +265,26 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           assetSubjectCode=?, assetSubjectName=?, depreciationSubjectCode=?, depreciationSubjectName=?,
           expenseSubjectCode=?, expenseSubjectName=?, supplierName=?, invoiceNo=?, notes=?,
           updateTime=?
-        WHERE id=?`,
-        [
-          updatedAsset.assetName, updatedAsset.categoryId, updatedAsset.categoryName,
-          updatedAsset.specification, updatedAsset.unit, updatedAsset.quantity,
-          updatedAsset.originalValue, updatedAsset.salvageValue, updatedAsset.depreciableValue,
-          updatedAsset.accumulatedDepreciation, updatedAsset.netValue,
-          updatedAsset.depreciationMethod, updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
-          updatedAsset.totalUnits, updatedAsset.unitsUsed,
-          updatedAsset.acquisitionDate, updatedAsset.depreciationStartDate,
-          updatedAsset.lastDepreciationDate, updatedAsset.disposalDate,
-          updatedAsset.status, updatedAsset.location,
-          updatedAsset.departmentCode, updatedAsset.departmentName,
-          updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
-          updatedAsset.depreciationSubjectCode, updatedAsset.depreciationSubjectName,
-          updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
-          updatedAsset.supplierName, updatedAsset.invoiceNo, updatedAsset.notes,
-          updatedAsset.updateTime, id,
-        ]
+        WHERE id=?`
       );
+      stmt.run([
+        updatedAsset.assetName, updatedAsset.categoryId, updatedAsset.categoryName,
+        updatedAsset.specification, updatedAsset.unit, updatedAsset.quantity,
+        updatedAsset.originalValue, updatedAsset.salvageValue, updatedAsset.depreciableValue,
+        updatedAsset.accumulatedDepreciation, updatedAsset.netValue,
+        updatedAsset.depreciationMethod, updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
+        updatedAsset.totalUnits, updatedAsset.unitsUsed,
+        updatedAsset.acquisitionDate, updatedAsset.depreciationStartDate,
+        updatedAsset.lastDepreciationDate, updatedAsset.disposalDate,
+        updatedAsset.status, updatedAsset.location,
+        updatedAsset.departmentCode, updatedAsset.departmentName,
+        updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
+        updatedAsset.depreciationSubjectCode, updatedAsset.depreciationSubjectName,
+        updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
+        updatedAsset.supplierName, updatedAsset.invoiceNo, updatedAsset.notes,
+        updatedAsset.updateTime, id,
+      ]);
+      stmt.free();
 
       set((state) => ({
         assets: state.assets.map(a => a.id === id ? updatedAsset : a),
@@ -316,9 +318,13 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
       // 删除折旧记录
-      db.run('DELETE FROM depreciationRecords WHERE assetId = ?', [id]);
+      const stmt1 = db.prepare('DELETE FROM depreciationRecords WHERE assetId = ?');
+      stmt1.run([id]);
+      stmt1.free();
       // 删除资产
-      db.run('DELETE FROM fixedAssets WHERE id = ?', [id]);
+      const stmt2 = db.prepare('DELETE FROM fixedAssets WHERE id = ?');
+      stmt2.run([id]);
+      stmt2.free();
 
       set((state) => ({
         assets: state.assets.filter(a => a.id !== id),
@@ -358,31 +364,32 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `INSERT INTO assetCategories (
           id, code, name, assetType, defaultUsefulLifeYears, defaultDepreciationMethod,
           defaultSalvageRate, assetSubjectCode, depreciationSubjectCode, expenseSubjectCode,
           description, sortOrder, enabled, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          newCategory.id,
-          newCategory.code,
-          newCategory.name,
-          newCategory.assetType,
-          newCategory.defaultUsefulLifeYears ?? 5,
-          newCategory.defaultDepreciationMethod ?? 'straight_line',
-          newCategory.defaultSalvageRate ?? 0.05,
-          newCategory.assetSubjectCode ?? '1501',
-          newCategory.depreciationSubjectCode ?? '1502',
-          newCategory.expenseSubjectCode ?? '660204',
-          newCategory.description ?? '',
-          newCategory.sortOrder ?? 0,
-          newCategory.enabled ? 1 : 0,
-          newCategory.accountSetId ?? '',
-          newCategory.createTime,
-          newCategory.updateTime,
-        ]
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
+      stmt.run([
+        newCategory.id,
+        newCategory.code,
+        newCategory.name,
+        newCategory.assetType,
+        newCategory.defaultUsefulLifeYears ?? 5,
+        newCategory.defaultDepreciationMethod ?? 'straight_line',
+        newCategory.defaultSalvageRate ?? 0.05,
+        newCategory.assetSubjectCode ?? '1501',
+        newCategory.depreciationSubjectCode ?? '1502',
+        newCategory.expenseSubjectCode ?? '660204',
+        newCategory.description ?? '',
+        newCategory.sortOrder ?? 0,
+        newCategory.enabled ? 1 : 0,
+        newCategory.accountSetId ?? '',
+        newCategory.createTime,
+        newCategory.updateTime,
+      ]);
+      stmt.free();
 
       set((state) => ({
         categories: [...state.categories, newCategory],
@@ -415,21 +422,22 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `UPDATE assetCategories SET
           name=?, assetType=?, defaultUsefulLifeYears=?, defaultDepreciationMethod=?,
           defaultSalvageRate=?, assetSubjectCode=?, depreciationSubjectCode=?, expenseSubjectCode=?,
           description=?, sortOrder=?, enabled=?, updateTime=?
-        WHERE id=?`,
-        [
-          updatedCategory.name, updatedCategory.assetType,
-          updatedCategory.defaultUsefulLifeYears, updatedCategory.defaultDepreciationMethod,
-          updatedCategory.defaultSalvageRate, updatedCategory.assetSubjectCode,
-          updatedCategory.depreciationSubjectCode, updatedCategory.expenseSubjectCode,
-          updatedCategory.description, updatedCategory.sortOrder,
-          updatedCategory.enabled ? 1 : 0, updatedCategory.updateTime, id,
-        ]
+        WHERE id=?`
       );
+      stmt.run([
+        updatedCategory.name, updatedCategory.assetType,
+        updatedCategory.defaultUsefulLifeYears, updatedCategory.defaultDepreciationMethod,
+        updatedCategory.defaultSalvageRate, updatedCategory.assetSubjectCode,
+        updatedCategory.depreciationSubjectCode, updatedCategory.expenseSubjectCode,
+        updatedCategory.description, updatedCategory.sortOrder,
+        updatedCategory.enabled ? 1 : 0, updatedCategory.updateTime, id,
+      ]);
+      stmt.free();
 
       set((state) => ({
         categories: state.categories.map(c => c.id === id ? updatedCategory : c),
@@ -453,7 +461,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      db.run('DELETE FROM assetCategories WHERE id = ?', [id]);
+      const stmt = db.prepare('DELETE FROM assetCategories WHERE id = ?');
+      stmt.run([id]);
+      stmt.free();
 
       set((state) => ({
         categories: state.categories.filter(c => c.id !== id),
@@ -568,22 +578,23 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const db = await sqliteService.getDatabase();
 
       for (const record of records) {
-        db.run(
+        const stmt = db.prepare(
           `INSERT INTO depreciationRecords (
             id, assetId, assetCode, assetName, period, depreciationDate,
             periodDepreciation, accumulatedDepreciation, netValueAfter,
             unitsThisPeriod, unitDepreciationRate, voucherId, voucherNo,
             status, notes, accountSetId, createTime, updateTime
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            record.id, record.assetId, record.assetCode, record.assetName,
-            record.period, record.depreciationDate,
-            record.periodDepreciation, record.accumulatedDepreciation, record.netValueAfter,
-            record.unitsThisPeriod, record.unitDepreciationRate,
-            record.voucherId, record.voucherNo, record.status, record.notes,
-            record.accountSetId, record.createTime, record.updateTime,
-          ]
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
+        stmt.run([
+          record.id, record.assetId, record.assetCode, record.assetName,
+          record.period, record.depreciationDate,
+          record.periodDepreciation, record.accumulatedDepreciation, record.netValueAfter,
+          record.unitsThisPeriod, record.unitDepreciationRate,
+          record.voucherId, record.voucherNo, record.status, record.notes,
+          record.accountSetId, record.createTime, record.updateTime,
+        ]);
+        stmt.free();
       }
 
       set((state) => ({
@@ -607,10 +618,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       for (const record of records) {
         // 更新折旧记录状态
-        db.run(
-          'UPDATE depreciationRecords SET status = ?, updateTime = ? WHERE id = ?',
-          ['posted', new Date().toISOString(), record.id]
+        const stmt1 = db.prepare(
+          'UPDATE depreciationRecords SET status = ?, updateTime = ? WHERE id = ?'
         );
+        stmt1.run(['posted', new Date().toISOString(), record.id]);
+        stmt1.free();
 
         // 更新资产的累计折旧
         const asset = state.assets.find(a => a.id === record.assetId);
@@ -618,12 +630,13 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           const newAccumulated = asset.accumulatedDepreciation + record.periodDepreciation;
           const newNetValue = asset.originalValue - newAccumulated;
 
-          db.run(
+          const stmt2 = db.prepare(
             `UPDATE fixedAssets SET
               accumulatedDepreciation = ?, netValue = ?, lastDepreciationDate = ?, updateTime = ?
-            WHERE id = ?`,
-            [newAccumulated, newNetValue, record.depreciationDate, new Date().toISOString(), asset.id]
+            WHERE id = ?`
           );
+          stmt2.run([newAccumulated, newNetValue, record.depreciationDate, new Date().toISOString(), asset.id]);
+          stmt2.free();
         }
       }
 
@@ -1056,38 +1069,40 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const now = new Date().toISOString();
 
       // 创建凭证
-      db.run(
+      const stmtVoucher = db.prepare(
         `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [voucherId, voucherNo, voucherDate, 'draft', '固定资产折旧', 'system', accountSetId, now, now]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      stmtVoucher.run([voucherId, voucherNo, voucherDate, 'draft', '固定资产折旧', 'system', accountSetId, now, now]);
+      stmtVoucher.free();
 
       // 创建分录 - 借方：费用科目（按科目分组）
-      let entryIndex = 0;
       for (const [, expense] of expenseMap) {
         const entryId = generateId();
-        db.run(
+        const stmtEntry = db.prepare(
           `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [entryId, voucherId, voucherDate, '固定资产折旧', expense.code, expense.name, expense.amount, 0, accountSetId]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        entryIndex++;
+        stmtEntry.run([entryId, voucherId, voucherDate, '固定资产折旧', expense.code, expense.name, expense.amount, 0, accountSetId]);
+        stmtEntry.free();
       }
 
       // 创建分录 - 贷方：累计折旧
       const creditEntryId = generateId();
-      db.run(
+      const stmtCredit = db.prepare(
         `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [creditEntryId, voucherId, voucherDate, '固定资产折旧', '1502', '累计折旧', 0, totalDepreciation, accountSetId]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      stmtCredit.run([creditEntryId, voucherId, voucherDate, '固定资产折旧', '1502', '累计折旧', 0, totalDepreciation, accountSetId]);
+      stmtCredit.free();
 
       // 更新折旧记录，关联凭证
       for (const record of records) {
-        db.run(
-          'UPDATE depreciationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?',
-          [voucherId, voucherNo, now, record.id]
+        const stmtUpdate = db.prepare(
+          'UPDATE depreciationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?'
         );
+        stmtUpdate.run([voucherId, voucherNo, now, record.id]);
+        stmtUpdate.free();
       }
 
       // 更新本地状态

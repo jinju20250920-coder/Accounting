@@ -231,7 +231,10 @@
       "Bash(ls ~/. cc-connect*)",
       "Bash(ls ./*.toml)",
       "Bash(where claude:*)",
-      "Bash(cc-connect help:*)"
+      "Bash(cc-connect help:*)",
+      "mcp__filesystem__edit_file",
+      "Skill(office-hours)",
+      "Bash(findstr \":3000\")"
     ]
   }
 }
