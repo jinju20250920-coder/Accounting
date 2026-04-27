@@ -254,6 +254,7 @@ function AssetCardDialog({
                     value={formData.assetName || ''}
                     onChange={(e) => setFormData(prev => ({ ...prev, assetName: e.target.value }))}
                     placeholder="请输入资产名称"
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -279,6 +280,7 @@ function AssetCardDialog({
                     onChange={(e) => setFormData(prev => ({ ...prev, assetCode: e.target.value }))}
                     placeholder="自动生成或手动输入"
                     className="font-mono text-sm"
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -287,6 +289,7 @@ function AssetCardDialog({
                     value={formData.specification || ''}
                     onChange={(e) => setFormData(prev => ({ ...prev, specification: e.target.value }))}
                     placeholder="请输入规格型号"
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -319,6 +322,7 @@ function AssetCardDialog({
                       quantity: parseInt(e.target.value) || 1
                     }))}
                     placeholder="1"
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -340,6 +344,7 @@ function AssetCardDialog({
                       originalValue: parseFloat(e.target.value) || 0
                     }))}
                     placeholder="0.00"
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -372,6 +377,7 @@ function AssetCardDialog({
                       salvageValue: parseFloat(e.target.value) || 0
                     }))}
                     placeholder="0.00"
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -386,6 +392,7 @@ function AssetCardDialog({
                       usefulLifeYears: parseInt(e.target.value) || 5
                     }))}
                     placeholder="5"
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -402,6 +409,7 @@ function AssetCardDialog({
                     onChange={(e) => setFormData(prev => ({ ...prev, expenseSubjectCode: e.target.value }))}
                     placeholder="660204"
                     className="font-mono text-sm"
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -461,6 +469,7 @@ function AssetCardDialog({
                   value={formData.location || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
                   placeholder="请输入存放地点"
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-1.5">
@@ -469,6 +478,7 @@ function AssetCardDialog({
                   value={formData.supplierName || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
                   placeholder="请输入供应商"
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-1.5">
@@ -477,6 +487,7 @@ function AssetCardDialog({
                   value={formData.serialNumber || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, serialNumber: e.target.value }))}
                   placeholder="高价值资产填写"
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-1.5">
@@ -485,6 +496,7 @@ function AssetCardDialog({
                   value={formData.assignedUser || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, assignedUser: e.target.value }))}
                   placeholder="资产使用人"
+                  autoComplete="off"
                 />
               </div>
               <div className="col-span-3 space-y-1.5">
@@ -493,6 +505,7 @@ function AssetCardDialog({
                   value={formData.notes || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                   placeholder="请输入备注信息..."
+                  autoComplete="off"
                 />
               </div>
             </div>
