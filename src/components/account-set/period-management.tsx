@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,7 @@ export function PeriodManagement() {
 
   // 直接从账套 store 订阅期间数据（响应式）
   const accountingPeriods = useAccountSetStore(
-    (s) => s.accountSets.find(a => a.id === s.currentAccountSetId)?.accountingPeriods || []
+    useShallow((s) => s.accountSets.find(a => a.id === s.currentAccountSetId)?.accountingPeriods || [])
   );
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
 
