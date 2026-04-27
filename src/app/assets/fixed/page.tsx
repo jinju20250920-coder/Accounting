@@ -47,33 +47,11 @@ import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
 import { AssetImprovementDialog } from '@/components/assets/asset-improvement-dialog';
 import { AssetChangeRecordList } from '@/components/assets/asset-change-record-list';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
-import { getDepreciationMethodName } from '@/lib/depreciation';
+import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation } from '@/lib/depreciation';
 import type { FixedAsset, AssetCategory } from '@/types';
 
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
-
-// 计算月折旧额
-const calculateMonthlyDepreciation = (
-  originalValue: number,
-  salvageValue: number,
-  usefulLifeYears: number,
-  method: string
-): number => {
-  if (originalValue <= 0 || usefulLifeYears <= 0) return 0;
-  const months = usefulLifeYears * 12;
-  switch (method) {
-    case 'straight_line':
-      return (originalValue - salvageValue) / months;
-    case 'double_declining':
-      return (originalValue * 2) / months;
-    case 'sum_of_years':
-      const sumOfYears = (usefulLifeYears * (usefulLifeYears + 1)) / 2;
-      return ((originalValue - salvageValue) * usefulLifeYears) / (sumOfYears * 12);
-    default:
-      return (originalValue - salvageValue) / months;
-  }
-};
 
 // 资产卡片对话框组件
 function AssetCardDialog({
@@ -214,11 +192,12 @@ function AssetCardDialog({
   };
 
   // 计算折旧预览
-  const monthlyDepreciation = calculateMonthlyDepreciation(
+  const monthlyDepreciation = calculateEstimatedMonthlyDepreciation(
     formData.originalValue || 0,
     formData.salvageValue || 0,
+    formData.depreciationMethod || 'straight_line',
     formData.usefulLifeYears || 5,
-    formData.depreciationMethod || 'straight_line'
+    (formData.usefulLifeYears || 5) * 12
   );
 
   const formatMoney = (value: number) => {
