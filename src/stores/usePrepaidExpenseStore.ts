@@ -97,7 +97,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
     try {
       const db = await getCurrentManager().getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `INSERT INTO prepaidExpenses (
           id, expenseCode, expenseName, expenseType, originalAmount,
           amortizedAmount, remainingAmount, amortizationMethod, amortizationPeriods,
@@ -105,22 +105,23 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           lastAmortizationDate, status, prepaidSubjectCode, prepaidSubjectName,
           expenseSubjectCode, expenseSubjectName, supplierName, invoiceNo, contractNo,
           departmentCode, departmentName, notes, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          newExpense.id, newExpense.expenseCode, newExpense.expenseName,
-          newExpense.expenseType, newExpense.originalAmount,
-          newExpense.amortizedAmount, newExpense.remainingAmount,
-          newExpense.amortizationMethod, newExpense.amortizationPeriods,
-          newExpense.amortizedPeriods, newExpense.periodAmount,
-          newExpense.paymentDate, newExpense.startDate, newExpense.endDate,
-          newExpense.lastAmortizationDate, newExpense.status,
-          newExpense.prepaidSubjectCode, newExpense.prepaidSubjectName,
-          newExpense.expenseSubjectCode, newExpense.expenseSubjectName,
-          newExpense.supplierName, newExpense.invoiceNo, newExpense.contractNo,
-          newExpense.departmentCode, newExpense.departmentName,
-          newExpense.notes, newExpense.accountSetId, newExpense.createTime, newExpense.updateTime,
-        ]
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
+      stmt.run([
+        newExpense.id, newExpense.expenseCode, newExpense.expenseName,
+        newExpense.expenseType, newExpense.originalAmount,
+        newExpense.amortizedAmount, newExpense.remainingAmount,
+        newExpense.amortizationMethod, newExpense.amortizationPeriods,
+        newExpense.amortizedPeriods, newExpense.periodAmount,
+        newExpense.paymentDate, newExpense.startDate, newExpense.endDate,
+        newExpense.lastAmortizationDate, newExpense.status,
+        newExpense.prepaidSubjectCode, newExpense.prepaidSubjectName,
+        newExpense.expenseSubjectCode, newExpense.expenseSubjectName,
+        newExpense.supplierName, newExpense.invoiceNo, newExpense.contractNo,
+        newExpense.departmentCode, newExpense.departmentName,
+        newExpense.notes, newExpense.accountSetId, newExpense.createTime, newExpense.updateTime,
+      ]);
+      stmt.free();
 
       set((state) => ({
         expenses: [...state.expenses, newExpense],
@@ -164,7 +165,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
     try {
       const db = await getCurrentManager().getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `UPDATE prepaidExpenses SET
           expenseName=?, expenseType=?, originalAmount=?,
           amortizedAmount=?, remainingAmount=?, amortizationMethod=?,
@@ -175,21 +176,22 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           expenseSubjectCode=?, expenseSubjectName=?,
           supplierName=?, invoiceNo=?, contractNo=?,
           departmentCode=?, departmentName=?, notes=?, updateTime=?
-        WHERE id=?`,
-        [
-          updatedExpense.expenseName, updatedExpense.expenseType, updatedExpense.originalAmount,
-          updatedExpense.amortizedAmount, updatedExpense.remainingAmount,
-          updatedExpense.amortizationMethod, updatedExpense.amortizationPeriods,
-          updatedExpense.amortizedPeriods, updatedExpense.periodAmount,
-          updatedExpense.paymentDate, updatedExpense.startDate, updatedExpense.endDate,
-          updatedExpense.lastAmortizationDate, updatedExpense.status,
-          updatedExpense.prepaidSubjectCode, updatedExpense.prepaidSubjectName,
-          updatedExpense.expenseSubjectCode, updatedExpense.expenseSubjectName,
-          updatedExpense.supplierName, updatedExpense.invoiceNo, updatedExpense.contractNo,
-          updatedExpense.departmentCode, updatedExpense.departmentName,
-          updatedExpense.notes, updatedExpense.updateTime, id,
-        ]
+        WHERE id=?`
       );
+      stmt.run([
+        updatedExpense.expenseName, updatedExpense.expenseType, updatedExpense.originalAmount,
+        updatedExpense.amortizedAmount, updatedExpense.remainingAmount,
+        updatedExpense.amortizationMethod, updatedExpense.amortizationPeriods,
+        updatedExpense.amortizedPeriods, updatedExpense.periodAmount,
+        updatedExpense.paymentDate, updatedExpense.startDate, updatedExpense.endDate,
+        updatedExpense.lastAmortizationDate, updatedExpense.status,
+        updatedExpense.prepaidSubjectCode, updatedExpense.prepaidSubjectName,
+        updatedExpense.expenseSubjectCode, updatedExpense.expenseSubjectName,
+        updatedExpense.supplierName, updatedExpense.invoiceNo, updatedExpense.contractNo,
+        updatedExpense.departmentCode, updatedExpense.departmentName,
+        updatedExpense.notes, updatedExpense.updateTime, id,
+      ]);
+      stmt.free();
 
       set((state) => ({
         expenses: state.expenses.map(e => e.id === id ? updatedExpense : e),
@@ -222,9 +224,13 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
     try {
       const db = await getCurrentManager().getDatabase();
       // 删除摊销记录
-      db.run('DELETE FROM amortizationRecords WHERE entityId = ? AND entityType = ?', [id, 'prepaid']);
+      let stmt = db.prepare('DELETE FROM amortizationRecords WHERE entityId = ? AND entityType = ?');
+      stmt.run([id, 'prepaid']);
+      stmt.free();
       // 删除待摊费用
-      db.run('DELETE FROM prepaidExpenses WHERE id = ?', [id]);
+      stmt = db.prepare('DELETE FROM prepaidExpenses WHERE id = ?');
+      stmt.run([id]);
+      stmt.free();
 
       set((state) => ({
         expenses: state.expenses.filter(e => e.id !== id),
@@ -322,22 +328,23 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       const db = await getCurrentManager().getDatabase();
 
       for (const record of records) {
-        db.run(
+        const stmt = db.prepare(
           `INSERT INTO amortizationRecords (
             id, entityType, entityId, entityCode, entityName,
             period, amortizationDate, periodAmortization, accumulatedAmortization, remainingAmount,
             unitsThisPeriod, voucherId, voucherNo, status, notes,
             accountSetId, createTime, updateTime
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
-            record.period, record.amortizationDate,
-            record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
-            record.unitsThisPeriod, record.voucherId, record.voucherNo,
-            record.status, record.notes,
-            record.accountSetId, record.createTime, record.updateTime,
-          ]
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
+        stmt.run([
+          record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
+          record.period, record.amortizationDate,
+          record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
+          record.unitsThisPeriod, record.voucherId, record.voucherNo,
+          record.status, record.notes,
+          record.accountSetId, record.createTime, record.updateTime,
+        ]);
+        stmt.free();
       }
 
       set((state) => ({
@@ -360,10 +367,11 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
       for (const record of records) {
         // 更新摊销记录状态
-        db.run(
-          'UPDATE amortizationRecords SET status = ?, updateTime = ? WHERE id = ?',
-          ['posted', new Date().toISOString(), record.id]
+        let stmt = db.prepare(
+          'UPDATE amortizationRecords SET status = ?, updateTime = ? WHERE id = ?'
         );
+        stmt.run(['posted', new Date().toISOString(), record.id]);
+        stmt.free();
 
         // 更新待摊费用的累计摊销
         const expense = state.expenses.find(e => e.id === record.entityId);
@@ -373,17 +381,18 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           const newPeriods = expense.amortizedPeriods + 1;
           const isCompleted = newPeriods >= expense.amortizationPeriods;
 
-          db.run(
+          stmt = db.prepare(
             `UPDATE prepaidExpenses SET
               amortizedAmount = ?, remainingAmount = ?, amortizedPeriods = ?,
               lastAmortizationDate = ?, status = ?, updateTime = ?
-            WHERE id = ?`,
-            [
-              newAmortized, newRemaining, newPeriods,
-              record.amortizationDate, isCompleted ? 'fully_amortized' : 'active',
-              new Date().toISOString(), expense.id,
-            ]
+            WHERE id = ?`
           );
+          stmt.run([
+            newAmortized, newRemaining, newPeriods,
+            record.amortizationDate, isCompleted ? 'fully_amortized' : 'active',
+            new Date().toISOString(), expense.id,
+          ]);
+          stmt.free();
         }
       }
 
@@ -698,38 +707,42 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       const now = new Date().toISOString();
 
       // 创建凭证
-      db.run(
+      let stmt = db.prepare(
         `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [voucherId, voucherNo, voucherDate, 'draft', '待摊费用摊销', 'system', accountSetId, now, now]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      stmt.run([voucherId, voucherNo, voucherDate, 'draft', '待摊费用摊销', 'system', accountSetId, now, now]);
+      stmt.free();
 
       // 创建分录 - 借方：费用科目（按科目分组）
       for (const [, expense] of expenseMap) {
         const entryId = generateId();
-        db.run(
+        stmt = db.prepare(
           `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [entryId, voucherId, voucherDate, '待摊费用摊销', expense.code, expense.name, expense.amount, 0, accountSetId]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
+        stmt.run([entryId, voucherId, voucherDate, '待摊费用摊销', expense.code, expense.name, expense.amount, 0, accountSetId]);
+        stmt.free();
       }
 
       // 创建分录 - 贷方：待摊科目（按科目分组）
       for (const [, prepaid] of prepaidMap) {
         const entryId = generateId();
-        db.run(
+        stmt = db.prepare(
           `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [entryId, voucherId, voucherDate, '待摊费用摊销', prepaid.code, prepaid.name, 0, prepaid.amount, accountSetId]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
+        stmt.run([entryId, voucherId, voucherDate, '待摊费用摊销', prepaid.code, prepaid.name, 0, prepaid.amount, accountSetId]);
+        stmt.free();
       }
 
       // 更新摊销记录，关联凭证
       for (const record of records) {
-        db.run(
-          'UPDATE amortizationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?',
-          [voucherId, voucherNo, now, record.id]
+        stmt = db.prepare(
+          'UPDATE amortizationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?'
         );
+        stmt.run([voucherId, voucherNo, now, record.id]);
+        stmt.free();
       }
 
       // 更新本地状态

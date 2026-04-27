@@ -93,7 +93,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
 
     try {
       const db = await getCurrentManager().getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `INSERT INTO intangibleAssets (
           id, assetCode, assetName, assetType, originalValue, residualValue,
           accumulatedAmortization, netValue, amortizationMethod, usefulLifeYears, usefulLifeMonths,
@@ -101,23 +101,24 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
           status, assetSubjectCode, assetSubjectName, amortizationSubjectCode, amortizationSubjectName,
           expenseSubjectCode, expenseSubjectName, registrationNo, legalLifeYears,
           departmentCode, departmentName, notes, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.assetType,
-          newAsset.originalValue, newAsset.residualValue,
-          newAsset.accumulatedAmortization, newAsset.netValue,
-          newAsset.amortizationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
-          newAsset.totalUnits, newAsset.unitsUsed,
-          newAsset.acquisitionDate, newAsset.amortizationStartDate,
-          newAsset.lastAmortizationDate, newAsset.expiryDate,
-          newAsset.status, newAsset.assetSubjectCode, newAsset.assetSubjectName,
-          newAsset.amortizationSubjectCode, newAsset.amortizationSubjectName,
-          newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
-          newAsset.registrationNo, newAsset.legalLifeYears,
-          newAsset.departmentCode, newAsset.departmentName,
-          newAsset.notes, newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
-        ]
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
+      stmt.run([
+        newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.assetType,
+        newAsset.originalValue, newAsset.residualValue,
+        newAsset.accumulatedAmortization, newAsset.netValue,
+        newAsset.amortizationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
+        newAsset.totalUnits, newAsset.unitsUsed,
+        newAsset.acquisitionDate, newAsset.amortizationStartDate,
+        newAsset.lastAmortizationDate, newAsset.expiryDate,
+        newAsset.status, newAsset.assetSubjectCode, newAsset.assetSubjectName,
+        newAsset.amortizationSubjectCode, newAsset.amortizationSubjectName,
+        newAsset.expenseSubjectCode, newAsset.expenseSubjectName,
+        newAsset.registrationNo, newAsset.legalLifeYears,
+        newAsset.departmentCode, newAsset.departmentName,
+        newAsset.notes, newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
+      ]);
+      stmt.free();
 
       set((state) => ({
         assets: [...state.assets, newAsset],
@@ -154,7 +155,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
 
     try {
       const db = await getCurrentManager().getDatabase();
-      db.run(
+      const stmt = db.prepare(
         `UPDATE intangibleAssets SET
           assetName=?, assetType=?, originalValue=?, residualValue=?,
           accumulatedAmortization=?, netValue=?, amortizationMethod=?,
@@ -165,24 +166,25 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
           expenseSubjectCode=?, expenseSubjectName=?,
           registrationNo=?, legalLifeYears=?,
           departmentCode=?, departmentName=?, notes=?, updateTime=?
-        WHERE id=?`,
-        [
-          updatedAsset.assetName, updatedAsset.assetType,
-          updatedAsset.originalValue, updatedAsset.residualValue,
-          updatedAsset.accumulatedAmortization, updatedAsset.netValue,
-          updatedAsset.amortizationMethod,
-          updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
-          updatedAsset.totalUnits, updatedAsset.unitsUsed,
-          updatedAsset.acquisitionDate, updatedAsset.amortizationStartDate,
-          updatedAsset.lastAmortizationDate, updatedAsset.expiryDate,
-          updatedAsset.status, updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
-          updatedAsset.amortizationSubjectCode, updatedAsset.amortizationSubjectName,
-          updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
-          updatedAsset.registrationNo, updatedAsset.legalLifeYears,
-          updatedAsset.departmentCode, updatedAsset.departmentName,
-          updatedAsset.notes, updatedAsset.updateTime, id,
-        ]
+        WHERE id=?`
       );
+      stmt.run([
+        updatedAsset.assetName, updatedAsset.assetType,
+        updatedAsset.originalValue, updatedAsset.residualValue,
+        updatedAsset.accumulatedAmortization, updatedAsset.netValue,
+        updatedAsset.amortizationMethod,
+        updatedAsset.usefulLifeYears, updatedAsset.usefulLifeMonths,
+        updatedAsset.totalUnits, updatedAsset.unitsUsed,
+        updatedAsset.acquisitionDate, updatedAsset.amortizationStartDate,
+        updatedAsset.lastAmortizationDate, updatedAsset.expiryDate,
+        updatedAsset.status, updatedAsset.assetSubjectCode, updatedAsset.assetSubjectName,
+        updatedAsset.amortizationSubjectCode, updatedAsset.amortizationSubjectName,
+        updatedAsset.expenseSubjectCode, updatedAsset.expenseSubjectName,
+        updatedAsset.registrationNo, updatedAsset.legalLifeYears,
+        updatedAsset.departmentCode, updatedAsset.departmentName,
+        updatedAsset.notes, updatedAsset.updateTime, id,
+      ]);
+      stmt.free();
 
       set((state) => ({
         assets: state.assets.map(a => a.id === id ? updatedAsset : a),
@@ -215,9 +217,13 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
     try {
       const db = await getCurrentManager().getDatabase();
       // 删除摊销记录
-      db.run('DELETE FROM amortizationRecords WHERE entityId = ? AND entityType = ?', [id, 'intangible']);
+      let stmt = db.prepare('DELETE FROM amortizationRecords WHERE entityId = ? AND entityType = ?');
+      stmt.run([id, 'intangible']);
+      stmt.free();
       // 删除资产
-      db.run('DELETE FROM intangibleAssets WHERE id = ?', [id]);
+      stmt = db.prepare('DELETE FROM intangibleAssets WHERE id = ?');
+      stmt.run([id]);
+      stmt.free();
 
       set((state) => ({
         assets: state.assets.filter(a => a.id !== id),
@@ -343,22 +349,23 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
       const db = await getCurrentManager().getDatabase();
 
       for (const record of records) {
-        db.run(
+        const stmt = db.prepare(
           `INSERT INTO amortizationRecords (
             id, entityType, entityId, entityCode, entityName,
             period, amortizationDate, periodAmortization, accumulatedAmortization, remainingAmount,
             unitsThisPeriod, voucherId, voucherNo, status, notes,
             accountSetId, createTime, updateTime
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
-            record.period, record.amortizationDate,
-            record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
-            record.unitsThisPeriod, record.voucherId, record.voucherNo,
-            record.status, record.notes,
-            record.accountSetId, record.createTime, record.updateTime,
-          ]
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
+        stmt.run([
+          record.id, record.entityType, record.entityId, record.entityCode, record.entityName,
+          record.period, record.amortizationDate,
+          record.periodAmortization, record.accumulatedAmortization, record.remainingAmount,
+          record.unitsThisPeriod, record.voucherId, record.voucherNo,
+          record.status, record.notes,
+          record.accountSetId, record.createTime, record.updateTime,
+        ]);
+        stmt.free();
       }
 
       set((state) => ({
@@ -381,10 +388,11 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
 
       for (const record of records) {
         // 更新摊销记录状态
-        db.run(
-          'UPDATE amortizationRecords SET status = ?, updateTime = ? WHERE id = ?',
-          ['posted', new Date().toISOString(), record.id]
+        let stmt = db.prepare(
+          'UPDATE amortizationRecords SET status = ?, updateTime = ? WHERE id = ?'
         );
+        stmt.run(['posted', new Date().toISOString(), record.id]);
+        stmt.free();
 
         // 更新资产的累计摊销
         const asset = state.assets.find(a => a.id === record.entityId);
@@ -392,12 +400,13 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
           const newAccumulated = asset.accumulatedAmortization + record.periodAmortization;
           const newNetValue = asset.originalValue - newAccumulated;
 
-          db.run(
+          stmt = db.prepare(
             `UPDATE intangibleAssets SET
               accumulatedAmortization = ?, netValue = ?, lastAmortizationDate = ?, updateTime = ?
-            WHERE id = ?`,
-            [newAccumulated, newNetValue, record.amortizationDate, new Date().toISOString(), asset.id]
+            WHERE id = ?`
           );
+          stmt.run([newAccumulated, newNetValue, record.amortizationDate, new Date().toISOString(), asset.id]);
+          stmt.free();
         }
       }
 
@@ -690,36 +699,40 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
       const now = new Date().toISOString();
 
       // 创建凭证
-      db.run(
+      let stmt = db.prepare(
         `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [voucherId, voucherNo, voucherDate, 'draft', '无形资产摊销', 'system', accountSetId, now, now]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      stmt.run([voucherId, voucherNo, voucherDate, 'draft', '无形资产摊销', 'system', accountSetId, now, now]);
+      stmt.free();
 
       // 创建分录 - 借方：费用科目（按科目分组）
       for (const [, expense] of expenseMap) {
         const entryId = generateId();
-        db.run(
+        stmt = db.prepare(
           `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [entryId, voucherId, voucherDate, '无形资产摊销', expense.code, expense.name, expense.amount, 0, accountSetId]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
+        stmt.run([entryId, voucherId, voucherDate, '无形资产摊销', expense.code, expense.name, expense.amount, 0, accountSetId]);
+        stmt.free();
       }
 
       // 创建分录 - 贷方：累计摊销
       const creditEntryId = generateId();
-      db.run(
+      stmt = db.prepare(
         `INSERT INTO voucherEntries (id, voucherId, date, summary, subjectCode, subjectName, debit, credit, accountSetId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [creditEntryId, voucherId, voucherDate, '无形资产摊销', '1702', '累计摊销', 0, totalAmortization, accountSetId]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      stmt.run([creditEntryId, voucherId, voucherDate, '无形资产摊销', '1702', '累计摊销', 0, totalAmortization, accountSetId]);
+      stmt.free();
 
       // 更新摊销记录，关联凭证
       for (const record of records) {
-        db.run(
-          'UPDATE amortizationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?',
-          [voucherId, voucherNo, now, record.id]
+        stmt = db.prepare(
+          'UPDATE amortizationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?'
         );
+        stmt.run([voucherId, voucherNo, now, record.id]);
+        stmt.free();
       }
 
       // 更新本地状态
