@@ -1224,6 +1224,34 @@ class SQLiteService {
       }
     }
 
+    // codeRules 表：确保表存在
+    try {
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='codeRules'"
+      );
+      if (!tableCheck[0]?.values?.length) {
+        console.log('Creating codeRules table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS codeRules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            prefix TEXT,
+            suffix TEXT,
+            padding INTEGER DEFAULT 4,
+            separator TEXT DEFAULT '',
+            auto_inc INTEGER DEFAULT 1,
+            resetPeriod TEXT DEFAULT 'none',
+            lastNumber INTEGER DEFAULT 0,
+            lastResetDate TEXT,
+            accountSetId TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+        `);
+      }
+    } catch (error) {
+      console.warn('codeRules table creation warning:', error);
+    }
+
     // codeRules 表迁移：autoIncrement -> auto_inc（避免保留字冲突）
     try {
       const codeRulesCols = this.dbInstance.exec("PRAGMA table_info(codeRules)");
