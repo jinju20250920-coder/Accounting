@@ -1264,6 +1264,7 @@ export interface PurchaseInvoiceRuleConfig {
     isPreset?: boolean;
     autoTax?: boolean;
     keywords?: string[];
+    requirePartnerCard?: boolean; // 是否需要往来卡片（员工报销等不需要）
   }[];
   keywordRules: {
     id: string;

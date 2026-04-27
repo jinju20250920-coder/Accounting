@@ -419,16 +419,33 @@ export class TemplateEngine {
     // 计算分录（应用科目覆盖）
     const entries = this.calculateEntries(template, inputData, subjectOverrides);
 
-    // 检查借贷是否平衡
-    const totalDebit = entries
+    // 检查借贷是否平衡，不平衡时自动调整（如跳过税金分录后贷方需调整）
+    let totalDebit = entries
       .filter(e => e.direction === 'debit')
       .reduce((sum, e) => sum + e.amount, 0);
-    const totalCredit = entries
+    let totalCredit = entries
       .filter(e => e.direction === 'credit')
       .reduce((sum, e) => sum + e.amount, 0);
 
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      return { success: false, errors: [`借贷不平衡: 借方${totalDebit.toFixed(2)} 贷方${totalCredit.toFixed(2)}`] };
+      // 调整金额较小的一侧，使其与较大侧平衡
+      if (totalDebit > totalCredit) {
+        // 借方大，调整贷方最后一个分录
+        const creditEntries = entries.filter(e => e.direction === 'credit');
+        if (creditEntries.length > 0) {
+          const lastCredit = creditEntries[creditEntries.length - 1];
+          lastCredit.amount = Math.round((lastCredit.amount + (totalDebit - totalCredit)) * 100) / 100;
+          totalCredit = totalDebit;
+        }
+      } else {
+        // 贷方大，调整借方最后一个分录
+        const debitEntries = entries.filter(e => e.direction === 'debit');
+        if (debitEntries.length > 0) {
+          const lastDebit = debitEntries[debitEntries.length - 1];
+          lastDebit.amount = Math.round((lastDebit.amount + (totalCredit - totalDebit)) * 100) / 100;
+          totalDebit = totalCredit;
+        }
+      }
     }
 
     const partnerName = inputData.partner_name || '';
@@ -597,20 +614,28 @@ export class TemplateEngine {
     amount: number;
     description?: string;
   }> {
-    return template.entries.map(entry => {
-      const amount = FormulaInterpreter.evaluate(entry.formula, data);
+    return template.entries
+      .map(entry => {
+        const amount = FormulaInterpreter.evaluate(entry.formula, data);
 
-      // 应用科目覆盖
-      const override = subjectOverrides?.[entry.id];
+        // 应用科目覆盖
+        const override = subjectOverrides?.[entry.id];
 
-      return {
-        subject: override?.code || entry.subject,
-        subjectName: override?.name || entry.subjectName,
-        direction: entry.direction,
-        amount: Math.round(amount * 100) / 100,
-        description: entry.description
-      };
-    });
+        // 如果覆盖的科目为空字符串，表示跳过该分录（如员工报销无税金科目）
+        const subjectCode = override?.code !== undefined ? override.code : entry.subject;
+        if (!subjectCode) {
+          return { ...entry, subject: '', amount: 0, skip: true };
+        }
+
+        return {
+          subject: subjectCode,
+          subjectName: override?.name || entry.subjectName,
+          direction: entry.direction,
+          amount: Math.round(amount * 100) / 100,
+          description: entry.description
+        };
+      })
+      .filter(entry => !(entry as any).skip);
   }
 
   /**

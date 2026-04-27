@@ -1871,6 +1871,39 @@ class SQLiteService {
     );
   }
 
+  async getPartnerByName(name: string): Promise<Partner | undefined> {
+    await this.ensureInitialized();
+    return await this.querySingleAsync<Partner>(
+      `SELECT * FROM partners WHERE accountSetId = ? AND name = ?`,
+      [this.accountSetId, name]
+    );
+  }
+
+  async addPartner(partner: { id: string; name: string; code: string; type: string; isSupplier?: boolean; isCustomer?: boolean; contact?: string; phone?: string; email?: string; address?: string; taxNo?: string; bankAccount?: string; remark?: string; accountSetId?: string; createTime?: string; updateTime?: string }): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    const accountSetId = partner.accountSetId || this.accountSetId;
+    let typeValue = partner.type;
+    if (!typeValue) {
+      if (partner.isSupplier && partner.isCustomer) typeValue = 'both';
+      else if (partner.isSupplier) typeValue = 'supplier';
+      else if (partner.isCustomer) typeValue = 'customer';
+      else typeValue = 'other';
+    }
+    const stmt = this.dbInstance.prepare(
+      `INSERT OR REPLACE INTO partners (id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled, accountSetId, createTime, updateTime)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    stmt.run([
+      partner.id, partner.code, partner.name, typeValue,
+      partner.contact || '', partner.phone || '', partner.email || '', partner.address || '',
+      partner.taxNo || '', partner.bankAccount || '', 1, accountSetId,
+      partner.createTime || now, partner.updateTime || now
+    ]);
+    stmt.free();
+    await this.persist();
+  }
+
   // ========== 凭证模板操作 ==========
 
   async saveVoucherTemplates(templates: VoucherTemplate[]): Promise<void> {
@@ -2818,6 +2851,19 @@ class SQLiteService {
     await this.persist();
   }
 
+  async getSupplierMappingBySellerName(sellerName: string): Promise<SupplierSubjectMapping | null> {
+    await this.ensureInitialized();
+    const result = this.dbInstance.exec(
+      `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND sellerName = ? LIMIT 1`,
+      [this.accountSetId, sellerName]
+    );
+    if (!result[0]?.values?.length) return null;
+    const cols = result[0].columns;
+    const obj: any = {};
+    cols.forEach((col: string, i: number) => { obj[col] = result[0].values[0][i]; });
+    return obj as SupplierSubjectMapping;
+  }
+
   // --- Purchase Invoice Rule Config ---
   async getPurchaseInvoiceRuleConfig(): Promise<PurchaseInvoiceRuleConfig> {
     console.log('SQLite getPurchaseInvoiceRuleConfig called');
@@ -2848,10 +2894,10 @@ class SQLiteService {
       id: `pirc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
       accountSetId: this.accountSetId,
       businessGroups: [
-        { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['库存', '商品', '存货'] },
-        { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['材料', '原料', '配件'] },
-        { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '', creditSubject: '2241 其他应付款', partnerType: '员工', priority: 80, assetThreshold: 0, isPreset: true, autoTax: false, keywords: ['报销', '差旅', '办公'] },
-        { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['设备', '固定资产', '机器'] },
+        { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['库存', '商品', '存货'], requirePartnerCard: true },
+        { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['材料', '原料', '配件'], requirePartnerCard: true },
+        { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '', creditSubject: '2241 其他应付款', partnerType: '员工', priority: 80, assetThreshold: 0, isPreset: true, autoTax: false, keywords: ['报销', '差旅', '办公'], requirePartnerCard: false },
+        { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['设备', '固定资产', '机器'], requirePartnerCard: true },
       ],
       keywordRules: [
         { id: '1', keywords: '电脑, 服务器', businessGroup: 'fixed_asset', threshold: 5000 },

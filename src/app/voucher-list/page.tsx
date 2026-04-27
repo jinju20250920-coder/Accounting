@@ -150,6 +150,7 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, cu
               <th className="text-left p-3 border-b">摘要</th>
               <th className="text-left p-3 border-b">科目代码</th>
               <th className="text-left p-3 border-b">科目名称</th>
+              <th className="text-left p-3 border-b">往来/辅助</th>
               <th className="text-right p-3 border-b">借方金额</th>
               <th className="text-right p-3 border-b">贷方金额</th>
             </tr>
@@ -162,6 +163,9 @@ function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, cu
                   <td className="p-3 border-b">{entry.summary || '-'}</td>
                   <td className="p-3 border-b font-mono">{entry.subjectCode || '-'}</td>
                   <td className="p-3 border-b">{entry.subjectName || '-'}</td>
+                  <td className="p-3 border-b text-xs text-slate-500">
+                    {entry.auxiliary?.customer || entry.auxiliary?.supplier || entry.customerName || entry.supplierName || ''}
+                  </td>
                   <td className="p-3 border-b text-right font-mono">
                     {entry.debit > 0 ? entry.debit.toFixed(2) : ''}
                   </td>

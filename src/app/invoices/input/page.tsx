@@ -1486,9 +1486,55 @@ export default function InputInvoicePage() {
                             <td className="px-4 py-3 text-center">
                               <Select
                                 value={invoice.groupName || '__default__'}
-                                onValueChange={(v) => {
+                                onValueChange={async (v) => {
                                   const newName = v === '__default__' ? '' : v;
                                   updateInvoice(invoice.id, { groupName: newName });
+                                  // Auto-learn: save sellerName → groupName mapping
+                                  if (newName && invoice.sellerName) {
+                                    try {
+                                      const existing = await sqliteService.getSupplierMappingBySellerName(invoice.sellerName);
+                                      if (!existing || existing.groupName !== newName) {
+                                        await sqliteService.saveSupplierMapping({
+                                          id: existing?.id || generateId(),
+                                          accountSetId: sqliteService.accountSetId,
+                                          groupName: newName,
+                                          sellerName: invoice.sellerName,
+                                          createTime: existing?.createTime || new Date().toISOString(),
+                                          updateTime: new Date().toISOString(),
+                                        });
+                                      }
+                                      // Check if business group requires partner card
+                                      const config = await sqliteService.getPurchaseInvoiceRuleConfig();
+                                      const group = config?.businessGroups?.find((g: any) => g.name === newName);
+                                      const requireCard = group?.requirePartnerCard !== false;
+                                      if (requireCard) {
+                                        const existingPartner = await sqliteService.getPartnerByName(invoice.sellerName);
+                                        if (!existingPartner) {
+                                          await sqliteService.addPartner({
+                                            id: generateId(),
+                                            name: invoice.sellerName,
+                                            code: `P${Date.now().toString(36)}`,
+                                            type: 'supplier',
+                                            isSupplier: true,
+                                            isCustomer: false,
+                                            phone: '',
+                                            email: '',
+                                            address: '',
+                                            bankAccount: '',
+                                            taxNo: '',
+                                            remark: '发票自动学习创建',
+                                            createTime: new Date().toISOString(),
+                                            updateTime: new Date().toISOString(),
+                                          });
+                                          showToast('info', `已自动学习：${invoice.sellerName} → ${newName}，并创建往来卡片`);
+                                        } else {
+                                          showToast('info', `已自动学习：${invoice.sellerName} → ${newName}`);
+                                        }
+                                      } else {
+                                        showToast('info', `已自动学习：${invoice.sellerName} → ${newName}`);
+                                      }
+                                    } catch {}
+                                  }
                                 }}
                               >
                                 <SelectTrigger className="h-7 w-24 text-xs">

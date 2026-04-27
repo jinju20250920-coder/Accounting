@@ -319,8 +319,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
               // 优先匹配业务组自带的 keywords（按优先级排序）
               for (const group of sortedGroups) {
                 if (group.keywords && group.keywords.some(kw => {
-                  const kwLower = kw.trim().toLowerCase();
-                  return goodsLower.includes(kwLower) || kwLower.includes(goodsLower);
+                  // 关键词按空格/逗号拆分为独立词，任一词匹配即可
+                  const kwWords = kw.trim().toLowerCase().split(/[\s,，、]+/).filter(Boolean);
+                  return kwWords.some(word => goodsLower.includes(word) || word.includes(goodsLower));
                 })) {
                   matchedGroupName = group.name;
                   break;
@@ -343,13 +344,39 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           }
           invoice.groupName = matchedGroupName;
 
+          // Auto-create partner card if business group requires it
+          if (matchedGroupName && sellerName) {
+            try {
+              const matchedGroup = ruleConfig.businessGroups.find(g => g.name === matchedGroupName);
+              if (matchedGroup?.requirePartnerCard !== false) {
+                const existingPartner = await sqliteService.getPartnerByName(sellerName);
+                if (!existingPartner) {
+                  const partnerId = `partner_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
+                  await sqliteService.addPartner({
+                    id: partnerId,
+                    name: sellerName,
+                    code: `P${Date.now().toString(36)}`,
+                    type: 'supplier',
+                    isSupplier: true,
+                    isCustomer: false,
+                    remark: '发票导入自动创建',
+                    createTime: new Date().toISOString(),
+                    updateTime: new Date().toISOString(),
+                  });
+                }
+              }
+            } catch (e) {
+              console.warn('Auto-create partner failed:', e);
+            }
+          }
+
           const stmt = db.prepare(
             `INSERT INTO invoices (
               id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
               buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
               amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
               voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           );
           stmt.run([
             invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo || null,
@@ -550,16 +577,44 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         if (entryId) mappedOverrides[entryId] = val;
       }
 
-      // 5.5 业务组配置：如果匹配的业务组税金科目为空，则跳过税金分录
+      // 5.5 业务组配置：业务组科目覆盖 + 税金科目跳过
+      let businessGroupName: string | null = null;
       if (invoice.groupName) {
         try {
           const ruleConfig = await sqliteService.getPurchaseInvoiceRuleConfig();
           const matchedGroup = ruleConfig.businessGroups.find(g => g.name === invoice.groupName);
-          if (matchedGroup && !matchedGroup.taxSubject) {
-            // 业务组明确不设税金科目，移除税金覆盖
-            const taxEntryId = slotMap['tax'];
-            if (taxEntryId) {
-              mappedOverrides[taxEntryId] = { code: '', name: '' };
+          if (matchedGroup) {
+            businessGroupName = matchedGroup.name;
+            // 业务组科目覆盖（优先于规则引擎结果）
+            if (matchedGroup.debitSubject) {
+              const debitEntryId = slotMap['debit'];
+              if (debitEntryId) {
+                const code = matchedGroup.debitSubject.split(' ')[0];
+                const name = matchedGroup.debitSubject.split(' ').slice(1).join(' ') || code;
+                mappedOverrides[debitEntryId] = { code, name };
+              }
+            }
+            if (matchedGroup.creditSubject) {
+              const creditEntryId = slotMap['credit'];
+              if (creditEntryId) {
+                const code = matchedGroup.creditSubject.split(' ')[0];
+                const name = matchedGroup.creditSubject.split(' ').slice(1).join(' ') || code;
+                mappedOverrides[creditEntryId] = { code, name };
+              }
+            }
+            if (matchedGroup.taxSubject) {
+              const taxEntryId = slotMap['tax'];
+              if (taxEntryId) {
+                const code = matchedGroup.taxSubject.split(' ')[0];
+                const name = matchedGroup.taxSubject.split(' ').slice(1).join(' ') || code;
+                mappedOverrides[taxEntryId] = { code, name };
+              }
+            } else {
+              // 业务组明确不设税金科目，移除税金分录
+              const taxEntryId = slotMap['tax'];
+              if (taxEntryId) {
+                mappedOverrides[taxEntryId] = { code: '', name: '' };
+              }
             }
           }
         } catch (e) {
@@ -689,6 +744,11 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         let subjectCode = entry.subjectCode;
         let subjectName = entry.subjectName;
 
+        // 业务组名称作为摘要（替代模板默认的科目名称摘要）
+        if (businessGroupName && entry.summary) {
+          entry.summary = businessGroupName;
+        }
+
         // 根据往来核算方式调整科目和往来信息
         if (partnerTrackingMethod === 'subject') {
           // 科目方式：创建往来单位明细科目
@@ -770,8 +830,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
           if (matchedPartner) {
             auxiliaryJson = JSON.stringify({
-              supplier: isInput ? matchedPartner.id : undefined,
-              customer: !isInput ? matchedPartner.id : undefined,
+              supplier: isInput ? matchedPartner.name : undefined,
+              customer: !isInput ? matchedPartner.name : undefined,
             });
           }
         }
@@ -815,6 +875,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         voucherNo,
         groupName,
       });
+
+      // 14. 刷新凭证 store，确保凭证列表页能看到新凭证
+      try {
+        const { useVoucherStore } = await import('./useVoucherStore');
+        await useVoucherStore.getState().initialize();
+      } catch (e) {
+        console.warn('刷新凭证 store 失败:', e);
+      }
 
       return { voucherId, voucherNo };
     } catch (error) {

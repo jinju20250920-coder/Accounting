@@ -37,6 +37,7 @@ interface BusinessGroup {
   keywords?: string[];
   debitSubjectName?: string;
   creditSubjectName?: string;
+  requirePartnerCard?: boolean;
 }
 
 interface KeywordRule {
@@ -289,6 +290,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                 assetThreshold: group.assetThreshold,
                 description: group.description,
                 autoTax: group.autoTax,
+                requirePartnerCard: group.requirePartnerCard,
                 keywords: group.keywords,
               }
             : g
@@ -311,6 +313,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
         description: group.description,
         isPreset: false,
         autoTax: group.autoTax,
+        requirePartnerCard: group.requirePartnerCard,
         keywords: group.keywords || [],
       };
 
@@ -687,6 +690,9 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                               <Badge variant="outline" className="text-xs">
                                 {group.partnerType}
                               </Badge>
+                              {group.requirePartnerCard === false && (
+                                <span className="ml-1 text-xs text-orange-500">无往来</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               <div className="font-medium text-sm">{group.debitSubject}</div>
@@ -1087,6 +1093,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
                       description: editingGroup.description,
                       isPreset: editingGroup.isPreset,
                       autoTax: editingGroup.autoTax,
+                      requirePartnerCard: editingGroup.requirePartnerCard,
                       keywords: editingGroup.keywords,
                     }
                   : undefined

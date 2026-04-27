@@ -152,7 +152,7 @@ export function BusinessGroupEditor({ onSave, onCancel, defaultValues }: Busines
     creditSubject: '', creditSubjectName: '',
     partnerType: '供应商', customPartnerType: '',
     assetThreshold: 5000, description: '',
-    isPreset: false, autoTax: true,
+    isPreset: false, autoTax: true, requirePartnerCard: true,
     keywords: [] as string[], keywordInput: '',
   });
   const [showCustomPartnerType, setShowCustomPartnerType] = useState(false);
@@ -176,12 +176,13 @@ export function BusinessGroupEditor({ onSave, onCancel, defaultValues }: Busines
         description: defaultValues.description || '',
         isPreset: defaultValues.isPreset || false,
         autoTax: defaultValues.autoTax !== undefined ? defaultValues.autoTax : true,
+        requirePartnerCard: defaultValues.requirePartnerCard !== undefined ? defaultValues.requirePartnerCard : (defaultValues.partnerType !== '员工'),
         keywords: defaultValues.keywords || [],
         keywordInput: '',
       });
       setShowCustomPartnerType(isCustom);
     } else {
-      setFormData({ name: '', debitSubject: '', debitSubjectName: '', taxSubject: '2221.01.{{税率}}', taxSubjectName: '', creditSubject: '', creditSubjectName: '', partnerType: '供应商', customPartnerType: '', assetThreshold: 5000, description: '', isPreset: false, autoTax: true, keywords: [], keywordInput: '' });
+      setFormData({ name: '', debitSubject: '', debitSubjectName: '', taxSubject: '2221.01.{{税率}}', taxSubjectName: '', creditSubject: '', creditSubjectName: '', partnerType: '供应商', customPartnerType: '', assetThreshold: 5000, description: '', isPreset: false, autoTax: true, requirePartnerCard: true, keywords: [], keywordInput: '' });
       setShowCustomPartnerType(false);
     }
   }, [defaultValues]);
@@ -196,6 +197,7 @@ export function BusinessGroupEditor({ onSave, onCancel, defaultValues }: Busines
       taxSubject: formData.taxSubject, creditSubject: formData.creditSubject, creditSubjectName: formData.creditSubjectName,
       partnerType: finalPartnerType, assetThreshold: formData.assetThreshold, description: formData.description,
       isPreset: formData.isPreset, autoTax: formData.autoTax, keywords: formData.keywords,
+      requirePartnerCard: formData.requirePartnerCard !== undefined ? formData.requirePartnerCard : (formData.partnerType !== '员工'),
     });
     setFlashDone(true);
     setTimeout(() => { setSaving(false); setFlashDone(false); }, 600);
@@ -447,6 +449,21 @@ export function BusinessGroupEditor({ onSave, onCancel, defaultValues }: Busines
                   <p className="text-xs text-slate-400">不计税，凭证中不生成税金分录</p>
                 )}
               </AnimatePresence>
+            </section>
+
+            {/* ── 往来卡片 ── */}
+            <section className="bg-white border border-slate-100 shadow-sm rounded-xl p-5 space-y-4">
+              <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider">往来卡片</h3>
+              <div className="flex items-center gap-2.5">
+                <Label className="text-xs text-slate-500 shrink-0">需要往来卡片</Label>
+                <Switch
+                  checked={formData.requirePartnerCard !== undefined ? formData.requirePartnerCard : formData.partnerType !== '员工'}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, requirePartnerCard: checked }))}
+                />
+              </div>
+              {(formData.requirePartnerCard === false || (formData.requirePartnerCard === undefined && formData.partnerType === '员工')) && (
+                <p className="text-xs text-orange-500/70">员工报销类业务关联报销人，不需要供应商卡片</p>
+              )}
             </section>
 
             {/* ── 操作按钮 ── */}
