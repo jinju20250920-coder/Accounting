@@ -75,10 +75,12 @@ function SubjectSelector({
 
   return (
     <div className="relative">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-2 py-1.5 text-xs border rounded hover:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+        onKeyDown={e => e.key === 'Enter' && handleToggle(e as any)}
+        className="w-full flex items-center justify-between px-2 py-1.5 text-xs border rounded hover:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer"
       >
         {selected ? (
           <span className="font-mono text-blue-600 truncate">{selected.code} {selected.name}</span>
@@ -93,7 +95,7 @@ function SubjectSelector({
           )}
           <Search className="h-3 w-3 text-slate-400" />
         </div>
-      </button>
+      </div>
 
       {open && createPortal(
         <div

@@ -193,6 +193,8 @@ class SQLiteService {
         { name: 'initialAccumulatedDepreciation', sql: 'ALTER TABLE fixedAssets ADD COLUMN initialAccumulatedDepreciation REAL DEFAULT 0' },
         { name: 'creditSubjectCode', sql: 'ALTER TABLE fixedAssets ADD COLUMN creditSubjectCode TEXT' },
         { name: 'creditSubjectName', sql: 'ALTER TABLE fixedAssets ADD COLUMN creditSubjectName TEXT' },
+        { name: 'projectCode', sql: 'ALTER TABLE fixedAssets ADD COLUMN projectCode TEXT' },
+        { name: 'projectName', sql: 'ALTER TABLE fixedAssets ADD COLUMN projectName TEXT' },
       ];
 
       for (const col of newColumns) {

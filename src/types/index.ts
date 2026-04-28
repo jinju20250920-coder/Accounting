@@ -644,6 +644,8 @@ export interface FixedAsset {
   location?: string; // 存放地点
   departmentCode?: string; // 使用部门代码
   departmentName?: string; // 使用部门名称
+  projectCode?: string; // 项目代码
+  projectName?: string; // 项目名称
 
   // 取得方式
   acquisitionType: 'invoice' | 'purchase' | 'shareholder_input' | 'surplus' | 'internal_transfer' | 'opening_balance' | 'other'; // 取得方式

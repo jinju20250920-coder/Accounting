@@ -93,10 +93,12 @@ function SubjectSelector({
         {icon}
         {label}
       </Label>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-3 py-2 text-sm border rounded-md hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        onKeyDown={e => e.key === 'Enter' && handleToggle(e as any)}
+        className="w-full flex items-center justify-between px-3 py-2 text-sm border rounded-md hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer"
       >
         {selected ? (
           <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -122,7 +124,7 @@ function SubjectSelector({
           )}
           <Search className="h-3.5 w-3.5 text-slate-400" />
         </div>
-      </button>
+      </div>
 
       {/* Portal 渲染下拉列表 */}
       {open && createPortal(

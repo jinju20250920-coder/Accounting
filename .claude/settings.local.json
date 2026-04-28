@@ -235,7 +235,8 @@
       "mcp__filesystem__edit_file",
       "Skill(office-hours)",
       "Bash(findstr \":3000\")",
-      "Bash(cat C:\\\\\\\\Users\\\\\\\\admin\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--AI-ai-finance-assistant\\\\\\\\571a20f6-f4a5-405b-9468-301440a8ad90\\\\\\\\tasks\\\\\\\\bhn3qfp1v.output)"
+      "Bash(cat C:\\\\\\\\Users\\\\\\\\admin\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--AI-ai-finance-assistant\\\\\\\\571a20f6-f4a5-405b-9468-301440a8ad90\\\\\\\\tasks\\\\\\\\bhn3qfp1v.output)",
+      "Bash(cat C:\\\\\\\\Users\\\\\\\\admin\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--AI-ai-finance-assistant\\\\\\\\d888f1db-b67b-43c0-ab54-1a98d4c0d889\\\\\\\\tasks\\\\\\\\b24xfh9j1.output)"
     ]
   }
 }

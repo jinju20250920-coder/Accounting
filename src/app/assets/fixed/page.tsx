@@ -651,6 +651,24 @@ function AssetCardDialog({
                 />
               </div>
               <div className="space-y-1.5">
+                <Label>使用部门</Label>
+                <Input
+                  value={formData.departmentName || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, departmentName: e.target.value }))}
+                  placeholder="请输入使用部门"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>项目核算</Label>
+                <Input
+                  value={formData.projectName || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, projectName: e.target.value }))}
+                  placeholder="请输入项目名称"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label>序列号</Label>
                 <Input
                   value={formData.serialNumber || ''}
