@@ -28,6 +28,7 @@ class SQLiteManager {
   private useOPFS: boolean = false;
   private useFileSystemAccess: boolean = false; // 使用 File System Access API
   private HANDLE_STORAGE_KEY = 'sqlite-db-handle'; // IndexedDB 存储键
+  private saveInProgress: boolean = false;
   private dbHandle: FileSystemHandleHelper | null = null; // 持久化的文件句柄
 
   static getInstance(): SQLiteManager {
@@ -188,7 +189,7 @@ class SQLiteManager {
         this.createTables();
         console.log('SQLite database initialized successfully (new OPFS database)');
         // 立即保存新创建的数据库
-        await this.saveOPFSDatabase();
+        await this.saveOPFSDatabase(this.db.export());
       }
     } catch (error) {
       console.error('OPFS initialization failed, falling back to localStorage:', error);
@@ -214,24 +215,21 @@ class SQLiteManager {
 
 
   private async saveDatabase(): Promise<void> {
+    if (this.saveInProgress) return;
+    this.saveInProgress = true;
     try {
       if (this.db) {
         const data = this.db.export();
 
         if (this.isElectron) {
-          // Electron 环境 - 保存到磁盘文件
           await window.electronAPI.saveDb(Array.from(new Uint8Array(data)));
-          console.log('Database saved to disk');
         } else if (this.useOPFS) {
-          // 浏览器环境 - 使用 OPFS 文件存储
-          await this.saveOPFSDatabase();
+          await this.saveOPFSDatabase(data);
         } else {
-          // 浏览器环境 - 使用 localStorage (后备方案)
           try {
             const uint8Data = new Uint8Array(data);
-            // 使用循环而不是 spread 操作符来避免栈溢出
             let binaryString = '';
-            const chunkSize = 0x8000; // 32KB chunks
+            const chunkSize = 0x8000;
             for (let i = 0; i < uint8Data.length; i += chunkSize) {
               const chunk = uint8Data.subarray(i, i + chunkSize);
               binaryString += String.fromCharCode.apply(null, Array.from(chunk));
@@ -240,31 +238,27 @@ class SQLiteManager {
             localStorage.setItem(this.DB_STORAGE_KEY, base64);
           } catch (storageError) {
             console.error('LocalStorage save failed:', storageError);
-            // 数据太大，localStorage 无法存储
-            console.warn('Database too large for localStorage. Consider using OPFS or Electron mode.');
           }
         }
       }
     } catch (error) {
       console.error('Failed to save database:', error);
+    } finally {
+      this.saveInProgress = false;
     }
   }
 
-  private async saveOPFSDatabase(): Promise<void> {
-    if (!this.db || !this.opfsHandle) return;
+  private async saveOPFSDatabase(data: Uint8Array): Promise<void> {
+    if (!this.opfsHandle) return;
 
     try {
-      const data = this.db.export();
       const writable = await this.opfsHandle.createWritable();
-      await writable.write(data);
+      await writable.write(data as any);
       await writable.close();
 
-      // 如果支持 sync()，调用它确保数据写入磁盘
       if ('sync' in this.opfsHandle && typeof this.opfsHandle.sync === 'function') {
         await this.opfsHandle.sync();
       }
-
-      console.log('Database saved to OPFS file');
     } catch (error) {
       console.error('Failed to save database to OPFS:', error);
       throw error;
