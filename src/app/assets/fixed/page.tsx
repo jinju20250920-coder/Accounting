@@ -45,7 +45,6 @@ import {
 } from 'lucide-react';
 import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 import { AssetCategoryDialog } from '@/components/assets/asset-category-dialog';
-import { AssetAcquisitionRuleDialog } from '@/components/assets/asset-acquisition-rule-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
 import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
@@ -72,7 +71,7 @@ function AssetCardDialog({
   asset?: FixedAsset | null;
   categories: AssetCategory[];
   existingCodes: string[];
-  onSave: (data: Partial<FixedAsset>) => void;
+  onSave: (data: Partial<FixedAsset>) => Promise<FixedAsset | undefined | void>;
 }) {
   const { showToast } = useToast();
   const [generateVoucher, setGenerateVoucher] = useState(true); // 是否生成取得凭证
@@ -161,11 +160,9 @@ function AssetCardDialog({
     setFormData(prev => ({
       ...prev,
       acquisitionType: acquisitionType as FixedAsset['acquisitionType'],
-      // 期初导入默认为已入账（带累计折旧）
-      accountingStatus: isOpening ? 'accounted' : (generateVoucher ? 'accounted' : 'pending'),
       isOpeningBalance: isOpening,
+      accountingStatus: 'pending',
     }));
-    // 期初导入默认不生成凭证
     if (isOpening) {
       setGenerateVoucher(false);
     }
@@ -174,10 +171,6 @@ function AssetCardDialog({
   // 当生成凭证开关变化时
   const handleGenerateVoucherChange = (checked: boolean) => {
     setGenerateVoucher(checked);
-    setFormData(prev => ({
-      ...prev,
-      accountingStatus: checked ? 'accounted' : 'pending',
-    }));
   };
 
   const handleSubmit = async () => {
@@ -232,10 +225,10 @@ function AssetCardDialog({
     }
 
     // 确定入账状态
-    const accountingStatus = generateVoucher ? 'accounted' : 'pending';
+    const accountingStatus = 'pending';
 
     try {
-      await onSave({
+      const savedAsset = await onSave({
         ...formData,
         assetCode,
         usefulLifeMonths,
@@ -247,6 +240,14 @@ function AssetCardDialog({
         accountingStatus,
         isOpeningBalance: formData.acquisitionType === 'opening_balance',
       });
+
+      if (generateVoucher && savedAsset?.id) {
+        const { generateAcquisitionVoucher } = useFixedAssetStore.getState();
+        const result = await generateAcquisitionVoucher(savedAsset.id);
+        if (result) {
+          showToast('success', `取得凭证 ${result.voucherNo} 已生成`);
+        }
+      }
     } catch (error: any) {
       showToast('error', error.message || '保存失败');
     }
@@ -767,7 +768,6 @@ export default function FixedAssetsPage() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
-  const [showAcquisitionRuleDialog, setShowAcquisitionRuleDialog] = useState(false);
   const [showDisposalDialog, setShowDisposalDialog] = useState(false);
   const [showImprovementDialog, setShowImprovementDialog] = useState(false);
   const [showQRLabelDialog, setShowQRLabelDialog] = useState(false);
@@ -822,7 +822,7 @@ export default function FixedAssetsPage() {
         await updateAsset(selectedAsset.id, data);
         showToast('success', '资产更新成功');
       } else {
-        await addAsset(data as any);
+        const newAsset = await addAsset(data as any);
         showToast('success', '资产添加成功');
         // 保存编码规则到数据库（更新 lastNumber）
         const accountSetStore = useAccountSetStore.getState();
@@ -831,6 +831,7 @@ export default function FixedAssetsPage() {
           const manager = CodeRuleManager.getInstance();
           await manager.saveToDB(currentAccountSet.id);
         }
+        return newAsset;
       }
       setShowAddDialog(false);
       setSelectedAsset(null);
@@ -942,11 +943,7 @@ export default function FixedAssetsPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setShowCategoryDialog(true)}>
             <Settings className="h-4 w-4 mr-2" />
-            入账规则
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowAcquisitionRuleDialog(true)}>
-            <Settings className="h-4 w-4 mr-2" />
-            取得规则
+            核算规则
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowBatchLabelDialog(true)}>
             <Printer className="h-4 w-4 mr-2" />
@@ -1291,16 +1288,10 @@ export default function FixedAssetsPage() {
         onOpenChange={setShowBatchLabelDialog}
       />
 
-      {/* 入账规则设置对话框 */}
+      {/* 核算规则设置对话框 */}
       <AssetCategoryDialog
         open={showCategoryDialog}
         onOpenChange={setShowCategoryDialog}
-      />
-
-      {/* 取得规则配置对话框 */}
-      <AssetAcquisitionRuleDialog
-        open={showAcquisitionRuleDialog}
-        onOpenChange={setShowAcquisitionRuleDialog}
       />
 
       {/* 编码规则设置对话框 */}

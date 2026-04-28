@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { useSubjectStore } from './useSubjectStore';
 import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import {
@@ -31,6 +32,8 @@ interface FixedAssetStore {
   error: string | null;
   selectedAssetId: string | null;
   filter: AssetFilter;
+  subjectSplitEnabled: boolean;
+  subSubjectSeparator: '' | '.' | '_';
 
   // CRUD - 资产
   addAsset: (asset: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'>) => Promise<FixedAsset>;
@@ -80,6 +83,8 @@ interface FixedAssetStore {
   // 状态管理
   setSelectedAssetId: (id: string | null) => void;
   setFilter: (filter: Partial<AssetFilter>) => void;
+  setSubjectSplitEnabled: (enabled: boolean) => void;
+  setSubSubjectSeparator: (separator: '' | '.' | '_') => void;
   clearError: () => void;
   initialize: () => Promise<void>;
   initializeDefaultCategories: () => Promise<void>;
@@ -87,6 +92,57 @@ interface FixedAssetStore {
 
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+
+// 生成下一个子科目编码
+function generateNextSubCode(
+  subjects: { code: string }[],
+  parentCode: string,
+  separator: '' | '.' | '_',
+): string {
+  const suffixLen = 2;
+
+  const regex = new RegExp(`^${escapeRegex(parentCode)}${escapeRegex(separator)}(\\d+)$`);
+  const existingNums = subjects
+    .filter(s => regex.test(s.code))
+    .map(s => parseInt(s.code.match(regex)![1], 10));
+
+  const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
+  return `${parentCode}${separator}${String(nextNum).padStart(suffixLen, '0')}`;
+}
+
+function escapeRegex(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// 为分类创建子科目（科目拆分明细模式）
+async function createSubSubjectsForCategory(category: AssetCategory) {
+  const subjectStore = useSubjectStore.getState();
+  const subjects = subjectStore.subjects;
+  const separator = useFixedAssetStore.getState().subSubjectSeparator;
+
+  const subSubjectConfigs = [
+    { parentCode: category.assetSubjectCode, name: category.name },
+    { parentCode: category.depreciationSubjectCode, name: `${category.name}累计折旧` },
+  ];
+
+  for (const config of subSubjectConfigs) {
+    if (!config.parentCode) continue;
+    const subCode = generateNextSubCode(subjects, config.parentCode, separator);
+    // 检查子科目是否已存在
+    if (subjects.some(s => s.code === subCode)) continue;
+    // 查找父科目
+    const parent = subjects.find(s => s.code === config.parentCode);
+    if (!parent) continue;
+
+    await subjectStore.addSubject({
+      code: subCode,
+      name: config.name,
+      direction: parent.direction,
+      parentId: parent.id,
+      level: (parent.level || 1) + 1,
+    } as any);
+  }
+}
 
 // 默认资产分类
 const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime' | 'accountSetId'>[] = [
@@ -170,6 +226,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
   loading: false,
   error: null,
   selectedAssetId: null,
+  subjectSplitEnabled: false,
+  subSubjectSeparator: '',
   filter: {},
 
   // 添加资产
@@ -237,6 +295,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       improvementHistory: assetData.improvementHistory || [],
       disposalHistory: assetData.disposalHistory || [],
       status: assetData.status || 'active',
+      accountingStatus: assetData.accountingStatus || 'pending',
       accountSetId: currentAccountSet?.id,
       createTime: now,
       updateTime: now,
@@ -266,8 +325,13 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           serialNumber, assignedUser,
           improvementHistory, disposalHistory,
           supplierName, invoiceNo, notes,
+          accountingStatus, acquisitionVoucherId, acquisitionVoucherNo,
+          isOpeningBalance, initialAccumulatedDepreciation,
+          creditSubjectCode, creditSubjectName,
+          projectCode, projectName,
+          assetType, depreciationEndDate, remainingDepreciationMonths,
           accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newAsset.id, newAsset.assetCode, newAsset.assetName,
@@ -291,6 +355,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         safeValue(newAsset.serialNumber), safeValue(newAsset.assignedUser),
         JSON.stringify(newAsset.improvementHistory || []), JSON.stringify(newAsset.disposalHistory || []),
         safeValue(newAsset.supplierName), safeValue(newAsset.invoiceNo), safeValue(newAsset.notes),
+        safeValue(newAsset.accountingStatus), safeValue(newAsset.acquisitionVoucherId), safeValue(newAsset.acquisitionVoucherNo),
+        safeValue(newAsset.isOpeningBalance ? 1 : 0), safeValue(newAsset.initialAccumulatedDepreciation),
+        safeValue(newAsset.creditSubjectCode), safeValue(newAsset.creditSubjectName),
+        safeValue(newAsset.projectCode), safeValue(newAsset.projectName),
+        safeValue(newAsset.assetType), safeValue(newAsset.depreciationEndDate), safeValue(newAsset.remainingDepreciationMonths),
         newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
       ]);
       stmt.free();
@@ -511,6 +580,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         categories: [...state.categories, newCategory],
         error: null,
       }));
+
+      // 科目拆分明细：自动创建子科目
+      if (get().subjectSplitEnabled) {
+        await createSubSubjectsForCategory(newCategory);
+      }
 
       return newCategory;
     } catch (error: any) {
@@ -905,6 +979,16 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
   // 设置选中的资产ID
   setSelectedAssetId: (id) => {
     set({ selectedAssetId: id });
+  },
+
+  // 设置科目拆分明细开关
+  setSubjectSplitEnabled: (enabled) => {
+    set({ subjectSplitEnabled: enabled });
+  },
+
+  // 设置子科目分隔符
+  setSubSubjectSeparator: (separator) => {
+    set({ subSubjectSeparator: separator });
   },
 
   // 设置筛选条件
