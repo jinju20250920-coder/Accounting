@@ -270,8 +270,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     const now = new Date().toISOString();
-    // 将 undefined 转为 null，避免 SQL.js 报错
-    const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
+    // 将 undefined/空字符串 转为 null，避免 SQL.js 报错和外键约束失败
+    const safeValue = <T,>(v: T | undefined): T | null => (v === undefined || v === '') ? null : v;
 
     // 生成唯一ID
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
@@ -331,7 +331,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           projectCode, projectName,
           assetType, depreciationEndDate, remainingDepreciationMonths,
           accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newAsset.id, newAsset.assetCode, newAsset.assetName,
@@ -416,8 +416,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       if (!db) {
         throw new Error('数据库未初始化');
       }
-      // 将 undefined 转为 null，避免 SQL.js 报错
-      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
+      // 将 undefined/空字符串 转为 null，避免 SQL.js 报错和外键约束失败
+      const safeValue = <T,>(v: T | undefined): T | null => (v === undefined || v === '') ? null : v;
       const stmt = db.prepare(
         `UPDATE fixedAssets SET
           assetName=?, categoryId=?, categoryName=?, specification=?, unit=?, quantity=?,
@@ -766,8 +766,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      // 将 undefined 转为 null，避免 SQL.js 报错
-      const safeValue = <T,>(v: T | undefined): T | null => v ?? null;
+      // 将 undefined/空字符串 转为 null，避免 SQL.js 报错和外键约束失败
+      const safeValue = <T,>(v: T | undefined): T | null => (v === undefined || v === '') ? null : v;
 
       for (const record of records) {
         const stmt = db.prepare(

@@ -42,6 +42,7 @@ import {
   Printer,
   Calculator,
   FileText,
+  BookOpen,
 } from 'lucide-react';
 import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 import { AssetCategoryDialog } from '@/components/assets/asset-category-dialog';
@@ -79,7 +80,6 @@ function AssetCardDialog({
     assetCode: '',
     assetName: '',
     categoryId: '',
-    assetType: 'equipment',
     specification: '',
     quantity: 1,
     unit: '台',
@@ -103,21 +103,20 @@ function AssetCardDialog({
     if (asset) {
       setFormData(asset);
     } else {
-      // 新增时自动生成编码
+      // 新增时预览编码（不消耗编号，避免取消时跳号）
       const manager = CodeRuleManager.getInstance();
       const rule = manager.getRuleByType('fixed_asset');
       let autoCode = '';
       if (rule.autoIncrement) {
         const result = generateCode(rule, existingCodes);
         autoCode = result.code;
-        manager.setRule(result.updatedRule);
+        // 不调用 manager.setRule()，仅预览
       }
 
       setFormData({
         assetCode: autoCode,
         assetName: '',
         categoryId: '',
-        assetType: 'equipment',
         specification: '',
         quantity: 1,
         unit: '台',
@@ -134,7 +133,7 @@ function AssetCardDialog({
         serialNumber: '',
         assignedUser: '',
         acquisitionType: 'purchase',
-        accountingStatus: 'accounted',
+        accountingStatus: 'pending',
       });
       setGenerateVoucher(true);
     }
@@ -186,8 +185,8 @@ function AssetCardDialog({
       showToast('error', '请选择购置日期');
       return;
     }
-    if (!formData.assetType) {
-      showToast('error', '请选择资产类型');
+    if (!formData.categoryId) {
+      showToast('error', '请选择资产分类');
       return;
     }
     if (!formData.usefulLifeYears || formData.usefulLifeYears <= 0) {
@@ -209,19 +208,19 @@ function AssetCardDialog({
     depreciationEndDate.setDate(0); // 月末
     const depreciationEndStr = depreciationEndDate.toISOString().split('T')[0];
 
-    // 如果没有编码，尝试自动生成
-    let assetCode = formData.assetCode;
-    if (!assetCode) {
-      const manager = CodeRuleManager.getInstance();
-      const rule = manager.getRuleByType('fixed_asset');
-      if (rule.autoIncrement) {
-        const result = generateCode(rule, existingCodes);
-        assetCode = result.code;
-        manager.setRule(result.updatedRule);
-      } else {
-        showToast('error', '请输入资产编码');
-        return;
-      }
+    // 保存时重新生成编码（确保不跳号，消耗编号）
+    const manager = CodeRuleManager.getInstance();
+    const rule = manager.getRuleByType('fixed_asset');
+    let assetCode = '';
+    if (rule.autoIncrement) {
+      const result = generateCode(rule, existingCodes);
+      assetCode = result.code;
+      manager.setRule(result.updatedRule);
+    } else if (formData.assetCode) {
+      assetCode = formData.assetCode;
+    } else {
+      showToast('error', '请输入资产编码');
+      return;
     }
 
     // 确定入账状态
@@ -241,7 +240,7 @@ function AssetCardDialog({
         isOpeningBalance: formData.acquisitionType === 'opening_balance',
       });
 
-      if (generateVoucher && savedAsset?.id) {
+      if (generateVoucher && savedAsset && typeof savedAsset === 'object') {
         const { generateAcquisitionVoucher } = useFixedAssetStore.getState();
         const result = await generateAcquisitionVoucher(savedAsset.id);
         if (result) {
@@ -311,7 +310,7 @@ function AssetCardDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>资产分类</Label>
+                  <Label required>资产分类</Label>
                   <Select
                     value={formData.categoryId || ''}
                     onValueChange={handleCategoryChange}
@@ -419,25 +418,6 @@ function AssetCardDialog({
                     placeholder="0.00"
                     autoComplete="off"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label required>资产类型</Label>
-                  <Select
-                    value={formData.assetType || 'equipment'}
-                    onValueChange={(v) => setFormData(prev => ({ ...prev, assetType: v as any }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="equipment">电子设备</SelectItem>
-                      <SelectItem value="vehicle">运输工具</SelectItem>
-                      <SelectItem value="furniture">办公家具</SelectItem>
-                      <SelectItem value="machinery">机器设备</SelectItem>
-                      <SelectItem value="building">房屋建筑</SelectItem>
-                      <SelectItem value="other">其他</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label required>使用年限（年）</Label>
@@ -753,6 +733,7 @@ export default function FixedAssetsPage() {
     addAsset,
     updateAsset,
     deleteAsset,
+    generateAcquisitionVoucher,
     initialize,
     setFilter,
     getFilteredAssets,
@@ -775,6 +756,7 @@ export default function FixedAssetsPage() {
   const [showChangeRecordDialog, setShowChangeRecordDialog] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [codeRule, setCodeRule] = useState<CodeRule | null>(null);
 
   useEffect(() => {
@@ -849,6 +831,59 @@ export default function FixedAssetsPage() {
     } catch (error: any) {
       showToast('error', error.message || '删除失败');
     }
+  };
+
+  const handleAccountAsset = async (asset: FixedAsset) => {
+    try {
+      const result = await generateAcquisitionVoucher(asset.id);
+      if (result) {
+        showToast('success', `入账成功，取得凭证 ${result.voucherNo} 已生成`);
+      } else {
+        showToast('warning', '入账失败，请检查取得规则配置');
+      }
+    } catch (error: any) {
+      showToast('error', error.message || '入账失败');
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredAssets.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAssets.map(a => a.id)));
+    }
+  };
+
+  const handleBatchAccount = async () => {
+    const pendingAssets = filteredAssets.filter(a => selectedIds.has(a.id) && a.accountingStatus === 'pending');
+    if (pendingAssets.length === 0) {
+      showToast('warning', '未选择可入账的资产');
+      return;
+    }
+    const results = await Promise.allSettled(pendingAssets.map(a => generateAcquisitionVoucher(a.id)));
+    const success = results.filter(r => r.status === 'fulfilled' && r.value).length;
+    showToast('success', `批量入账完成：${success}/${pendingAssets.length} 成功`);
+    setSelectedIds(new Set());
+  };
+
+  const handleBatchDelete = async () => {
+    const pendingAssets = filteredAssets.filter(a => selectedIds.has(a.id) && a.accountingStatus === 'pending');
+    if (pendingAssets.length === 0) {
+      showToast('warning', '未选择可删除的资产（仅未入账状态可删除）');
+      return;
+    }
+    const results = await Promise.allSettled(pendingAssets.map(a => deleteAsset(a.id)));
+    const success = results.filter(r => r.status === 'fulfilled').length;
+    showToast('success', `批量删除完成：${success}/${pendingAssets.length} 成功`);
+    setSelectedIds(new Set());
   };
 
   // 导入处理
@@ -941,6 +976,18 @@ export default function FixedAssetsPage() {
           <p className="text-slate-500 text-sm mt-1">管理企业固定资产卡片和折旧</p>
         </div>
         <div className="flex gap-2">
+          {selectedIds.size > 0 && (
+            <>
+              <Button variant="outline" size="sm" className="text-green-600" onClick={handleBatchAccount}>
+                <BookOpen className="h-4 w-4 mr-2" />
+                批量入账 ({selectedIds.size})
+              </Button>
+              <Button variant="outline" size="sm" className="text-red-600" onClick={handleBatchDelete}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                批量删除 ({selectedIds.size})
+              </Button>
+            </>
+          )}
           <Button variant="outline" size="sm" onClick={() => setShowCategoryDialog(true)}>
             <Settings className="h-4 w-4 mr-2" />
             核算规则
@@ -1047,6 +1094,14 @@ export default function FixedAssetsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-slate-50">
+                  <th className="w-10 p-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size > 0 && selectedIds.size === filteredAssets.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-slate-300"
+                    />
+                  </th>
                   <th className="text-left p-4 font-medium text-sm">资产编码</th>
                   <th className="text-left p-4 font-medium text-sm">资产名称</th>
                   <th className="text-left p-4 font-medium text-sm">类型</th>
@@ -1062,13 +1117,13 @@ export default function FixedAssetsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="text-center p-8 text-slate-500">
+                    <td colSpan={11} className="text-center p-8 text-slate-500">
                       加载中...
                     </td>
                   </tr>
                 ) : filteredAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center p-8 text-slate-500">
+                    <td colSpan={11} className="text-center p-8 text-slate-500">
                       暂无资产数据
                     </td>
                   </tr>
@@ -1084,21 +1139,19 @@ export default function FixedAssetsPage() {
                     };
                     const remainingMonths = calculateRemainingMonths();
 
-                    // 资产类型名称
-                    const assetTypeName: Record<string, string> = {
-                      equipment: '电子设备',
-                      vehicle: '运输工具',
-                      furniture: '办公家具',
-                      machinery: '机器设备',
-                      building: '房屋建筑',
-                      other: '其他',
-                    };
-
                     return (
                     <tr key={asset.id} className="border-b hover:bg-slate-50">
+                      <td className="w-10 p-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(asset.id)}
+                          onChange={() => toggleSelect(asset.id)}
+                          className="rounded border-slate-300"
+                        />
+                      </td>
                       <td className="p-4 text-sm font-mono">{asset.assetCode}</td>
                       <td className="p-4 text-sm font-medium">{asset.assetName}</td>
-                      <td className="p-4 text-sm text-slate-600">{assetTypeName[asset.assetType || 'equipment'] || asset.assetType || '-'}</td>
+                      <td className="p-4 text-sm text-slate-600">{asset.categoryName || '-'}</td>
                       <td className="p-4 text-sm text-center">
                         {asset.remainingQuantity !== undefined && asset.remainingQuantity < (asset.quantity || 1) ? (
                           <span className="text-orange-600">
@@ -1134,6 +1187,17 @@ export default function FixedAssetsPage() {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
+                          {asset.accountingStatus === 'pending' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="入账取得成本"
+                              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                              onClick={() => handleAccountAsset(asset)}
+                            >
+                              <BookOpen className="h-4 w-4" />
+                            </Button>
+                          )}
                           {asset.status === 'active' && (
                             <>
                               <Button
@@ -1184,18 +1248,20 @@ export default function FixedAssetsPage() {
                           >
                             <History className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 hover:text-red-700"
-                            title="删除"
-                            onClick={() => {
-                              setSelectedAsset(asset);
-                              setShowDeleteConfirm(true);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {asset.accountingStatus === 'pending' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-700"
+                              title="删除"
+                              onClick={() => {
+                                setSelectedAsset(asset);
+                                setShowDeleteConfirm(true);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>

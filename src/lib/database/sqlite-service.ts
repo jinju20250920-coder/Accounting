@@ -195,6 +195,8 @@ class SQLiteService {
         { name: 'creditSubjectName', sql: 'ALTER TABLE fixedAssets ADD COLUMN creditSubjectName TEXT' },
         { name: 'projectCode', sql: 'ALTER TABLE fixedAssets ADD COLUMN projectCode TEXT' },
         { name: 'projectName', sql: 'ALTER TABLE fixedAssets ADD COLUMN projectName TEXT' },
+        { name: 'depreciationEndDate', sql: 'ALTER TABLE fixedAssets ADD COLUMN depreciationEndDate TEXT' },
+        { name: 'remainingDepreciationMonths', sql: 'ALTER TABLE fixedAssets ADD COLUMN remainingDepreciationMonths INTEGER' },
       ];
 
       for (const col of newColumns) {
