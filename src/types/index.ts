@@ -607,6 +607,7 @@ export interface FixedAsset {
   assetName: string; // 资产名称
   categoryId?: string; // 分类ID
   categoryName?: string; // 分类名称
+  assetType?: 'equipment' | 'vehicle' | 'furniture' | 'machinery' | 'building' | 'other'; // 资产类型
   specification?: string; // 规格型号
   unit: string; // 计量单位（台/把/套/个）
   quantity: number; // 入账数量
@@ -626,12 +627,14 @@ export interface FixedAsset {
   usefulLifeMonths: number; // 使用月数
   originalUsefulLifeMonths?: number; // 原始使用月数（改造前）
   depreciatedMonths?: number; // 已折旧月数
+  remainingDepreciationMonths?: number; // 剩余折旧月数
   totalUnits?: number; // 总工作量（工作量法）
   unitsUsed?: number; // 已使用工作量
 
   // 日期
   acquisitionDate: string; // 购置日期
-  depreciationStartDate?: string; // 折旧开始日期
+  depreciationStartDate?: string; // 折旧开始日期（取得日期下月1日）
+  depreciationEndDate?: string; // 折旧结束日期
   lastDepreciationDate?: string; // 最后折旧日期
   disposalDate?: string; // 处置日期
 
@@ -646,12 +649,12 @@ export interface FixedAsset {
   sourceInvoiceId?: string; // 来源发票ID
   sourceVoucherId?: string; // 取得凭证ID
 
-  // 科目映射
-  assetSubjectCode: string; // 资产科目（如1501）
+  // 科目映射（从分类继承，不在卡片编辑）
+  assetSubjectCode?: string; // 资产科目（如1501）
   assetSubjectName?: string;
-  depreciationSubjectCode: string; // 累计折旧科目（如1502）
+  depreciationSubjectCode?: string; // 累计折旧科目（如1502）
   depreciationSubjectName?: string;
-  expenseSubjectCode: string; // 费用科目（如660204）
+  expenseSubjectCode?: string; // 费用科目（如660204）
   expenseSubjectName?: string;
   cipSubjectCode?: string; // 在建工程科目（转固用）
   cipSubjectName?: string;

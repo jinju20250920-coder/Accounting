@@ -76,6 +76,7 @@ function AssetCardDialog({
     assetCode: '',
     assetName: '',
     categoryId: '',
+    assetType: 'equipment',
     specification: '',
     quantity: 1,
     unit: '台',
@@ -86,7 +87,6 @@ function AssetCardDialog({
     acquisitionDate: new Date().toISOString().split('T')[0],
     location: '',
     departmentCode: '',
-    expenseSubjectCode: '660204',
     supplierName: '',
     invoiceNo: '',
     notes: '',
@@ -113,6 +113,7 @@ function AssetCardDialog({
         assetCode: autoCode,
         assetName: '',
         categoryId: '',
+        assetType: 'equipment',
         specification: '',
         quantity: 1,
         unit: '台',
@@ -123,7 +124,6 @@ function AssetCardDialog({
         acquisitionDate: new Date().toISOString().split('T')[0],
         location: '',
         departmentCode: '',
-        expenseSubjectCode: '660204',
         supplierName: '',
         invoiceNo: '',
         notes: '',
@@ -144,7 +144,6 @@ function AssetCardDialog({
         categoryName: category.name,
         usefulLifeYears: category.defaultUsefulLifeYears,
         depreciationMethod: category.defaultDepreciationMethod,
-        expenseSubjectCode: category.expenseSubjectCode,
       }));
     }
   };
@@ -162,9 +161,28 @@ function AssetCardDialog({
       showToast('error', '请选择购置日期');
       return;
     }
+    if (!formData.assetType) {
+      showToast('error', '请选择资产类型');
+      return;
+    }
+    if (!formData.usefulLifeYears || formData.usefulLifeYears <= 0) {
+      showToast('error', '请输入有效的使用年限');
+      return;
+    }
 
     const usefulLifeMonths = (formData.usefulLifeYears || 5) * 12;
     const quantity = formData.quantity || 1;
+
+    // 计算折旧开始日期（取得日期下月1日）
+    const acquisitionDate = new Date(formData.acquisitionDate);
+    const depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth() + 1, 1);
+    const depreciationStartStr = depreciationStartDate.toISOString().split('T')[0];
+
+    // 计算折旧结束日期
+    const depreciationEndDate = new Date(depreciationStartDate);
+    depreciationEndDate.setMonth(depreciationEndDate.getMonth() + usefulLifeMonths);
+    depreciationEndDate.setDate(0); // 月末
+    const depreciationEndStr = depreciationEndDate.toISOString().split('T')[0];
 
     // 如果没有编码，尝试自动生成
     let assetCode = formData.assetCode;
@@ -189,8 +207,8 @@ function AssetCardDialog({
         quantity,
         remainingQuantity: quantity,
         unitPrice: (formData.originalValue || 0) / quantity,
-        assetSubjectCode: '1501',
-        depreciationSubjectCode: '1502',
+        depreciationStartDate: depreciationStartStr,
+        depreciationEndDate: depreciationEndStr,
       });
     } catch (error: any) {
       showToast('error', error.message || '保存失败');
@@ -353,6 +371,39 @@ function AssetCardDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
+                  <Label required>资产类型</Label>
+                  <Select
+                    value={formData.assetType || 'equipment'}
+                    onValueChange={(v) => setFormData(prev => ({ ...prev, assetType: v as any }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="equipment">电子设备</SelectItem>
+                      <SelectItem value="vehicle">运输工具</SelectItem>
+                      <SelectItem value="furniture">办公家具</SelectItem>
+                      <SelectItem value="machinery">机器设备</SelectItem>
+                      <SelectItem value="building">房屋建筑</SelectItem>
+                      <SelectItem value="other">其他</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label required>使用年限（年）</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={formData.usefulLifeYears || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      usefulLifeYears: parseInt(e.target.value) || 5
+                    }))}
+                    placeholder="5"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5">
                   <Label>折旧方法</Label>
                   <Select
                     value={formData.depreciationMethod || 'straight_line'}
@@ -386,59 +437,53 @@ function AssetCardDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className={formData.originalValue > 0 ? 'text-blue-600' : ''}>
-                    使用年限（年）
-                  </Label>
-                  <Input
-                    type="number"
-                    value={formData.usefulLifeYears || ''}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      usefulLifeYears: parseInt(e.target.value) || 5
-                    }))}
-                    placeholder="5"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label required>购置日期</Label>
                   <ChineseDatePicker
                     value={formData.acquisitionDate || ''}
                     onChange={(v) => setFormData(prev => ({ ...prev, acquisitionDate: v }))}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>费用科目</Label>
-                  <Input
-                    value={formData.expenseSubjectCode || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, expenseSubjectCode: e.target.value }))}
-                    placeholder="660204"
-                    className="font-mono text-sm"
-                    autoComplete="off"
-                  />
-                </div>
               </div>
 
-              {/* 折旧预览卡片 */}
-              {formData.originalValue > 0 && formData.usefulLifeYears > 0 && (
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                  <div className="flex items-center gap-2 text-blue-700 text-xs font-medium mb-2">
+              {/* 折旧时间信息 */}
+              {formData.acquisitionDate && formData.usefulLifeYears > 0 && (
+                <div className="mt-3 p-3 bg-slate-50 border rounded-lg">
+                  <div className="flex items-center gap-2 text-slate-600 text-xs font-medium mb-2">
                     <Calculator className="h-3.5 w-3.5" />
-                    折旧预览
+                    折旧时间
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-slate-600">应计折旧额</span>
-                      <span className="font-medium">¥{formatMoney((formData.originalValue || 0) - (formData.salvageValue || 0))}</span>
+                      <span className="text-slate-500">折旧开始</span>
+                      <span className="font-medium text-slate-700">
+                        {(() => {
+                          const d = new Date(formData.acquisitionDate);
+                          return `${d.getFullYear()}-${String(d.getMonth() + 2).padStart(2, '0')}-01`;
+                        })()}
+                      </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">折旧月数</span>
+                      <span className="text-slate-500">折旧结束</span>
+                      <span className="font-medium text-slate-700">
+                        {(() => {
+                          const d = new Date(formData.acquisitionDate);
+                          const endDate = new Date(d.getFullYear(), d.getMonth() + 1 + (formData.usefulLifeYears || 5) * 12, 0);
+                          return `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+                        })()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">折旧月数</span>
                       <span className="font-medium">{(formData.usefulLifeYears || 0) * 12} 个月</span>
                     </div>
-                    <div className="col-span-2 flex justify-between border-t border-blue-100 pt-2 mt-1">
-                      <span className="text-blue-700 font-medium">预计月折旧额</span>
-                      <span className="text-blue-700 font-bold">¥{formatMoney(monthlyDepreciation)}</span>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">应计折旧额</span>
+                      <span className="font-medium">¥{formatMoney((formData.originalValue || 0) - (formData.salvageValue || 0))}</span>
                     </div>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-slate-200 flex justify-between">
+                    <span className="text-blue-700 font-medium text-sm">预计月折旧额</span>
+                    <span className="text-blue-700 font-bold">¥{formatMoney(monthlyDepreciation)}</span>
                   </div>
                 </div>
               )}
@@ -860,13 +905,12 @@ export default function FixedAssetsPage() {
                 <tr className="border-b bg-slate-50">
                   <th className="text-left p-4 font-medium text-sm">资产编码</th>
                   <th className="text-left p-4 font-medium text-sm">资产名称</th>
-                  <th className="text-left p-4 font-medium text-sm">分类</th>
+                  <th className="text-left p-4 font-medium text-sm">类型</th>
                   <th className="text-center p-4 font-medium text-sm">数量</th>
                   <th className="text-right p-4 font-medium text-sm">原值</th>
                   <th className="text-right p-4 font-medium text-sm">累计折旧</th>
                   <th className="text-right p-4 font-medium text-sm">净值</th>
-                  <th className="text-left p-4 font-medium text-sm">折旧方法</th>
-                  <th className="text-left p-4 font-medium text-sm">购置日期</th>
+                  <th className="text-center p-4 font-medium text-sm">剩余月份</th>
                   <th className="text-left p-4 font-medium text-sm">状态</th>
                   <th className="text-center p-4 font-medium text-sm">操作</th>
                 </tr>
@@ -874,22 +918,43 @@ export default function FixedAssetsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="text-center p-8 text-slate-500">
+                    <td colSpan={10} className="text-center p-8 text-slate-500">
                       加载中...
                     </td>
                   </tr>
                 ) : filteredAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center p-8 text-slate-500">
+                    <td colSpan={10} className="text-center p-8 text-slate-500">
                       暂无资产数据
                     </td>
                   </tr>
                 ) : (
-                  filteredAssets.map((asset) => (
+                  filteredAssets.map((asset) => {
+                    // 计算剩余折旧月份
+                    const calculateRemainingMonths = () => {
+                      if (asset.status !== 'active') return '-';
+                      const totalMonths = asset.usefulLifeMonths || (asset.usefulLifeYears || 0) * 12;
+                      const depreciated = asset.depreciatedMonths || 0;
+                      const remaining = totalMonths - depreciated;
+                      return remaining > 0 ? remaining : 0;
+                    };
+                    const remainingMonths = calculateRemainingMonths();
+
+                    // 资产类型名称
+                    const assetTypeName: Record<string, string> = {
+                      equipment: '电子设备',
+                      vehicle: '运输工具',
+                      furniture: '办公家具',
+                      machinery: '机器设备',
+                      building: '房屋建筑',
+                      other: '其他',
+                    };
+
+                    return (
                     <tr key={asset.id} className="border-b hover:bg-slate-50">
                       <td className="p-4 text-sm font-mono">{asset.assetCode}</td>
                       <td className="p-4 text-sm font-medium">{asset.assetName}</td>
-                      <td className="p-4 text-sm text-slate-600">{asset.categoryName || '-'}</td>
+                      <td className="p-4 text-sm text-slate-600">{assetTypeName[asset.assetType || 'equipment'] || asset.assetType || '-'}</td>
                       <td className="p-4 text-sm text-center">
                         {asset.remainingQuantity !== undefined && asset.remainingQuantity < (asset.quantity || 1) ? (
                           <span className="text-orange-600">
@@ -904,8 +969,13 @@ export default function FixedAssetsPage() {
                       <td className="p-4 text-sm text-right">¥{formatMoney(asset.originalValue)}</td>
                       <td className="p-4 text-sm text-right text-orange-600">¥{formatMoney(asset.accumulatedDepreciation)}</td>
                       <td className="p-4 text-sm text-right font-medium">¥{formatMoney(asset.netValue)}</td>
-                      <td className="p-4 text-sm">{getDepreciationMethodName(asset.depreciationMethod)}</td>
-                      <td className="p-4 text-sm">{asset.acquisitionDate}</td>
+                      <td className="p-4 text-sm text-center">
+                        {typeof remainingMonths === 'number' ? (
+                          <span className={remainingMonths <= 12 ? 'text-orange-600' : 'text-slate-600'}>
+                            {remainingMonths}月
+                          </span>
+                        ) : remainingMonths}
+                      </td>
                       <td className="p-4">{getStatusBadge(asset.status)}</td>
                       <td className="p-4">
                         <div className="flex justify-center gap-1">
@@ -985,7 +1055,8 @@ export default function FixedAssetsPage() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
