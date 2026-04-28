@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -72,6 +73,7 @@ function AssetCardDialog({
   onSave: (data: Partial<FixedAsset>) => void;
 }) {
   const { showToast } = useToast();
+  const [generateVoucher, setGenerateVoucher] = useState(true); // 是否生成取得凭证
   const [formData, setFormData] = useState<Partial<FixedAsset>>({
     assetCode: '',
     assetName: '',
@@ -93,6 +95,7 @@ function AssetCardDialog({
     serialNumber: '',
     assignedUser: '',
     acquisitionType: 'purchase',
+    accountingStatus: 'accounted',
   });
 
   useEffect(() => {
@@ -130,7 +133,9 @@ function AssetCardDialog({
         serialNumber: '',
         assignedUser: '',
         acquisitionType: 'purchase',
+        accountingStatus: 'accounted',
       });
+      setGenerateVoucher(true);
     }
   }, [asset, open, existingCodes]);
 
@@ -146,6 +151,31 @@ function AssetCardDialog({
         depreciationMethod: category.defaultDepreciationMethod,
       }));
     }
+  };
+
+  // 当取得方式变化时，更新入账状态
+  const handleAcquisitionTypeChange = (acquisitionType: string) => {
+    const isOpening = acquisitionType === 'opening_balance';
+    setFormData(prev => ({
+      ...prev,
+      acquisitionType: acquisitionType as FixedAsset['acquisitionType'],
+      // 期初导入默认为已入账（带累计折旧）
+      accountingStatus: isOpening ? 'accounted' : (generateVoucher ? 'accounted' : 'pending'),
+      isOpeningBalance: isOpening,
+    }));
+    // 期初导入默认不生成凭证
+    if (isOpening) {
+      setGenerateVoucher(false);
+    }
+  };
+
+  // 当生成凭证开关变化时
+  const handleGenerateVoucherChange = (checked: boolean) => {
+    setGenerateVoucher(checked);
+    setFormData(prev => ({
+      ...prev,
+      accountingStatus: checked ? 'accounted' : 'pending',
+    }));
   };
 
   const handleSubmit = async () => {
@@ -199,6 +229,9 @@ function AssetCardDialog({
       }
     }
 
+    // 确定入账状态
+    const accountingStatus = generateVoucher ? 'accounted' : 'pending';
+
     try {
       await onSave({
         ...formData,
@@ -209,6 +242,8 @@ function AssetCardDialog({
         unitPrice: (formData.originalValue || 0) / quantity,
         depreciationStartDate: depreciationStartStr,
         depreciationEndDate: depreciationEndStr,
+        accountingStatus,
+        isOpeningBalance: formData.acquisitionType === 'opening_balance',
       });
     } catch (error: any) {
       showToast('error', error.message || '保存失败');
@@ -500,19 +535,54 @@ function AssetCardDialog({
                 <Label>取得方式</Label>
                 <Select
                   value={formData.acquisitionType || 'purchase'}
-                  onValueChange={(v) => setFormData(prev => ({ ...prev, acquisitionType: v as any }))}
+                  onValueChange={handleAcquisitionTypeChange}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="purchase">购入</SelectItem>
-                    <SelectItem value="opening_balance">开账导入</SelectItem>
-                    <SelectItem value="cip_conversion">在建转固</SelectItem>
-                    <SelectItem value="invoice">发票入账</SelectItem>
+                    <SelectItem value="invoice">发票取得</SelectItem>
+                    <SelectItem value="shareholder_input">股东投入</SelectItem>
+                    <SelectItem value="surplus">盘盈</SelectItem>
+                    <SelectItem value="internal_transfer">内部转入</SelectItem>
+                    <SelectItem value="opening_balance">期初导入</SelectItem>
+                    <SelectItem value="other">其他</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              {/* 生成取得凭证开关 */}
+              {formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">生成取得凭证</Label>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={generateVoucher}
+                      onCheckedChange={handleGenerateVoucherChange}
+                    />
+                    <span className="text-xs text-slate-500">
+                      {generateVoucher ? '保存后自动生成凭证' : '暂不生成凭证（未入账资产）'}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {/* 期初导入显示初始累计折旧输入 */}
+              {formData.acquisitionType === 'opening_balance' && (
+                <div className="space-y-1.5">
+                  <Label>初始累计折旧</Label>
+                  <Input
+                    type="number"
+                    value={formData.initialAccumulatedDepreciation || 0}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      initialAccumulatedDepreciation: parseFloat(e.target.value) || 0,
+                      accumulatedDepreciation: parseFloat(e.target.value) || 0,
+                    }))}
+                    placeholder="0.00"
+                    autoComplete="off"
+                  />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>存放地点</Label>
                 <Input
@@ -764,7 +834,12 @@ export default function FixedAssetsPage() {
     showToast('success', '模板下载成功');
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, accountingStatus?: string) => {
+    // 优先显示入账状态
+    if (accountingStatus === 'pending') {
+      return <Badge variant="outline" className="bg-yellow-100 text-yellow-700">未入账</Badge>;
+    }
+
     const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
       active: { label: '在用', variant: 'default' },
       disposed: { label: '已处置', variant: 'secondary' },
@@ -976,7 +1051,7 @@ export default function FixedAssetsPage() {
                           </span>
                         ) : remainingMonths}
                       </td>
-                      <td className="p-4">{getStatusBadge(asset.status)}</td>
+                      <td className="p-4">{getStatusBadge(asset.status, asset.accountingStatus)}</td>
                       <td className="p-4">
                         <div className="flex justify-center gap-1">
                           <Button

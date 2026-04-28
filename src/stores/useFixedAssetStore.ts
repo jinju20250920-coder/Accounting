@@ -1290,6 +1290,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const asset = get().assets.find(a => a.id === assetId);
     if (!asset) return false;
 
+    // 未入账资产禁止折旧
+    if (asset.accountingStatus === 'pending') return false;
+
     // 获取取得期间的年月（YYYY-MM）
     const acquisitionPeriod = asset.acquisitionDate.substring(0, 7);
     // 当月新增，下月开始折旧

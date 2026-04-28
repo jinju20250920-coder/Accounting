@@ -640,14 +640,19 @@ export interface FixedAsset {
 
   // 状态
   status: AssetStatus;
+  accountingStatus?: 'pending' | 'accounted' | 'depreciating' | 'disposed'; // 入账状态
   location?: string; // 存放地点
   departmentCode?: string; // 使用部门代码
   departmentName?: string; // 使用部门名称
 
   // 取得方式
-  acquisitionType: 'purchase' | 'opening_balance' | 'cip_conversion' | 'invoice'; // 取得方式
+  acquisitionType: 'invoice' | 'purchase' | 'shareholder_input' | 'surplus' | 'internal_transfer' | 'opening_balance' | 'other'; // 取得方式
   sourceInvoiceId?: string; // 来源发票ID
   sourceVoucherId?: string; // 取得凭证ID
+  acquisitionVoucherId?: string; // 取得凭证ID
+  acquisitionVoucherNo?: string; // 取得凭证字号
+  isOpeningBalance?: boolean; // 期初标记
+  initialAccumulatedDepreciation?: number; // 初始累计折旧（期初导入）
 
   // 科目映射（从分类继承，不在卡片编辑）
   assetSubjectCode?: string; // 资产科目（如1501）
@@ -660,6 +665,8 @@ export interface FixedAsset {
   cipSubjectName?: string;
   disposalSubjectCode?: string; // 固定资产清理科目
   disposalSubjectName?: string;
+  creditSubjectCode?: string; // 取得凭证贷方科目
+  creditSubjectName?: string;
 
   // 单体管理（高价值资产）
   serialNumber?: string; // 序列号
