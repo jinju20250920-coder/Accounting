@@ -41,9 +41,11 @@ import {
   AlertTriangle,
   Printer,
   Calculator,
+  FileText,
 } from 'lucide-react';
 import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 import { AssetCategoryDialog } from '@/components/assets/asset-category-dialog';
+import { AssetAcquisitionRuleDialog } from '@/components/assets/asset-acquisition-rule-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
 import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
@@ -261,6 +263,18 @@ function AssetCardDialog({
 
   const formatMoney = (value: number) => {
     return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // 根据取得类型获取贷方科目名称
+  const getCreditSubjectName = (acquisitionType: string): string => {
+    const map: Record<string, string> = {
+      purchase: '银行存款',
+      shareholder_input: '实收资本',
+      surplus: '营业外收入',
+      internal_transfer: '其他应付款',
+      other: '待处理财产损溢',
+    };
+    return map[acquisitionType] || '银行存款';
   };
 
   return (
@@ -522,6 +536,26 @@ function AssetCardDialog({
                   </div>
                 </div>
               )}
+
+              {/* 取得凭证预览 */}
+              {generateVoucher && formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice' && formData.originalValue > 0 && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-700 text-xs font-medium mb-2">
+                    <FileText className="h-3.5 w-3.5" />
+                    取得凭证预览
+                  </div>
+                  <div className="text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">借：固定资产</span>
+                      <span className="font-medium">¥{formatMoney(formData.originalValue)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>贷：{getCreditSubjectName(formData.acquisitionType)}</span>
+                      <span>¥{formatMoney(formData.originalValue)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -583,21 +617,36 @@ function AssetCardDialog({
                   />
                 </div>
               )}
+              {/* 购入/发票取得显示供应商 */}
+              {(formData.acquisitionType === 'purchase' || formData.acquisitionType === 'invoice') && (
+                <div className="space-y-1.5">
+                  <Label>供应商</Label>
+                  <Input
+                    value={formData.supplierName || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
+                    placeholder="请输入供应商"
+                    autoComplete="off"
+                  />
+                </div>
+              )}
+              {/* 内部转入显示往来单位 */}
+              {formData.acquisitionType === 'internal_transfer' && (
+                <div className="space-y-1.5">
+                  <Label>转入单位</Label>
+                  <Input
+                    value={formData.supplierName || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
+                    placeholder="请输入转入单位"
+                    autoComplete="off"
+                  />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>存放地点</Label>
                 <Input
                   value={formData.location || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
                   placeholder="请输入存放地点"
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>供应商</Label>
-                <Input
-                  value={formData.supplierName || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
-                  placeholder="请输入供应商"
                   autoComplete="off"
                 />
               </div>
@@ -700,6 +749,7 @@ export default function FixedAssetsPage() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
+  const [showAcquisitionRuleDialog, setShowAcquisitionRuleDialog] = useState(false);
   const [showDisposalDialog, setShowDisposalDialog] = useState(false);
   const [showImprovementDialog, setShowImprovementDialog] = useState(false);
   const [showQRLabelDialog, setShowQRLabelDialog] = useState(false);
@@ -875,6 +925,10 @@ export default function FixedAssetsPage() {
           <Button variant="outline" size="sm" onClick={() => setShowCategoryDialog(true)}>
             <Settings className="h-4 w-4 mr-2" />
             入账规则
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowAcquisitionRuleDialog(true)}>
+            <Settings className="h-4 w-4 mr-2" />
+            取得规则
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowBatchLabelDialog(true)}>
             <Printer className="h-4 w-4 mr-2" />
@@ -1223,6 +1277,12 @@ export default function FixedAssetsPage() {
       <AssetCategoryDialog
         open={showCategoryDialog}
         onOpenChange={setShowCategoryDialog}
+      />
+
+      {/* 取得规则配置对话框 */}
+      <AssetAcquisitionRuleDialog
+        open={showAcquisitionRuleDialog}
+        onOpenChange={setShowAcquisitionRuleDialog}
       />
 
       {/* 编码规则设置对话框 */}
