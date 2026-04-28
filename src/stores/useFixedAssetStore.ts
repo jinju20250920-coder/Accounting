@@ -1380,9 +1380,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       return null;
     }
 
-    // 检查是否需要生成凭证
     if (asset.acquisitionType === 'opening_balance' || asset.acquisitionType === 'invoice') {
-      return null; // 期初导入和发票取得不生成取得凭证
+      return null;
     }
 
     try {
@@ -1390,10 +1389,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const rule = getRuleByAcquisitionType(asset.acquisitionType);
 
       if (!rule || !rule.creditSubjectCode) {
-        return null; // 无规则或无贷方科目
+        return null;
       }
 
       const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const { getCurrentService } = await import('@/lib/database');
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;
@@ -1404,17 +1404,22 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
 
       sqliteService.setAccountSetId(accountSetId);
+
+      const vouchDate = voucherDate || asset.acquisitionDate;
+      const now = new Date().toISOString();
+      const voucherId = generateId();
+      const summary = `取得固定资产-${asset.assetName}`;
+
+      const debitSubjectCode = asset.assetSubjectCode || rule.debitSubjectCode;
+      const debitSubjectName = asset.assetSubjectName || rule.debitSubjectName;
+
+      // 生成凭证号
       const db = await sqliteService.getDatabase();
       if (!db) {
         set({ error: '数据库未初始化' });
         return null;
       }
-
-      // 使用取得日期作为凭证日期
-      const vouchDate = voucherDate || asset.acquisitionDate;
       const yearMonth = vouchDate.substring(0, 7).replace('-', '');
-
-      // 生成凭证号
       const vouchersResult = db.exec(
         'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
         [accountSetId, `记-${yearMonth}-%`]
@@ -1429,60 +1434,72 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
       const voucherNo = `记-${yearMonth}-${String(nextNum).padStart(3, '0')}`;
 
-      // 生成凭证ID
-      const voucherId = generateId();
-      const now = new Date().toISOString();
+      // 通过 sqliteService.saveVoucher 保存凭证和分录
+      const newVoucher = {
+        id: voucherId,
+        voucherNo,
+        date: vouchDate,
+        summary,
+        entries: [
+          {
+            id: generateId(),
+            voucherId,
+            date: vouchDate,
+            summary,
+            subjectCode: debitSubjectCode,
+            subjectName: debitSubjectName,
+            debit: asset.originalValue,
+            credit: 0,
+          },
+          {
+            id: generateId(),
+            voucherId,
+            date: vouchDate,
+            summary,
+            subjectCode: rule.creditSubjectCode,
+            subjectName: rule.creditSubjectName,
+            debit: 0,
+            credit: asset.originalValue,
+          },
+        ],
+        status: 'posted' as const,
+        voucherType: 'general' as const,
+        createdBy: 'system',
+        createTime: now,
+        updateTime: now,
+      };
 
-      // 借方科目（固定资产）
-      const debitSubjectCode = asset.assetSubjectCode || rule.debitSubjectCode;
-      // 贷方科目
-      const creditSubjectCode = rule.creditSubjectCode;
+      await getCurrentService().saveVoucher(newVoucher);
 
-      // 创建凭证
-      const stmt = db.prepare(
-        `INSERT INTO vouchers (id, voucherNo, voucherDate, period, summary, debitTotal, creditTotal, entriesCount, status, accountSetId, createTime, updateTime)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-      );
-      stmt.run([
-        voucherId, voucherNo, vouchDate, vouchDate.substring(0, 7),
-        `取得固定资产-${asset.assetName}`,
-        asset.originalValue, asset.originalValue, 2,
-        'posted', accountSetId, now, now
-      ]);
-      stmt.free();
-
-      // 创建分录
-      const entryStmt = db.prepare(
-        `INSERT INTO voucherEntries (id, voucherId, lineNo, summary, subjectCode, subjectName, debit, credit, auxiliary, accountSetId, createTime)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-      );
-
-      // 借方分录
-      const debitEntryId = generateId();
-      entryStmt.run([
-        debitEntryId, voucherId, 1,
-        `取得固定资产-${asset.assetName}`,
-        debitSubjectCode, asset.assetSubjectName || rule.debitSubjectName,
-        asset.originalValue, 0,
-        null, accountSetId, now
-      ]);
-
-      // 贷方分录
-      const creditEntryId = generateId();
-      entryStmt.run([
-        creditEntryId, voucherId, 2,
-        `取得固定资产-${asset.assetName}`,
-        creditSubjectCode, rule.creditSubjectName,
-        0, asset.originalValue,
-        null, accountSetId, now
-      ]);
-      entryStmt.free();
+      // 同步到 useVoucherStore 状态，使凭证列表立即可见
+      const { useVoucherStore } = await import('@/stores/useVoucherStore');
+      useVoucherStore.setState((prev) => ({
+        vouchers: [...prev.vouchers, newVoucher],
+      }));
 
       // 更新资产的凭证信息
       await get().updateAsset(assetId, {
         acquisitionVoucherId: voucherId,
         acquisitionVoucherNo: voucherNo,
         accountingStatus: 'accounted',
+      });
+
+      // 记录变动：取得成本入账
+      const accountSetStore2 = useAccountSetStore.getState();
+      await get().logAssetChange({
+        assetId,
+        assetCode: asset.assetCode,
+        assetName: asset.assetName,
+        accountSetId: accountSetStore2.getCurrentAccountSet()?.id || '',
+        changeType: 'acquisition',
+        changeDate: vouchDate,
+        period: vouchDate.substring(0, 7),
+        fieldName: 'accountingStatus',
+        beforeValue: 'pending',
+        afterValue: 'accounted',
+        voucherId,
+        voucherNo,
+        reason: `取得成本入账，原值 ¥${asset.originalValue.toLocaleString()}`,
       });
 
       return { voucherId, voucherNo };
