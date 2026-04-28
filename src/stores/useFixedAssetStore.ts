@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { useSubjectStore } from './useSubjectStore';
-import { getCurrentManager } from '@/lib/database';
+import { getCurrentService, getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import {
   calculateDepreciation,
@@ -1393,7 +1393,6 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
 
       const { sqliteService } = await import('@/lib/database/sqlite-service');
-      const { getCurrentService } = await import('@/lib/database');
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;
@@ -1413,7 +1412,6 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const debitSubjectCode = asset.assetSubjectCode || rule.debitSubjectCode;
       const debitSubjectName = asset.assetSubjectName || rule.debitSubjectName;
 
-      // 生成凭证号
       const db = await sqliteService.getDatabase();
       if (!db) {
         set({ error: '数据库未初始化' });
@@ -1434,7 +1432,6 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
       const voucherNo = `记-${yearMonth}-${String(nextNum).padStart(3, '0')}`;
 
-      // 通过 sqliteService.saveVoucher 保存凭证和分录
       const newVoucher = {
         id: voucherId,
         voucherNo,
@@ -1471,26 +1468,22 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       await getCurrentService().saveVoucher(newVoucher);
 
-      // 同步到 useVoucherStore 状态，使凭证列表立即可见
       const { useVoucherStore } = await import('@/stores/useVoucherStore');
       useVoucherStore.setState((prev) => ({
         vouchers: [...prev.vouchers, newVoucher],
       }));
 
-      // 更新资产的凭证信息
       await get().updateAsset(assetId, {
         acquisitionVoucherId: voucherId,
         acquisitionVoucherNo: voucherNo,
         accountingStatus: 'accounted',
       });
 
-      // 记录变动：取得成本入账
-      const accountSetStore2 = useAccountSetStore.getState();
       await get().logAssetChange({
         assetId,
         assetCode: asset.assetCode,
         assetName: asset.assetName,
-        accountSetId: accountSetStore2.getCurrentAccountSet()?.id || '',
+        accountSetId,
         changeType: 'acquisition',
         changeDate: vouchDate,
         period: vouchDate.substring(0, 7),
