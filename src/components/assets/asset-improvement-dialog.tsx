@@ -15,6 +15,7 @@ import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, TrendingUp, TrendingDown, RefreshCw, Info } from 'lucide-react';
+import { ACCOUNT_CODES } from '@/lib/accounting';
 import type { FixedAsset } from '@/types';
 import { AssetVoucherPreviewDialog, AssetVoucherPreviewData, AssetVoucherPreviewEntry } from './asset-voucher-preview-dialog';
 
@@ -118,14 +119,14 @@ export function AssetChangeDialog({
       entries = [
         {
           summary: `${asset.assetName}增值`,
-          subjectCode: asset.assetSubjectCode || '1501',
+          subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
           subjectName: asset.assetSubjectName || '固定资产',
           debit: Math.abs(changeAmount),
           credit: 0,
         },
         {
           summary: `支付${asset.assetName}增值费用`,
-          subjectCode: '1002',
+          subjectCode: ACCOUNT_CODES.BANK,
           subjectName: '银行存款',
           debit: 0,
           credit: Math.abs(changeAmount),
@@ -160,7 +161,7 @@ export function AssetChangeDialog({
           },
           {
             summary: `${asset.assetName}减值`,
-            subjectCode: asset.assetSubjectCode || '1501',
+            subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
             subjectName: asset.assetSubjectName || '固定资产',
             debit: 0,
             credit: Math.abs(changeAmount),

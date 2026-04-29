@@ -11,6 +11,7 @@ import {
   parseDepreciationMethod,
 } from '@/lib/depreciation';
 import { CodeRuleManager, generateCode } from '@/lib/code-generator';
+import { ACCOUNT_CODES } from '@/lib/accounting';
 import type {
   FixedAsset,
   DepreciationRecord,
@@ -174,14 +175,14 @@ function generateDisposalPreviewData(
     },
     {
       summary: `${asset.assetName}处置结转累计折旧`,
-      subjectCode: asset.depreciationSubjectCode || '1502',
+      subjectCode: asset.depreciationSubjectCode || ACCOUNT_CODES.ACCUMULATED_DEPRECIATION,
       subjectName: asset.depreciationSubjectName || '累计折旧',
       debit: disposal.disposedAccumulatedDepreciation,
       credit: 0,
     },
     {
       summary: `${asset.assetName}处置减少`,
-      subjectCode: asset.assetSubjectCode || '1501',
+      subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
       subjectName: asset.assetSubjectName || '固定资产',
       debit: 0,
       credit: disposal.disposedOriginalValue,
@@ -191,7 +192,7 @@ function generateDisposalPreviewData(
   if (disposal.disposalIncome > 0) {
     entries.push({
       summary: `${asset.assetName}处置收入`,
-      subjectCode: '1002',
+      subjectCode: ACCOUNT_CODES.BANK,
       subjectName: '银行存款',
       debit: disposal.disposalIncome,
       credit: 0,
@@ -215,7 +216,7 @@ function generateDisposalPreviewData(
     });
     entries.push({
       summary: `支付${asset.assetName}处置费用`,
-      subjectCode: '1002',
+      subjectCode: ACCOUNT_CODES.BANK,
       subjectName: '银行存款',
       debit: 0,
       credit: disposal.disposalExpense,
@@ -1432,8 +1433,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 按费用科目分组汇总折旧金额
       const expenseMap = new Map<string, { code: string; name: string; amount: number }>();
 
+      // 预先构建资产ID到资产对象的映射，避免N+1查找
+      const assetMap = new Map(state.assets.map(a => [a.id, a]));
+
       for (const record of records) {
-        const asset = state.assets.find(a => a.id === record.assetId);
+        const asset = assetMap.get(record.assetId);
         if (!asset) continue;
 
         const expenseCode = asset.expenseSubjectCode || '660204';
@@ -1696,14 +1700,14 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const entries: AssetVoucherPreviewEntry[] = [
       {
         summary: `${asset.assetName}增值`,
-        subjectCode: asset.assetSubjectCode || '1501',
+        subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
         subjectName: asset.assetSubjectName || '固定资产',
         debit: improvement.amount,
         credit: 0,
       },
       {
         summary: `支付${asset.assetName}增值费用`,
-        subjectCode: '1002',
+        subjectCode: ACCOUNT_CODES.BANK,
         subjectName: '银行存款',
         debit: 0,
         credit: improvement.amount,

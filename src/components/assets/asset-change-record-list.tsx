@@ -167,9 +167,9 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
         {selectedAsset && (
           <div className="text-sm text-slate-500 mb-2">
             {selectedAsset.assetCode} — {selectedAsset.assetName}
-            <span className="ml-4">原值: ¥{selectedAsset.originalValue.toLocaleString()}</span>
-            <span className="ml-4">累计折旧: ¥{selectedAsset.accumulatedDepreciation.toLocaleString()}</span>
-            <span className="ml-4">净值: ¥{selectedAsset.netValue.toLocaleString()}</span>
+            <span className="ml-4">原值: ¥{(selectedAsset.originalValue ?? 0).toLocaleString()}</span>
+            <span className="ml-4">累计折旧: ¥{(selectedAsset.accumulatedDepreciation ?? 0).toLocaleString()}</span>
+            <span className="ml-4">净值: ¥{(selectedAsset.netValue ?? 0).toLocaleString()}</span>
           </div>
         )}
 

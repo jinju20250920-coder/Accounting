@@ -4,6 +4,7 @@
  */
 
 import type { FixedAsset, AssetDisposal, AssetImprovement, DepreciationRecord } from '@/types';
+import { ACCOUNT_CODES } from './accounting';
 
 interface VoucherEntry {
   subjectCode: string;
@@ -54,7 +55,7 @@ export class AssetVoucherGenerator {
 
     // 借：固定资产
     entries.push({
-      subjectCode: asset.assetSubjectCode || '1501',
+      subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
       subjectName: asset.assetSubjectName || '固定资产',
       debit: asset.originalValue,
       credit: 0,
@@ -64,7 +65,7 @@ export class AssetVoucherGenerator {
     // 借：应交税费-进项税（如有）
     if (options?.taxAmount && options.taxAmount > 0) {
       entries.push({
-        subjectCode: '222101',
+        subjectCode: ACCOUNT_CODES.TAX_VAT_INPUT,
         subjectName: '应交税费-应交增值税-进项税额',
         debit: options.taxAmount,
         credit: 0,
@@ -75,7 +76,7 @@ export class AssetVoucherGenerator {
     // 贷：银行存款/应付账款
     const totalAmount = asset.originalValue + (options?.taxAmount || 0);
     entries.push({
-      subjectCode: options?.paymentSubjectCode || '1002',
+      subjectCode: options?.paymentSubjectCode || ACCOUNT_CODES.BANK,
       subjectName: options?.paymentSubjectName || '银行存款',
       debit: 0,
       credit: totalAmount,
@@ -107,7 +108,7 @@ export class AssetVoucherGenerator {
 
     // 借：固定资产
     entries.push({
-      subjectCode: asset.assetSubjectCode || '1501',
+      subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
       subjectName: asset.assetSubjectName || '固定资产',
       debit: improvement.addedValue,
       credit: 0,
@@ -116,7 +117,7 @@ export class AssetVoucherGenerator {
 
     // 贷：银行存款/应付账款
     entries.push({
-      subjectCode: options?.paymentSubjectCode || '1002',
+      subjectCode: options?.paymentSubjectCode || ACCOUNT_CODES.BANK,
       subjectName: options?.paymentSubjectName || '银行存款',
       debit: 0,
       credit: improvement.addedValue,
@@ -150,21 +151,21 @@ export class AssetVoucherGenerator {
     const voucher1No = await this.getVoucherNo(date);
     const entries1: VoucherEntry[] = [
       {
-        subjectCode: '1601',
+        subjectCode: ACCOUNT_CODES.FIXED_ASSET_CLEARING,
         subjectName: '固定资产清理',
         debit: disposal.disposedNetValue,
         credit: 0,
         summary: `${asset.assetName}处置转入清理`,
       },
       {
-        subjectCode: asset.depreciationSubjectCode || '1502',
+        subjectCode: asset.depreciationSubjectCode || ACCOUNT_CODES.ACCUMULATED_DEPRECIATION,
         subjectName: asset.depreciationSubjectName || '累计折旧',
         debit: disposal.disposedAccumulatedDepreciation,
         credit: 0,
         summary: `${asset.assetName}处置结转累计折旧`,
       },
       {
-        subjectCode: asset.assetSubjectCode || '1501',
+        subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
         subjectName: asset.assetSubjectName || '固定资产',
         debit: 0,
         credit: disposal.disposedOriginalValue,
@@ -179,14 +180,14 @@ export class AssetVoucherGenerator {
       const voucher2No = await this.getVoucherNo(date);
       const entries2: VoucherEntry[] = [
         {
-          subjectCode: '1002',
+          subjectCode: ACCOUNT_CODES.BANK,
           subjectName: '银行存款',
           debit: disposal.disposalIncome,
           credit: 0,
           summary: `${asset.assetName}处置收入`,
         },
         {
-          subjectCode: '1601',
+          subjectCode: ACCOUNT_CODES.FIXED_ASSET_CLEARING,
           subjectName: '固定资产清理',
           debit: 0,
           credit: disposal.disposalIncome,
@@ -202,14 +203,14 @@ export class AssetVoucherGenerator {
       const voucher3No = await this.getVoucherNo(date);
       const entries3: VoucherEntry[] = [
         {
-          subjectCode: '1601',
+          subjectCode: ACCOUNT_CODES.FIXED_ASSET_CLEARING,
           subjectName: '固定资产清理',
           debit: disposal.disposalExpense,
           credit: 0,
           summary: `${asset.assetName}处置费用`,
         },
         {
-          subjectCode: '1002',
+          subjectCode: ACCOUNT_CODES.BANK,
           subjectName: '银行存款',
           debit: 0,
           credit: disposal.disposalExpense,
@@ -229,14 +230,14 @@ export class AssetVoucherGenerator {
         // 净收益
         entries4.push(
           {
-            subjectCode: '1601',
+            subjectCode: ACCOUNT_CODES.FIXED_ASSET_CLEARING,
             subjectName: '固定资产清理',
             debit: 0,
             credit: disposal.netGainLoss,
             summary: `${asset.assetName}处置净收益`,
           },
           {
-            subjectCode: '6301',
+            subjectCode: ACCOUNT_CODES.NON_OPERATING_INCOME,
             subjectName: '营业外收入',
             debit: 0,
             credit: disposal.netGainLoss,
@@ -248,14 +249,14 @@ export class AssetVoucherGenerator {
         const lossAmount = Math.abs(disposal.netGainLoss);
         entries4.push(
           {
-            subjectCode: '6711',
+            subjectCode: ACCOUNT_CODES.NON_OPERATING_EXPENSE,
             subjectName: '营业外支出',
             debit: lossAmount,
             credit: 0,
             summary: `${asset.assetName}处置损失`,
           },
           {
-            subjectCode: '1601',
+            subjectCode: ACCOUNT_CODES.FIXED_ASSET_CLEARING,
             subjectName: '固定资产清理',
             debit: lossAmount,
             credit: 0,
@@ -286,7 +287,7 @@ export class AssetVoucherGenerator {
 
     // 借：固定资产
     entries.push({
-      subjectCode: asset.assetSubjectCode || '1501',
+      subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
       subjectName: asset.assetSubjectName || '固定资产',
       debit: asset.originalValue,
       credit: 0,
@@ -295,7 +296,7 @@ export class AssetVoucherGenerator {
 
     // 贷：在建工程
     entries.push({
-      subjectCode: asset.cipSubjectCode || '1604',
+      subjectCode: asset.cipSubjectCode || ACCOUNT_CODES.CONSTRUCTION_IN_PROGRESS,
       subjectName: asset.cipSubjectName || '在建工程',
       debit: 0,
       credit: asset.originalValue,
@@ -321,11 +322,14 @@ export class AssetVoucherGenerator {
     const voucherNo = await this.getVoucherNo(date);
     const entries: VoucherEntry[] = [];
 
+    // 预先构建资产ID到资产对象的映射，避免N+1查找
+    const assetMap = new Map(assets.map(a => [a.id, a]));
+
     // 按费用科目分组汇总
     const expenseMap = new Map<string, { code: string; name: string; amount: number }>();
 
     for (const record of records) {
-      const asset = assets.find(a => a.id === record.assetId);
+      const asset = assetMap.get(record.assetId);
       if (!asset) continue;
 
       const expenseCode = asset.expenseSubjectCode || '660204';
@@ -358,7 +362,7 @@ export class AssetVoucherGenerator {
     // 贷方：累计折旧
     const totalDepreciation = records.reduce((sum, r) => sum + r.periodDepreciation, 0);
     entries.push({
-      subjectCode: '1502',
+      subjectCode: ACCOUNT_CODES.ACCUMULATED_DEPRECIATION,
       subjectName: '累计折旧',
       debit: 0,
       credit: totalDepreciation,

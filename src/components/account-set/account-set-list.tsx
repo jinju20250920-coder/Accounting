@@ -153,7 +153,7 @@ export function AccountSetList() {
               <div>
                 <p className="text-sm text-muted-foreground">总凭证数</p>
                 <p className="text-2xl font-bold">
-                  {accountSets.reduce((sum, s) => sum + s.voucherCount, 0).toLocaleString()}
+                  {accountSets.reduce((sum, s) => sum + (s.voucherCount ?? 0), 0).toLocaleString()}
                 </p>
               </div>
               <FileText className="h-8 w-8 text-purple-200" />

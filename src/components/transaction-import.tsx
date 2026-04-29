@@ -1279,17 +1279,17 @@ export function TransactionImport({ importType }: TransactionImportProps) {
                         <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                           {transaction.debit ? (
                             <span className="font-medium text-blue-600 text-sm">
-                              借: ¥{transaction.debit.toLocaleString()}
+                              借: ¥{(transaction.debit ?? 0).toLocaleString()}
                             </span>
                           ) : null}
                           {transaction.credit ? (
                             <span className="font-medium text-red-600 text-sm">
-                              贷: ¥{transaction.credit.toLocaleString()}
+                              贷: ¥{(transaction.credit ?? 0).toLocaleString()}
                             </span>
                           ) : null}
                           {transaction.balance != null && (
                             <span className="text-sm text-slate-400 flex-shrink-0">
-                              余额: ¥{transaction.balance.toLocaleString()}
+                              余额: ¥{(transaction.balance ?? 0).toLocaleString()}
                             </span>
                           )}
                           {getStatusBadge(record.status)}

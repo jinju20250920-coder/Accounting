@@ -171,7 +171,7 @@ export function PeriodManagement() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">凭证总数</p>
-                <p className="text-2xl font-bold">{stats.totalVouchers.toLocaleString()}</p>
+                <p className="text-2xl font-bold">{(stats.totalVouchers ?? 0).toLocaleString()}</p>
               </div>
               <FileText className="h-8 w-8 text-purple-200" />
             </div>
@@ -246,7 +246,7 @@ export function PeriodManagement() {
                           <div>
                             <span className="text-muted-foreground">期末余额:</span>
                             <span className="ml-2 font-medium text-green-600">
-                              ¥{period.closingBalance.toLocaleString()}
+                              ¥{(period.closingBalance ?? 0).toLocaleString()}
                             </span>
                           </div>
                         )}

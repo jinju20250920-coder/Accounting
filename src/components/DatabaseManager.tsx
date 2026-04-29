@@ -263,7 +263,7 @@ export function DatabaseManager() {
                         已同步
                       </Badge>
                       <div className="text-xs text-gray-500 mt-1">
-                        {new Date(stats.lastSync).toLocaleString()}
+                        {stats.lastSync ? new Date(stats.lastSync).toLocaleString() : '未知时间'}
                       </div>
                     </>
                   ) : (

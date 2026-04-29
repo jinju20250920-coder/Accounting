@@ -63,7 +63,7 @@ export function calculateStraightLineAmortization(
     remainingAmount,
     remainingLife,
     isFullyAmortized,
-    calculationDetails: `直线法: (${originalValue.toLocaleString()} - ${residualValue.toLocaleString()}) / ${usefulLifeMonths}月 = ${monthlyAmortization.toFixed(2)}/月`,
+    calculationDetails: `直线法: (${(originalValue ?? 0).toLocaleString()} - ${(residualValue ?? 0).toLocaleString()}) / ${usefulLifeMonths}月 = ${monthlyAmortization.toFixed(2)}/月`,
   };
 }
 
@@ -149,7 +149,7 @@ export function calculateUnitsAmortization(
     remainingAmount,
     remainingLife,
     isFullyAmortized,
-    calculationDetails: `产量法: ${unitsThisPeriod}单位 × (${originalValue.toLocaleString()} - ${residualValue.toLocaleString()}) / ${totalUnits.toLocaleString()} = ${periodAmortization.toFixed(2)}`,
+    calculationDetails: `产量法: ${unitsThisPeriod}单位 × (${(originalValue ?? 0).toLocaleString()} - ${(residualValue ?? 0).toLocaleString()}) / ${(totalUnits ?? 0).toLocaleString()} = ${periodAmortization.toFixed(2)}`,
   };
 }
 

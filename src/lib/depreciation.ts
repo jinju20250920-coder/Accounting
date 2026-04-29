@@ -78,7 +78,7 @@ export function calculateStraightLineDepreciation(
     netValue,
     remainingLife,
     isFullyDepreciated,
-    calculationDetails: `直线法: (${originalValue.toLocaleString()} - ${salvageValue.toLocaleString()}) / ${usefulLifeMonths}月 = ${monthlyDepreciation.toFixed(2)}/月`,
+    calculationDetails: `直线法: (${(originalValue ?? 0).toLocaleString()} - ${(salvageValue ?? 0).toLocaleString()}) / ${usefulLifeMonths}月 = ${monthlyDepreciation.toFixed(2)}/月`,
   };
 }
 
@@ -158,7 +158,7 @@ export function calculateDoubleDecliningDepreciation(
     netValue,
     remainingLife,
     isFullyDepreciated,
-    calculationDetails: `双倍余额递减法: 账面净值 ${bookValue.toLocaleString()} × 月折旧率 ${(monthlyRate * 100).toFixed(4)}% = ${periodDepreciation.toFixed(2)}`,
+    calculationDetails: `双倍余额递减法: 账面净值 ${(bookValue ?? 0).toLocaleString()} × 月折旧率 ${(monthlyRate * 100).toFixed(4)}% = ${periodDepreciation.toFixed(2)}`,
   };
 }
 
@@ -233,7 +233,7 @@ export function calculateSumOfYearsDepreciation(
     netValue,
     remainingLife,
     isFullyDepreciated,
-    calculationDetails: `年数总和法: (${originalValue.toLocaleString()} - ${salvageValue.toLocaleString()}) × (${remainingLifeYears.toFixed(2)}年 / ${sumOfYears}) / 12 = ${periodDepreciation.toFixed(2)}`,
+    calculationDetails: `年数总和法: (${(originalValue ?? 0).toLocaleString()} - ${(salvageValue ?? 0).toLocaleString()}) × (${remainingLifeYears.toFixed(2)}年 / ${sumOfYears}) / 12 = ${periodDepreciation.toFixed(2)}`,
   };
 }
 
@@ -319,7 +319,7 @@ export function calculateUnitsOfProductionDepreciation(
     netValue,
     remainingLife,
     isFullyDepreciated,
-    calculationDetails: `工作量法: ${unitsThisPeriod}单位 × (${originalValue.toLocaleString()} - ${salvageValue.toLocaleString()}) / ${totalUnits.toLocaleString()} = ${periodDepreciation.toFixed(2)}`,
+    calculationDetails: `工作量法: ${unitsThisPeriod}单位 × (${(originalValue ?? 0).toLocaleString()} - ${(salvageValue ?? 0).toLocaleString()}) / ${(totalUnits ?? 0).toLocaleString()} = ${periodDepreciation.toFixed(2)}`,
   };
 }
 

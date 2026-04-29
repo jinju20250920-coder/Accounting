@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -77,7 +76,6 @@ function AssetCardDialog({
   requireDepartment: boolean;
 }) {
   const { showToast } = useToast();
-  const [generateVoucher, setGenerateVoucher] = useState(true); // 是否生成取得凭证
   const [formData, setFormData] = useState<Partial<FixedAsset>>({
     assetCode: '',
     assetName: '',
@@ -137,7 +135,6 @@ function AssetCardDialog({
         acquisitionType: 'purchase',
         accountingStatus: 'pending',
       });
-      setGenerateVoucher(true);
     }
   }, [asset, open, existingCodes]);
 
@@ -167,14 +164,6 @@ function AssetCardDialog({
         ? 'accounted'
         : 'pending',
     }));
-    if (isOpening) {
-      setGenerateVoucher(false);
-    }
-  };
-
-  // 当生成凭证开关变化时
-  const handleGenerateVoucherChange = (checked: boolean) => {
-    setGenerateVoucher(checked);
   };
 
   const handleSubmit = async () => {
@@ -245,24 +234,20 @@ function AssetCardDialog({
         assetCode,
         usefulLifeMonths,
         quantity,
-        // 新增时 remainingQuantity = quantity，编辑时保持原值
         remainingQuantity: asset?.remainingQuantity ?? quantity,
         unitPrice: (formData.originalValue || 0) / quantity,
         depreciationStartDate: depreciationStartStr,
         depreciationEndDate: depreciationEndStr,
         accountingStatus,
         isOpeningBalance: formData.acquisitionType === 'opening_balance',
-        // 保持原有的已折旧月数
         depreciatedMonths: asset?.depreciatedMonths,
         remainingDepreciationMonths: asset?.remainingDepreciationMonths,
       });
 
-      if (generateVoucher && savedAsset && typeof savedAsset === 'object') {
-        const { generateAcquisitionVoucher } = useFixedAssetStore.getState();
-        const result = await generateAcquisitionVoucher(savedAsset.id);
-        if (result) {
-          showToast('success', `取得凭证 ${result.voucherNo} 已生成`);
-        }
+      if (!asset?.acquisitionVoucherId && formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice') {
+        showToast('success', '资产已保存，请在清单中点击"入账"生成取得凭证');
+      } else {
+        showToast('success', '资产已保存');
       }
     } catch (error: any) {
       showToast('error', error.message || '保存失败');
@@ -278,20 +263,9 @@ function AssetCardDialog({
     (formData.usefulLifeYears || 5) * 12
   );
 
-  const formatMoney = (value: number) => {
+  const formatMoney = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return '0.00';
     return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
-  // 根据取得类型获取贷方科目名称
-  const getCreditSubjectName = (acquisitionType: string): string => {
-    const map: Record<string, string> = {
-      purchase: '银行存款',
-      shareholder_input: '实收资本',
-      surplus: '营业外收入',
-      internal_transfer: '其他应付款',
-      other: '待处理财产损溢',
-    };
-    return map[acquisitionType] || '银行存款';
   };
 
   return (
@@ -534,26 +508,6 @@ function AssetCardDialog({
                   </div>
                 </div>
               )}
-
-              {/* 取得凭证预览 */}
-              {generateVoucher && formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice' && formData.originalValue > 0 && (
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                  <div className="flex items-center gap-2 text-blue-700 text-xs font-medium mb-2">
-                    <FileText className="h-3.5 w-3.5" />
-                    取得凭证预览
-                  </div>
-                  <div className="text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">借：固定资产</span>
-                      <span className="font-medium">¥{formatMoney(formData.originalValue)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-500">
-                      <span>贷：{getCreditSubjectName(formData.acquisitionType)}</span>
-                      <span>¥{formatMoney(formData.originalValue)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
@@ -583,22 +537,28 @@ function AssetCardDialog({
                   </SelectContent>
                 </Select>
               </div>
-              {/* 生成取得凭证开关 */}
-              {formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice' && (
+              {formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice' && !asset?.acquisitionVoucherId && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs">生成取得凭证</Label>
+                  <Label className="text-xs">入账状态</Label>
                   <div className="flex items-center gap-2">
-                    <Switch
-                      checked={generateVoucher}
-                      onCheckedChange={handleGenerateVoucherChange}
-                    />
+                    <Badge variant="outline" className="bg-yellow-100 text-yellow-700">未入账</Badge>
                     <span className="text-xs text-slate-500">
-                      {generateVoucher ? '保存后自动生成凭证' : '暂不生成凭证（未入账资产）'}
+                      保存后需在清单中点击"入账"生成取得凭证
                     </span>
                   </div>
                 </div>
               )}
-              {/* 期初导入显示初始累计折旧输入 */}
+              {asset?.acquisitionVoucherNo && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">取得凭证</Label>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-green-100 text-green-700">已入账</Badge>
+                    <span className="text-xs text-slate-600">
+                      {asset.acquisitionVoucherNo}
+                    </span>
+                  </div>
+                </div>
+              )}
               {formData.acquisitionType === 'opening_balance' && (
                 <div className="space-y-1.5">
                   <Label>初始累计折旧</Label>
@@ -1164,14 +1124,9 @@ export default function FixedAssetsPage() {
                 ) : (
                   filteredAssets.map((asset) => {
                     // 计算剩余折旧月份
-                    const calculateRemainingMonths = () => {
-                      if (asset.status !== 'active') return '-';
-                      const totalMonths = asset.usefulLifeMonths || (asset.usefulLifeYears || 0) * 12;
-                      const depreciated = asset.depreciatedMonths || 0;
-                      const remaining = totalMonths - depreciated;
-                      return remaining > 0 ? remaining : 0;
-                    };
-                    const remainingMonths = calculateRemainingMonths();
+                    const totalMonths = asset.usefulLifeMonths ?? (asset.usefulLifeYears ?? 5) * 12;
+                    const depreciated = asset.depreciatedMonths ?? 0;
+                    const remainingMonths = asset.status !== 'active' ? '-' : Math.max(0, totalMonths - depreciated);
 
                     return (
                     <tr key={asset.id} className="border-b hover:bg-slate-50">

@@ -368,7 +368,7 @@ export default function Dashboard() {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0' }}
                     labelStyle={{ color: '#64748b' }}
-                    formatter={(value: number) => `¥${value.toLocaleString()}`}
+                    formatter={(value: number | null) => `¥${(value ?? 0).toLocaleString()}`}
                   />
                   <Area
                     type="monotone"
@@ -454,7 +454,7 @@ export default function Dashboard() {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0' }}
                     labelStyle={{ color: '#64748b' }}
-                    formatter={(value: number) => `¥${value.toLocaleString()}`}
+                    formatter={(value: number | null) => `¥${(value ?? 0).toLocaleString()}`}
                   />
                   <Legend />
                   <Bar dataKey="current" name="当前金额" fill="#3b82f6" />
