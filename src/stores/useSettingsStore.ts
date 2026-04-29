@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DATA_VERSIONS } from './persistence-config';
+import type { AssetFinancialSettings } from '@/types';
 
 // 应用设置接口
 interface AppSettings {
@@ -57,6 +58,9 @@ interface AppSettings {
     deleteEntry: string;
     autoBalance: string;
   };
+
+  // 资产财务规则设置
+  assetFinancialSettings: AssetFinancialSettings;
 }
 
 // 默认设置
@@ -100,6 +104,15 @@ const defaultSettings: AppSettings = {
     addEntry: 'Tab',
     deleteEntry: 'Delete',
     autoBalance: 'Ctrl+B'
+  },
+  assetFinancialSettings: {
+    impairmentMethod: 'provision',
+    disposalVoucherMode: 'auto',
+    disposalClearingSubjectCode: '1601',
+    impairmentLossSubjectCode: '6701',
+    impairmentProvisionSubjectCode: '1503',
+    gainSubjectCode: '6301',
+    lossSubjectCode: '6711',
   }
 };
 
@@ -146,6 +159,7 @@ interface SettingsStore {
   getUserInfo: () => { name: string; company: string; };
   getFeatureFlags: () => AppSettings['features'];
   getUIPreferences: () => AppSettings['ui'];
+  getAssetFinancialSettings: () => AssetFinancialSettings;
 }
 
 // 数据迁移配置
@@ -180,6 +194,9 @@ export const useSettingsStore = create<SettingsStore>()(
       }),
       ...(newSettings.accounting && {
         accounting: { ...state.settings.accounting, ...newSettings.accounting }
+      }),
+      ...(newSettings.assetFinancialSettings && {
+        assetFinancialSettings: { ...state.settings.assetFinancialSettings, ...newSettings.assetFinancialSettings }
       })
     }
   })),
@@ -239,7 +256,10 @@ export const useSettingsStore = create<SettingsStore>()(
   getUIPreferences: () => {
     const state = get();
     return state.settings.ui;
-  }
+  },
+
+  // 获取资产财务规则设置
+  getAssetFinancialSettings: () => get().settings.assetFinancialSettings
 }),
 {
   name: 'finance-settings',
