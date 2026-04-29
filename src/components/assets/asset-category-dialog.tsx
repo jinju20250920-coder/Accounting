@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,13 +37,14 @@ import {
   Settings,
   Search,
   X,
+  BookOpen,
 } from 'lucide-react';
 import {
   DEFAULT_ACQUISITION_RULES,
   ACQUISITION_TYPE_NAMES,
   type AssetAcquisitionRule,
 } from '@/lib/asset-acquisition-rule';
-import type { AssetCategory, DepreciationMethod } from '@/types';
+import type { AssetCategory, DepreciationMethod, AssetFinancialSettings } from '@/types';
 
 // 科目选择器组件 - Portal 模式（compact 模式用于表格内）
 function SubjectSelector({
@@ -405,7 +407,7 @@ function CategoryEditDialog({
 }
 
 // Tab 类型
-type TabType = 'category' | 'acquisition';
+type TabType = 'category' | 'acquisition' | 'voucher';
 
 // 统一核算规则对话框
 export function AssetCategoryDialog({
@@ -432,6 +434,7 @@ export function AssetCategoryDialog({
 
   const { subjects, initializeSubjects } = useSubjectStore();
   const { showToast } = useToast();
+  const { settings, updateSettings } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState<TabType>('category');
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -493,6 +496,16 @@ export function AssetCategoryDialog({
     showToast('success', '规则保存成功');
   };
 
+  // 更新资产财务规则设置
+  const updateAssetFinancialSettings = (updates: Partial<AssetFinancialSettings>) => {
+    updateSettings({
+      assetFinancialSettings: {
+        ...settings.assetFinancialSettings,
+        ...updates
+      }
+    });
+  };
+
   const getDepreciationMethodName = (method: DepreciationMethod) => {
     const map: Record<DepreciationMethod, string> = {
       straight_line: '直线法',
@@ -506,6 +519,7 @@ export function AssetCategoryDialog({
   const tabs: { key: TabType; label: string; icon: React.ReactNode }[] = [
     { key: 'category', label: '折旧与科目', icon: <Calculator className="h-3.5 w-3.5" /> },
     { key: 'acquisition', label: '取得成本规则', icon: <FileText className="h-3.5 w-3.5" /> },
+    { key: 'voucher', label: '凭证规则', icon: <BookOpen className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -779,9 +793,137 @@ export function AssetCategoryDialog({
           </div>
         )}
 
+        {/* Tab 3: 凭证规则 */}
+        {activeTab === 'voucher' && (
+          <div className="space-y-4 py-3">
+            {/* 减值处理方式 */}
+            <div className="p-3 bg-slate-50 rounded-lg space-y-3">
+              <div className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                <Calculator className="h-3 w-3" />
+                减值处理方式
+              </div>
+              <div className="space-y-2">
+                <Select
+                  value={settings.assetFinancialSettings.impairmentMethod}
+                  onValueChange={(v) => updateAssetFinancialSettings({ impairmentMethod: v as 'provision' | 'direct_reduction' })}
+                >
+                  <SelectTrigger className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="provision">计提减值准备</SelectItem>
+                    <SelectItem value="direct_reduction">直接减少原值</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  {settings.assetFinancialSettings.impairmentMethod === 'provision'
+                    ? '计提准备：借记资产减值损失，贷记减值准备'
+                    : '直接减少：借记营业外支出，贷记固定资产'}
+                </p>
+              </div>
+            </div>
+
+            {/* 处置凭证生成方式 */}
+            <div className="p-3 bg-slate-50 rounded-lg space-y-3">
+              <div className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                <FileText className="h-3 w-3" />
+                处置凭证生成方式
+              </div>
+              <div className="space-y-2">
+                <Select
+                  value={settings.assetFinancialSettings.disposalVoucherMode}
+                  onValueChange={(v) => updateAssetFinancialSettings({ disposalVoucherMode: v as 'single' | 'multiple' | 'auto' })}
+                >
+                  <SelectTrigger className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动（推荐）</SelectItem>
+                    <SelectItem value="single">合并为一张凭证</SelectItem>
+                    <SelectItem value="multiple">拆分多张凭证</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  自动模式：简单处置合并为一张凭证，复杂处置拆分为多张
+                </p>
+              </div>
+            </div>
+
+            {/* 凭证科目配置 */}
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg space-y-3">
+              <div className="text-xs font-medium text-blue-700 flex items-center gap-1">
+                <BookOpen className="h-3 w-3" />
+                凭证科目配置
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">固定资产清理科目</Label>
+                  <Input
+                    value={settings.assetFinancialSettings.disposalClearingSubjectCode}
+                    onChange={(e) => updateAssetFinancialSettings({ disposalClearingSubjectCode: e.target.value })}
+                    placeholder="1601"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">资产减值损失科目</Label>
+                  <Input
+                    value={settings.assetFinancialSettings.impairmentLossSubjectCode}
+                    onChange={(e) => updateAssetFinancialSettings({ impairmentLossSubjectCode: e.target.value })}
+                    placeholder="6701"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">减值准备科目</Label>
+                  <Input
+                    value={settings.assetFinancialSettings.impairmentProvisionSubjectCode}
+                    onChange={(e) => updateAssetFinancialSettings({ impairmentProvisionSubjectCode: e.target.value })}
+                    placeholder="1503"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">处置收益科目</Label>
+                  <Input
+                    value={settings.assetFinancialSettings.gainSubjectCode}
+                    onChange={(e) => updateAssetFinancialSettings({ gainSubjectCode: e.target.value })}
+                    placeholder="6301"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">处置损失科目</Label>
+                  <Input
+                    value={settings.assetFinancialSettings.lossSubjectCode}
+                    onChange={(e) => updateAssetFinancialSettings({ lossSubjectCode: e.target.value })}
+                    placeholder="6711"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 说明 */}
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
+              <p className="font-medium mb-1">科目说明</p>
+              <ul className="list-disc list-inside space-y-0.5 text-blue-600">
+                <li>固定资产清理科目：处置时结转资产价值的过渡科目</li>
+                <li>资产减值损失科目：计提减值时的损失科目</li>
+                <li>减值准备科目：计提减值时的准备科目</li>
+                <li>处置收益科目：处置净收益结转科目</li>
+                <li>处置损失科目：处置净损失结转科目</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
         <DialogFooter>
           {activeTab === 'acquisition' && (
             <Button onClick={handleSaveRules}>保存规则</Button>
+          )}
+          {activeTab === 'voucher' && (
+            <Button onClick={() => showToast('success', '凭证规则保存成功')}>保存规则</Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>关闭</Button>
         </DialogFooter>
