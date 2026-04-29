@@ -110,8 +110,10 @@ export default function BatchDepreciationPage() {
     // 检查是否有本月已计提折旧的资产
     const alreadyDepreciated = Array.from(selectedAssetIds).filter(id => depreciatedAssetIdsThisPeriod.has(id));
     if (alreadyDepreciated.length > 0) {
+      // 使用 Map 优化查找性能
+      const assetMap = new Map(assets.map(a => [a.id, a]));
       const assetNames = alreadyDepreciated
-        .map(id => assets.find(a => a.id === id)?.assetCode)
+        .map(id => assetMap.get(id)?.assetCode)
         .filter(Boolean)
         .slice(0, 3)
         .join('、');

@@ -1551,29 +1551,26 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const depreciableValue = asset.originalValue - asset.salvageValue;
     if (asset.accumulatedDepreciation >= depreciableValue) return false;
 
-    // 获取折旧开始期间
-    // 规则：当月新增，下月开始折旧
+    // 当月新增，下月开始折旧
     const acquisitionPeriod = asset.acquisitionDate.substring(0, 7);
     if (period <= acquisitionPeriod) return false;
 
-    // 如果有明确的折旧开始日期，检查是否已到开始时间
+    // 折旧开始日期检查
     if (asset.depreciationStartDate) {
       const depreciationStartPeriod = asset.depreciationStartDate.substring(0, 7);
       if (period < depreciationStartPeriod) return false;
     }
 
-    // 如果有明确的折旧结束日期，检查是否已过期
+    // 折旧结束日期检查
     if (asset.depreciationEndDate) {
       const depreciationEndPeriod = asset.depreciationEndDate.substring(0, 7);
       if (period > depreciationEndPeriod) return false;
     }
 
-    // 检查使用年限是否已满
-    // 计算从取得日期到当前期间已过月数
+    // 使用年限是否已满（取得当月不计提）
     const [acqYear, acqMonth] = acquisitionPeriod.split('-').map(Number);
     const [curYear, curMonth] = period.split('-').map(Number);
     const monthsSinceAcquisition = (curYear - acqYear) * 12 + (curMonth - acqMonth);
-    // 减去取得当月（当月不计提），得到已过折旧月数
     const monthsOfDepreciation = monthsSinceAcquisition - 1;
     if (monthsOfDepreciation >= asset.usefulLifeMonths) return false;
 
