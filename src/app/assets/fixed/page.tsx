@@ -245,12 +245,16 @@ function AssetCardDialog({
         assetCode,
         usefulLifeMonths,
         quantity,
-        remainingQuantity: quantity,
+        // 新增时 remainingQuantity = quantity，编辑时保持原值
+        remainingQuantity: asset?.remainingQuantity ?? quantity,
         unitPrice: (formData.originalValue || 0) / quantity,
         depreciationStartDate: depreciationStartStr,
         depreciationEndDate: depreciationEndStr,
         accountingStatus,
         isOpeningBalance: formData.acquisitionType === 'opening_balance',
+        // 保持原有的已折旧月数
+        depreciatedMonths: asset?.depreciatedMonths,
+        remainingDepreciationMonths: asset?.remainingDepreciationMonths,
       });
 
       if (generateVoucher && savedAsset && typeof savedAsset === 'object') {
