@@ -738,6 +738,7 @@ export default function FixedAssetsPage() {
     setFilter,
     getFilteredAssets,
     importAssetsFromExcel,
+    requireDepartment,
   } = useFixedAssetStore();
 
   const { showToast } = useToast();
@@ -834,13 +835,10 @@ export default function FixedAssetsPage() {
   };
 
   const handleAccountAsset = async (asset: FixedAsset) => {
-    // 检查分类是否要求部门必填
-    if (asset.categoryId) {
-      const category = categories.find(c => c.id === asset.categoryId);
-      if (category?.requireDepartment && !asset.departmentCode && !asset.departmentName) {
-        showToast('error', '该分类要求入账时必须填写部门编号');
-        return;
-      }
+    // 检查全局设置是否要求部门必填
+    if (requireDepartment && !asset.departmentCode && !asset.departmentName) {
+      showToast('error', '入账时必须填写部门编号');
+      return;
     }
 
     try {
@@ -878,18 +876,13 @@ export default function FixedAssetsPage() {
       return;
     }
 
-    // 检查是否有分类要求部门必填但未填写的资产
-    const missingDepartment = pendingAssets.find(asset => {
-      if (asset.categoryId) {
-        const category = categories.find(c => c.id === asset.categoryId);
-        return category?.requireDepartment && !asset.departmentCode && !asset.departmentName;
+    // 检查全局设置是否要求部门必填
+    if (requireDepartment) {
+      const missingDepartment = pendingAssets.find(asset => !asset.departmentCode && !asset.departmentName);
+      if (missingDepartment) {
+        showToast('error', `资产 ${missingDepartment.assetCode} 需要填写部门编号`);
+        return;
       }
-      return false;
-    });
-
-    if (missingDepartment) {
-      showToast('error', `资产 ${missingDepartment.assetCode} 需要填写部门编号`);
-      return;
     }
 
     const results = await Promise.allSettled(pendingAssets.map(a => generateAcquisitionVoucher(a.id)));

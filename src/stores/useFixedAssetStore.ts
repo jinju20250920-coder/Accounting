@@ -34,6 +34,7 @@ interface FixedAssetStore {
   filter: AssetFilter;
   subjectSplitEnabled: boolean;
   subSubjectSeparator: '' | '.' | '_';
+  requireDepartment: boolean; // 入账时部门是否必填（全局设置）
 
   // CRUD - 资产
   addAsset: (asset: Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'>) => Promise<FixedAsset>;
@@ -85,6 +86,7 @@ interface FixedAssetStore {
   setFilter: (filter: Partial<AssetFilter>) => void;
   setSubjectSplitEnabled: (enabled: boolean) => void;
   setSubSubjectSeparator: (separator: '' | '.' | '_') => void;
+  setRequireDepartment: (required: boolean) => void;
   clearError: () => void;
   initialize: () => Promise<void>;
   initializeDefaultCategories: () => Promise<void>;
@@ -228,6 +230,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
   selectedAssetId: null,
   subjectSplitEnabled: false,
   subSubjectSeparator: '',
+  requireDepartment: false,
   filter: {},
 
   // 添加资产
@@ -1010,6 +1013,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
   // 设置子科目分隔符
   setSubSubjectSeparator: (separator) => {
     set({ subSubjectSeparator: separator });
+  },
+
+  // 设置入账时部门必填
+  setRequireDepartment: (required) => {
+    set({ requireDepartment: required });
   },
 
   // 设置筛选条件

@@ -327,16 +327,6 @@ function CategoryEditDialog({
                   onCheckedChange={checked => setFormData(prev => ({ ...prev, enabled: checked }))}
                 />
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-slate-600">入账时部门必填</span>
-                  <p className="text-[10px] text-slate-400">开启后，该分类资产入账时必须填写部门</p>
-                </div>
-                <Switch
-                  checked={formData.requireDepartment ?? false}
-                  onCheckedChange={checked => setFormData(prev => ({ ...prev, requireDepartment: checked }))}
-                />
-              </div>
             </div>
           </div>
 
@@ -436,6 +426,8 @@ export function AssetCategoryDialog({
     setSubjectSplitEnabled,
     subSubjectSeparator,
     setSubSubjectSeparator,
+    requireDepartment,
+    setRequireDepartment,
   } = useFixedAssetStore();
 
   const { subjects, initializeSubjects } = useSubjectStore();
@@ -551,8 +543,9 @@ export function AssetCategoryDialog({
         {/* Tab 1: 折旧与科目 */}
         {activeTab === 'category' && (
           <div className="space-y-3 py-3">
-            {/* 科目拆分明细开关 */}
+            {/* 全局设置 */}
             <div className="p-3 bg-orange-50 border border-orange-100 rounded-lg space-y-3">
+              {/* 科目拆分明细开关 */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Settings className="h-4 w-4 text-orange-600" />
@@ -594,6 +587,23 @@ export function AssetCategoryDialog({
                   </div>
                 </div>
               )}
+
+              {/* 入账时部门必填开关 */}
+              <div className="flex items-center justify-between border-t border-orange-200 pt-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-orange-600" />
+                  <div>
+                    <div className="text-sm font-medium text-orange-800">入账时部门必填</div>
+                    <div className="text-xs text-orange-600">
+                      开启后，固定资产入账时必须填写部门编号
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  checked={requireDepartment}
+                  onCheckedChange={setRequireDepartment}
+                />
+              </div>
             </div>
 
             {/* 快速新增 */}
@@ -623,7 +633,6 @@ export function AssetCategoryDialog({
                       <th className="text-left p-2 font-medium">资产科目</th>
                       <th className="text-left p-2 font-medium">折旧科目</th>
                       <th className="text-left p-2 font-medium">费用科目</th>
-                      <th className="text-center p-2 font-medium">部门必填</th>
                       <th className="text-center p-2 font-medium">状态</th>
                       <th className="text-center p-2 font-medium">操作</th>
                     </tr>
@@ -646,13 +655,6 @@ export function AssetCategoryDialog({
                           <code className="text-xs bg-slate-100 px-1 rounded">{cat.depreciationSubjectCode}</code>
                         </td>
                         <td className="p-2"><code className="text-xs bg-slate-100 px-1 rounded">{cat.expenseSubjectCode}</code></td>
-                        <td className="p-2 text-center">
-                          {cat.requireDepartment ? (
-                            <Badge variant="default" className="bg-blue-100 text-blue-700 text-xs">必填</Badge>
-                          ) : (
-                            <span className="text-xs text-slate-400">-</span>
-                          )}
-                        </td>
                         <td className="p-2 text-center">
                           {cat.enabled ? (
                             <Badge variant="default" className="bg-green-100 text-green-700 text-xs">启用</Badge>
