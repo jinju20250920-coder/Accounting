@@ -23,6 +23,7 @@ import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import type { FixedAsset } from '@/types';
+import { AssetVoucherPreviewDialog, AssetVoucherPreviewData } from './asset-voucher-preview-dialog';
 
 interface AssetDisposalDialogProps {
   asset: FixedAsset | null;
@@ -37,7 +38,7 @@ export function AssetDisposalDialog({
   onOpenChange,
   onSuccess,
 }: AssetDisposalDialogProps) {
-  const { disposeAsset, calculatePartialDisposal } = useFixedAssetStore();
+  const { disposeAsset, calculatePartialDisposal, getDisposalVoucherPreview } = useFixedAssetStore();
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(false);
@@ -47,6 +48,8 @@ export function AssetDisposalDialog({
   const [disposalIncome, setDisposalIncome] = useState(0);
   const [disposalExpense, setDisposalExpense] = useState(0);
   const [reason, setReason] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewVouchers, setPreviewVouchers] = useState<AssetVoucherPreviewData[]>([]);
 
   if (!asset) return null;
 
@@ -98,7 +101,37 @@ export function AssetDisposalDialog({
     { value: 'lost', label: '盘亏', description: '资产盘亏损失' },
   ];
 
+  const handlePreview = () => {
+    if (!disposalCalc) {
+      showToast('error', '处置数量无效');
+      return;
+    }
+
+    if (quantity <= 0 || quantity > maxQuantity) {
+      showToast('error', `处置数量必须在 1 到 ${maxQuantity} 之间`);
+      return;
+    }
+
+    const vouchers = getDisposalVoucherPreview(asset.id, {
+      date: disposalDate,
+      type: disposalType,
+      quantity,
+      disposalIncome,
+      disposalExpense,
+      reason,
+    });
+
+    if (vouchers.length === 0) {
+      showToast('error', '无法生成凭证预览');
+      return;
+    }
+
+    setPreviewVouchers(vouchers);
+    setShowPreview(true);
+  };
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
@@ -261,13 +294,47 @@ export function AssetDisposalDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleSubmit} disabled={loading} variant="destructive">
-            {loading && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-            确认处置
+          <Button onClick={handlePreview} disabled={loading}>
+            预览凭证
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AssetVoucherPreviewDialog
+      open={showPreview}
+      onOpenChange={setShowPreview}
+      vouchers={previewVouchers}
+      onConfirm={async () => {
+        setLoading(true);
+        try {
+          await disposeAsset(asset.id, {
+            date: disposalDate,
+            type: disposalType,
+            quantity,
+            disposalIncome,
+            disposalExpense,
+            reason,
+          });
+          showToast('success', `资产处置成功${isPartialDisposal ? `（部分处置 ${quantity} ${asset.unit || '件'}）` : ''}`);
+          setShowPreview(false);
+          onOpenChange(false);
+          onSuccess?.();
+          // 重置表单
+          setQuantity(1);
+          setDisposalIncome(0);
+          setDisposalExpense(0);
+          setReason('');
+        } catch (error: any) {
+          showToast('error', error.message || '处置失败');
+        } finally {
+          setLoading(false);
+        }
+      }}
+      isProcessing={loading}
+      title="处置凭证预览"
+    />
+  </>
   );
 }
 
