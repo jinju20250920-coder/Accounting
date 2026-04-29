@@ -58,12 +58,68 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
   const timelineRows = useMemo(() => {
     if (!selectedAssetId) return [];
 
+    const asset = assets.find(a => a.id === selectedAssetId);
+    if (!asset) return [];
+
+    // 如果没有变动记录，从资产当前状态创建一个"期初余额"行
+    if (filteredRecords.length === 0) {
+      return [{
+        id: 'opening',
+        assetId: selectedAssetId,
+        assetCode: asset.assetCode,
+        assetName: asset.assetName,
+        accountSetId: asset.accountSetId || '',
+        changeType: 'acquisition' as const,
+        changeDate: asset.acquisitionDate,
+        period: asset.acquisitionDate.substring(0, 7),
+        fieldName: 'originalValue',
+        beforeValue: '',
+        afterValue: String(asset.originalValue),
+        origChange: asset.originalValue,
+        depChange: asset.accumulatedDepreciation,
+        origBal: asset.originalValue,
+        depBal: asset.accumulatedDepreciation,
+        netBal: asset.netValue,
+        voucherNo: asset.acquisitionVoucherNo,
+      }];
+    }
+
     let runOrigBal = 0;
     let runDepBal = 0;
 
     return filteredRecords.map((r) => {
-      const origChange = r.originalValueChange ?? 0;
-      const depChange = r.depreciationChange ?? 0;
+      // 优先使用记录中的变动金额，否则从 changeType 推断
+      let origChange = r.originalValueChange ?? null;
+      let depChange = r.depreciationChange ?? null;
+
+      // 对于旧数据（没有时序账字段），从 changeType 推断变动
+      if (origChange === null || depChange === null) {
+        switch (r.changeType) {
+          case 'acquisition':
+            // 取得：从 afterValue 解析原值
+            origChange = origChange ?? (parseFloat(r.afterValue) || 0);
+            depChange = depChange ?? 0;
+            break;
+          case 'depreciation':
+            // 折旧：从 afterValue - beforeValue 计算变动
+            origChange = origChange ?? 0;
+            depChange = depChange ?? ((parseFloat(r.afterValue) - parseFloat(r.beforeValue)) || 0);
+            break;
+          case 'improvement':
+            // 改造：从 afterValue - beforeValue 计算原值变动
+            origChange = origChange ?? ((parseFloat(r.afterValue) - parseFloat(r.beforeValue)) || 0);
+            depChange = depChange ?? 0;
+            break;
+          case 'disposal':
+            // 处置：从 beforeValue 解析处置的原值和折旧
+            origChange = origChange ?? -(parseFloat(r.beforeValue) || 0);
+            depChange = depChange ?? 0;
+            break;
+          default:
+            origChange = origChange ?? 0;
+            depChange = depChange ?? 0;
+        }
+      }
 
       if (r.originalValueBalance !== undefined && r.originalValueBalance !== null) {
         runOrigBal = r.originalValueBalance;
@@ -84,7 +140,7 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
         netBal,
       };
     });
-  }, [filteredRecords, selectedAssetId]);
+  }, [filteredRecords, selectedAssetId, assets]);
 
   const periods = useMemo(() => {
     const set = new Set(records.map(r => r.period));
