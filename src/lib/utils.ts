@@ -26,3 +26,20 @@ export function getMonthEndDate(year: number, month: number): string {
 export function getMonthStartDate(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}-01`;
 }
+
+/**
+ * 格式化数字（不带货币符号，保留2位小数）
+ */
+export function formatNumber(amount: number | null | undefined): string {
+  return (amount ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * 格式化日期为中文格式 (YYYY-MM-DD → YYYY年MM月DD日)
+ */
+export function formatDateChinese(date: string | null | undefined): string {
+  if (!date) return '';
+  const parts = date.split('-');
+  if (parts.length !== 3) return date;
+  return `${parts[0]}年${parts[1]}月${parts[2]}日`;
+}

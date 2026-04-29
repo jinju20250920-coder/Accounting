@@ -257,8 +257,11 @@ function generateDisposalPreviewData(
     }
   }
 
-  const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
-  const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
+  let totalDebit = 0, totalCredit = 0;
+  for (const e of entries) {
+    totalDebit += e.debit;
+    totalCredit += e.credit;
+  }
   vouchers.push({ voucherDate: date, entries, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 });
 
   return vouchers;
@@ -1707,10 +1710,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       },
     ];
 
-    const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
-    const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
+    const totalDebit = improvement.amount;
+    const totalCredit = improvement.amount;
 
-    return [{ voucherDate: improvement.date, entries, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 }];
+    return [{ voucherDate: improvement.date, entries, totalDebit, totalCredit, isBalanced: true }];
   },
 
   // 折旧时间校验

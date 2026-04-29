@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
+import { formatNumber } from '@/lib/utils';
 
 export interface AssetVoucherPreviewEntry {
   summary: string;
@@ -53,8 +54,6 @@ export function AssetVoucherPreviewDialog({
       setEditedVouchers(vouchers.map(v => ({ ...v, entries: v.entries.map(e => ({ ...e })) })));
     }
   }, [open, vouchers]);
-
-  const fmt = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const updateVoucherDate = (index: number, date: string) => {
     setEditedVouchers(prev => prev.map((v, i) => i === index ? { ...v, voucherDate: date } : v));
@@ -127,10 +126,10 @@ export function AssetVoucherPreviewDialog({
                         <span className="text-slate-600">{entry.subjectName}</span>
                       </td>
                       <td className="text-right py-2 font-mono">
-                        {entry.debit > 0 ? fmt(entry.debit) : ''}
+                        {entry.debit > 0 ? formatNumber(entry.debit) : ''}
                       </td>
                       <td className="text-right py-2 font-mono">
-                        {entry.credit > 0 ? fmt(entry.credit) : ''}
+                        {entry.credit > 0 ? formatNumber(entry.credit) : ''}
                       </td>
                     </tr>
                   ))}
@@ -138,8 +137,8 @@ export function AssetVoucherPreviewDialog({
                 <tfoot>
                   <tr className="font-medium bg-slate-50">
                     <td colSpan={2} className="py-2 text-right">合计</td>
-                    <td className="text-right py-2 font-mono">{fmt(voucher.totalDebit)}</td>
-                    <td className="text-right py-2 font-mono">{fmt(voucher.totalCredit)}</td>
+                    <td className="text-right py-2 font-mono">{formatNumber(voucher.totalDebit)}</td>
+                    <td className="text-right py-2 font-mono">{formatNumber(voucher.totalCredit)}</td>
                   </tr>
                 </tfoot>
               </table>

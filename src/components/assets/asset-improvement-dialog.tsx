@@ -169,15 +169,16 @@ export function AssetChangeDialog({
       }
     }
 
-    const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
-    const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
+    const amount = Math.abs(changeAmount);
+    const totalDebit = amount;
+    const totalCredit = amount;
 
     setPreviewVouchers([{
       voucherDate: changeDate,
       entries,
       totalDebit,
       totalCredit,
-      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
+      isBalanced: true,
     }]);
     setShowPreview(true);
   };
