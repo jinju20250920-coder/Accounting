@@ -12,9 +12,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, TrendingUp, TrendingDown, RefreshCw, Info } from 'lucide-react';
 import type { FixedAsset } from '@/types';
+import { AssetVoucherPreviewDialog, AssetVoucherPreviewData, AssetVoucherPreviewEntry } from './asset-voucher-preview-dialog';
 
 type ChangeType = 'appreciation' | 'depreciation' | 'reclassify';
 
@@ -46,6 +48,14 @@ export function AssetChangeDialog({
   const [changeAmount, setChangeAmount] = useState(0);
   const [extendedMonths, setExtendedMonths] = useState(0);
   const [reason, setReason] = useState('');
+
+  // 减值方式
+  const [impairmentMethod, setImpairmentMethod] = useState<'provision' | 'direct_reduction'>('provision');
+
+  // 凭证预览
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewVouchers, setPreviewVouchers] = useState<AssetVoucherPreviewData[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // 重分类字段
   const [newCategoryId, setNewCategoryId] = useState('');
@@ -82,6 +92,123 @@ export function AssetChangeDialog({
 
   // 提前返回必须在所有 hooks 之后
   if (!asset) return null;
+
+  // 预览凭证
+  const handlePreview = () => {
+    if (changeType === 'reclassify') {
+      // 重分类不生成凭证，直接提交
+      handleSubmit();
+      return;
+    }
+
+    // 验证输入
+    if (changeAmount === 0 && extendedMonths === 0) {
+      showToast('error', '请输入变动金额或延长使用年限');
+      return;
+    }
+    if (!reason.trim()) {
+      showToast('error', '请输入变动原因');
+      return;
+    }
+
+    const settings = useSettingsStore.getState().getAssetFinancialSettings();
+    let entries: AssetVoucherPreviewEntry[] = [];
+
+    if (changeType === 'appreciation') {
+      entries = [
+        {
+          summary: `${asset.assetName}增值`,
+          subjectCode: asset.assetSubjectCode || '1501',
+          subjectName: asset.assetSubjectName || '固定资产',
+          debit: Math.abs(changeAmount),
+          credit: 0,
+        },
+        {
+          summary: `支付${asset.assetName}增值费用`,
+          subjectCode: '1002',
+          subjectName: '银行存款',
+          debit: 0,
+          credit: Math.abs(changeAmount),
+        },
+      ];
+    } else if (changeType === 'depreciation') {
+      if (impairmentMethod === 'provision') {
+        entries = [
+          {
+            summary: `${asset.assetName}计提减值准备`,
+            subjectCode: settings.impairmentLossSubjectCode,
+            subjectName: '资产减值损失',
+            debit: Math.abs(changeAmount),
+            credit: 0,
+          },
+          {
+            summary: `${asset.assetName}减值准备`,
+            subjectCode: settings.impairmentProvisionSubjectCode,
+            subjectName: '固定资产减值准备',
+            debit: 0,
+            credit: Math.abs(changeAmount),
+          },
+        ];
+      } else {
+        entries = [
+          {
+            summary: `${asset.assetName}减值损失`,
+            subjectCode: settings.lossSubjectCode,
+            subjectName: '营业外支出',
+            debit: Math.abs(changeAmount),
+            credit: 0,
+          },
+          {
+            summary: `${asset.assetName}减值`,
+            subjectCode: asset.assetSubjectCode || '1501',
+            subjectName: asset.assetSubjectName || '固定资产',
+            debit: 0,
+            credit: Math.abs(changeAmount),
+          },
+        ];
+      }
+    }
+
+    const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
+    const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
+
+    setPreviewVouchers([{
+      voucherDate: changeDate,
+      entries,
+      totalDebit,
+      totalCredit,
+      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
+    }]);
+    setShowPreview(true);
+  };
+
+  // 确认凭证并提交
+  const handleConfirmVouchers = async (updatedVouchers: AssetVoucherPreviewData[]) => {
+    setIsProcessing(true);
+    try {
+      const amount = changeType === 'appreciation' ? Math.abs(changeAmount) : -Math.abs(changeAmount);
+      await improveAsset(asset.id, {
+        date: updatedVouchers[0].voucherDate,
+        addedValue: amount,
+        extendedMonths,
+        reason,
+      });
+      showToast('success', changeType === 'appreciation' ? '资产增值成功' : '资产减值成功');
+
+      setShowPreview(false);
+      onOpenChange(false);
+      onSuccess?.();
+
+      // 重置表单
+      setChangeAmount(0);
+      setExtendedMonths(0);
+      setReason('');
+    } catch (error: any) {
+      showToast('error', error.message || '操作失败');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (changeType === 'reclassify') {
@@ -138,16 +265,18 @@ export function AssetChangeDialog({
     }
   };
 
-  const formatMoney = (val: number) => val.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatMoney = (val: number | null | undefined) =>
+    (val ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 gap-0">
-        <DialogHeader className="px-6 py-4 border-b">
-          <DialogTitle>资产变动（增值 / 减值 / 重分类）</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-3xl p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>资产变动（增值 / 减值 / 重分类）</DialogTitle>
+          </DialogHeader>
 
-        <div className="flex">
+          <div className="flex">
           {/* 左侧：变动配置 (60%) */}
           <div className="w-3/5 p-6 border-r space-y-5">
             {/* 1. 选择变动类型 */}
@@ -212,6 +341,38 @@ export function AssetChangeDialog({
                       {changeType === 'appreciation' ? '正数表示增值' : '正数表示减值金额'}
                     </p>
                   </div>
+
+                  {/* 减值方式选择 */}
+                  {changeType === 'depreciation' && (
+                    <div className="space-y-2">
+                      <Label>减值方式</Label>
+                      <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={impairmentMethod === 'provision'}
+                            onChange={() => setImpairmentMethod('provision')}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm">计提减值准备</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={impairmentMethod === 'direct_reduction'}
+                            onChange={() => setImpairmentMethod('direct_reduction')}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm">直接减少原值</span>
+                        </label>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {impairmentMethod === 'provision'
+                          ? '计提减值准备：借记资产减值损失，贷记固定资产减值准备'
+                          : '直接减少原值：借记营业外支出，贷记固定资产'}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label>延长使用年限</Label>
@@ -348,17 +509,28 @@ export function AssetChangeDialog({
               </Button>
               <Button
                 className="flex-1"
-                onClick={handleSubmit}
+                onClick={handlePreview}
                 disabled={loading}
               >
                 {loading && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-                确认变动
+                {changeType === 'reclassify' ? '确认变动' : '预览凭证'}
               </Button>
             </div>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      {/* 凭证预览对话框 */}
+      <AssetVoucherPreviewDialog
+        open={showPreview}
+        onOpenChange={setShowPreview}
+        vouchers={previewVouchers}
+        onConfirm={handleConfirmVouchers}
+        isProcessing={isProcessing}
+        title={changeType === 'appreciation' ? '资产增值凭证预览' : '资产减值凭证预览'}
+      />
+    </>
   );
 }
 
