@@ -56,8 +56,7 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
   }, [records, selectedPeriod, selectedChangeType]);
 
   const timelineRows = useMemo(() => {
-    const asset = assets.find(a => a.id === selectedAssetId);
-    if (!asset) return [];
+    if (!selectedAssetId) return [];
 
     let runOrigBal = 0;
     let runDepBal = 0;
@@ -85,7 +84,7 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
         netBal,
       };
     });
-  }, [filteredRecords, assets, selectedAssetId]);
+  }, [filteredRecords, selectedAssetId]);
 
   const periods = useMemo(() => {
     const set = new Set(records.map(r => r.period));
