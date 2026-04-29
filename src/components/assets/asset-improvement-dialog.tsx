@@ -25,11 +25,11 @@ interface AssetChangeDialogProps {
   onSuccess?: () => void;
 }
 
-const CHANGE_TYPE_OPTIONS: { value: ChangeType; label: string; icon: React.ReactNode; description: string }[] = [
-  { value: 'appreciation', label: '增值', icon: <TrendingUp className="h-4 w-4" />, description: '资产价值增加' },
-  { value: 'depreciation', label: '减值', icon: <TrendingDown className="h-4 w-4" />, description: '资产价值减少' },
-  { value: 'reclassify', label: '重分类', icon: <RefreshCw className="h-4 w-4" />, description: '变更分类信息' },
-];
+const CHANGE_TYPE_CONFIG: Record<ChangeType, { label: string; icon: React.ComponentType<{ className?: string }>; description: string }> = {
+  appreciation: { label: '增值', icon: TrendingUp, description: '资产价值增加' },
+  depreciation: { label: '减值', icon: TrendingDown, description: '资产价值减少' },
+  reclassify: { label: '重分类', icon: RefreshCw, description: '变更分类信息' },
+};
 
 export function AssetChangeDialog({
   asset,
@@ -150,26 +150,30 @@ export function AssetChangeDialog({
             <div className="space-y-2">
               <Label required>选择变动类型</Label>
               <div className="flex gap-3">
-                {CHANGE_TYPE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setChangeType(opt.value)}
-                    className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${
-                      changeType === opt.value
-                        ? opt.value === 'appreciation'
-                          ? 'border-green-500 bg-green-50 text-green-700'
-                          : opt.value === 'depreciation'
-                          ? 'border-red-500 bg-red-50 text-red-700'
-                          : 'border-slate-500 bg-slate-50 text-slate-700'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex justify-center mb-1">{opt.icon}</div>
-                    <div className="font-medium text-sm">{opt.label}</div>
-                    <div className="text-xs text-slate-500">{opt.description}</div>
-                  </button>
-                ))}
+                {(Object.keys(CHANGE_TYPE_CONFIG) as ChangeType[]).map((type) => {
+                  const cfg = CHANGE_TYPE_CONFIG[type];
+                  const Icon = cfg.icon;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setChangeType(type)}
+                      className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${
+                        changeType === type
+                          ? type === 'appreciation'
+                            ? 'border-green-500 bg-green-50 text-green-700'
+                            : type === 'depreciation'
+                            ? 'border-red-500 bg-red-50 text-red-700'
+                            : 'border-slate-500 bg-slate-50 text-slate-700'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex justify-center mb-1"><Icon className="h-4 w-4" /></div>
+                      <div className="font-medium text-sm">{cfg.label}</div>
+                      <div className="text-xs text-slate-500">{cfg.description}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
