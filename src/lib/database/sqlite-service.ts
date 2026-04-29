@@ -239,6 +239,11 @@ class SQLiteService {
             fieldName TEXT NOT NULL,
             beforeValue TEXT,
             afterValue TEXT,
+            originalValueChange REAL,
+            depreciationChange REAL,
+            originalValueBalance REAL,
+            accumulatedDepreciationBalance REAL,
+            netValueBalance REAL,
             voucherId TEXT,
             voucherNo TEXT,
             reason TEXT,
@@ -252,6 +257,22 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_acr_changeType ON assetChangeRecords(changeType);
         `);
         console.log('assetChangeRecords table migration completed');
+      } else {
+        // 添加时序账字段（ALTER TABLE）
+        const acrPragma = this.dbInstance.exec("PRAGMA table_info(assetChangeRecords)");
+        const acrColumns = acrPragma[0]?.values?.map((row: any[]) => row[1]) || [];
+        const acrNewColumns = [
+          { name: 'originalValueChange', sql: 'ALTER TABLE assetChangeRecords ADD COLUMN originalValueChange REAL' },
+          { name: 'depreciationChange', sql: 'ALTER TABLE assetChangeRecords ADD COLUMN depreciationChange REAL' },
+          { name: 'originalValueBalance', sql: 'ALTER TABLE assetChangeRecords ADD COLUMN originalValueBalance REAL' },
+          { name: 'accumulatedDepreciationBalance', sql: 'ALTER TABLE assetChangeRecords ADD COLUMN accumulatedDepreciationBalance REAL' },
+          { name: 'netValueBalance', sql: 'ALTER TABLE assetChangeRecords ADD COLUMN netValueBalance REAL' },
+        ];
+        for (const col of acrNewColumns) {
+          if (!acrColumns.includes(col.name)) {
+            this.dbInstance.exec(col.sql);
+          }
+        }
       }
     } catch (error) {
       console.warn('assetChangeRecords table migration warning:', error);

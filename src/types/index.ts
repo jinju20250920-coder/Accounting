@@ -727,7 +727,7 @@ export interface AssetChangeRecord {
   assetName: string;
   accountSetId: string;
 
-  changeType: 'acquisition' | 'depreciation' | 'improvement' | 'disposal' | 'transfer' | 'status_change';
+  changeType: 'acquisition' | 'depreciation' | 'improvement' | 'revaluation' | 'reclassify' | 'disposal' | 'transfer' | 'status_change';
   changeDate: string;
   period: string; // 会计期间 YYYY-MM
 
@@ -735,6 +735,13 @@ export interface AssetChangeRecord {
   fieldName: string; // 变更字段
   beforeValue: string; // 变更前值（JSON序列化）
   afterValue: string; // 变更后值（JSON序列化）
+
+  // 时序账字段
+  originalValueChange?: number;   // 原值变动金额
+  depreciationChange?: number;    // 折旧变动金额
+  originalValueBalance?: number;  // 原值余额
+  accumulatedDepreciationBalance?: number; // 累计折旧余额
+  netValueBalance?: number;       // 净值余额
 
   // 凭证关联
   voucherId?: string;

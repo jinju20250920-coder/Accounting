@@ -50,7 +50,7 @@ import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generat
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
 import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
 import { AssetImprovementDialog } from '@/components/assets/asset-improvement-dialog';
-import { AssetChangeRecordList } from '@/components/assets/asset-change-record-list';
+import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation } from '@/lib/depreciation';
 import type { FixedAsset, AssetCategory } from '@/types';
@@ -1447,11 +1447,11 @@ export default function FixedAssetsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 变动记录对话框 */}
-      <AssetChangeRecordList
-        asset={selectedAsset}
+      {/* 时序账对话框 */}
+      <AssetTimelineLedger
         open={showChangeRecordDialog}
         onOpenChange={setShowChangeRecordDialog}
+        assetId={selectedAsset?.id}
       />
     </div>
   );

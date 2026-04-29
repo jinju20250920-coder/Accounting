@@ -73,7 +73,7 @@ interface FixedAssetStore {
   convertFromCIP: (cipData: { assetName: string; originalValue: number; acquisitionDate: string; cipSubjectCode: string; usefulLifeMonths: number; depreciationMethod: DepreciationMethod }) => Promise<FixedAsset>;
 
   // 变动记录
-  getAssetChangeRecords: (assetId: string) => AssetChangeRecord[];
+  getAssetChangeRecords: (assetId: string) => Promise<AssetChangeRecord[]>;
   logAssetChange: (record: Omit<AssetChangeRecord, 'id' | 'createTime'>) => Promise<void>;
 
   // 校验
@@ -806,17 +806,17 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const accountSetId = accountSetStore.getCurrentAccountSet()?.id || '';
       const db = await sqliteService.getDatabase();
 
       for (const record of records) {
-        // 更新折旧记录状态
         const stmt1 = db.prepare(
           'UPDATE depreciationRecords SET status = ?, updateTime = ? WHERE id = ?'
         );
         stmt1.run(['posted', new Date().toISOString(), record.id]);
         stmt1.free();
 
-        // 更新资产的累计折旧
         const asset = state.assets.find(a => a.id === record.assetId);
         if (asset) {
           const newAccumulated = asset.accumulatedDepreciation + record.periodDepreciation;
@@ -829,6 +829,27 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           );
           stmt2.run([newAccumulated, newNetValue, record.depreciationDate, new Date().toISOString(), asset.id]);
           stmt2.free();
+
+          await get().logAssetChange({
+            assetId: asset.id,
+            assetCode: asset.assetCode,
+            assetName: asset.assetName,
+            accountSetId,
+            changeType: 'depreciation',
+            changeDate: record.depreciationDate,
+            period: record.period,
+            fieldName: 'accumulatedDepreciation',
+            beforeValue: String(asset.accumulatedDepreciation),
+            afterValue: String(newAccumulated),
+            originalValueChange: 0,
+            depreciationChange: record.periodDepreciation,
+            originalValueBalance: asset.originalValue,
+            accumulatedDepreciationBalance: newAccumulated,
+            netValueBalance: newNetValue,
+            voucherId: record.voucherId,
+            voucherNo: record.voucherNo,
+            reason: `${record.period}折旧`,
+          });
         }
       }
 
@@ -1490,6 +1511,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         fieldName: 'accountingStatus',
         beforeValue: 'pending',
         afterValue: 'accounted',
+        originalValueChange: asset.originalValue,
+        depreciationChange: 0,
+        originalValueBalance: asset.originalValue,
+        accumulatedDepreciationBalance: 0,
+        netValueBalance: asset.originalValue,
         voucherId,
         voucherNo,
         reason: `取得成本入账，原值 ¥${asset.originalValue.toLocaleString()}`,
@@ -1702,9 +1728,49 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
   },
 
   // 获取资产变动记录
-  getAssetChangeRecords: (assetId) => {
-    // 从内存中获取（如果已加载）
-    return [];
+  getAssetChangeRecords: async (assetId) => {
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
+      if (!db) return [];
+
+      const result = db.exec(
+        `SELECT id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                fieldName, beforeValue, afterValue,
+                originalValueChange, depreciationChange, originalValueBalance,
+                accumulatedDepreciationBalance, netValueBalance,
+                voucherId, voucherNo, reason, operatorId, createTime
+         FROM assetChangeRecords WHERE assetId = ? ORDER BY changeDate ASC, createTime ASC`,
+        [assetId]
+      );
+
+      return result[0]?.values?.map((row: any[]) => ({
+        id: row[0],
+        assetId: row[1],
+        assetCode: row[2],
+        assetName: row[3],
+        accountSetId: row[4],
+        changeType: row[5],
+        changeDate: row[6],
+        period: row[7],
+        fieldName: row[8],
+        beforeValue: row[9] || '',
+        afterValue: row[10] || '',
+        originalValueChange: row[11],
+        depreciationChange: row[12],
+        originalValueBalance: row[13],
+        accumulatedDepreciationBalance: row[14],
+        netValueBalance: row[15],
+        voucherId: row[16] || undefined,
+        voucherNo: row[17] || undefined,
+        reason: row[18] || undefined,
+        operatorId: row[19] || undefined,
+        createTime: row[20],
+      })) || [];
+    } catch (error) {
+      console.warn('获取资产变动记录失败:', error);
+      return [];
+    }
   },
 
   // 记录资产变动
@@ -1727,13 +1793,19 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const stmt = db.prepare(
         `INSERT INTO assetChangeRecords (
           id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
-          fieldName, beforeValue, afterValue, voucherId, voucherNo, reason, operatorId, createTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          fieldName, beforeValue, afterValue,
+          originalValueChange, depreciationChange, originalValueBalance,
+          accumulatedDepreciationBalance, netValueBalance,
+          voucherId, voucherNo, reason, operatorId, createTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         id, record.assetId, record.assetCode, record.assetName, record.accountSetId,
         record.changeType, record.changeDate, record.period,
         record.fieldName, record.beforeValue || '', record.afterValue || '',
+        record.originalValueChange ?? null, record.depreciationChange ?? null,
+        record.originalValueBalance ?? null, record.accumulatedDepreciationBalance ?? null,
+        record.netValueBalance ?? null,
         record.voucherId || '', record.voucherNo || '', record.reason || '', record.operatorId || '',
         now,
       ]);

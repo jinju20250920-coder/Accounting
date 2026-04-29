@@ -1,190 +1,211 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { useState, useEffect, useMemo } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { History, ExternalLink } from 'lucide-react';
-import type { FixedAsset, AssetChangeRecord } from '@/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import type { AssetChangeRecord } from '@/types';
 
-interface AssetChangeRecordListProps {
-  asset: FixedAsset | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onViewVoucher?: (voucherId: string) => void;
-}
-
-const changeTypeLabels: Record<string, { label: string; color: string }> = {
-  acquisition: { label: '取得', color: 'bg-blue-100 text-blue-700' },
-  depreciation: { label: '折旧', color: 'bg-green-100 text-green-700' },
-  improvement: { label: '改造', color: 'bg-purple-100 text-purple-700' },
-  disposal: { label: '处置', color: 'bg-red-100 text-red-700' },
-  transfer: { label: '调拨', color: 'bg-amber-100 text-amber-700' },
-  status_change: { label: '状态变更', color: 'bg-slate-100 text-slate-700' },
+const CHANGE_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
+  acquisition: { label: '取得', color: 'bg-blue-50 text-blue-600' },
+  depreciation: { label: '折旧', color: 'bg-green-50 text-green-600' },
+  improvement: { label: '改造', color: 'bg-purple-50 text-purple-600' },
+  revaluation: { label: '重估', color: 'bg-amber-50 text-amber-600' },
+  reclassify: { label: '重分类', color: 'bg-slate-50 text-slate-600' },
+  disposal: { label: '处置', color: 'bg-red-50 text-red-500' },
+  transfer: { label: '调拨', color: 'bg-amber-50 text-amber-600' },
+  status_change: { label: '状态变更', color: 'bg-slate-50 text-slate-500' },
 };
 
-export function AssetChangeRecordList({
-  asset,
-  open,
-  onOpenChange,
-  onViewVoucher,
-}: AssetChangeRecordListProps) {
+interface AssetTimelineLedgerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  assetId?: string;
+}
+
+export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetId }: AssetTimelineLedgerProps) {
+  const { assets, getAssetChangeRecords } = useFixedAssetStore();
+  const [selectedAssetId, setSelectedAssetId] = useState<string>(initialAssetId || '');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+  const [selectedChangeType, setSelectedChangeType] = useState<string>('');
   const [records, setRecords] = useState<AssetChangeRecord[]>([]);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (open && asset) {
-      loadRecords();
+    if (initialAssetId) setSelectedAssetId(initialAssetId);
+  }, [initialAssetId]);
+
+  useEffect(() => {
+    if (!open || !selectedAssetId) {
+      setRecords([]);
+      return;
     }
-  }, [open, asset]);
+    getAssetChangeRecords(selectedAssetId).then(setRecords);
+  }, [open, selectedAssetId, getAssetChangeRecords]);
 
-  const loadRecords = async () => {
-    if (!asset) return;
-
-    setLoading(true);
-    try {
-      const { sqliteService } = await import('@/lib/database/sqlite-service');
-      const db = await sqliteService.getDatabase();
-      if (!db) return;
-
-      const result = db.exec(
-        `SELECT * FROM assetChangeRecords WHERE assetId = ? ORDER BY createTime DESC`,
-        [asset.id]
-      );
-
-      const loadedRecords: AssetChangeRecord[] = result[0]?.values?.map((row: any[]) => ({
-        id: row[0],
-        assetId: row[1],
-        assetCode: row[2],
-        assetName: row[3],
-        accountSetId: row[4],
-        changeType: row[5],
-        changeDate: row[6],
-        period: row[7],
-        fieldName: row[8],
-        beforeValue: row[9],
-        afterValue: row[10],
-        voucherId: row[11],
-        voucherNo: row[12],
-        reason: row[13],
-        operatorId: row[14],
-        createTime: row[15],
-      })) || [];
-
-      setRecords(loadedRecords);
-    } catch (error) {
-      console.error('加载变动记录失败:', error);
-    } finally {
-      setLoading(false);
+  const filteredRecords = useMemo(() => {
+    let result = [...records];
+    if (selectedPeriod) {
+      result = result.filter(r => r.period.startsWith(selectedPeriod));
     }
+    if (selectedChangeType) {
+      result = result.filter(r => r.changeType === selectedChangeType);
+    }
+    result.sort((a, b) => a.changeDate.localeCompare(b.changeDate) || a.createTime.localeCompare(b.createTime));
+    return result;
+  }, [records, selectedPeriod, selectedChangeType]);
+
+  const timelineRows = useMemo(() => {
+    const asset = assets.find(a => a.id === selectedAssetId);
+    if (!asset) return [];
+
+    let runOrigBal = 0;
+    let runDepBal = 0;
+
+    return filteredRecords.map((r) => {
+      const origChange = r.originalValueChange ?? 0;
+      const depChange = r.depreciationChange ?? 0;
+
+      if (r.originalValueBalance !== undefined && r.originalValueBalance !== null) {
+        runOrigBal = r.originalValueBalance;
+        runDepBal = r.accumulatedDepreciationBalance ?? 0;
+      } else {
+        runOrigBal += origChange;
+        runDepBal += depChange;
+      }
+
+      const netBal = r.netValueBalance ?? (runOrigBal - runDepBal);
+
+      return {
+        ...r,
+        origChange,
+        depChange,
+        origBal: runOrigBal,
+        depBal: runDepBal,
+        netBal,
+      };
+    });
+  }, [filteredRecords, assets, selectedAssetId]);
+
+  const periods = useMemo(() => {
+    const set = new Set(records.map(r => r.period));
+    return Array.from(set).sort();
+  }, [records]);
+
+  const formatAmount = (val: number, showSign = false) => {
+    if (val === 0) return <span className="text-slate-300">0</span>;
+    const str = Math.abs(val).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const prefix = showSign ? (val > 0 ? '+' : '-') : '';
+    const color = val > 0 ? 'text-green-600' : 'text-red-500';
+    return <span className={color}>{prefix}{str}</span>;
   };
 
-  if (!asset) return null;
+  const selectedAsset = assets.find(a => a.id === selectedAssetId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh]">
+      <DialogContent className="max-w-4xl max-h-[80vh]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <History className="h-5 w-5 text-slate-500" />
-            资产变动记录
-          </DialogTitle>
+          <DialogTitle>固定资产时序账清单（时间流水）</DialogTitle>
         </DialogHeader>
 
-        <div className="py-2">
-          <div className="flex items-center gap-4 text-sm text-slate-600 mb-4">
-            <span>
-              <span className="text-slate-500">资产编码：</span>
-              <span className="font-medium">{asset.assetCode}</span>
-            </span>
-            <span>
-              <span className="text-slate-500">资产名称：</span>
-              <span>{asset.assetName}</span>
-            </span>
+        {selectedAsset && (
+          <div className="text-sm text-slate-500 mb-2">
+            {selectedAsset.assetCode} — {selectedAsset.assetName}
+            <span className="ml-4">原值: ¥{selectedAsset.originalValue.toLocaleString()}</span>
+            <span className="ml-4">累计折旧: ¥{selectedAsset.accumulatedDepreciation.toLocaleString()}</span>
+            <span className="ml-4">净值: ¥{selectedAsset.netValue.toLocaleString()}</span>
           </div>
+        )}
 
-          <ScrollArea className="h-[400px]">
-            {loading ? (
-              <div className="flex items-center justify-center h-32 text-slate-500">
-                加载中...
-              </div>
-            ) : records.length === 0 ? (
-              <div className="flex items-center justify-center h-32 text-slate-500">
-                暂无变动记录
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {records.map((record) => {
-                  const typeInfo = changeTypeLabels[record.changeType] || {
-                    label: record.changeType,
-                    color: 'bg-slate-100 text-slate-700',
-                  };
+        {/* 筛选栏 */}
+        <div className="flex gap-3 mb-4">
+          <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
+            <SelectTrigger className="w-52">
+              <SelectValue placeholder="选择资产" />
+            </SelectTrigger>
+            <SelectContent>
+              {assets.map(a => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.assetCode} {a.assetName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
+          <Select value={selectedPeriod} onValueChange={v => setSelectedPeriod(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="全部期间" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">全部期间</SelectItem>
+              {periods.map(p => (
+                <SelectItem key={p} value={p}>{p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedChangeType} onValueChange={v => setSelectedChangeType(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="全部类型" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">全部类型</SelectItem>
+              {Object.entries(CHANGE_TYPE_CONFIG).map(([key, cfg]) => (
+                <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* 时序账表格 */}
+        <div className="border rounded-lg overflow-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b">
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">日期</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">事件类型</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600">原值变动</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600">折旧变动</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600">原值余额</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600">累计折旧</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600">净值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {timelineRows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                    {selectedAssetId ? '暂无变动记录' : '请选择资产'}
+                  </td>
+                </tr>
+              ) : (
+                timelineRows.map((row) => {
+                  const cfg = CHANGE_TYPE_CONFIG[row.changeType] || { label: row.changeType, color: 'bg-slate-50 text-slate-500' };
                   return (
-                    <div
-                      key={record.id}
-                      className="p-3 border rounded-lg hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge className={typeInfo.color}>{typeInfo.label}</Badge>
-                          <span className="text-sm text-slate-500">
-                            {record.changeDate}
-                          </span>
-                          <span className="text-xs text-slate-400">
-                            ({record.period})
-                          </span>
-                        </div>
-                        {record.voucherNo && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs text-blue-600"
-                            onClick={() => record.voucherId && onViewVoucher?.(record.voucherId)}
-                          >
-                            <ExternalLink className="h-3 w-3 mr-1" />
-                            {record.voucherNo}
-                          </Button>
+                    <tr key={row.id} className="border-b last:border-b-0 hover:bg-slate-50/50">
+                      <td className="px-3 py-2 text-slate-700">{row.changeDate.substring(5)}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant="secondary" className={`text-xs ${cfg.color}`}>
+                          {cfg.label}
+                        </Badge>
+                        {row.voucherNo && (
+                          <span className="ml-1 text-xs text-blue-500">{row.voucherNo}</span>
                         )}
-                      </div>
-
-                      <div className="mt-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500">字段：</span>
-                          <span className="font-medium">{record.fieldName}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-slate-500">变更：</span>
-                          <span className="text-red-600 line-through">{record.beforeValue}</span>
-                          <span className="text-slate-400">→</span>
-                          <span className="text-green-600">{record.afterValue}</span>
-                        </div>
-                        {record.reason && (
-                          <div className="mt-1 text-slate-500">
-                            原因：{record.reason}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-2 text-xs text-slate-400">
-                        {new Date(record.createTime).toLocaleString('zh-CN')}
-                      </div>
-                    </div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">{formatAmount(row.origChange, true)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatAmount(row.depChange, true)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-700">{row.origBal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-700">{row.depBal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-700">{row.netBal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
                   );
-                })}
-              </div>
-            )}
-          </ScrollArea>
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
-
-export default AssetChangeRecordList;
