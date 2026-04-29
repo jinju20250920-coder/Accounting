@@ -66,6 +66,7 @@ function AssetCardDialog({
   categories,
   existingCodes,
   onSave,
+  requireDepartment,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,6 +74,7 @@ function AssetCardDialog({
   categories: AssetCategory[];
   existingCodes: string[];
   onSave: (data: Partial<FixedAsset>) => Promise<FixedAsset | undefined | void>;
+  requireDepartment: boolean;
 }) {
   const { showToast } = useToast();
   const [generateVoucher, setGenerateVoucher] = useState(true); // 是否生成取得凭证
@@ -153,14 +155,17 @@ function AssetCardDialog({
     }
   };
 
-  // 当取得方式变化时，更新入账状态
+  // 当取得方式变化时，更新表单（不改变已入账资产的状态）
   const handleAcquisitionTypeChange = (acquisitionType: string) => {
     const isOpening = acquisitionType === 'opening_balance';
     setFormData(prev => ({
       ...prev,
       acquisitionType: acquisitionType as FixedAsset['acquisitionType'],
       isOpeningBalance: isOpening,
-      accountingStatus: 'pending',
+      // 已入账资产保持已入账状态，新增资产设为待入账
+      accountingStatus: asset?.acquisitionVoucherId || asset?.acquisitionVoucherNo
+        ? 'accounted'
+        : 'pending',
     }));
     if (isOpening) {
       setGenerateVoucher(false);
@@ -173,6 +178,12 @@ function AssetCardDialog({
   };
 
   const handleSubmit = async () => {
+    // 部门必填校验（全局设置）
+    if (requireDepartment && !formData.departmentCode && !formData.departmentName) {
+      showToast('error', '请填写部门编号');
+      return;
+    }
+
     if (!formData.assetName) {
       showToast('error', '请输入资产名称');
       return;
@@ -223,8 +234,10 @@ function AssetCardDialog({
       return;
     }
 
-    // 确定入账状态
-    const accountingStatus = 'pending';
+    // 确定入账状态：已入账的资产保持已入账状态，新增资产为待入账
+    const accountingStatus = asset?.acquisitionVoucherId || asset?.acquisitionVoucherNo
+      ? 'accounted'
+      : 'pending';
 
     try {
       const savedAsset = await onSave({
@@ -1299,6 +1312,7 @@ export default function FixedAssetsPage() {
         categories={categories}
         existingCodes={assets.map(a => a.assetCode).filter(Boolean)}
         onSave={handleSave}
+        requireDepartment={requireDepartment}
       />
 
       {/* 删除确认对话框 */}
