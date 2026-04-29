@@ -51,10 +51,11 @@ export function AssetChangeDialog({
   const [newCategoryId, setNewCategoryId] = useState('');
   const [newDepartmentCode, setNewDepartmentCode] = useState('');
 
-  if (!asset) return null;
-
-  // 计算变动后的值
+  // 计算变动后的值 - 必须在所有条件返回之前
   const preview = useMemo(() => {
+    if (!asset) {
+      return { origChange: 0, depChange: 0, newOrigBal: 0, newDepBal: 0, newNetBal: 0 };
+    }
     if (changeType === 'reclassify') {
       return {
         origChange: 0,
@@ -78,6 +79,9 @@ export function AssetChangeDialog({
       newNetBal,
     };
   }, [changeType, changeAmount, asset]);
+
+  // 提前返回必须在所有 hooks 之后
+  if (!asset) return null;
 
   const handleSubmit = async () => {
     if (changeType === 'reclassify') {
