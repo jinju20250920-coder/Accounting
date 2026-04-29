@@ -49,7 +49,7 @@ import { AssetCategoryDialog } from '@/components/assets/asset-category-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
 import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
-import { AssetImprovementDialog } from '@/components/assets/asset-improvement-dialog';
+import { AssetChangeDialog } from '@/components/assets/asset-improvement-dialog';
 import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation } from '@/lib/depreciation';
@@ -1388,7 +1388,7 @@ export default function FixedAssetsPage() {
       />
 
       {/* 资产改造对话框 */}
-      <AssetImprovementDialog
+      <AssetChangeDialog
         asset={selectedAsset}
         open={showImprovementDialog}
         onOpenChange={setShowImprovementDialog}
