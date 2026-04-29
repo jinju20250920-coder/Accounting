@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { useSubjectStore } from './useSubjectStore';
+import { useSettingsStore } from './useSettingsStore';
 import { getCurrentService, getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import {
@@ -21,7 +22,12 @@ import type {
   AssetImprovement,
   AssetDisposal,
   AssetChangeRecord,
+  AssetFinancialSettings,
 } from '@/types';
+import type {
+  AssetVoucherPreviewData,
+  AssetVoucherPreviewEntry,
+} from '@/components/assets/asset-voucher-preview-dialog';
 
 interface FixedAssetStore {
   // 状态
@@ -67,6 +73,10 @@ interface FixedAssetStore {
   // 凭证生成
   generateDepreciationVoucher: (recordIds: string[], voucherDate: string) => Promise<{ voucherId: string; voucherNo: string } | null>;
   generateAcquisitionVoucher: (assetId: string, voucherDate?: string) => Promise<{ voucherId: string; voucherNo: string } | null>;
+
+  // 凭证预览
+  getDisposalVoucherPreview: (assetId: string, disposal: { date: string; type: string; quantity: number; disposalIncome: number; disposalExpense: number; reason: string }) => AssetVoucherPreviewData[];
+  getImprovementVoucherPreview: (assetId: string, improvement: { date: string; type: string; amount: number }) => AssetVoucherPreviewData[];
 
   // 资产生命周期管理
   improveAsset: (assetId: string, improvement: Omit<AssetImprovement, 'id' | 'createTime'>) => Promise<void>;
@@ -144,6 +154,114 @@ async function createSubSubjectsForCategory(category: AssetCategory) {
       level: (parent.level || 1) + 1,
     } as any);
   }
+}
+
+// 生成处置凭证预览数据
+function generateDisposalPreviewData(
+  asset: FixedAsset,
+  disposal: { disposedOriginalValue: number; disposedAccumulatedDepreciation: number; disposedNetValue: number; disposalIncome: number; disposalExpense: number; netGainLoss: number },
+  date: string,
+  settings: AssetFinancialSettings
+): AssetVoucherPreviewData[] {
+  const vouchers: AssetVoucherPreviewData[] = [];
+  const entries: AssetVoucherPreviewEntry[] = [
+    {
+      summary: `${asset.assetName}处置转入清理`,
+      subjectCode: settings.disposalClearingSubjectCode,
+      subjectName: '固定资产清理',
+      debit: disposal.disposedNetValue,
+      credit: 0,
+    },
+    {
+      summary: `${asset.assetName}处置结转累计折旧`,
+      subjectCode: asset.depreciationSubjectCode || '1502',
+      subjectName: asset.depreciationSubjectName || '累计折旧',
+      debit: disposal.disposedAccumulatedDepreciation,
+      credit: 0,
+    },
+    {
+      summary: `${asset.assetName}处置减少`,
+      subjectCode: asset.assetSubjectCode || '1501',
+      subjectName: asset.assetSubjectName || '固定资产',
+      debit: 0,
+      credit: disposal.disposedOriginalValue,
+    },
+  ];
+
+  if (disposal.disposalIncome > 0) {
+    entries.push({
+      summary: `${asset.assetName}处置收入`,
+      subjectCode: '1002',
+      subjectName: '银行存款',
+      debit: disposal.disposalIncome,
+      credit: 0,
+    });
+    entries.push({
+      summary: `${asset.assetName}处置收入`,
+      subjectCode: settings.disposalClearingSubjectCode,
+      subjectName: '固定资产清理',
+      debit: 0,
+      credit: disposal.disposalIncome,
+    });
+  }
+
+  if (disposal.disposalExpense > 0) {
+    entries.push({
+      summary: `${asset.assetName}处置费用`,
+      subjectCode: settings.disposalClearingSubjectCode,
+      subjectName: '固定资产清理',
+      debit: disposal.disposalExpense,
+      credit: 0,
+    });
+    entries.push({
+      summary: `支付${asset.assetName}处置费用`,
+      subjectCode: '1002',
+      subjectName: '银行存款',
+      debit: 0,
+      credit: disposal.disposalExpense,
+    });
+  }
+
+  if (disposal.netGainLoss !== 0) {
+    if (disposal.netGainLoss > 0) {
+      entries.push({
+        summary: `${asset.assetName}处置净收益`,
+        subjectCode: settings.disposalClearingSubjectCode,
+        subjectName: '固定资产清理',
+        debit: 0,
+        credit: disposal.netGainLoss,
+      });
+      entries.push({
+        summary: `${asset.assetName}处置收益`,
+        subjectCode: settings.gainSubjectCode,
+        subjectName: '营业外收入',
+        debit: 0,
+        credit: disposal.netGainLoss,
+      });
+    } else {
+      const lossAmount = Math.abs(disposal.netGainLoss);
+      entries.push({
+        summary: `${asset.assetName}处置损失`,
+        subjectCode: settings.lossSubjectCode,
+        subjectName: '营业外支出',
+        debit: lossAmount,
+        credit: 0,
+      });
+      entries.push({
+        summary: `${asset.assetName}处置净损失`,
+        subjectCode: settings.disposalClearingSubjectCode,
+        subjectName: '固定资产清理',
+        debit: 0,
+        credit: lossAmount,
+      });
+    }
+  }
+
+  const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
+  const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
+  vouchers.push({ voucherDate: date, entries, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 });
+
+  return vouchers;
 }
 
 // 默认资产分类
@@ -1108,20 +1226,20 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         categoryId: row[3],
         categoryName: row[4],
         specification: row[5],
-        unit: row[6] || '台',
-        quantity: row[7] || 1,
-        remainingQuantity: row[38] || row[7] || 1, // 新字段，兼容旧数据
-        unitPrice: row[39] || (row[8] / (row[7] || 1)),
-        originalValue: row[8],
-        salvageValue: row[9],
-        depreciableValue: row[10],
-        accumulatedDepreciation: row[11],
-        netValue: row[12],
-        depreciationMethod: row[13],
-        usefulLifeYears: row[14],
-        usefulLifeMonths: row[15],
-        originalUsefulLifeMonths: row[40] || row[15],
-        depreciatedMonths: row[41] || 0,
+        unit: row[6] ?? '台',
+        quantity: row[7] ?? 1,
+        remainingQuantity: row[38] ?? row[7] ?? 1,
+        unitPrice: row[39] ?? (row[8] / (row[7] ?? 1)),
+        originalValue: row[8] ?? 0,
+        salvageValue: row[9] ?? 0,
+        depreciableValue: row[10] ?? 0,
+        accumulatedDepreciation: row[11] ?? 0,
+        netValue: row[12] ?? 0,
+        depreciationMethod: row[13] ?? 'straight_line',
+        usefulLifeYears: row[14] ?? 5,
+        usefulLifeMonths: row[15] ?? 60,
+        originalUsefulLifeMonths: row[43] ?? row[15] ?? 60,
+        depreciatedMonths: row[44] ?? 0,
         totalUnits: row[16],
         unitsUsed: row[17],
         acquisitionDate: row[18],
@@ -1138,23 +1256,35 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         depreciationSubjectName: row[29],
         expenseSubjectCode: row[30],
         expenseSubjectName: row[31],
-        cipSubjectCode: row[42],
-        cipSubjectName: row[43],
-        disposalSubjectCode: row[44],
-        disposalSubjectName: row[45],
-        acquisitionType: row[46] || 'purchase',
-        sourceInvoiceId: row[47],
-        sourceVoucherId: row[48],
-        serialNumber: row[49],
-        assignedUser: row[50],
-        improvementHistory: JSON.parse(row[51] || '[]'),
-        disposalHistory: JSON.parse(row[52] || '[]'),
+        cipSubjectCode: row[49],
+        cipSubjectName: row[50],
+        disposalSubjectCode: row[51],
+        disposalSubjectName: row[52],
+        acquisitionType: row[40] || 'purchase',
+        sourceInvoiceId: row[41],
+        sourceVoucherId: row[42],
+        serialNumber: row[45],
+        assignedUser: row[46],
+        improvementHistory: JSON.parse(row[47] || '[]'),
+        disposalHistory: JSON.parse(row[48] || '[]'),
         supplierName: row[32],
         invoiceNo: row[33],
         notes: row[34],
         accountSetId: row[35],
         createTime: row[36],
         updateTime: row[37],
+        assetType: row[53],
+        accountingStatus: row[54] || 'accounted',
+        acquisitionVoucherId: row[55],
+        acquisitionVoucherNo: row[56],
+        isOpeningBalance: row[57] === 1,
+        initialAccumulatedDepreciation: row[58] ?? 0,
+        creditSubjectCode: row[59],
+        creditSubjectName: row[60],
+        projectCode: row[61],
+        projectName: row[62],
+        depreciationEndDate: row[63],
+        remainingDepreciationMonths: row[64],
       })) || [];
 
       // 加载折旧记录
@@ -1526,7 +1656,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         netValueBalance: asset.originalValue,
         voucherId,
         voucherNo,
-        reason: `取得成本入账，原值 ¥${asset.originalValue.toLocaleString()}`,
+        reason: `取得成本入账，原值 ¥${(asset.originalValue ?? 0).toLocaleString()}`,
       });
 
       return { voucherId, voucherNo };
@@ -1534,6 +1664,53 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       set({ error: error.message || '生成取得凭证失败' });
       throw error;
     }
+  },
+
+  // 获取处置凭证预览数据
+  getDisposalVoucherPreview: (assetId, disposal) => {
+    const asset = get().assets.find(a => a.id === assetId);
+    if (!asset) return [];
+
+    const settings = useSettingsStore.getState().getAssetFinancialSettings();
+    const disposalCalc = get().calculatePartialDisposal(assetId, disposal.quantity);
+    if (!disposalCalc) return [];
+
+    const netGainLoss = disposal.disposalIncome - disposal.disposalExpense - disposalCalc.disposedNetValue;
+
+    return generateDisposalPreviewData(
+      asset,
+      { ...disposalCalc, disposalIncome: disposal.disposalIncome, disposalExpense: disposal.disposalExpense, netGainLoss },
+      disposal.date,
+      settings
+    );
+  },
+
+  // 获取增值凭证预览数据
+  getImprovementVoucherPreview: (assetId, improvement) => {
+    const asset = get().assets.find(a => a.id === assetId);
+    if (!asset) return [];
+
+    const entries: AssetVoucherPreviewEntry[] = [
+      {
+        summary: `${asset.assetName}增值`,
+        subjectCode: asset.assetSubjectCode || '1501',
+        subjectName: asset.assetSubjectName || '固定资产',
+        debit: improvement.amount,
+        credit: 0,
+      },
+      {
+        summary: `支付${asset.assetName}增值费用`,
+        subjectCode: '1002',
+        subjectName: '银行存款',
+        debit: 0,
+        credit: improvement.amount,
+      },
+    ];
+
+    const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0);
+    const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0);
+
+    return [{ voucherDate: improvement.date, entries, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 }];
   },
 
   // 折旧时间校验
