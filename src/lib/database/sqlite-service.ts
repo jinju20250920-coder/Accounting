@@ -211,6 +211,10 @@ class SQLiteService {
         UPDATE fixedAssets SET remainingQuantity = quantity WHERE remainingQuantity IS NULL OR remainingQuantity = 1;
         UPDATE fixedAssets SET unitPrice = originalValue / quantity WHERE unitPrice IS NULL AND quantity > 0;
         UPDATE fixedAssets SET acquisitionType = 'opening_balance' WHERE acquisitionType IS NULL;
+        UPDATE fixedAssets SET usefulLifeYears = 5 WHERE usefulLifeYears IS NULL;
+        UPDATE fixedAssets SET usefulLifeMonths = 60 WHERE usefulLifeMonths IS NULL;
+        UPDATE fixedAssets SET depreciationMethod = 'straight_line' WHERE depreciationMethod IS NULL;
+        UPDATE fixedAssets SET depreciatedMonths = 0 WHERE depreciatedMonths IS NULL;
       `);
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
@@ -276,6 +280,61 @@ class SQLiteService {
       }
     } catch (error) {
       console.warn('assetChangeRecords table migration warning:', error);
+    }
+
+    // 资产拆分记录表
+    try {
+      const splitTableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='assetSplitRecords'"
+      );
+
+      if (!splitTableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating assetSplitRecords table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS assetSplitRecords (
+            id TEXT PRIMARY KEY,
+            sourceAssetId TEXT NOT NULL,
+            targetAssetIds TEXT NOT NULL,
+            splitDate TEXT NOT NULL,
+            splitRatios TEXT NOT NULL,
+            splitAmounts TEXT NOT NULL,
+            voucherId TEXT,
+            voucherNo TEXT,
+            accountSetId TEXT NOT NULL,
+            createTime TEXT NOT NULL
+          )
+        `);
+        console.log('assetSplitRecords table migration completed');
+      }
+    } catch (error) {
+      console.warn('assetSplitRecords table migration warning:', error);
+    }
+
+    // 资产合并记录表
+    try {
+      const mergeTableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='assetMergeRecords'"
+      );
+
+      if (!mergeTableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating assetMergeRecords table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS assetMergeRecords (
+            id TEXT PRIMARY KEY,
+            sourceAssetIds TEXT NOT NULL,
+            targetAssetId TEXT NOT NULL,
+            mergeDate TEXT NOT NULL,
+            sourceAmounts TEXT NOT NULL,
+            voucherId TEXT,
+            voucherNo TEXT,
+            accountSetId TEXT NOT NULL,
+            createTime TEXT NOT NULL
+          )
+        `);
+        console.log('assetMergeRecords table migration completed');
+      }
+    } catch (error) {
+      console.warn('assetMergeRecords table migration warning:', error);
     }
   }
 
