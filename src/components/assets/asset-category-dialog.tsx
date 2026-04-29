@@ -327,6 +327,16 @@ function CategoryEditDialog({
                   onCheckedChange={checked => setFormData(prev => ({ ...prev, enabled: checked }))}
                 />
               </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-slate-600">入账时部门必填</span>
+                  <p className="text-[10px] text-slate-400">开启后，该分类资产入账时必须填写部门</p>
+                </div>
+                <Switch
+                  checked={formData.requireDepartment ?? false}
+                  onCheckedChange={checked => setFormData(prev => ({ ...prev, requireDepartment: checked }))}
+                />
+              </div>
             </div>
           </div>
 
@@ -613,6 +623,7 @@ export function AssetCategoryDialog({
                       <th className="text-left p-2 font-medium">资产科目</th>
                       <th className="text-left p-2 font-medium">折旧科目</th>
                       <th className="text-left p-2 font-medium">费用科目</th>
+                      <th className="text-center p-2 font-medium">部门必填</th>
                       <th className="text-center p-2 font-medium">状态</th>
                       <th className="text-center p-2 font-medium">操作</th>
                     </tr>
@@ -635,6 +646,13 @@ export function AssetCategoryDialog({
                           <code className="text-xs bg-slate-100 px-1 rounded">{cat.depreciationSubjectCode}</code>
                         </td>
                         <td className="p-2"><code className="text-xs bg-slate-100 px-1 rounded">{cat.expenseSubjectCode}</code></td>
+                        <td className="p-2 text-center">
+                          {cat.requireDepartment ? (
+                            <Badge variant="default" className="bg-blue-100 text-blue-700 text-xs">必填</Badge>
+                          ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                          )}
+                        </td>
                         <td className="p-2 text-center">
                           {cat.enabled ? (
                             <Badge variant="default" className="bg-green-100 text-green-700 text-xs">启用</Badge>

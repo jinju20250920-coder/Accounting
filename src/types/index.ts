@@ -595,6 +595,7 @@ export interface AssetCategory {
   description?: string;
   sortOrder: number;
   enabled: boolean;
+  requireDepartment?: boolean; // 入账时部门编号是否必填
   accountSetId?: string;
   createTime: string;
   updateTime: string;

@@ -834,6 +834,15 @@ export default function FixedAssetsPage() {
   };
 
   const handleAccountAsset = async (asset: FixedAsset) => {
+    // 检查分类是否要求部门必填
+    if (asset.categoryId) {
+      const category = categories.find(c => c.id === asset.categoryId);
+      if (category?.requireDepartment && !asset.departmentCode && !asset.departmentName) {
+        showToast('error', '该分类要求入账时必须填写部门编号');
+        return;
+      }
+    }
+
     try {
       const result = await generateAcquisitionVoucher(asset.id);
       if (result) {
@@ -868,6 +877,21 @@ export default function FixedAssetsPage() {
       showToast('warning', '未选择可入账的资产');
       return;
     }
+
+    // 检查是否有分类要求部门必填但未填写的资产
+    const missingDepartment = pendingAssets.find(asset => {
+      if (asset.categoryId) {
+        const category = categories.find(c => c.id === asset.categoryId);
+        return category?.requireDepartment && !asset.departmentCode && !asset.departmentName;
+      }
+      return false;
+    });
+
+    if (missingDepartment) {
+      showToast('error', `资产 ${missingDepartment.assetCode} 需要填写部门编号`);
+      return;
+    }
+
     const results = await Promise.allSettled(pendingAssets.map(a => generateAcquisitionVoucher(a.id)));
     const success = results.filter(r => r.status === 'fulfilled' && r.value).length;
     showToast('success', `批量入账完成：${success}/${pendingAssets.length} 成功`);

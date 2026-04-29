@@ -107,6 +107,17 @@ export default function BatchDepreciationPage() {
       return;
     }
 
+    // 检查是否有本月已计提折旧的资产
+    const alreadyDepreciated = Array.from(selectedAssetIds).filter(id => depreciatedAssetIdsThisPeriod.has(id));
+    if (alreadyDepreciated.length > 0) {
+      const assetNames = alreadyDepreciated
+        .map(id => assets.find(a => a.id === id)?.assetCode)
+        .filter(Boolean)
+        .slice(0, 3)
+        .join('、');
+      showToast('warning', `${alreadyDepreciated.length} 个资产本月已计提折旧（${assetNames}...），将自动跳过`);
+    }
+
     const result = batchCalculateDepreciation(Array.from(selectedAssetIds), period);
     setPreviewResult(result);
     setShowPreviewDialog(true);
