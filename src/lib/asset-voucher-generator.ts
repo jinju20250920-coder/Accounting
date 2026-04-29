@@ -344,7 +344,8 @@ export class AssetVoucherGenerator {
     }
 
     // 借方：费用科目
-    for (const [, expense] of expenseMap) {
+    const expenseList = Array.from(expenseMap.values());
+    for (const expense of expenseList) {
       entries.push({
         subjectCode: expense.code,
         subjectName: expense.name,
@@ -366,6 +367,190 @@ export class AssetVoucherGenerator {
 
     await this.saveVoucher(voucherNo, date, entries, accountSetId);
 
+    return { voucherNo, entries };
+  }
+
+  /**
+   * 生成减值凭证
+   * 方式一（计提准备）：借：资产减值损失，贷：减值准备
+   * 方式二（直接减少）：借：营业外支出，贷：固定资产
+   */
+  async generateImpairmentVoucher(
+    asset: FixedAsset,
+    impairmentAmount: number,
+    method: 'provision' | 'direct_reduction',
+    date: string,
+    accountSetId: string,
+    settings: { lossCode: string; provisionCode: string }
+  ): Promise<GeneratedVoucher> {
+    const voucherNo = await this.getVoucherNo(date);
+    const entries: VoucherEntry[] = [];
+
+    if (method === 'provision') {
+      // 计提减值准备
+      entries.push({
+        subjectCode: settings.lossCode,
+        subjectName: '资产减值损失',
+        debit: impairmentAmount,
+        credit: 0,
+        summary: `${asset.assetName}计提减值准备`,
+      });
+      entries.push({
+        subjectCode: settings.provisionCode,
+        subjectName: '固定资产减值准备',
+        debit: 0,
+        credit: impairmentAmount,
+        summary: `${asset.assetName}减值准备`,
+      });
+    } else {
+      // 直接减少原值
+      entries.push({
+        subjectCode: '6711',
+        subjectName: '营业外支出',
+        debit: impairmentAmount,
+        credit: 0,
+        summary: `${asset.assetName}减值损失`,
+      });
+      entries.push({
+        subjectCode: asset.assetSubjectCode || '1501',
+        subjectName: asset.assetSubjectName || '固定资产',
+        debit: 0,
+        credit: impairmentAmount,
+        summary: `${asset.assetName}减值`,
+      });
+    }
+
+    await this.saveVoucher(voucherNo, date, entries, accountSetId);
+    return { voucherNo, entries };
+  }
+
+  /**
+   * 生成重分类凭证（科目变更）
+   * 借：新固定资产科目，贷：旧固定资产科目
+   * 借：新累计折旧科目，贷：旧累计折旧科目
+   */
+  async generateReclassifyVoucher(
+    asset: FixedAsset,
+    oldAssetSubjectCode: string,
+    oldAssetSubjectName: string,
+    oldDepreciationSubjectCode: string,
+    oldDepreciationSubjectName: string,
+    date: string,
+    accountSetId: string
+  ): Promise<GeneratedVoucher> {
+    const voucherNo = await this.getVoucherNo(date);
+    const entries: VoucherEntry[] = [];
+
+    // 固定资产科目转账
+    entries.push({
+      subjectCode: asset.assetSubjectCode || '1501',
+      subjectName: asset.assetSubjectName || '固定资产',
+      debit: asset.originalValue,
+      credit: 0,
+      summary: `${asset.assetName}重分类转入`,
+    });
+    entries.push({
+      subjectCode: oldAssetSubjectCode,
+      subjectName: oldAssetSubjectName,
+      debit: 0,
+      credit: asset.originalValue,
+      summary: `${asset.assetName}重分类转出`,
+    });
+
+    // 累计折旧科目转账（如有）
+    if (asset.accumulatedDepreciation > 0) {
+      entries.push({
+        subjectCode: oldDepreciationSubjectCode,
+        subjectName: oldDepreciationSubjectName,
+        debit: asset.accumulatedDepreciation,
+        credit: 0,
+        summary: `${asset.assetName}累计折旧重分类转出`,
+      });
+      entries.push({
+        subjectCode: asset.depreciationSubjectCode || '1502',
+        subjectName: asset.depreciationSubjectName || '累计折旧',
+        debit: 0,
+        credit: asset.accumulatedDepreciation,
+        summary: `${asset.assetName}累计折旧重分类转入`,
+      });
+    }
+
+    await this.saveVoucher(voucherNo, date, entries, accountSetId);
+    return { voucherNo, entries };
+  }
+
+  /**
+   * 生成拆分凭证
+   * 借：固定资产-A/B/C，贷：固定资产-原
+   */
+  async generateSplitVoucher(
+    sourceAsset: FixedAsset,
+    targetAssets: { id: string; code: string; name: string; subjectCode: string; subjectName: string; amount: number }[],
+    date: string,
+    accountSetId: string
+  ): Promise<GeneratedVoucher> {
+    const voucherNo = await this.getVoucherNo(date);
+    const entries: VoucherEntry[] = [];
+
+    // 借方：各目标资产
+    for (const target of targetAssets) {
+      entries.push({
+        subjectCode: target.subjectCode,
+        subjectName: target.subjectName,
+        debit: target.amount,
+        credit: 0,
+        summary: `${sourceAsset.assetName}拆分转入${target.name}`,
+      });
+    }
+
+    // 贷方：原资产
+    entries.push({
+      subjectCode: sourceAsset.assetSubjectCode || '1501',
+      subjectName: sourceAsset.assetSubjectName || '固定资产',
+      debit: 0,
+      credit: sourceAsset.originalValue,
+      summary: `${sourceAsset.assetName}拆分转出`,
+    });
+
+    await this.saveVoucher(voucherNo, date, entries, accountSetId);
+    return { voucherNo, entries };
+  }
+
+  /**
+   * 生成合并凭证
+   * 借：固定资产-新，贷：固定资产-A/B/C
+   */
+  async generateMergeVoucher(
+    sourceAssets: { id: string; code: string; name: string; subjectCode: string; subjectName: string; amount: number }[],
+    targetAsset: FixedAsset,
+    date: string,
+    accountSetId: string
+  ): Promise<GeneratedVoucher> {
+    const voucherNo = await this.getVoucherNo(date);
+    const entries: VoucherEntry[] = [];
+
+    // 借方：目标资产
+    const totalAmount = sourceAssets.reduce((sum, a) => sum + a.amount, 0);
+    entries.push({
+      subjectCode: targetAsset.assetSubjectCode || '1501',
+      subjectName: targetAsset.assetSubjectName || '固定资产',
+      debit: totalAmount,
+      credit: 0,
+      summary: `资产合并转入${targetAsset.assetName}`,
+    });
+
+    // 贷方：各原资产
+    for (const source of sourceAssets) {
+      entries.push({
+        subjectCode: source.subjectCode,
+        subjectName: source.subjectName,
+        debit: 0,
+        credit: source.amount,
+        summary: `${source.name}合并转出`,
+      });
+    }
+
+    await this.saveVoucher(voucherNo, date, entries, accountSetId);
     return { voucherNo, entries };
   }
 }
