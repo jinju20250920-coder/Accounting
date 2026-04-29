@@ -705,8 +705,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         continue;
       }
 
-      if (asset.status !== 'active') {
-        errors.push({ assetId, assetName: asset.assetName, error: '资产状态不是在用' });
+      // 检查该期间是否应该计提折旧
+      if (!get().shouldDepreciateThisMonth(assetId, period)) {
         continue;
       }
 
@@ -1528,7 +1528,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
   },
 
-  // 当月新增不折旧校验
+  // 折旧时间校验
   shouldDepreciateThisMonth: (assetId, period) => {
     const asset = get().assets.find(a => a.id === assetId);
     if (!asset) return false;
@@ -1536,10 +1536,40 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     // 未入账资产禁止折旧
     if (asset.accountingStatus === 'pending') return false;
 
-    // 获取取得期间的年月（YYYY-MM）
+    // 已处置资产禁止折旧
+    if (asset.status === 'disposed') return false;
+
+    // 已提足折旧禁止折旧
+    const depreciableValue = asset.originalValue - asset.salvageValue;
+    if (asset.accumulatedDepreciation >= depreciableValue) return false;
+
+    // 获取折旧开始期间
+    // 规则：当月新增，下月开始折旧
     const acquisitionPeriod = asset.acquisitionDate.substring(0, 7);
-    // 当月新增，下月开始折旧
-    return period > acquisitionPeriod;
+    if (period <= acquisitionPeriod) return false;
+
+    // 如果有明确的折旧开始日期，检查是否已到开始时间
+    if (asset.depreciationStartDate) {
+      const depreciationStartPeriod = asset.depreciationStartDate.substring(0, 7);
+      if (period < depreciationStartPeriod) return false;
+    }
+
+    // 如果有明确的折旧结束日期，检查是否已过期
+    if (asset.depreciationEndDate) {
+      const depreciationEndPeriod = asset.depreciationEndDate.substring(0, 7);
+      if (period > depreciationEndPeriod) return false;
+    }
+
+    // 检查使用年限是否已满
+    // 计算从取得日期到当前期间已过月数
+    const [acqYear, acqMonth] = acquisitionPeriod.split('-').map(Number);
+    const [curYear, curMonth] = period.split('-').map(Number);
+    const monthsSinceAcquisition = (curYear - acqYear) * 12 + (curMonth - acqMonth);
+    // 减去取得当月（当月不计提），得到已过折旧月数
+    const monthsOfDepreciation = monthsSinceAcquisition - 1;
+    if (monthsOfDepreciation >= asset.usefulLifeMonths) return false;
+
+    return true;
   },
 
   // 部分处置计算
