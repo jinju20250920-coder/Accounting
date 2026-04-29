@@ -747,6 +747,12 @@ export interface AssetChangeRecord {
   // 凭证关联
   voucherId?: string;
   voucherNo?: string;
+  voucherIds?: string[];      // 关联的凭证ID列表
+  voucherNos?: string[];      // 凭证字号列表
+
+  // 拆分/合并专用
+  relatedAssetIds?: string[];
+  splitRatio?: number;
 
   reason?: string; // 变更原因
   operatorId?: string; // 操作人
@@ -1432,4 +1438,55 @@ export interface InvoiceSummaryItem {
   outputInvoiceCount: number;       // 销项发票数量
   hasVoucherInputCount: number;     // 已生成凭证的进项发票数
   hasVoucherOutputCount: number;    // 已生成凭证的销项发票数
+}
+
+// ============================================
+// 资产财务规则配置
+// ============================================
+
+export interface AssetFinancialSettings {
+  // 减值处理方式
+  impairmentMethod: 'provision' | 'direct_reduction';
+  // provision: 计提减值准备
+  // direct_reduction: 直接减少原值
+
+  // 处置凭证生成方式
+  disposalVoucherMode: 'single' | 'multiple' | 'auto';
+  // single: 合并为一张凭证
+  // multiple: 拆分多张凭证
+  // auto: 简单处置合并，复杂处置拆分
+
+  // 凭证科目配置
+  disposalClearingSubjectCode: string;
+  impairmentLossSubjectCode: string;
+  impairmentProvisionSubjectCode: string;
+  gainSubjectCode: string;
+  lossSubjectCode: string;
+}
+
+// 资产拆分记录
+export interface AssetSplitRecord {
+  id: string;
+  sourceAssetId: string;
+  targetAssetIds: string[];
+  splitDate: string;
+  splitRatios: number[];
+  splitAmounts: number[];
+  voucherId?: string;
+  voucherNo?: string;
+  accountSetId: string;
+  createTime: string;
+}
+
+// 资产合并记录
+export interface AssetMergeRecord {
+  id: string;
+  sourceAssetIds: string[];
+  targetAssetId: string;
+  mergeDate: string;
+  sourceAmounts: number[];
+  voucherId?: string;
+  voucherNo?: string;
+  accountSetId: string;
+  createTime: string;
 }
