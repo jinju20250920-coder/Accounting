@@ -519,7 +519,7 @@ export function AssetCategoryDialog({
   const tabs: { key: TabType; label: string; icon: React.ReactNode }[] = [
     { key: 'category', label: '折旧与科目', icon: <Calculator className="h-3.5 w-3.5" /> },
     { key: 'acquisition', label: '取得成本规则', icon: <FileText className="h-3.5 w-3.5" /> },
-    { key: 'voucher', label: '凭证规则', icon: <BookOpen className="h-3.5 w-3.5" /> },
+    { key: 'voucher', label: '处置减值过账', icon: <BookOpen className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -793,7 +793,7 @@ export function AssetCategoryDialog({
           </div>
         )}
 
-        {/* Tab 3: 凭证规则 */}
+        {/* Tab 3: 处置减值过账规则 */}
         {activeTab === 'voucher' && (
           <div className="space-y-4 py-3">
             {/* 减值处理方式 */}
@@ -849,11 +849,11 @@ export function AssetCategoryDialog({
               </div>
             </div>
 
-            {/* 凭证科目配置 */}
+            {/* 过账科目配置 */}
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg space-y-3">
               <div className="text-xs font-medium text-blue-700 flex items-center gap-1">
                 <BookOpen className="h-3 w-3" />
-                凭证科目配置
+                过账科目配置
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -905,14 +905,14 @@ export function AssetCategoryDialog({
             </div>
 
             {/* 说明 */}
-            <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
-              <p className="font-medium mb-1">科目说明</p>
-              <ul className="list-disc list-inside space-y-0.5 text-blue-600">
-                <li>固定资产清理科目：处置时结转资产价值的过渡科目</li>
-                <li>资产减值损失科目：计提减值时的损失科目</li>
-                <li>减值准备科目：计提减值时的准备科目</li>
-                <li>处置收益科目：处置净收益结转科目</li>
-                <li>处置损失科目：处置净损失结转科目</li>
+            <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-700">
+              <p className="font-medium mb-1">科目来源说明</p>
+              <ul className="list-disc list-inside space-y-0.5 text-amber-600">
+                <li><strong>固定资产科目、累计折旧科目</strong>：根据资产分类，从"取得成本规则"页面获取</li>
+                <li><strong>固定资产清理科目</strong>：处置时结转资产价值的过渡科目</li>
+                <li><strong>资产减值损失科目</strong>：计提减值时的损失科目</li>
+                <li><strong>减值准备科目</strong>：计提减值时的准备科目</li>
+                <li><strong>处置收益/损失科目</strong>：处置净损益结转科目</li>
               </ul>
             </div>
           </div>
