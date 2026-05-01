@@ -189,6 +189,7 @@ class SQLiteService {
         { name: 'accountingStatus', sql: "ALTER TABLE fixedAssets ADD COLUMN accountingStatus TEXT DEFAULT 'accounted'" },
         { name: 'acquisitionVoucherId', sql: 'ALTER TABLE fixedAssets ADD COLUMN acquisitionVoucherId TEXT' },
         { name: 'acquisitionVoucherNo', sql: 'ALTER TABLE fixedAssets ADD COLUMN acquisitionVoucherNo TEXT' },
+        { name: 'acquisitionAccountingDate', sql: 'ALTER TABLE fixedAssets ADD COLUMN acquisitionAccountingDate TEXT' },
         { name: 'isOpeningBalance', sql: 'ALTER TABLE fixedAssets ADD COLUMN isOpeningBalance INTEGER DEFAULT 0' },
         { name: 'initialAccumulatedDepreciation', sql: 'ALTER TABLE fixedAssets ADD COLUMN initialAccumulatedDepreciation REAL DEFAULT 0' },
         { name: 'creditSubjectCode', sql: 'ALTER TABLE fixedAssets ADD COLUMN creditSubjectCode TEXT' },

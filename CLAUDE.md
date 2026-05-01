@@ -614,6 +614,15 @@ if (type === 'sale_invoice') {
     - ✅ 正确：`const stmt = db.prepare(sql); stmt.run(params); stmt.free();`
     - 所有 Store（useInvoiceStore、useFixedAssetStore、usePrepaidExpenseStore、useIntangibleAssetStore）已统一使用正确模式
 
+15. **全局 UI 实现标准**
+    - **禁用自动填充**：所有 `<Input/>` 和 `<form />` 必须设置 `autoComplete="off"` 或 `autoComplete="new-password"`
+    - **关系型字段可搜索**：科目、供应商、部门、项目等字段必须使用 Searchable Combobox（基于 Shadcn Command）
+    - **模糊搜索**：支持按名称或代码部分匹配
+    - **视觉提示**：可搜索字段必须有放大镜图标前缀
+    - **Portal 渲染**：下拉列表必须通过 Portal 渲染，避免被父容器 `overflow: hidden` 截断
+    - ✅ 已有组件：`SubjectPopover`（科目）、`PartnerPopover`（往来单位）
+    - ✅ 待改造：固定资产卡片中的部门、供应商、科目字段
+
 ---
 
 ## 创新特性

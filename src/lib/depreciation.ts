@@ -7,7 +7,52 @@ import type {
   DepreciationMethod,
   DepreciationCalculationInput,
   DepreciationResult,
+  DepreciationStartRule,
 } from '@/types';
+
+/**
+ * 判断本期是否应该计提折旧
+ * @param acquisitionDate 取得日期
+ * @param period 期间（YYYY-MM）
+ * @param rule 折旧起始规则
+ * @returns 是否应该计提本期折旧
+ */
+export function shouldDepreciateThisPeriod(
+  acquisitionDate: string,
+  period: string,
+  rule: DepreciationStartRule = 'next_month'
+): boolean {
+  const acquisitionMonth = acquisitionDate.substring(0, 7);
+  if (rule === 'current_month') {
+    // 无形资产规则：当月增加当月开始摊销
+    return true;
+  } else {
+    // 固定资产规则：当月增加不计提，下月开始
+    return acquisitionMonth < period;
+  }
+}
+
+/**
+ * 判断本期是否应该停止计提折旧（处置当月）
+ * @param disposalDate 处置日期
+ * @param period 期间（YYYY-MM）
+ * @param rule 折旧起始规则
+ * @returns 是否应该停止计提
+ */
+export function shouldStopDepreciationThisPeriod(
+  disposalDate: string,
+  period: string,
+  rule: DepreciationStartRule = 'next_month'
+): boolean {
+  const disposalMonth = disposalDate.substring(0, 7);
+  if (rule === 'current_month') {
+    // 无形资产规则：当月减少当月停止摊销
+    return disposalMonth <= period;
+  } else {
+    // 固定资产规则：当月减少当月照提，下月停提
+    return disposalMonth < period;
+  }
+}
 
 /**
  * 计算两个日期之间的月数差
@@ -329,14 +374,37 @@ export function calculateUnitsOfProductionDepreciation(
  *
  * @param method 折旧方法
  * @param input 折旧计算输入参数
+ * @param period 计算期间（YYYY-MM），用于判断折旧起始规则
  * @param unitsThisPeriod 本期工作量（仅工作量法需要）
  * @returns 折旧计算结果
  */
 export function calculateDepreciation(
   method: DepreciationMethod,
   input: DepreciationCalculationInput,
+  period?: string,
   unitsThisPeriod?: number
 ): DepreciationResult {
+  // 检查折旧起始规则
+  if (period && input.depreciationStartRule) {
+    const shouldDepreciate = shouldDepreciateThisPeriod(
+      input.acquisitionDate,
+      period,
+      input.depreciationStartRule
+    );
+    if (!shouldDepreciate) {
+      return {
+        periodDepreciation: 0,
+        accumulatedDepreciation: input.accumulatedDepreciation,
+        netValue: Math.max(input.originalValue - input.accumulatedDepreciation, input.salvageValue),
+        remainingLife: input.usefulLifeMonths,
+        isFullyDepreciated: false,
+        calculationDetails: input.depreciationStartRule === 'next_month'
+          ? '固定资产规则：当月增加不计提，下月开始'
+          : '无形资产规则：当月增加当月开始（但本期不满足条件）',
+      };
+    }
+  }
+
   // 检查是否已提足折旧
   const depreciableValue = input.originalValue - input.salvageValue;
   if (input.accumulatedDepreciation >= depreciableValue) {

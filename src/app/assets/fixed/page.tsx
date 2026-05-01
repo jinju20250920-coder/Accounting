@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useDepartmentStore } from '@/stores/useDepartmentStore';
+import { usePartnerStore } from '@/stores/usePartnerStore';
+import { useFinancialProjectStore } from '@/stores/useFinancialProjectStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
@@ -23,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useToast } from '@/components/ui/toast';
 import {
   Plus,
@@ -37,7 +41,6 @@ import {
   History,
   QrCode,
   TrendingUp,
-  AlertTriangle,
   Printer,
   Calculator,
   FileText,
@@ -47,11 +50,14 @@ import { AssetCodeRuleDialog } from '@/components/asset-code-rule-dialog';
 import { AssetCategoryDialog } from '@/components/assets/asset-category-dialog';
 import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generator';
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
-import { AssetDisposalDialog } from '@/components/assets/asset-disposal-dialog';
 import { AssetChangeDialog } from '@/components/assets/asset-improvement-dialog';
 import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
+import { DepreciationDialog } from '@/components/assets/depreciation-dialog';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation } from '@/lib/depreciation';
+import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
+import { validateAccountingPeriod } from '@/lib/accounting';
+import { formatNumber } from '@/lib/utils';
 import type { FixedAsset, AssetCategory } from '@/types';
 
 // 生成唯一ID
@@ -76,6 +82,25 @@ function AssetCardDialog({
   requireDepartment: boolean;
 }) {
   const { showToast } = useToast();
+
+  // 获取部门、供应商、项目数据
+  const departments = useDepartmentStore((s) => s.departments);
+  const partners = usePartnerStore((s) => s.partners);
+  const projects = useFinancialProjectStore((s) => s.projects);
+
+  // 构建可搜索选项
+  const departmentOptions = departments
+    .filter(d => !d.frozen)
+    .map(d => ({ value: d.code, label: d.name, code: d.code }));
+
+  const supplierOptions = partners
+    .filter(p => p.isSupplier)
+    .map(p => ({ value: p.name, label: p.name, code: p.code }));
+
+  const projectOptions = projects
+    .filter(p => !p.frozen)
+    .map(p => ({ value: p.name, label: p.name, code: p.code }));
+
   const [formData, setFormData] = useState<Partial<FixedAsset>>({
     assetCode: '',
     assetName: '',
@@ -263,10 +288,7 @@ function AssetCardDialog({
     (formData.usefulLifeYears || 5) * 12
   );
 
-  const formatMoney = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return '0.00';
-    return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
+  const formatMoney = formatNumber;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -579,11 +601,12 @@ function AssetCardDialog({
               {(formData.acquisitionType === 'purchase' || formData.acquisitionType === 'invoice') && (
                 <div className="space-y-1.5">
                   <Label>供应商</Label>
-                  <Input
+                  <SearchableSelect
                     value={formData.supplierName || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
-                    placeholder="请输入供应商"
-                    autoComplete="off"
+                    onChange={(value) => setFormData(prev => ({ ...prev, supplierName: value }))}
+                    options={supplierOptions}
+                    placeholder="搜索供应商"
+                    emptyText="无匹配供应商"
                   />
                 </div>
               )}
@@ -591,11 +614,12 @@ function AssetCardDialog({
               {formData.acquisitionType === 'internal_transfer' && (
                 <div className="space-y-1.5">
                   <Label>转入单位</Label>
-                  <Input
+                  <SearchableSelect
                     value={formData.supplierName || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, supplierName: e.target.value }))}
-                    placeholder="请输入转入单位"
-                    autoComplete="off"
+                    onChange={(value) => setFormData(prev => ({ ...prev, supplierName: value }))}
+                    options={supplierOptions}
+                    placeholder="搜索转入单位"
+                    emptyText="无匹配单位"
                   />
                 </div>
               )}
@@ -610,20 +634,26 @@ function AssetCardDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>使用部门</Label>
-                <Input
-                  value={formData.departmentName || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, departmentName: e.target.value }))}
-                  placeholder="请输入使用部门"
-                  autoComplete="off"
+                <SearchableSelect
+                  value={formData.departmentCode || ''}
+                  onChange={(value, option) => setFormData(prev => ({
+                    ...prev,
+                    departmentCode: value,
+                    departmentName: option?.label || '',
+                  }))}
+                  options={departmentOptions}
+                  placeholder="搜索部门"
+                  emptyText="无匹配部门"
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>项目核算</Label>
-                <Input
+                <SearchableSelect
                   value={formData.projectName || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, projectName: e.target.value }))}
-                  placeholder="请输入项目名称"
-                  autoComplete="off"
+                  onChange={(value) => setFormData(prev => ({ ...prev, projectName: value }))}
+                  options={projectOptions}
+                  placeholder="搜索项目"
+                  emptyText="无匹配项目"
                 />
               </div>
               <div className="space-y-1.5">
@@ -706,6 +736,7 @@ export default function FixedAssetsPage() {
   const {
     assets,
     categories,
+    depreciationRecords,
     loading,
     addAsset,
     updateAsset,
@@ -727,11 +758,17 @@ export default function FixedAssetsPage() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showCodeRuleDialog, setShowCodeRuleDialog] = useState(false);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
-  const [showDisposalDialog, setShowDisposalDialog] = useState(false);
-  const [showImprovementDialog, setShowImprovementDialog] = useState(false);
+  const [showChangeDialog, setShowChangeDialog] = useState(false);
   const [showQRLabelDialog, setShowQRLabelDialog] = useState(false);
   const [showBatchLabelDialog, setShowBatchLabelDialog] = useState(false);
   const [showChangeRecordDialog, setShowChangeRecordDialog] = useState(false);
+  const [showDepreciationDialog, setShowDepreciationDialog] = useState(false);
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
+  const [accountingAsset, setAccountingAsset] = useState<FixedAsset | null>(null);
+  const [accountingDate, setAccountingDate] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-28`;
+  });
   const [importing, setImporting] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -811,17 +848,85 @@ export default function FixedAssetsPage() {
     }
   };
 
-  const handleAccountAsset = async (asset: FixedAsset) => {
+  const handleAccountAsset = (asset: FixedAsset) => {
     // 检查全局设置是否要求部门必填
     if (requireDepartment && !asset.departmentCode && !asset.departmentName) {
       showToast('error', '入账时必须填写部门编号');
       return;
     }
+    // 打开入账确认对话框
+    setAccountingAsset(asset);
+    // 默认使用购置日期所在期间的最后一天
+    if (asset.acquisitionDate) {
+      const dateStr = asset.acquisitionDate.substring(0, 10);
+      const [year, month] = dateStr.substring(0, 7).split('-');
+      const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+      setAccountingDate(`${year}-${month}-${String(lastDay).padStart(2, '0')}`);
+    } else {
+      // 如果没有购置日期，使用当前账期的最后一天
+      const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      const currentPeriod = accountSet?.accountingPeriods?.find(p => p.isCurrent);
+      if (currentPeriod) {
+        setAccountingDate(currentPeriod.endDate);
+      }
+    }
+    setShowAccountDialog(true);
+  };
+
+  // 入账凭证预览
+  const acquisitionVoucherPreview = useMemo(() => {
+    if (!accountingAsset) return null;
+
+    const category = categories.find(c => c.id === accountingAsset.categoryId);
+    const assetSubjectCode = category?.assetSubjectCode || accountingAsset.assetSubjectCode || '';
+    const assetSubjectName = category?.name || accountingAsset.assetSubjectName || accountingAsset.assetName;
+
+    const entries = getAcquisitionVoucherEntries(
+      accountingAsset.acquisitionType || 'purchase',
+      accountingAsset.originalValue,
+      assetSubjectCode,
+      assetSubjectName
+    );
+
+    if (!entries) return null;
+
+    return {
+      summary: `取得固定资产-${accountingAsset.assetName}`,
+      entries: [
+        {
+          subjectCode: entries.debitSubject,
+          subjectName: entries.debitName,
+          debit: entries.amount,
+          credit: 0,
+        },
+        {
+          subjectCode: entries.creditSubject,
+          subjectName: entries.creditName,
+          debit: 0,
+          credit: entries.amount,
+        },
+      ],
+    };
+  }, [accountingAsset, categories]);
+
+  const handleConfirmAccount = async () => {
+    if (!accountingAsset) return;
+
+    // 校验入账日期是否在当前开放账期内
+    const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    const validation = validateAccountingPeriod(accountingDate, accountSet);
+    if (!validation.valid) {
+      showToast('error', validation.error!);
+      return;
+    }
 
     try {
-      const result = await generateAcquisitionVoucher(asset.id);
+      const result = await generateAcquisitionVoucher(accountingAsset.id, accountingDate);
       if (result) {
         showToast('success', `入账成功，取得凭证 ${result.voucherNo} 已生成`);
+        setShowAccountDialog(false);
+        setAccountingAsset(null);
+        initialize();
       } else {
         showToast('warning', '入账失败，请检查取得规则配置');
       }
@@ -947,16 +1052,118 @@ export default function FixedAssetsPage() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const formatMoney = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '0.00';
-    return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
+  const formatMoney = formatNumber;
 
   // 统计数据
-  const totalOriginalValue = assets.reduce((sum, a) => sum + a.originalValue, 0);
-  const totalDepreciation = assets.reduce((sum, a) => sum + a.accumulatedDepreciation, 0);
-  const totalNetValue = assets.reduce((sum, a) => sum + a.netValue, 0);
+  const totalOriginalValue = assets.reduce((sum, a) => sum + (a.originalValue ?? 0), 0);
+  const totalDepreciation = assets.reduce((sum, a) => sum + (a.accumulatedDepreciation ?? 0), 0);
+  const totalNetValue = assets.reduce((sum, a) => sum + (a.netValue ?? 0), 0);
   const activeCount = assets.filter(a => a.status === 'active').length;
+
+  // 本月折旧统计 - 基于当前账期而非系统日期
+  const currentPeriod = useMemo(() => {
+    const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    const currentPeriodData = accountSet?.accountingPeriods?.find(p => p.isCurrent);
+    if (currentPeriodData) {
+      return `${currentPeriodData.year}-${String(currentPeriodData.month).padStart(2, '0')}`;
+    }
+    // 回退到系统日期
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, [assets]); // 依赖 assets 变化时重新计算（账套切换时 assets 会变化
+
+  const depreciationStats = useMemo(() => {
+    const activeAssets = assets.filter(a => a.status === 'active');
+    const depreciatedIdsThisMonth = new Set(
+      depreciationRecords
+        .filter(r => r.period === currentPeriod && r.status !== 'draft')
+        .map(r => r.assetId)
+    );
+
+    let toDepreciate = 0;  // 待计提
+    let depreciated = 0;   // 已计提
+    let notRequired = 0;   // 无需计提（已提足或本月新增按规则不计提）
+
+    activeAssets.forEach(asset => {
+      if (depreciatedIdsThisMonth.has(asset.id)) {
+        depreciated++;
+      } else {
+        // 检查是否已提足折旧
+        const originalValue = asset.originalValue ?? 0;
+        const salvageValue = asset.salvageValue ?? 0;
+        const accumulatedDepreciation = asset.accumulatedDepreciation ?? 0;
+        const depreciableValue = originalValue - salvageValue;
+
+        if (accumulatedDepreciation >= depreciableValue) {
+          notRequired++;
+        } else {
+          // 检查购置月份与当前账期的关系
+          const acquisitionMonth = asset.acquisitionDate?.substring(0, 7);
+
+          // 购置月份在当前账期之后，资产在当前账期还不存在
+          if (acquisitionMonth && acquisitionMonth > currentPeriod) {
+            notRequired++;
+            return;
+          }
+
+          // 检查折旧起始规则
+          const category = categories.find(c => c.id === asset.categoryId);
+          const rule = category?.depreciationStartRule || 'next_month';
+
+          if (rule === 'next_month' && acquisitionMonth === currentPeriod) {
+            // 固定资产规则：当月新增不计提
+            notRequired++;
+          } else {
+            toDepreciate++;
+          }
+        }
+      }
+    });
+
+    return { toDepreciate, depreciated, notRequired };
+  }, [assets, depreciationRecords, categories, currentPeriod]);
+
+  // 获取单个资产的本月折旧状态
+  const getAssetDepreciationStatus = (asset: FixedAsset): 'depreciated' | 'to_depreciate' | 'not_required' => {
+    const depreciatedThisMonth = depreciationRecords.find(
+      r => r.assetId === asset.id && r.period === currentPeriod && r.status !== 'draft'
+    );
+    if (depreciatedThisMonth) return 'depreciated';
+
+    // 检查是否已提足折旧
+    const originalValue = asset.originalValue ?? 0;
+    const salvageValue = asset.salvageValue ?? 0;
+    const accumulatedDepreciation = asset.accumulatedDepreciation ?? 0;
+    const depreciableValue = originalValue - salvageValue;
+
+    if (accumulatedDepreciation >= depreciableValue) return 'not_required';
+
+    // 使用入账日期来判断是否本月入账（而非购置日期）
+    const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
+    const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
+
+    // 入账月份在当前账期之后，资产在当前账期还不存在
+    if (acquisitionMonth && acquisitionMonth > currentPeriod) {
+      return 'not_required';
+    }
+
+    // 检查折旧起始规则
+    const category = categories.find(c => c.id === asset.categoryId);
+    const rule = category?.depreciationStartRule || 'next_month';
+
+    // 本月入账的资产
+    if (acquisitionMonth === currentPeriod) {
+      // 固定资产规则：当月入账，下月开始计提
+      if (rule === 'next_month') {
+        return 'not_required';
+      }
+      // 无形资产规则：当月入账，当月开始摊销
+      // rule === 'current_month' → 需要计提
+    }
+
+    // 入账月份在当前账期之前，本月应该计提
+    return 'to_depreciate';
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -986,6 +1193,10 @@ export default function FixedAssetsPage() {
             <Settings className="h-4 w-4 mr-2" />
             核算规则
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowDepreciationDialog(true)}>
+            <Calculator className="h-4 w-4 mr-2" />
+            折旧计算
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowBatchLabelDialog(true)}>
             <Printer className="h-4 w-4 mr-2" />
             批量打印标签
@@ -1013,7 +1224,7 @@ export default function FixedAssetsPage() {
       </div>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-4">
             <div className="text-sm text-slate-500">资产数量</div>
@@ -1036,6 +1247,25 @@ export default function FixedAssetsPage() {
           <CardContent className="pt-4">
             <div className="text-sm text-slate-500">净值合计</div>
             <div className="text-2xl font-bold text-blue-600">¥{formatMoney(totalNetValue)}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="pt-4">
+            <div className="text-sm text-yellow-700">本月折旧状态</div>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="text-center">
+                <div className="text-lg font-bold text-yellow-800">{depreciationStats.toDepreciate}</div>
+                <div className="text-xs text-yellow-600">待计提</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-green-600">{depreciationStats.depreciated}</div>
+                <div className="text-xs text-slate-500">已计提</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-slate-400">{depreciationStats.notRequired}</div>
+                <div className="text-xs text-slate-400">无需计提</div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1103,6 +1333,7 @@ export default function FixedAssetsPage() {
                   <th className="text-right p-4 font-medium text-sm">原值</th>
                   <th className="text-right p-4 font-medium text-sm">累计折旧</th>
                   <th className="text-right p-4 font-medium text-sm">净值</th>
+                  <th className="text-center p-4 font-medium text-sm">本月折旧</th>
                   <th className="text-center p-4 font-medium text-sm">剩余月份</th>
                   <th className="text-left p-4 font-medium text-sm">状态</th>
                   <th className="text-center p-4 font-medium text-sm">操作</th>
@@ -1111,13 +1342,13 @@ export default function FixedAssetsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="text-center p-8 text-slate-500">
+                    <td colSpan={12} className="text-center p-8 text-slate-500">
                       加载中...
                     </td>
                   </tr>
                 ) : filteredAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center p-8 text-slate-500">
+                    <td colSpan={12} className="text-center p-8 text-slate-500">
                       暂无资产数据
                     </td>
                   </tr>
@@ -1156,6 +1387,18 @@ export default function FixedAssetsPage() {
                       <td className="p-4 text-sm text-right text-orange-600">¥{formatMoney(asset.accumulatedDepreciation)}</td>
                       <td className="p-4 text-sm text-right font-medium">¥{formatMoney(asset.netValue)}</td>
                       <td className="p-4 text-sm text-center">
+                        {(() => {
+                          const depStatus = getAssetDepreciationStatus(asset);
+                          if (depStatus === 'depreciated') {
+                            return <Badge variant="outline" className="bg-green-100 text-green-700 text-xs">已计提</Badge>;
+                          } else if (depStatus === 'to_depreciate') {
+                            return <Badge variant="outline" className="bg-yellow-100 text-yellow-700 text-xs">待计提</Badge>;
+                          } else {
+                            return <Badge variant="outline" className="bg-slate-100 text-slate-500 text-xs">无需</Badge>;
+                          }
+                        })()}
+                      </td>
+                      <td className="p-4 text-sm text-center">
                         {typeof remainingMonths === 'number' ? (
                           <span className={remainingMonths <= 12 ? 'text-orange-600' : 'text-slate-600'}>
                             {remainingMonths}月
@@ -1192,26 +1435,14 @@ export default function FixedAssetsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                title="改造"
+                                title="变动"
                                 className="text-blue-500 hover:text-blue-700"
                                 onClick={() => {
                                   setSelectedAsset(asset);
-                                  setShowImprovementDialog(true);
+                                  setShowChangeDialog(true);
                                 }}
                               >
                                 <TrendingUp className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title="处置"
-                                className="text-amber-500 hover:text-amber-700"
-                                onClick={() => {
-                                  setSelectedAsset(asset);
-                                  setShowDisposalDialog(true);
-                                }}
-                              >
-                                <AlertTriangle className="h-4 w-4" />
                               </Button>
                             </>
                           )}
@@ -1344,6 +1575,96 @@ export default function FixedAssetsPage() {
         onOpenChange={setShowBatchLabelDialog}
       />
 
+      {/* 入账确认对话框 */}
+      <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认入账</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {accountingAsset && (
+              <>
+                <div className="p-3 bg-slate-50 rounded-lg space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">资产编码</span>
+                    <span className="font-mono">{accountingAsset.assetCode}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">资产名称</span>
+                    <span className="font-medium">{accountingAsset.assetName}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">原值</span>
+                    <span className="font-medium">¥{formatMoney(accountingAsset.originalValue)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">购置日期</span>
+                    <span>{accountingAsset.acquisitionDate}</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label required>入账日期</Label>
+                  <ChineseDatePicker
+                    value={accountingDate}
+                    onChange={setAccountingDate}
+                  />
+                  <p className="text-xs text-slate-500">
+                    凭证将使用此日期生成，请确认是否入账到当前账期
+                  </p>
+                </div>
+
+                {/* 凭证预览 */}
+                {acquisitionVoucherPreview && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-blue-50 px-3 py-2 border-b flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-700">凭证预览</span>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-slate-50">
+                          <th className="text-left p-2 font-medium">科目</th>
+                          <th className="text-right p-2 font-medium w-24">借方</th>
+                          <th className="text-right p-2 font-medium w-24">贷方</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {acquisitionVoucherPreview.entries.map((entry, idx) => (
+                          <tr key={idx} className="border-b last:border-b-0">
+                            <td className="p-2">
+                              <span className="font-mono text-xs text-slate-500">{entry.subjectCode}</span>
+                              <span className="ml-1">{entry.subjectName}</span>
+                            </td>
+                            <td className="p-2 text-right">
+                              {entry.debit > 0 ? `¥${formatMoney(entry.debit)}` : ''}
+                            </td>
+                            <td className="p-2 text-right">
+                              {entry.credit > 0 ? `¥${formatMoney(entry.credit)}` : ''}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                      摘要: {acquisitionVoucherPreview.summary}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAccountDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleConfirmAccount}>
+              <BookOpen className="h-4 w-4 mr-2" />
+              确认入账
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 核算规则设置对话框 */}
       <AssetCategoryDialog
         open={showCategoryDialog}
@@ -1366,26 +1687,17 @@ export default function FixedAssetsPage() {
         }}
       />
 
-      {/* 资产处置对话框 */}
-      <AssetDisposalDialog
-        asset={selectedAsset}
-        open={showDisposalDialog}
-        onOpenChange={setShowDisposalDialog}
-        onSuccess={() => {
-          initialize();
-          setSelectedAsset(null);
-        }}
-      />
-
-      {/* 资产改造对话框 */}
+      {/* 资产变动对话框（含增值、减值、重组、处置） */}
       <AssetChangeDialog
         asset={selectedAsset}
-        open={showImprovementDialog}
-        onOpenChange={setShowImprovementDialog}
+        open={showChangeDialog}
+        onOpenChange={setShowChangeDialog}
         onSuccess={() => {
           initialize();
           setSelectedAsset(null);
         }}
+        categories={categories}
+        allAssets={assets}
       />
 
       {/* QR标签对话框 - 支持打印 */}
@@ -1442,6 +1754,13 @@ export default function FixedAssetsPage() {
         open={showChangeRecordDialog}
         onOpenChange={setShowChangeRecordDialog}
         assetId={selectedAsset?.id}
+      />
+
+      {/* 折旧计算对话框 */}
+      <DepreciationDialog
+        open={showDepreciationDialog}
+        onOpenChange={setShowDepreciationDialog}
+        categories={categories}
       />
     </div>
   );

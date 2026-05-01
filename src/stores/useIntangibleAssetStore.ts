@@ -1,5 +1,15 @@
 'use client';
 
+/**
+ * @deprecated 无形资产功能已合并到固定资产管理
+ * 无形资产现在作为固定资产的一种分类处理
+ * 通过 AssetCategory.assetNature = 'intangible' 区分
+ * 通过 AssetCategory.depreciationStartRule = 'current_month' 设置摊销规则
+ *
+ * 此 Store 保留用于数据迁移和向后兼容
+ * 新功能请使用 useFixedAssetStore
+ */
+
 import { create } from 'zustand';
 import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';

@@ -43,3 +43,10 @@ export function formatDateChinese(date: string | null | undefined): string {
   if (parts.length !== 3) return date;
   return `${parts[0]}年${parts[1]}月${parts[2]}日`;
 }
+
+/**
+ * 四舍五入到2位小数
+ */
+export function roundTo2Decimals(value: number): number {
+  return Math.round(value * 100) / 100;
+}

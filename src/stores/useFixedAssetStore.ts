@@ -84,6 +84,10 @@ interface FixedAssetStore {
   disposeAsset: (assetId: string, disposal: Omit<AssetDisposal, 'id' | 'createTime' | 'disposedOriginalValue' | 'disposedAccumulatedDepreciation' | 'disposedNetValue' | 'netGainLoss'>) => Promise<void>;
   convertFromCIP: (cipData: { assetName: string; originalValue: number; acquisitionDate: string; cipSubjectCode: string; usefulLifeMonths: number; depreciationMethod: DepreciationMethod }) => Promise<FixedAsset>;
 
+  // 资产拆分与合并
+  splitAsset: (assetId: string, options: { date: string; method: 'average' | 'percentage'; count: number; percentages?: number[]; reason: string }) => Promise<FixedAsset[]>;
+  mergeAssets: (assetIds: string[], options: { date: string; departmentCode: string; categoryId?: string; reason: string }) => Promise<FixedAsset>;
+
   // 变动记录
   getAssetChangeRecords: (assetId: string) => Promise<AssetChangeRecord[]>;
   logAssetChange: (record: Omit<AssetChangeRecord, 'id' | 'createTime'>) => Promise<void>;
@@ -559,6 +563,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           serialNumber=?, assignedUser=?,
           improvementHistory=?, disposalHistory=?,
           supplierName=?, invoiceNo=?, notes=?,
+          accountingStatus=?, acquisitionVoucherId=?, acquisitionVoucherNo=?, acquisitionAccountingDate=?,
           updateTime=?
         WHERE id=?`
       );
@@ -584,6 +589,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         safeValue(updatedAsset.serialNumber), safeValue(updatedAsset.assignedUser),
         JSON.stringify(updatedAsset.improvementHistory || []), JSON.stringify(updatedAsset.disposalHistory || []),
         safeValue(updatedAsset.supplierName), safeValue(updatedAsset.invoiceNo), safeValue(updatedAsset.notes),
+        safeValue(updatedAsset.accountingStatus), safeValue(updatedAsset.acquisitionVoucherId), safeValue(updatedAsset.acquisitionVoucherNo), safeValue(updatedAsset.acquisitionAccountingDate),
         updatedAsset.updateTime, id,
       ]);
       stmt.free();
@@ -795,6 +801,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const asset = get().assets.find(a => a.id === assetId);
     if (!asset || asset.status !== 'active') return null;
 
+    // 获取分类的折旧起始规则
+    const category = get().categories.find(c => c.id === asset.categoryId);
+    const depreciationStartRule = category?.depreciationStartRule || 'next_month';
+
     const result = calculateDepreciation(
       asset.depreciationMethod,
       {
@@ -809,7 +819,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         totalUnits: asset.totalUnits,
         unitsUsed: asset.unitsUsed,
         asOfDate,
+        depreciationStartRule,
       },
+      undefined, // period
       unitsThisPeriod
     );
 
@@ -835,6 +847,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         continue;
       }
 
+      // 获取分类的折旧起始规则
+      const category = state.categories.find(c => c.id === asset.categoryId);
+      const depreciationStartRule = category?.depreciationStartRule || 'next_month';
+
       const result = calculateDepreciation(
         asset.depreciationMethod,
         {
@@ -849,7 +865,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           totalUnits: asset.totalUnits,
           unitsUsed: asset.unitsUsed,
           asOfDate: `${period}-01`,
+          depreciationStartRule,
         },
+        period,
         unitsMap?.[assetId]
       );
 
@@ -1281,6 +1299,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         accountingStatus: row[54] || 'accounted',
         acquisitionVoucherId: row[55],
         acquisitionVoucherNo: row[56],
+        acquisitionAccountingDate: row[65],
         isOpeningBalance: row[57] === 1,
         initialAccumulatedDepreciation: row[58] ?? 0,
         creditSubjectCode: row[59],
@@ -1327,6 +1346,40 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 如果没有分类，初始化默认分类
       if (categories.length === 0) {
         await get().initializeDefaultCategories();
+      }
+
+      // 自动修复：检查已生成取得凭证但状态仍为 pending 的资产
+      const pendingAssets = assets.filter(a => a.accountingStatus === 'pending');
+      if (pendingAssets.length > 0) {
+        // 检查凭证表中是否有这些资产的取得凭证
+        for (const asset of pendingAssets) {
+          // 查找摘要包含资产名称的取得凭证
+          const voucherResult = db.exec(
+            `SELECT id, voucherNo FROM vouchers WHERE accountSetId = ? AND summary LIKE ? LIMIT 1`,
+            [accountSetId, `取得固定资产-${asset.assetName}%`]
+          );
+          if (voucherResult[0]?.values?.length > 0) {
+            const voucherId = voucherResult[0].values[0][0] as string;
+            const voucherNo = voucherResult[0].values[0][1] as string;
+            console.log(`发现资产 ${asset.assetCode} 已有取得凭证 ${voucherNo}，修复状态`);
+
+            // 更新资产状态
+            const updateStmt = db.prepare(
+              `UPDATE fixedAssets SET accountingStatus = 'accounted', acquisitionVoucherId = ?, acquisitionVoucherNo = ? WHERE id = ?`
+            );
+            updateStmt.run([voucherId, voucherNo, asset.id]);
+            updateStmt.free();
+
+            // 更新内存中的数据
+            set(state => ({
+              assets: state.assets.map(a =>
+                a.id === asset.id
+                  ? { ...a, accountingStatus: 'accounted', acquisitionVoucherId: voucherId, acquisitionVoucherNo: voucherNo }
+                  : a
+              ),
+            }));
+          }
+        }
       }
     } catch (error: any) {
       console.error('初始化固定资产Store失败:', error);
@@ -1559,6 +1612,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
 
       const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const { useSubjectStore } = await import('@/stores/useSubjectStore');
       const accountSetStore = useAccountSetStore.getState();
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
       const accountSetId = currentAccountSet?.id;
@@ -1577,6 +1631,24 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       const debitSubjectCode = asset.assetSubjectCode || rule.debitSubjectCode;
       const debitSubjectName = asset.assetSubjectName || rule.debitSubjectName;
+      const creditSubjectCode = rule.creditSubjectCode;
+      const creditSubjectName = rule.creditSubjectName;
+
+      // 校验科目是否存在
+      const subjectStore = useSubjectStore.getState();
+      const subjects = subjectStore.subjects;
+
+      const debitSubject = subjects.find(s => s.code === debitSubjectCode);
+      if (!debitSubject) {
+        set({ error: `借方科目 ${debitSubjectCode} 不存在，请先添加该科目` });
+        return null;
+      }
+
+      const creditSubject = subjects.find(s => s.code === creditSubjectCode);
+      if (!creditSubject) {
+        set({ error: `贷方科目 ${creditSubjectCode} 不存在，请先添加该科目` });
+        return null;
+      }
 
       const db = await sqliteService.getDatabase();
       if (!db) {
@@ -1610,7 +1682,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             date: vouchDate,
             summary,
             subjectCode: debitSubjectCode,
-            subjectName: debitSubjectName,
+            subjectName: debitSubject.name,
             debit: asset.originalValue,
             credit: 0,
           },
@@ -1619,8 +1691,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             voucherId,
             date: vouchDate,
             summary,
-            subjectCode: rule.creditSubjectCode,
-            subjectName: rule.creditSubjectName,
+            subjectCode: creditSubjectCode,
+            subjectName: creditSubject.name,
             debit: 0,
             credit: asset.originalValue,
           },
@@ -1639,9 +1711,26 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         vouchers: [...prev.vouchers, newVoucher],
       }));
 
+      // 计算折旧开始日期：固定资产下月开始，无形资产当月开始
+      const category = get().categories.find(c => c.id === asset.categoryId);
+      const rule_type = category?.depreciationStartRule || 'next_month';
+      const vouchDateObj = new Date(vouchDate);
+      let depreciationStartDate: string;
+
+      if (rule_type === 'current_month') {
+        // 无形资产：入账当月开始
+        depreciationStartDate = vouchDate.substring(0, 8) + '01';
+      } else {
+        // 固定资产：入账下月开始
+        const nextMonth = new Date(vouchDateObj.getFullYear(), vouchDateObj.getMonth() + 1, 1);
+        depreciationStartDate = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
+      }
+
       await get().updateAsset(assetId, {
         acquisitionVoucherId: voucherId,
         acquisitionVoucherNo: voucherNo,
+        acquisitionAccountingDate: vouchDate,
+        depreciationStartDate,
         accountingStatus: 'accounted',
       });
 
@@ -2031,6 +2120,269 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       stmt.free();
     } catch (error: any) {
       console.warn('记录资产变动失败:', error);
+    }
+  },
+
+  // 拆分资产
+  splitAsset: async (assetId, options) => {
+    const state = get();
+    const asset = state.assets.find(a => a.id === assetId);
+    if (!asset) {
+      throw new Error('资产不存在');
+    }
+
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+    if (!currentAccountSet?.id) {
+      throw new Error('请先选择账套');
+    }
+
+    const { date, method, count, percentages, reason } = options;
+    const newAssets: FixedAsset[] = [];
+
+    // 计算拆分比例
+    let splitRatios: number[];
+    if (method === 'average') {
+      const avgPct = 100 / count;
+      splitRatios = Array(count).fill(avgPct);
+      // 修正最后一个，确保总和为100
+      splitRatios[count - 1] = 100 - avgPct * (count - 1);
+    } else {
+      splitRatios = percentages || [];
+    }
+
+    // 验证比例总和
+    const totalPct = splitRatios.reduce((a, b) => a + b, 0);
+    if (Math.abs(totalPct - 100) > 0.01) {
+      throw new Error('拆分比例之和必须等于100%');
+    }
+
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      sqliteService.setAccountSetId(currentAccountSet.id);
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        throw new Error('数据库未初始化');
+      }
+
+      const now = new Date().toISOString();
+      const manager = CodeRuleManager.getInstance();
+      const rule = manager.getRuleByType('fixed_asset');
+
+      // 创建新资产
+      for (let i = 0; i < splitRatios.length; i++) {
+        const ratio = splitRatios[i] / 100;
+        const newId = generateId();
+        const newCode = rule ? generateCode(rule).code : `${asset.assetCode}-${i + 1}`;
+
+        const newAsset: FixedAsset = {
+          ...asset,
+          id: newId,
+          assetCode: newCode,
+          assetName: `${asset.assetName}-${i + 1}`,
+          originalValue: Math.round(asset.originalValue * ratio * 100) / 100,
+          accumulatedDepreciation: Math.round(asset.accumulatedDepreciation * ratio * 100) / 100,
+          netValue: Math.round((asset.originalValue - asset.accumulatedDepreciation) * ratio * 100) / 100,
+          depreciableValue: Math.round(asset.depreciableValue * ratio * 100) / 100,
+          salvageValue: Math.round(asset.salvageValue * ratio * 100) / 100,
+          quantity: 1,
+          remainingQuantity: 1,
+          createTime: now,
+          updateTime: now,
+        };
+
+        // 保存到数据库
+        const stmt = db.prepare(
+          `INSERT INTO fixedAssets (
+            id, assetCode, assetName, categoryId, specification, unit, quantity, remainingQuantity,
+            originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
+            depreciationMethod, usefulLifeYears, usefulLifeMonths, acquisitionDate, acquisitionType,
+            location, departmentCode, departmentName, supplierName, invoiceNo, notes, serialNumber,
+            assignedUser, status, accountingStatus, assetSubjectCode, assetSubjectName,
+            depreciationSubjectCode, depreciationSubjectName, expenseSubjectCode, expenseSubjectName,
+            accountSetId, createTime, updateTime
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        );
+        stmt.run([
+          newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.categoryId,
+          newAsset.specification || '', newAsset.unit || '台', newAsset.quantity, newAsset.remainingQuantity,
+          newAsset.originalValue, newAsset.salvageValue, newAsset.depreciableValue,
+          newAsset.accumulatedDepreciation, newAsset.netValue,
+          newAsset.depreciationMethod, newAsset.usefulLifeYears, newAsset.usefulLifeMonths,
+          newAsset.acquisitionDate, newAsset.acquisitionType || 'purchase',
+          newAsset.location || '', newAsset.departmentCode || '', newAsset.departmentName || '',
+          newAsset.supplierName || '', newAsset.invoiceNo || '', newAsset.notes || '',
+          newAsset.serialNumber || '', newAsset.assignedUser || '',
+          newAsset.status || 'active', newAsset.accountingStatus || 'pending',
+          newAsset.assetSubjectCode || '', newAsset.assetSubjectName || '',
+          newAsset.depreciationSubjectCode || '', newAsset.depreciationSubjectName || '',
+          newAsset.expenseSubjectCode || '', newAsset.expenseSubjectName || '',
+          currentAccountSet.id, now, now,
+        ]);
+        stmt.free();
+
+        newAssets.push(newAsset);
+      }
+
+      // 标记原资产为已处置
+      const updateStmt = db.prepare(
+        `UPDATE fixedAssets SET status = 'disposed', accountingStatus = 'disposed', updateTime = ? WHERE id = ?`
+      );
+      updateStmt.run([now, assetId]);
+      updateStmt.free();
+
+      // 记录变动
+      await get().logAssetChange({
+        assetId: asset.id,
+        assetCode: asset.assetCode,
+        assetName: asset.assetName,
+        accountSetId: currentAccountSet.id,
+        changeType: 'split',
+        changeDate: date,
+        period: date.substring(0, 7),
+        fieldName: '资产拆分',
+        beforeValue: `原值: ${asset.originalValue}`,
+        afterValue: `拆分为 ${count} 个资产`,
+        reason,
+      });
+
+      // 刷新资产列表
+      await get().initialize();
+
+      return newAssets;
+    } catch (error: any) {
+      set({ error: error.message || '资产拆分失败' });
+      throw error;
+    }
+  },
+
+  // 合并资产
+  mergeAssets: async (assetIds, options) => {
+    const state = get();
+    const assetsToMerge = state.assets.filter(a => assetIds.includes(a.id));
+
+    if (assetsToMerge.length !== assetIds.length) {
+      throw new Error('部分资产不存在');
+    }
+
+    if (assetsToMerge.length < 2) {
+      throw new Error('至少需要2个资产才能合并');
+    }
+
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+    if (!currentAccountSet?.id) {
+      throw new Error('请先选择账套');
+    }
+
+    const { date, departmentCode, categoryId, reason } = options;
+
+    // 计算合并后的值（单次遍历）
+    let totalOriginalValue = 0;
+    let totalAccumulatedDepreciation = 0;
+    let totalQuantity = 0;
+    for (const a of assetsToMerge) {
+      totalOriginalValue += a.originalValue;
+      totalAccumulatedDepreciation += a.accumulatedDepreciation;
+      totalQuantity += a.quantity || 1;
+    }
+    const totalNetValue = totalOriginalValue - totalAccumulatedDepreciation;
+
+    // 使用第一个资产作为模板
+    const templateAsset = assetsToMerge[0];
+
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      sqliteService.setAccountSetId(currentAccountSet.id);
+      const db = await sqliteService.getDatabase();
+      if (!db) {
+        throw new Error('数据库未初始化');
+      }
+
+      const now = new Date().toISOString();
+      const manager = CodeRuleManager.getInstance();
+      const rule = manager.getRuleByType('fixed_asset');
+      const newId = generateId();
+      const newCode = rule ? generateCode(rule).code : `FA${Date.now()}`;
+
+      const mergedAsset: FixedAsset = {
+        ...templateAsset,
+        id: newId,
+        assetCode: newCode,
+        assetName: `${templateAsset.assetName}（合并）`,
+        originalValue: totalOriginalValue,
+        accumulatedDepreciation: totalAccumulatedDepreciation,
+        netValue: totalNetValue,
+        depreciableValue: totalOriginalValue - (templateAsset.salvageValue || 0),
+        quantity: totalQuantity,
+        remainingQuantity: totalQuantity,
+        departmentCode,
+        categoryId: categoryId || templateAsset.categoryId,
+        createTime: now,
+        updateTime: now,
+      };
+
+      // 保存新资产
+      const stmt = db.prepare(
+        `INSERT INTO fixedAssets (
+          id, assetCode, assetName, categoryId, specification, unit, quantity, remainingQuantity,
+          originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
+          depreciationMethod, usefulLifeYears, usefulLifeMonths, acquisitionDate, acquisitionType,
+          location, departmentCode, departmentName, supplierName, invoiceNo, notes, serialNumber,
+          assignedUser, status, accountingStatus, assetSubjectCode, assetSubjectName,
+          depreciationSubjectCode, depreciationSubjectName, expenseSubjectCode, expenseSubjectName,
+          accountSetId, createTime, updateTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      );
+      stmt.run([
+        mergedAsset.id, mergedAsset.assetCode, mergedAsset.assetName, mergedAsset.categoryId,
+        mergedAsset.specification || '', mergedAsset.unit || '台', mergedAsset.quantity, mergedAsset.remainingQuantity,
+        mergedAsset.originalValue, mergedAsset.salvageValue || 0, mergedAsset.depreciableValue,
+        mergedAsset.accumulatedDepreciation, mergedAsset.netValue,
+        mergedAsset.depreciationMethod, mergedAsset.usefulLifeYears, mergedAsset.usefulLifeMonths,
+        mergedAsset.acquisitionDate, mergedAsset.acquisitionType || 'purchase',
+        mergedAsset.location || '', mergedAsset.departmentCode || '', mergedAsset.departmentName || '',
+        mergedAsset.supplierName || '', mergedAsset.invoiceNo || '', mergedAsset.notes || '',
+        mergedAsset.serialNumber || '', mergedAsset.assignedUser || '',
+        mergedAsset.status || 'active', mergedAsset.accountingStatus || 'pending',
+        mergedAsset.assetSubjectCode || '', mergedAsset.assetSubjectName || '',
+        mergedAsset.depreciationSubjectCode || '', mergedAsset.depreciationSubjectName || '',
+        mergedAsset.expenseSubjectCode || '', mergedAsset.expenseSubjectName || '',
+        currentAccountSet.id, now, now,
+      ]);
+      stmt.free();
+
+      // 标记原资产为已处置
+      const updateStmt = db.prepare(
+        `UPDATE fixedAssets SET status = 'disposed', accountingStatus = 'disposed', updateTime = ? WHERE id = ?`
+      );
+      for (const id of assetIds) {
+        updateStmt.run([now, id]);
+      }
+      updateStmt.free();
+
+      // 记录变动
+      await get().logAssetChange({
+        assetId: mergedAsset.id,
+        assetCode: mergedAsset.assetCode,
+        assetName: mergedAsset.assetName,
+        accountSetId: currentAccountSet.id,
+        changeType: 'merge',
+        changeDate: date,
+        period: date.substring(0, 7),
+        fieldName: '资产合并',
+        beforeValue: `合并前: ${assetsToMerge.map(a => a.assetCode).join(', ')}`,
+        afterValue: `合并后原值: ${totalOriginalValue}`,
+        reason,
+      });
+
+      // 刷新资产列表
+      await get().initialize();
+
+      return mergedAsset;
+    } catch (error: any) {
+      set({ error: error.message || '资产合并失败' });
+      throw error;
     }
   },
 }));

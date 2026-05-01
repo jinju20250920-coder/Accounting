@@ -123,9 +123,29 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
 
     if (!validation.isValid) {
       console.error('科目添加失败:', validation.error);
-      alert(`科目添加失败: ${validation.error}`);
       set({ error: validation.error || '添加失败' });
       return;
+    }
+
+    // 检查数据库中是否已存在该科目代码
+    try {
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
+      if (db && currentAccountSet?.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+        const result = db.exec(
+          'SELECT code FROM subjects WHERE code = ? AND accountSetId = ?',
+          [subject.code, currentAccountSet.id]
+        );
+        if (result[0]?.values?.length > 0) {
+          set({ error: '科目代码已存在（数据库）' });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('检查数据库科目失败:', e);
     }
 
     // 计算层级

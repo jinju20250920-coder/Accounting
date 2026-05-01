@@ -204,6 +204,8 @@ function CategoryEditDialog({
     assetSubjectCode: '1501',
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
+    depreciationStartRule: 'next_month',
+    assetNature: 'tangible',
     enabled: true,
   });
 
@@ -219,6 +221,8 @@ function CategoryEditDialog({
         assetSubjectCode: '1501',
         depreciationSubjectCode: '1502',
         expenseSubjectCode: '660204',
+        depreciationStartRule: 'next_month',
+        assetNature: 'tangible',
         enabled: true,
       });
     }
@@ -312,6 +316,50 @@ function CategoryEditDialog({
                     }))}
                     className="text-sm"
                   />
+                </div>
+              </div>
+              {/* 折旧起始规则和资产性质 */}
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">折旧起始规则</Label>
+                  <Select
+                    value={formData.depreciationStartRule || 'next_month'}
+                    onValueChange={v => setFormData(prev => ({
+                      ...prev,
+                      depreciationStartRule: v as 'next_month' | 'current_month'
+                    }))}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="next_month">下月开始（固定资产）</SelectItem>
+                      <SelectItem value="current_month">当月开始（无形资产）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-slate-500">
+                    {formData.depreciationStartRule === 'current_month'
+                      ? '当月增加当月计提'
+                      : '当月增加不计提，下月开始'}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">资产性质</Label>
+                  <Select
+                    value={formData.assetNature || 'tangible'}
+                    onValueChange={v => setFormData(prev => ({
+                      ...prev,
+                      assetNature: v as 'tangible' | 'intangible'
+                    }))}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tangible">固定资产</SelectItem>
+                      <SelectItem value="intangible">无形资产</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -729,7 +777,6 @@ export function AssetCategoryDialog({
                 <thead>
                   <tr className="bg-slate-50 border-b">
                     <th className="text-left p-2 font-medium">来源类型</th>
-                    <th className="text-left p-2 font-medium">借方科目</th>
                     <th className="text-left p-2 font-medium">贷方科目</th>
                     <th className="text-center p-2 font-medium">启用</th>
                   </tr>
@@ -739,18 +786,6 @@ export function AssetCategoryDialog({
                     <tr key={rule.id} className="border-b hover:bg-slate-50">
                       <td className="p-2 font-medium">
                         {ACQUISITION_TYPE_NAMES[rule.acquisitionType] || rule.acquisitionType}
-                      </td>
-                      <td className="p-2">
-                        <SubjectSelector
-                          compact
-                          value={rule.debitSubjectCode}
-                          onChange={(code, name) => handleUpdateRule(rule.id, {
-                            debitSubjectCode: code,
-                            debitSubjectName: name,
-                          })}
-                          placeholder="借方科目"
-                          subjects={availableSubjects}
-                        />
                       </td>
                       <td className="p-2">
                         {rule.acquisitionType === 'opening_balance' ? (
@@ -784,8 +819,8 @@ export function AssetCategoryDialog({
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
               <p className="font-medium mb-1">规则说明</p>
               <ul className="list-disc list-inside space-y-0.5 text-blue-600">
-                <li>借方科目：默认为固定资产科目</li>
-                <li>贷方科目：根据来源类型自动选择对应科目</li>
+                <li>借方科目：自动使用分类中的资产科目</li>
+                <li>贷方科目：根据来源类型选择对应科目</li>
                 <li>期初导入：不生成取得凭证，直接入账</li>
                 <li>发票取得：在进项税发票管理中处理</li>
               </ul>
@@ -856,51 +891,46 @@ export function AssetCategoryDialog({
                 过账科目配置
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">固定资产清理科目</Label>
-                  <Input
-                    value={settings.assetFinancialSettings.disposalClearingSubjectCode}
-                    onChange={(e) => updateAssetFinancialSettings({ disposalClearingSubjectCode: e.target.value })}
-                    placeholder="1601"
-                    className="text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">资产减值损失科目</Label>
-                  <Input
-                    value={settings.assetFinancialSettings.impairmentLossSubjectCode}
-                    onChange={(e) => updateAssetFinancialSettings({ impairmentLossSubjectCode: e.target.value })}
-                    placeholder="6701"
-                    className="text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">减值准备科目</Label>
-                  <Input
-                    value={settings.assetFinancialSettings.impairmentProvisionSubjectCode}
-                    onChange={(e) => updateAssetFinancialSettings({ impairmentProvisionSubjectCode: e.target.value })}
-                    placeholder="1503"
-                    className="text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">处置收益科目</Label>
-                  <Input
-                    value={settings.assetFinancialSettings.gainSubjectCode}
-                    onChange={(e) => updateAssetFinancialSettings({ gainSubjectCode: e.target.value })}
-                    placeholder="6301"
-                    className="text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">处置损失科目</Label>
-                  <Input
-                    value={settings.assetFinancialSettings.lossSubjectCode}
-                    onChange={(e) => updateAssetFinancialSettings({ lossSubjectCode: e.target.value })}
-                    placeholder="6711"
-                    className="text-sm"
-                  />
-                </div>
+                <SubjectSelector
+                  value={settings.assetFinancialSettings.disposalClearingSubjectCode || ''}
+                  onChange={(code, name) => updateAssetFinancialSettings({ disposalClearingSubjectCode: code })}
+                  placeholder="1601"
+                  subjects={availableSubjects}
+                  label="固定资产清理科目"
+                  icon={<FileText className="h-3 w-3 text-blue-500" />}
+                />
+                <SubjectSelector
+                  value={settings.assetFinancialSettings.impairmentLossSubjectCode || ''}
+                  onChange={(code, name) => updateAssetFinancialSettings({ impairmentLossSubjectCode: code })}
+                  placeholder="6701"
+                  subjects={availableSubjects}
+                  label="资产减值损失科目"
+                  icon={<Calculator className="h-3 w-3 text-red-500" />}
+                />
+                <SubjectSelector
+                  value={settings.assetFinancialSettings.impairmentProvisionSubjectCode || ''}
+                  onChange={(code, name) => updateAssetFinancialSettings({ impairmentProvisionSubjectCode: code })}
+                  placeholder="1503"
+                  subjects={availableSubjects}
+                  label="减值准备科目"
+                  icon={<Package className="h-3 w-3 text-orange-500" />}
+                />
+                <SubjectSelector
+                  value={settings.assetFinancialSettings.gainSubjectCode || ''}
+                  onChange={(code, name) => updateAssetFinancialSettings({ gainSubjectCode: code })}
+                  placeholder="6301"
+                  subjects={availableSubjects}
+                  label="处置收益科目"
+                  icon={<FileText className="h-3 w-3 text-green-500" />}
+                />
+                <SubjectSelector
+                  value={settings.assetFinancialSettings.lossSubjectCode || ''}
+                  onChange={(code, name) => updateAssetFinancialSettings({ lossSubjectCode: code })}
+                  placeholder="6711"
+                  subjects={availableSubjects}
+                  label="处置损失科目"
+                  icon={<Calculator className="h-3 w-3 text-red-500" />}
+                />
               </div>
             </div>
 

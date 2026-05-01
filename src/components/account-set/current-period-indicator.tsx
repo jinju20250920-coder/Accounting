@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, Play, ArrowRight } from 'lucide-react';
 import { usePeriodManagementStore } from '@/stores/usePeriodManagementStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
+import { useVoucherStore } from '@/stores/useVoucherStore';
 
 interface CurrentPeriodIndicatorProps {
   compact?: boolean;
@@ -13,6 +14,7 @@ interface CurrentPeriodIndicatorProps {
 
 export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicatorProps) {
   const { closeCurrentPeriod, createNextPeriod } = usePeriodManagementStore();
+  const vouchers = useVoucherStore((s) => s.vouchers);
   const [currentPeriod, setCurrentPeriod] = useState<AccountingPeriod | null>(null);
 
   // 只在客户端获取期间数据
@@ -26,6 +28,41 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
     };
     fetchPeriod();
   }, []);
+
+  // 动态计算当前期间的凭证数量
+  const voucherCount = useMemo(() => {
+    if (!currentPeriod) return 0;
+
+    // 筛选当前期间的凭证
+    const periodVouchers = vouchers.filter(v => {
+      const voucherMonth = v.date?.substring(0, 7); // YYYY-MM
+      const periodMonth = `${currentPeriod.year}-${String(currentPeriod.month).padStart(2, '0')}`;
+      return voucherMonth === periodMonth;
+    });
+
+    return periodVouchers.length;
+  }, [vouchers, currentPeriod]);
+
+  // 获取最后凭证号
+  const lastVoucherNo = useMemo(() => {
+    if (!currentPeriod || voucherCount === 0) return '无';
+
+    const periodVouchers = vouchers.filter(v => {
+      const voucherMonth = v.date?.substring(0, 7);
+      const periodMonth = `${currentPeriod.year}-${String(currentPeriod.month).padStart(2, '0')}`;
+      return voucherMonth === periodMonth;
+    });
+
+    // 按日期排序，取最后一个
+    const sorted = [...periodVouchers].sort((a, b) => {
+      if (a.date !== b.date) {
+        return (a.date || '').localeCompare(b.date || '');
+      }
+      return (a.voucherNo || '').localeCompare(b.voucherNo || '');
+    });
+
+    return sorted[sorted.length - 1]?.voucherNo || '无';
+  }, [vouchers, currentPeriod, voucherCount]);
 
   if (!currentPeriod) {
     return null;
@@ -64,7 +101,7 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-blue-900">当前账期: {currentPeriod.name}</span>
           {getStatusBadge(currentPeriod.status)}
-          <span className="text-xs text-blue-700">凭证数: {currentPeriod.voucherCount}</span>
+          <span className="text-xs text-blue-700">凭证数: {voucherCount}</span>
         </div>
       </div>
     );
@@ -90,10 +127,10 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
                 {currentPeriod.startDate} 至 {currentPeriod.endDate}
               </span>
               <span className="text-blue-700">
-                已录入 {currentPeriod.voucherCount} 张凭证
+                已录入 {voucherCount} 张凭证
               </span>
               <span className="text-blue-600 font-mono text-xs">
-                最后凭证: {currentPeriod.lastVoucherNo}
+                最后凭证: {lastVoucherNo}
               </span>
             </div>
           </div>

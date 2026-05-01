@@ -902,3 +902,51 @@ export function generateClearingNo(): string {
   const randomStr = Math.random().toString(36).substr(2, 6).toUpperCase();
   return `REC-${timestamp}-${randomStr}`;
 }
+
+/**
+ * 校验账期是否可用于入账
+ * @param date 入账日期 (YYYY-MM-DD)
+ * @param accountSet 账套信息
+ * @returns 校验结果
+ */
+export function validateAccountingPeriod(
+  date: string,
+  accountSet: {
+    accountingPeriods?: Array<{
+      year: number;
+      month: number;
+      status: string;
+      isCurrent?: boolean;
+    }>;
+  } | null | undefined
+): { valid: boolean; error?: string; period?: { year: number; month: number; status: string; isCurrent?: boolean } } {
+  if (!accountSet) {
+    return { valid: false, error: '账套信息不存在' };
+  }
+
+  const period = date.substring(0, 7); // YYYY-MM
+  const [year, month] = period.split('-').map(Number);
+
+  const periodData = accountSet.accountingPeriods?.find(
+    p => p.year === year && p.month === month
+  );
+
+  if (!periodData) {
+    return { valid: false, error: `${year}年${month}月账期不存在` };
+  }
+
+  if (periodData.status === 'closed') {
+    return { valid: false, error: `${year}年${month}月账期已关闭` };
+  }
+
+  if (periodData.status === 'locked') {
+    return { valid: false, error: `${year}年${month}月账期已锁定` };
+  }
+
+  const currentPeriod = accountSet.accountingPeriods?.find(p => p.isCurrent);
+  if (currentPeriod && (currentPeriod.year !== year || currentPeriod.month !== month)) {
+    return { valid: false, error: `入账日期必须在当前账期内` };
+  }
+
+  return { valid: true, period: periodData };
+}

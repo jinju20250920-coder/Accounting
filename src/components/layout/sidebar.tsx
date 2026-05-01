@@ -73,10 +73,7 @@ const menuItems = [
   ]},
   { icon: Package, label: '资产管理', path: '/assets', children: [
     { label: '固定资产', path: '/assets/fixed' },
-    { label: '无形资产', path: '/assets/intangible' },
     { label: '待摊费用', path: '/assets/prepaid' },
-    { label: '批量折旧', path: '/assets/depreciation' },
-    { label: '批量摊销', path: '/assets/amortization' },
   ]},
   { icon: Building2, label: '账套管理', path: '/sets' },
   { icon: RefreshCw, label: '汇兑损益', path: '/exchange' },

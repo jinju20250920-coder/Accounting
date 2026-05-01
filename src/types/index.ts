@@ -577,6 +577,12 @@ export type DepreciationMethod = 'straight_line' | 'double_declining' | 'sum_of_
 // 资产状态
 export type AssetStatus = 'active' | 'disposed' | 'fully_depreciated';
 
+// 折旧起始规则
+export type DepreciationStartRule = 'next_month' | 'current_month';
+
+// 资产性质
+export type AssetNature = 'tangible' | 'intangible';
+
 // 资产分类类型
 export type AssetCategoryType = 'fixed' | 'intangible';
 
@@ -592,6 +598,8 @@ export interface AssetCategory {
   assetSubjectCode: string;
   depreciationSubjectCode: string;
   expenseSubjectCode: string;
+  depreciationStartRule?: DepreciationStartRule; // 折旧起始规则：下月开始/当月开始
+  assetNature?: AssetNature; // 资产性质：固定资产/无形资产
   description?: string;
   sortOrder: number;
   enabled: boolean;
@@ -654,6 +662,7 @@ export interface FixedAsset {
   sourceVoucherId?: string; // 取得凭证ID
   acquisitionVoucherId?: string; // 取得凭证ID
   acquisitionVoucherNo?: string; // 取得凭证字号
+  acquisitionAccountingDate?: string; // 取得成本入账日期（实际过账日期）
   isOpeningBalance?: boolean; // 期初标记
   initialAccumulatedDepreciation?: number; // 初始累计折旧（期初导入）
 
@@ -728,7 +737,7 @@ export interface AssetChangeRecord {
   assetName: string;
   accountSetId: string;
 
-  changeType: 'acquisition' | 'depreciation' | 'improvement' | 'revaluation' | 'reclassify' | 'disposal' | 'transfer' | 'status_change';
+  changeType: 'acquisition' | 'depreciation' | 'improvement' | 'revaluation' | 'reclassify' | 'disposal' | 'transfer' | 'status_change' | 'split' | 'merge';
   changeDate: string;
   period: string; // 会计期间 YYYY-MM
 
@@ -804,6 +813,7 @@ export interface DepreciationCalculationInput {
   totalUnits?: number;
   unitsUsed?: number;
   asOfDate: string;
+  depreciationStartRule?: DepreciationStartRule; // 折旧起始规则
 }
 
 // 折旧计算结果
