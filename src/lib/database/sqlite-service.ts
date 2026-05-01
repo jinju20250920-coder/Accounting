@@ -223,6 +223,26 @@ class SQLiteService {
       }
     }
 
+    // 资产分类表迁移 - 添加折旧起始规则列
+    try {
+      const columnsResult = this.dbInstance.exec("PRAGMA table_info(assetCategories)");
+      const columns = columnsResult[0]?.values?.map(v => v[1] as string) || [];
+
+      if (!columns.includes('depreciationStartRule')) {
+        console.log('Migrating assetCategories table: adding depreciationStartRule column');
+        this.dbInstance.exec("ALTER TABLE assetCategories ADD COLUMN depreciationStartRule TEXT DEFAULT 'next_month'");
+        // 更新现有分类：根据资产类型设置默认规则
+        this.dbInstance.exec(`
+          UPDATE assetCategories SET depreciationStartRule = 'current_month' WHERE assetType = 'intangible';
+          UPDATE assetCategories SET depreciationStartRule = 'next_month' WHERE assetType = 'fixed' OR assetType IS NULL;
+        `);
+      }
+    } catch (error) {
+      if (!error.message?.includes('duplicate column name')) {
+        console.warn('AssetCategories depreciationStartRule migration warning:', error);
+      }
+    }
+
     // 创建资产变动记录表
     try {
       const tableCheck = this.dbInstance.exec(
