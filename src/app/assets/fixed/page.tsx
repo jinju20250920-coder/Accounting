@@ -1149,7 +1149,12 @@ export default function FixedAssetsPage() {
 
     // 检查折旧起始规则
     const category = categories.find(c => c.id === asset.categoryId);
-    const rule = category?.depreciationStartRule || 'next_month';
+    // 优先使用分类规则，如果没有则根据资产类型判断
+    let rule = category?.depreciationStartRule;
+    if (!rule) {
+      // 根据资产类型推断规则
+      rule = category?.assetType === 'intangible' ? 'current_month' : 'next_month';
+    }
 
     // 本月入账的资产
     if (acquisitionMonth === currentPeriod) {
