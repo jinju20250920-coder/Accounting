@@ -236,6 +236,25 @@ class SQLiteService {
           UPDATE assetCategories SET depreciationStartRule = 'current_month' WHERE assetType = 'intangible';
           UPDATE assetCategories SET depreciationStartRule = 'next_month' WHERE assetType = 'fixed' OR assetType IS NULL;
         `);
+
+        // 修复无形资产的折旧开始日期：改为入账当月而非下月
+        // 获取所有无形资产分类的ID
+        const intangibleCategories = this.dbInstance.exec(
+          "SELECT id FROM assetCategories WHERE assetType = 'intangible'"
+        );
+        if (intangibleCategories[0]?.values?.length > 0) {
+          const categoryIds = intangibleCategories[0].values.map(v => v[0]);
+          console.log('Fixing depreciationStartDate for intangible assets in categories:', categoryIds);
+
+          // 更新无形资产的折旧开始日期：从入账日期当月1日开始
+          for (const categoryId of categoryIds) {
+            this.dbInstance.exec(`
+              UPDATE fixedAssets
+              SET depreciationStartDate = substr(acquisitionAccountingDate, 1, 8) || '01'
+              WHERE categoryId = ? AND acquisitionAccountingDate IS NOT NULL
+            `, [categoryId as string]);
+          }
+        }
       }
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {

@@ -1733,7 +1733,11 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 计算折旧开始日期：固定资产下月开始，无形资产当月开始
       const category = get().categories.find(c => c.id === asset.categoryId);
-      const rule_type = category?.depreciationStartRule || 'next_month';
+      // 优先使用分类规则，如果没有则根据资产类型判断
+      let rule_type = category?.depreciationStartRule;
+      if (!rule_type) {
+        rule_type = category?.assetType === 'intangible' ? 'current_month' : 'next_month';
+      }
       const vouchDateObj = new Date(vouchDate);
       let depreciationStartDate: string;
 
