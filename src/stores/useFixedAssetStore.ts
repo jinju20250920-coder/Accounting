@@ -1401,6 +1401,44 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           }
         }
       }
+
+      // 自动修复：无形资产的折旧开始日期应为入账当月而非下月
+      const intangibleCategoryIds = categories
+        .filter(c => c.assetType === 'intangible')
+        .map(c => c.id);
+
+      if (intangibleCategoryIds.length > 0) {
+        const intangibleAssets = assets.filter(a =>
+          intangibleCategoryIds.includes(a.categoryId || '') &&
+          a.acquisitionAccountingDate &&
+          a.depreciationStartDate
+        );
+
+        for (const asset of intangibleAssets) {
+          // 正确的折旧开始日期应该是入账当月1日
+          const correctStartDate = asset.acquisitionAccountingDate!.substring(0, 8) + '01';
+
+          if (asset.depreciationStartDate !== correctStartDate) {
+            console.log(`修复无形资产 ${asset.assetCode} 的折旧开始日期: ${asset.depreciationStartDate} -> ${correctStartDate}`);
+
+            // 更新数据库
+            const updateStmt = db.prepare(
+              `UPDATE fixedAssets SET depreciationStartDate = ? WHERE id = ?`
+            );
+            updateStmt.run([correctStartDate, asset.id]);
+            updateStmt.free();
+
+            // 更新内存中的数据
+            set(state => ({
+              assets: state.assets.map(a =>
+                a.id === asset.id
+                  ? { ...a, depreciationStartDate: correctStartDate }
+                  : a
+              ),
+            }));
+          }
+        }
+      }
     } catch (error: any) {
       console.error('初始化固定资产Store失败:', error);
       set({ loading: false, error: error.message || '初始化失败' });
