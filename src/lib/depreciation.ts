@@ -523,3 +523,12 @@ export function parseDepreciationMethod(methodName: string): DepreciationMethod 
   };
   return methodMap[methodName] || 'straight_line';
 }
+
+/**
+ * 根据资产类型获取折旧起始规则
+ * 固定资产：当月增加不计提，下月开始（next_month）
+ * 无形资产：当月增加当月开始摊销（current_month）
+ */
+export function getDepreciationStartRule(assetType: 'fixed' | 'intangible'): DepreciationStartRule {
+  return assetType === 'intangible' ? 'current_month' : 'next_month';
+}

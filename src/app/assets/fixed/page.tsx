@@ -54,7 +54,7 @@ import { AssetChangeDialog } from '@/components/assets/asset-improvement-dialog'
 import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
 import { DepreciationDialog } from '@/components/assets/depreciation-dialog';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
-import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation } from '@/lib/depreciation';
+import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule } from '@/lib/depreciation';
 import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
 import { formatNumber } from '@/lib/utils';
@@ -161,18 +161,32 @@ function AssetCardDialog({
         accountingStatus: 'pending',
       });
     }
-  }, [asset, open, existingCodes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asset, open]);
 
-  // 当选择分类时，自动填充默认值
+  // 当选择分类时，自动填充默认值并更新编码
   const handleCategoryChange = (categoryId: string) => {
     const category = categories.find(c => c.id === categoryId);
     if (category) {
+      // 根据分类确定编码规则类型
+      const isIntangible = category.assetType === 'intangible';
+      const manager = CodeRuleManager.getInstance();
+      const ruleType = isIntangible ? 'intangible_asset' : 'fixed_asset';
+      const rule = manager.getRuleByType(ruleType);
+
+      let autoCode = formData.assetCode;
+      if (rule.autoIncrement) {
+        const result = generateCode(rule, existingCodes);
+        autoCode = result.code;
+      }
+
       setFormData(prev => ({
         ...prev,
         categoryId,
         categoryName: category.name,
         usefulLifeYears: category.defaultUsefulLifeYears,
         depreciationMethod: category.defaultDepreciationMethod,
+        assetCode: autoCode,
       }));
     }
   };
@@ -222,9 +236,19 @@ function AssetCardDialog({
     const usefulLifeMonths = (formData.usefulLifeYears || 5) * 12;
     const quantity = formData.quantity || 1;
 
-    // 计算折旧开始日期（取得日期下月1日）
+    // 计算折旧开始日期：固定资产下月开始，无形资产当月开始
     const acquisitionDate = new Date(formData.acquisitionDate);
-    const depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth() + 1, 1);
+    const category = categories.find(c => c.id === formData.categoryId);
+    const isIntangible = category?.assetType === 'intangible';
+
+    let depreciationStartDate: Date;
+    if (isIntangible) {
+      // 无形资产：当月增加，当月开始摊销
+      depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth(), 1);
+    } else {
+      // 固定资产：当月增加，下月开始折旧
+      depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth() + 1, 1);
+    }
     const depreciationStartStr = depreciationStartDate.toISOString().split('T')[0];
 
     // 计算折旧结束日期
@@ -235,7 +259,8 @@ function AssetCardDialog({
 
     // 保存时重新生成编码（确保不跳号，消耗编号）
     const manager = CodeRuleManager.getInstance();
-    const rule = manager.getRuleByType('fixed_asset');
+    const ruleType = isIntangible ? 'intangible_asset' : 'fixed_asset';
+    const rule = manager.getRuleByType(ruleType);
     let assetCode = '';
     if (rule.autoIncrement) {
       const result = generateCode(rule, existingCodes);
@@ -329,11 +354,15 @@ function AssetCardDialog({
                     onValueChange={handleCategoryChange}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="选择分类" />
+                      <SelectValue placeholder="选择分类">
+                        {formData.categoryId ? categories.find(c => c.id === formData.categoryId)?.name : '选择分类'}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {categories.filter(c => c.enabled).map(c => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({c.assetType === 'intangible' ? '无形' : '固定'})
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -501,7 +530,10 @@ function AssetCardDialog({
                       <span className="font-medium text-slate-700">
                         {(() => {
                           const d = new Date(formData.acquisitionDate);
-                          return `${d.getFullYear()}-${String(d.getMonth() + 2).padStart(2, '0')}-01`;
+                          const cat = categories.find(c => c.id === formData.categoryId);
+                          const isIntangible = cat?.assetType === 'intangible';
+                          const startMonth = isIntangible ? d.getMonth() : d.getMonth() + 1;
+                          return `${d.getFullYear()}-${String(startMonth + 1).padStart(2, '0')}-01`;
                         })()}
                       </span>
                     </div>
@@ -510,7 +542,10 @@ function AssetCardDialog({
                       <span className="font-medium text-slate-700">
                         {(() => {
                           const d = new Date(formData.acquisitionDate);
-                          const endDate = new Date(d.getFullYear(), d.getMonth() + 1 + (formData.usefulLifeYears || 5) * 12, 0);
+                          const cat = categories.find(c => c.id === formData.categoryId);
+                          const isIntangible = cat?.assetType === 'intangible';
+                          const startMonthOffset = isIntangible ? 0 : 1;
+                          const endDate = new Date(d.getFullYear(), d.getMonth() + startMonthOffset + (formData.usefulLifeYears || 5) * 12, 0);
                           return `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
                         })()}
                       </span>
@@ -1080,6 +1115,9 @@ export default function FixedAssetsPage() {
         .map(r => r.assetId)
     );
 
+    // 创建分类Map避免重复查找
+    const categoryMap = new Map(categories.map(c => [c.id, c]));
+
     let toDepreciate = 0;  // 待计提
     let depreciated = 0;   // 已计提
     let notRequired = 0;   // 无需计提（已提足或本月新增按规则不计提）
@@ -1107,8 +1145,8 @@ export default function FixedAssetsPage() {
           }
 
           // 检查折旧起始规则
-          const category = categories.find(c => c.id === asset.categoryId);
-          const rule = category?.depreciationStartRule || 'next_month';
+          const category = categoryMap.get(asset.categoryId || '');
+          const rule = category?.depreciationStartRule || getDepreciationStartRule(category?.assetType || 'fixed');
 
           if (rule === 'next_month' && acquisitionMonth === currentPeriod) {
             // 固定资产规则：当月新增不计提
@@ -1121,6 +1159,69 @@ export default function FixedAssetsPage() {
     });
 
     return { toDepreciate, depreciated, notRequired };
+  }, [assets, depreciationRecords, categories, currentPeriod]);
+
+  // 本月折旧金额统计
+  const monthlyDepreciationAmounts = useMemo(() => {
+    const activeAssets = assets.filter(a => a.status === 'active');
+    const depreciatedRecordsThisMonth = depreciationRecords.filter(
+      r => r.period === currentPeriod && r.status !== 'draft'
+    );
+
+    // 本月已提折旧金额
+    const depreciatedAmount = depreciatedRecordsThisMonth.reduce((sum, r) => sum + r.periodDepreciation, 0);
+
+    // 创建分类Map避免重复查找
+    const categoryMap = new Map(categories.map(c => [c.id, c]));
+
+    // 计算本月应提折旧金额
+    let shouldDepreciateAmount = 0;
+    activeAssets.forEach(asset => {
+      // 检查是否已提足折旧
+      const originalValue = asset.originalValue ?? 0;
+      const salvageValue = asset.salvageValue ?? 0;
+      const accumulatedDepreciation = asset.accumulatedDepreciation ?? 0;
+      const depreciableValue = originalValue - salvageValue;
+
+      if (accumulatedDepreciation < depreciableValue) {
+        // 检查入账日期
+        const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
+        const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
+
+        // 入账月份在当前账期之后，不计提
+        if (acquisitionMonth && acquisitionMonth > currentPeriod) {
+          return;
+        }
+
+        // 检查折旧起始规则
+        const category = categoryMap.get(asset.categoryId || '');
+        const rule = category?.depreciationStartRule || getDepreciationStartRule(category?.assetType || 'fixed');
+
+        // 本月入账且规则是下月计提（固定资产），不计提
+        if (rule === 'next_month' && acquisitionMonth === currentPeriod) {
+          return;
+        }
+
+        // 计算月折旧额
+        const monthlyDep = calculateEstimatedMonthlyDepreciation(
+          originalValue,
+          salvageValue,
+          asset.depreciationMethod || 'straight_line',
+          asset.usefulLifeYears || 5,
+          (asset.usefulLifeYears || 5) * 12
+        );
+        shouldDepreciateAmount += monthlyDep;
+      }
+    });
+
+    // 本月未提折旧金额
+    const notDepreciatedAmount = Math.max(0, shouldDepreciateAmount - depreciatedAmount);
+
+    return {
+      shouldDepreciate: shouldDepreciateAmount,
+      depreciated: depreciatedAmount,
+      notDepreciated: notDepreciatedAmount,
+    };
   }, [assets, depreciationRecords, categories, currentPeriod]);
 
   // 获取单个资产的本月折旧状态
@@ -1149,12 +1250,7 @@ export default function FixedAssetsPage() {
 
     // 检查折旧起始规则
     const category = categories.find(c => c.id === asset.categoryId);
-    // 优先使用分类规则，如果没有则根据资产类型判断
-    let rule = category?.depreciationStartRule;
-    if (!rule) {
-      // 根据资产类型推断规则
-      rule = category?.assetType === 'intangible' ? 'current_month' : 'next_month';
-    }
+    const rule = category?.depreciationStartRule || getDepreciationStartRule(category?.assetType || 'fixed');
 
     // 本月入账的资产
     if (acquisitionMonth === currentPeriod) {
@@ -1230,10 +1326,25 @@ export default function FixedAssetsPage() {
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-5 gap-4">
+        {/* 资产数量卡片（合并折旧状态） */}
         <Card>
           <CardContent className="pt-4">
             <div className="text-sm text-slate-500">资产数量</div>
             <div className="text-2xl font-bold">{assets.length} <span className="text-sm font-normal text-slate-400">在用 {activeCount}</span></div>
+            <div className="flex items-center gap-3 mt-2 pt-2 border-t">
+              <div className="text-center">
+                <div className="text-sm font-bold text-yellow-700">{depreciationStats.toDepreciate}</div>
+                <div className="text-xs text-yellow-600">待计提</div>
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-bold text-green-600">{depreciationStats.depreciated}</div>
+                <div className="text-xs text-slate-500">已计提</div>
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-bold text-slate-400">{depreciationStats.notRequired}</div>
+                <div className="text-xs text-slate-400">无需计提</div>
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1254,21 +1365,22 @@ export default function FixedAssetsPage() {
             <div className="text-2xl font-bold text-blue-600">¥{formatMoney(totalNetValue)}</div>
           </CardContent>
         </Card>
-        <Card className="border-yellow-200 bg-yellow-50">
+        {/* 本月折旧金额卡片 */}
+        <Card className="border-blue-200 bg-blue-50">
           <CardContent className="pt-4">
-            <div className="text-sm text-yellow-700">本月折旧状态</div>
-            <div className="flex items-center gap-3 mt-1">
-              <div className="text-center">
-                <div className="text-lg font-bold text-yellow-800">{depreciationStats.toDepreciate}</div>
-                <div className="text-xs text-yellow-600">待计提</div>
+            <div className="text-sm text-blue-700">本月折旧金额</div>
+            <div className="flex items-center gap-4 mt-1">
+              <div>
+                <div className="text-xs text-blue-600">应提</div>
+                <div className="text-lg font-bold text-blue-800">¥{formatMoney(monthlyDepreciationAmounts.shouldDepreciate)}</div>
               </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-green-600">{depreciationStats.depreciated}</div>
-                <div className="text-xs text-slate-500">已计提</div>
+              <div>
+                <div className="text-xs text-green-600">已提</div>
+                <div className="text-lg font-bold text-green-700">¥{formatMoney(monthlyDepreciationAmounts.depreciated)}</div>
               </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-slate-400">{depreciationStats.notRequired}</div>
-                <div className="text-xs text-slate-400">无需计提</div>
+              <div>
+                <div className="text-xs text-orange-600">未提</div>
+                <div className="text-lg font-bold text-orange-700">¥{formatMoney(monthlyDepreciationAmounts.notDepreciated)}</div>
               </div>
             </div>
           </CardContent>
@@ -1714,32 +1826,11 @@ export default function FixedAssetsPage() {
           {selectedAsset && (
             <div className="space-y-4">
               <div className="flex justify-center p-4 bg-white border rounded-lg">
-                <div className="flex items-center gap-4 p-3 border-2 border-dashed border-slate-300 rounded">
-                  <AssetQRLabel asset={selectedAsset} size={100} showBatch={selectedAsset.quantity > 1} />
-                  <div className="text-sm space-y-1">
-                    <div className="font-bold text-slate-900">
-                      {selectedAsset.quantity > 1
-                        ? `${selectedAsset.assetCode} 1/${selectedAsset.quantity}`
-                        : selectedAsset.assetCode}
-                    </div>
-                    <div className="text-slate-700">{selectedAsset.assetName}</div>
-                    {selectedAsset.specification && (
-                      <div className="text-slate-500 text-xs">规格: {selectedAsset.specification}</div>
-                    )}
-                    <div className="text-slate-500 text-xs">入账: {selectedAsset.acquisitionDate}</div>
-                    {selectedAsset.quantity > 1 && (
-                      <div className="text-slate-500 text-xs">
-                        数量: {selectedAsset.quantity}{selectedAsset.unit || '台'}
-                      </div>
-                    )}
-                    {selectedAsset.departmentName && (
-                      <div className="text-slate-500 text-xs">部门: {selectedAsset.departmentName}</div>
-                    )}
-                    {selectedAsset.assignedUser && (
-                      <div className="text-slate-500 text-xs">使用人: {selectedAsset.assignedUser}</div>
-                    )}
-                  </div>
-                </div>
+                <AssetQRLabel
+                  asset={selectedAsset}
+                  showBatch={selectedAsset.quantity > 1}
+                  batchIndex={1}
+                />
               </div>
               <div className="flex justify-end gap-2">
                 <AssetQRLabelPrint asset={selectedAsset} showBatch={selectedAsset.quantity > 1} trigger={

@@ -869,7 +869,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 获取分类的折旧起始规则
       const category = state.categories.find(c => c.id === asset.categoryId);
-      const depreciationStartRule = category?.depreciationStartRule || 'next_month';
+      const depreciationStartRule = category?.depreciationStartRule ||
+        (category?.assetType === 'intangible' ? 'current_month' : 'next_month');
 
       const result = calculateDepreciation(
         asset.depreciationMethod,
@@ -1356,8 +1357,26 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         updateTime: row[17],
       })) || [];
 
+      // 自动修复：分类数据中的 assetType（历史数据可能不正确）
+      // 在 set() 之前修复，确保 UI 显示正确的数据
+      let fixedCategories = categories;
+      // 按名称或代码查找无形资产分类（兼容不同的命名方式）
+      const intangibleCategoryByCode = categories.find(c => c.code === 'INTANGIBLE');
+      const intangibleCategoryByName = categories.find(c => c.name === '无形资产');
+      const intangibleCategory = intangibleCategoryByCode || intangibleCategoryByName;
+
+      if (intangibleCategory && intangibleCategory.assetType !== 'intangible') {
+        const updateStmt = db.prepare(`UPDATE assetCategories SET assetType = ? WHERE id = ?`);
+        updateStmt.run(['intangible', intangibleCategory.id]);
+        updateStmt.free();
+        // 修复内存中的数据
+        fixedCategories = categories.map(c =>
+          c.id === intangibleCategory.id ? { ...c, assetType: 'intangible' } : c
+        );
+      }
+
       set({
-        categories,
+        categories: fixedCategories,
         assets,
         depreciationRecords,
         loading: false,
@@ -1403,8 +1422,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
 
       // 自动修复：无形资产的折旧开始日期应为入账当月而非下月
-      const intangibleCategoryIds = categories
-        .filter(c => c.assetType === 'intangible')
+      // 使用修复后的分类数据
+      const intangibleCategoryIds = fixedCategories
+        .filter(c => c.assetType === 'intangible' || c.code === 'INTANGIBLE')
         .map(c => c.id);
 
       if (intangibleCategoryIds.length > 0) {
@@ -1419,8 +1439,6 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           const correctStartDate = asset.acquisitionAccountingDate!.substring(0, 8) + '01';
 
           if (asset.depreciationStartDate !== correctStartDate) {
-            console.log(`修复无形资产 ${asset.assetCode} 的折旧开始日期: ${asset.depreciationStartDate} -> ${correctStartDate}`);
-
             // 更新数据库
             const updateStmt = db.prepare(
               `UPDATE fixedAssets SET depreciationStartDate = ? WHERE id = ?`
@@ -1436,6 +1454,33 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
                   : a
               ),
             }));
+          }
+        }
+
+        // 修复 acquisitionAccountingDate：从变动记录中获取正确的入账日期
+        for (const asset of intangibleAssets) {
+          // 查询该资产的取得变动记录
+          const changeResult = db.exec(
+            `SELECT changeDate FROM assetChangeRecords WHERE assetId = ? AND changeType = 'acquisition' ORDER BY createTime ASC LIMIT 1`,
+            [asset.id]
+          );
+          if (changeResult[0]?.values?.length > 0) {
+            const recordDate = changeResult[0].values[0][0] as string;
+            const correctAccountingDate = recordDate?.substring(0, 10);
+            if (correctAccountingDate && asset.acquisitionAccountingDate !== correctAccountingDate) {
+              console.log(`修复资产 ${asset.assetCode} 的入账日期: ${asset.acquisitionAccountingDate} -> ${correctAccountingDate}`);
+              const updateStmt = db.prepare(`UPDATE fixedAssets SET acquisitionAccountingDate = ? WHERE id = ?`);
+              updateStmt.run([correctAccountingDate, asset.id]);
+              updateStmt.free();
+              // 更新内存中的数据
+              set(state => ({
+                assets: state.assets.map(a =>
+                  a.id === asset.id
+                    ? { ...a, acquisitionAccountingDate: correctAccountingDate }
+                    : a
+                ),
+              }));
+            }
           }
         }
       }
@@ -1886,9 +1931,20 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     const depreciableValue = asset.originalValue - asset.salvageValue;
     if (asset.accumulatedDepreciation >= depreciableValue) return false;
 
-    // 当月新增，下月开始折旧
-    const acquisitionPeriod = asset.acquisitionDate.substring(0, 7);
-    if (period <= acquisitionPeriod) return false;
+    // 获取分类的折旧起始规则
+    const category = get().categories.find(c => c.id === asset.categoryId);
+    const rule = category?.depreciationStartRule ||
+      (category?.assetType === 'intangible' ? 'current_month' : 'next_month');
+
+    // 使用入账日期判断（优先使用 acquisitionAccountingDate）
+    const accountingPeriod = asset.acquisitionAccountingDate?.substring(0, 7) ||
+      asset.acquisitionDate?.substring(0, 7);
+
+    // 入账日期在当前账期之后，不计提
+    if (accountingPeriod && period < accountingPeriod) return false;
+
+    // 本月入账但规则是下月计提（固定资产），本月不计提
+    if (accountingPeriod === period && rule === 'next_month') return false;
 
     // 折旧开始日期检查
     if (asset.depreciationStartDate) {
@@ -1902,11 +1958,12 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       if (period > depreciationEndPeriod) return false;
     }
 
-    // 使用年限是否已满（取得当月不计提）
-    const [acqYear, acqMonth] = acquisitionPeriod.split('-').map(Number);
+    // 使用年限是否已满
+    const [acqYear, acqMonth] = (accountingPeriod || asset.acquisitionDate?.substring(0, 7) || period).split('-').map(Number);
     const [curYear, curMonth] = period.split('-').map(Number);
     const monthsSinceAcquisition = (curYear - acqYear) * 12 + (curMonth - acqMonth);
-    const monthsOfDepreciation = monthsSinceAcquisition - 1;
+    // 无形资产当月计提，固定资产下月计提，所以已计提月数计算方式不同
+    const monthsOfDepreciation = rule === 'current_month' ? monthsSinceAcquisition : monthsSinceAcquisition - 1;
     if (monthsOfDepreciation >= asset.usefulLifeMonths) return false;
 
     return true;

@@ -10,14 +10,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Printer, Download, QrCode } from 'lucide-react';
+import { Printer, QrCode } from 'lucide-react';
 import type { FixedAsset } from '@/types';
 
 interface AssetQRLabelProps {
   asset: FixedAsset;
-  size?: number;
   showBatch?: boolean;
-  batchIndex?: number; // 当前序号（1-based）
+  batchIndex?: number;
 }
 
 interface QRLabelData {
@@ -25,33 +24,44 @@ interface QRLabelData {
   assetName: string;
   specification?: string;
   acquisitionDate: string;
-  departmentName?: string;
-  assignedUser?: string;
-  location?: string;
 }
 
-export function AssetQRLabel({ asset, size = 128, showBatch = false, batchIndex = 1 }: AssetQRLabelProps) {
+/**
+ * 资产标签组件 - 紧凑型设计（带QR码）
+ * 高度约12mm，适合热敏打印
+ */
+export function AssetQRLabel({ asset, showBatch = false, batchIndex = 1 }: AssetQRLabelProps) {
   const labelData: QRLabelData = {
     assetCode: asset.assetCode,
     assetName: asset.assetName,
     specification: asset.specification,
     acquisitionDate: asset.acquisitionDate,
-    departmentName: asset.departmentName,
-    assignedUser: asset.assignedUser,
-    location: asset.location,
   };
 
   const qrValue = JSON.stringify(labelData);
 
-  // 批次格式：FA0001 1/10（如果有数量）
+  // 批次格式：FA0001 1/10
   const batchDisplay = showBatch && asset.quantity > 1
     ? `${asset.assetCode} ${batchIndex}/${asset.quantity}`
     : asset.assetCode;
 
+  // 规格信息
+  const specDisplay = asset.specification || asset.assetName;
+
   return (
-    <div className="flex flex-col items-center p-2 bg-white border border-slate-200 rounded print:border-none">
-      <QRCodeSVG value={qrValue} size={size} level="M" />
-      <div className="mt-1 text-xs font-mono text-slate-600">{batchDisplay}</div>
+    <div className="flex items-center gap-2 bg-white p-1">
+      {/* QR码 - 紧凑尺寸 */}
+      <QRCodeSVG value={qrValue} size={32} level="M" />
+
+      {/* 右侧信息 */}
+      <div className="flex flex-col min-w-0">
+        {/* 资产编号 */}
+        <div className="font-mono text-xs font-bold tracking-wide">{batchDisplay}</div>
+        {/* 分隔线 */}
+        <div className="h-px bg-black my-0.5" />
+        {/* 规格 */}
+        <div className="text-[8px] text-black truncate max-w-[80px]">{specDisplay}</div>
+      </div>
     </div>
   );
 }
@@ -59,22 +69,27 @@ export function AssetQRLabel({ asset, size = 128, showBatch = false, batchIndex 
 interface AssetQRLabelPrintProps {
   asset: FixedAsset;
   trigger?: React.ReactNode;
-  showBatch?: boolean; // 是否显示批次格式
+  showBatch?: boolean;
 }
 
 export function AssetQRLabelPrint({ asset, trigger, showBatch = false }: AssetQRLabelPrintProps) {
-  const printRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  // 批次格式显示
   const batchDisplay = showBatch && asset.quantity > 1
     ? `${asset.assetCode} 1/${asset.quantity}`
     : asset.assetCode;
 
-  const handlePrint = () => {
-    const printContent = printRef.current;
-    if (!printContent) return;
+  const specDisplay = asset.specification || asset.assetName;
 
+  const labelData: QRLabelData = {
+    assetCode: asset.assetCode,
+    assetName: asset.assetName,
+    specification: asset.specification,
+    acquisitionDate: asset.acquisitionDate,
+  };
+  const qrValue = JSON.stringify(labelData);
+
+  const handlePrint = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
@@ -84,117 +99,95 @@ export function AssetQRLabelPrint({ asset, trigger, showBatch = false }: AssetQR
       <head>
         <title>资产标签 - ${batchDisplay}</title>
         <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
           body {
             margin: 0;
-            padding: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 0;
+            font-family: 'Courier New', Courier, monospace;
           }
           .label-container {
-            width: 80mm;
-            height: 50mm;
-            border: 1px solid #000;
-            padding: 5mm;
-            box-sizing: border-box;
+            width: 50mm;
+            height: 12mm;
+            padding: 1mm;
             display: flex;
             align-items: center;
-            gap: 5mm;
-            page-break-after: always;
+            gap: 1.5mm;
+            background: white;
           }
           .qr-section {
             flex-shrink: 0;
+            width: 10mm;
+            height: 10mm;
+          }
+          .qr-section svg {
+            width: 100%;
+            height: 100%;
           }
           .info-section {
             flex: 1;
-            font-size: 10pt;
-            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
           }
           .asset-code {
-            font-size: 12pt;
-            font-weight: bold;
-            margin-bottom: 2mm;
-          }
-          .asset-name {
-            font-size: 11pt;
-            margin-bottom: 2mm;
-          }
-          .detail {
+            font-family: 'Courier New', Courier, monospace;
             font-size: 9pt;
-            color: #333;
+            font-weight: bold;
+            line-height: 1.1;
+            color: #000;
+            letter-spacing: 0.3mm;
+          }
+          .divider {
+            height: 0.5px;
+            background: #000;
+            margin: 0.5mm 0;
+          }
+          .spec-info {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 6pt;
+            line-height: 1.1;
+            color: #000;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
           }
           @media print {
-            body { margin: 0; }
-            .label-container { border: 1px solid #000; }
+            body { margin: 0; padding: 0; }
+            .label-container { border: none; }
           }
         </style>
       </head>
       <body>
         <div class="label-container">
-          <div class="qr-section">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="80" height="80">
-              ${new XMLSerializer().serializeToString(
-                document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-              )}
-            </svg>
-          </div>
+          <div class="qr-section" id="qr-placeholder"></div>
           <div class="info-section">
             <div class="asset-code">${batchDisplay}</div>
-            <div class="asset-name">${asset.assetName}</div>
-            ${asset.specification ? `<div class="detail">规格: ${asset.specification}</div>` : ''}
-            <div class="detail">入账: ${asset.acquisitionDate}</div>
-            ${asset.quantity > 1 ? `<div class="detail">数量: ${asset.quantity}${asset.unit || '台'}</div>` : ''}
-            ${asset.departmentName ? `<div class="detail">部门: ${asset.departmentName}</div>` : ''}
-            ${asset.assignedUser ? `<div class="detail">使用人: ${asset.assignedUser}</div>` : ''}
-            ${asset.location ? `<div class="detail">位置: ${asset.location}</div>` : ''}
+            <div class="divider"></div>
+            <div class="spec-info">${specDisplay}</div>
           </div>
         </div>
+        <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+        <script>
+          (function() {
+            var qr = qrcode(0, 'M');
+            qr.addData('${qrValue}');
+            qr.make();
+            document.getElementById('qr-placeholder').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
+          })();
+        </script>
       </body>
       </html>
     `);
 
-    // 生成 QR 码 SVG
-    const qrContainer = printWindow.document.querySelector('.qr-section');
-    if (qrContainer) {
-      const qrData = JSON.stringify({
-        assetCode: asset.assetCode,
-        assetName: asset.assetName,
-        specification: asset.specification,
-        acquisitionDate: asset.acquisitionDate,
-      });
-      qrContainer.innerHTML = '';
-      // 使用 canvas 绘制 QR 码
-      const canvas = printWindow.document.createElement('canvas');
-      canvas.width = 80;
-      canvas.height = 80;
-      qrContainer.appendChild(canvas);
-    }
-
     printWindow.document.close();
+    printWindow.focus();
     printWindow.print();
-  };
-
-  const handleDownload = () => {
-    const svg = printRef.current?.querySelector('svg');
-    if (!svg) return;
-
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx?.fillRect(0, 0, canvas.width, canvas.height);
-      ctx?.drawImage(img, 0, 0);
-
-      const pngFile = canvas.toDataURL('image/png');
-      const downloadLink = document.createElement('a');
-      downloadLink.download = `资产标签_${asset.assetCode}.png`;
-      downloadLink.href = pngFile;
-      downloadLink.click();
-    };
-
-    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+    printWindow.close();
   };
 
   return (
@@ -212,31 +205,21 @@ export function AssetQRLabelPrint({ asset, trigger, showBatch = false }: AssetQR
           <DialogTitle>资产标签</DialogTitle>
         </DialogHeader>
 
-        <div ref={printRef} className="flex justify-center p-4 bg-white border rounded-lg">
-          <div className="flex items-center gap-4 p-3 border-2 border-dashed border-slate-300 rounded">
-            <AssetQRLabel asset={asset} size={100} />
-            <div className="text-sm space-y-1">
-              <div className="font-bold text-slate-900">{asset.assetCode}</div>
-              <div className="text-slate-700">{asset.assetName}</div>
-              {asset.specification && (
-                <div className="text-slate-500 text-xs">规格: {asset.specification}</div>
-              )}
-              <div className="text-slate-500 text-xs">入账: {asset.acquisitionDate}</div>
-              {asset.departmentName && (
-                <div className="text-slate-500 text-xs">部门: {asset.departmentName}</div>
-              )}
-              {asset.assignedUser && (
-                <div className="text-slate-500 text-xs">使用人: {asset.assignedUser}</div>
-              )}
+        {/* 预览区域 */}
+        <div className="flex justify-center p-4 bg-white border rounded-lg">
+          <div className="flex items-center gap-2 px-2 py-1 bg-white border border-slate-200 rounded-sm">
+            {/* QR码预览 */}
+            <QRCodeSVG value={qrValue} size={40} level="M" />
+            {/* 右侧信息 */}
+            <div className="flex flex-col min-w-0">
+              <div className="font-mono text-sm font-bold tracking-wide">{batchDisplay}</div>
+              <div className="h-px bg-black my-0.5" />
+              <div className="text-[10px] text-black truncate max-w-[100px]">{specDisplay}</div>
             </div>
           </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={handleDownload}>
-            <Download className="h-4 w-4 mr-1" />
-            下载
-          </Button>
           <Button onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-1" />
             打印
@@ -275,25 +258,37 @@ export function AssetQRLabelBatch({ assets, trigger, open: externalOpen, onOpenC
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const labelsHtml = expandedLabels.map(({ asset, batchIndex, isBatch }) => {
+    // 生成所有标签的数据
+    const labelsData = expandedLabels.map(({ asset, batchIndex, isBatch }) => {
       const batchDisplay = isBatch
         ? `${asset.assetCode} ${batchIndex}/${asset.quantity}`
         : asset.assetCode;
+      const specDisplay = asset.specification || asset.assetName;
+      const qrValue = JSON.stringify({
+        assetCode: asset.assetCode,
+        assetName: asset.assetName,
+        specification: asset.specification,
+        acquisitionDate: asset.acquisitionDate,
+      });
 
-      return `
-        <div class="label-container">
-          <div class="qr-placeholder" data-code="${asset.assetCode}" data-name="${asset.assetName}" data-spec="${asset.specification || ''}" data-date="${asset.acquisitionDate}" data-batch="${batchDisplay}"></div>
-          <div class="info-section">
-            <div class="asset-code">${batchDisplay}</div>
-            <div class="asset-name">${asset.assetName}</div>
-            ${asset.specification ? `<div class="detail">规格: ${asset.specification}</div>` : ''}
-            <div class="detail">入账: ${asset.acquisitionDate}</div>
-            ${asset.departmentName ? `<div class="detail">部门: ${asset.departmentName}</div>` : ''}
-            ${asset.assignedUser ? `<div class="detail">使用人: ${asset.assignedUser}</div>` : ''}
-          </div>
+      return { batchDisplay, specDisplay, qrValue };
+    });
+
+    const labelsHtml = labelsData.map(({ batchDisplay, specDisplay }) => `
+      <div class="label-container">
+        <div class="qr-placeholder" data-qr="${batchDisplay}"></div>
+        <div class="info-section">
+          <div class="asset-code">${batchDisplay}</div>
+          <div class="divider"></div>
+          <div class="spec-info">${specDisplay}</div>
         </div>
-      `;
-    }).join('');
+      </div>
+    `).join('');
+
+    // 生成 QR 数据脚本
+    const qrDataScript = labelsData.map(({ qrValue }, idx) =>
+      `qrData[${idx}] = '${qrValue}';`
+    ).join('\n');
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -301,35 +296,94 @@ export function AssetQRLabelBatch({ assets, trigger, open: externalOpen, onOpenC
       <head>
         <title>资产标签批量打印</title>
         <style>
-          body { margin: 0; padding: 10px; font-family: sans-serif; }
-          .label-container {
-            width: 80mm;
-            height: 50mm;
-            border: 1px solid #000;
-            padding: 5mm;
+          * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', Courier, monospace;
+          }
+          .label-container {
+            width: 50mm;
+            height: 12mm;
+            padding: 1mm;
             display: flex;
             align-items: center;
-            gap: 5mm;
-            margin-bottom: 5mm;
+            gap: 1.5mm;
+            background: white;
             page-break-inside: avoid;
           }
-          .qr-placeholder { width: 80px; height: 80px; background: #f0f0f0; }
-          .info-section { flex: 1; font-size: 10pt; line-height: 1.4; }
-          .asset-code { font-size: 12pt; font-weight: bold; margin-bottom: 2mm; }
-          .asset-name { font-size: 11pt; margin-bottom: 2mm; }
-          .detail { font-size: 9pt; color: #333; }
-          @media print { body { margin: 0; } }
+          .qr-section {
+            flex-shrink: 0;
+            width: 10mm;
+            height: 10mm;
+          }
+          .qr-section svg {
+            width: 100%;
+            height: 100%;
+          }
+          .info-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
+          }
+          .asset-code {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 9pt;
+            font-weight: bold;
+            line-height: 1.1;
+            color: #000;
+            letter-spacing: 0.3mm;
+          }
+          .divider {
+            height: 0.5px;
+            background: #000;
+            margin: 0.5mm 0;
+          }
+          .spec-info {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 6pt;
+            line-height: 1.1;
+            color: #000;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          @media print {
+            body { margin: 0; padding: 0; }
+            .label-container { border: none; }
+          }
         </style>
       </head>
       <body>
         ${labelsHtml}
+        <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+        <script>
+          var qrData = [];
+          ${qrDataScript}
+
+          var placeholders = document.querySelectorAll('.qr-placeholder');
+          placeholders.forEach(function(el, idx) {
+            var qr = qrcode(0, 'M');
+            qr.addData(qrData[idx]);
+            qr.make();
+            el.innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
+            el.className = 'qr-section';
+          });
+        </script>
       </body>
       </html>
     `);
 
     printWindow.document.close();
+    printWindow.focus();
     printWindow.print();
+    printWindow.close();
   };
 
   return (
@@ -349,17 +403,15 @@ export function AssetQRLabelBatch({ assets, trigger, open: externalOpen, onOpenC
           <DialogTitle>批量打印资产标签 ({expandedLabels.length} 个标签，{assets.length} 种资产)</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 max-h-[60vh] overflow-auto">
+        {/* 预览网格 */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 p-4 max-h-[60vh] overflow-auto">
           {expandedLabels.map(({ asset, batchIndex, isBatch }) => (
-            <div key={`${asset.id}-${batchIndex}`} className="flex items-center gap-2 p-2 border rounded bg-white">
-              <AssetQRLabel asset={asset} size={64} showBatch={isBatch} batchIndex={batchIndex} />
-              <div className="text-xs min-w-0">
-                <div className="font-medium font-mono">
-                  {isBatch ? `${asset.assetCode} ${batchIndex}/${asset.quantity}` : asset.assetCode}
-                </div>
-                <div className="text-slate-600 truncate">{asset.assetName}</div>
-              </div>
-            </div>
+            <AssetQRLabel
+              key={`${asset.id}-${batchIndex}`}
+              asset={asset}
+              showBatch={isBatch}
+              batchIndex={batchIndex}
+            />
           ))}
         </div>
 

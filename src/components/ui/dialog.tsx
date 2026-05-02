@@ -19,25 +19,19 @@ interface DialogProps {
 const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
   const handleClose = () => onOpenChange?.(false)
 
-  // 阻止对话框内部点击时关闭
-  const handleContentClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-  }
-
   return (
     <>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
           {/* 遮罩层 */}
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm"
             onClick={handleClose}
           />
 
           {/* 对话框内容 */}
           <div
-            className="relative z-10 w-full transform rounded-lg bg-white transition-all"
-            onClick={handleContentClick}
+            className="relative z-[110] w-full transform rounded-lg bg-white transition-all"
             style={{
               margin: "20px",
               maxWidth: "90vw",

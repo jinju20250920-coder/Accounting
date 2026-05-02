@@ -98,7 +98,34 @@ class SQLiteService {
 
     let db: any = null;
 
-    // 直接使用全局 sqliteManager，跳过账套数据库的复杂逻辑
+    // 尝试从 accountSetDbManager 获取当前账套的数据库
+    if (this._usingAccountSetDb && this._accountSetId) {
+      try {
+        // 先检查当前数据库是否已经打开
+        const currentDb = accountSetDbManager.getCurrentDatabase();
+        if (currentDb) {
+          this.dbInstance = currentDb;
+          return currentDb;
+        }
+
+        // 尝试打开账套数据库（如果文件句柄存在的话）
+        try {
+          await accountSetDbManager.openAccountSetDatabase(this._accountSetId);
+          const openedDb = accountSetDbManager.getCurrentDatabase();
+          if (openedDb) {
+            this.dbInstance = openedDb;
+            return openedDb;
+          }
+        } catch (openError) {
+          // 账套数据库文件不存在，回退到全局数据库
+          console.log('Account set database not found, falling back to global database:', openError);
+        }
+      } catch (error) {
+        console.error('Failed to get account set database:', error);
+      }
+    }
+
+    // 回退到全局 sqliteManager
     try {
       const { sqliteManager } = await import('./sqlite-manager');
       await sqliteManager.init();
@@ -111,7 +138,7 @@ class SQLiteService {
       console.error('Failed to initialize sqliteManager:', error);
     }
 
-    // 如果 sqliteManager 也失败了，尝试创建一个临时的内存数据库
+    // 最后回退：创建内存数据库
     try {
       const SQL = await (await import('sql.js')).default({
         locateFile: (file: string) => `/sqljs/${file}`,

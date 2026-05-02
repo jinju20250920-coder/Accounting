@@ -58,17 +58,23 @@ interface SubjectStore {
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
+// 根据科目代码确定科目类型
+const getSubjectTypeFromCode = (code: string): 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss' => {
+  if (code.startsWith('1')) return 'Asset';
+  if (code.startsWith('2')) return 'Liability';
+  if (code.startsWith('4')) return 'Equity';
+  if (code.startsWith('5')) return 'Cost';
+  if (code.startsWith('6')) return 'Profit/Loss';
+  return 'Profit/Loss';
+};
+
 // 验证科目代码
 const validateSubjectCode = (code: string, existingCodes: string[]): { isValid: boolean; error?: string } => {
-  console.log('验证科目代码:', code);
-
   // 允许的科目代码格式：纯数字
   // - 4位：一级科目
   // - 6位：二级科目（4位+2位）
   // - 8位：三级科目（6位+2位），以此类推
   const isValidFormat = /^\d{4,12}$/.test(code);
-
-  console.log('格式验证结果:', isValidFormat);
 
   if (!isValidFormat) {
     return { isValid: false, error: `科目代码格式无效: ${code}` };
@@ -114,15 +120,11 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
 
   // 添加科目
   addSubject: async (subject) => {
-    console.log('Store - 添加科目调用:', subject);
     const state = get();
     const existingCodes = state.subjects.map(s => s.code);
-    console.log('已存在的科目代码:', existingCodes);
     const validation = validateSubjectCode(subject.code, existingCodes);
-    console.log('验证结果:', validation);
 
     if (!validation.isValid) {
-      console.error('科目添加失败:', validation.error);
       set({ error: validation.error || '添加失败' });
       return;
     }
@@ -177,17 +179,11 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       enableCashFlow: (subject as any).enableCashFlow || false,
     };
 
-    console.log('准备添加的新科目:', newSubject);
-    console.log('当前科目列表:', state.subjects);
-
     try {
       await getCurrentService().saveSubjects([newSubject]);
       set((state) => {
-        const newSubjects = [...state.subjects, newSubject];
-        console.log('更新后的科目列表:', newSubjects);
-        console.log('科目数量变化:', state.subjects.length, '->', newSubjects.length);
         return {
-          subjects: newSubjects,
+          subjects: [...state.subjects, newSubject],
           error: null
         };
       });
@@ -471,22 +467,6 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
 
       // 为默认科目添加缺失的字段
       const initializedSubjects = (defaultSubjects as any[]).map((subject, index) => {
-        // 根据科目代码确定科目类型
-        let subjectType: 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss';
-        if (subject.code.startsWith('1')) {
-          subjectType = 'Asset'; // 资产类科目以 1 开头
-        } else if (subject.code.startsWith('2')) {
-          subjectType = 'Liability'; // 负债类科目以 2 开头
-        } else if (subject.code.startsWith('4')) {
-          subjectType = 'Equity'; // 权益类科目以 4 开头
-        } else if (subject.code.startsWith('5')) {
-          subjectType = 'Cost'; // 成本类科目以 5 开头
-        } else if (subject.code.startsWith('6')) {
-          subjectType = 'Profit/Loss'; // 损益类科目以 6 开头
-        } else {
-          subjectType = 'Profit/Loss'; // 默认值
-        }
-
         const now = new Date().toISOString();
         return {
           ...subject,
@@ -494,7 +474,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           block: false, // 初始化为未冻结
           enableForeign: subject.enableForeign || false,
           foreignCurrency: subject.foreignCurrency || '',
-          subjectType: subject.subjectType || subjectType,
+          subjectType: subject.subjectType || getSubjectTypeFromCode(subject.code),
           isCustomer: subject.isCustomer || (subject.code.startsWith('1122') || subject.code.startsWith('1121')), // 应收账款相关科目
           isSupplier: subject.isSupplier || (subject.code.startsWith('2202') || subject.code.startsWith('2201')), // 应付账款相关科目
           isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
@@ -548,69 +528,74 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       }
 
       const state = get();
-      console.log('初始化检查 - 当前科目:', state.subjects);
-      console.log('初始化检查 - 科目数量:', state.subjects.length);
-      console.log('初始化检查 - 科目类型:', typeof state.subjects);
-      console.log('初始化检查 - 是否为数组:', Array.isArray(state.subjects));
-      console.log('初始化检查 - 当前数据版本:', state.dataVersion);
-      console.log('初始化检查 - 默认科目版本:', DEFAULT_SUBJECTS_VERSION);
 
       // 从数据库加载科目数据（迁移会在这里运行）
       const subjects = await getCurrentService().getAllSubjects();
-      console.log('从数据库加载的科目数据:', subjects);
-      console.log('科目 1122 的 isCustomer 值:', subjects.find((s: any) => s.code === '1122')?.isCustomer);
-      console.log('科目 2202 的 isSupplier 值:', subjects.find((s: any) => s.code === '2202')?.isSupplier);
 
       if (subjects.length > 0) {
+        // 检查是否缺少基础科目（如1001库存现金、1002银行存款等）
+        const defaultCodes = (defaultSubjects as any[]).map(s => s.code);
+        const existingCodes = new Set(subjects.map(s => s.code));
+        const missingCodes = defaultCodes.filter((code: string) => !existingCodes.has(code));
+
+        if (missingCodes.length > 0) {
+          // 补充缺失的默认科目
+          const missingSubjects = (defaultSubjects as any[])
+            .filter(s => !existingCodes.has(s.code))
+            .map(subject => {
+              const now = new Date().toISOString();
+              return {
+                ...subject,
+                id: subject.code,
+                block: false,
+                enableForeign: subject.enableForeign || false,
+                foreignCurrency: subject.foreignCurrency || '',
+                subjectType: subject.subjectType || getSubjectTypeFromCode(subject.code),
+                isCustomer: subject.isCustomer || false,
+                isSupplier: subject.isSupplier || false,
+                isEmployee: subject.isEmployee || false,
+                enableCashFlow: subject.enableCashFlow || false,
+                accountSetId: currentAccountSet?.id,
+                createTime: now,
+                updateTime: now,
+              };
+            });
+
+          if (missingSubjects.length > 0) {
+            await getCurrentService().saveSubjects(missingSubjects);
+            // 重新加载
+            const updatedSubjects = await getCurrentService().getAllSubjects();
+            set({ subjects: updatedSubjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
+            return;
+          }
+        }
+
         // 如果科目存在但没有 isCustomer/isSupplier 字段（或者值不正确），强制更新
         const subject1122 = subjects.find((s: any) => s.code === '1122');
         const subject2202 = subjects.find((s: any) => s.code === '2202');
 
         if (subject1122 && !subject1122.isCustomer) {
-          console.log('检测到科目 1122 缺少 isCustomer 标记，正在更新...');
           await getCurrentService().saveSubjects([{ ...subject1122, isCustomer: true, enableDept: true, enableProject: true }]);
           // 重新加载
           const updatedSubjects = await getCurrentService().getAllSubjects();
           set({ subjects: updatedSubjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
-          console.log('科目数据已更新');
           return;
         }
 
         if (subject2202 && !subject2202.isSupplier) {
-          console.log('检测到科目 2202 缺少 isSupplier 标记，正在更新...');
           await getCurrentService().saveSubjects([{ ...subject2202, isSupplier: true }]);
           // 重新加载
           const updatedSubjects = await getCurrentService().getAllSubjects();
           set({ subjects: updatedSubjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
-          console.log('科目数据已更新');
           return;
         }
 
         set({ subjects, dataVersion: DEFAULT_SUBJECTS_VERSION });
-        console.log('科目数据已从数据库加载');
         return;
       }
 
-      console.log('开始初始化默认科目数据:', defaultSubjects);
-
       // 为默认科目添加缺失的字段
       const initializedSubjects = (defaultSubjects as any[]).map((subject, index) => {
-        // 根据科目代码确定科目类型
-        let subjectType: 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss';
-        if (subject.code.startsWith('1')) {
-          subjectType = 'Asset'; // 资产类科目以 1 开头
-        } else if (subject.code.startsWith('2')) {
-          subjectType = 'Liability'; // 负债类科目以 2 开头
-        } else if (subject.code.startsWith('4')) {
-          subjectType = 'Equity'; // 权益类科目以 4 开头
-        } else if (subject.code.startsWith('5')) {
-          subjectType = 'Cost'; // 成本类科目以 5 开头
-        } else if (subject.code.startsWith('6')) {
-          subjectType = 'Profit/Loss'; // 损益类科目以 6 开头
-        } else {
-          subjectType = 'Profit/Loss'; // 默认值
-        }
-
         const now = new Date().toISOString();
         return {
           ...subject,
@@ -618,7 +603,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           block: false, // 初始化为未冻结
           enableForeign: subject.enableForeign || false,
           foreignCurrency: subject.foreignCurrency || '',
-          subjectType: subject.subjectType || subjectType,
+          subjectType: subject.subjectType || getSubjectTypeFromCode(subject.code),
           isCustomer: subject.isCustomer || (subject.code.startsWith('1122') || subject.code.startsWith('1121')), // 应收账款相关科目
           isSupplier: subject.isSupplier || (subject.code.startsWith('2202') || subject.code.startsWith('2201')), // 应付账款相关科目
           isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
@@ -629,24 +614,13 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
         };
       });
 
-      console.log('准备设置的科目数据:', initializedSubjects);
-
       // 保存到数据库
       await getCurrentService().saveSubjects(initializedSubjects);
 
-      set((state) => {
-        console.log('设置前的科目列表:', state.subjects);
-
-        const newState = {
-          subjects: initializedSubjects,
-          dataVersion: DEFAULT_SUBJECTS_VERSION
-        };
-
-        console.log('设置后的科目列表:', newState.subjects);
-        return newState;
+      set({
+        subjects: initializedSubjects,
+        dataVersion: DEFAULT_SUBJECTS_VERSION
       });
-
-      console.log('科目数据初始化完成');
     } catch (error) {
       console.error('Failed to initialize subjects:', error);
       set({ error: '初始化科目数据失败' });

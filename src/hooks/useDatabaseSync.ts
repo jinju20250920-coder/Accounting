@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { getCurrentManager } from '@/lib/database';
 import { useToast } from '@/hooks/use-toast';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 
 // 全局初始化 Promise：其他组件可以通过 waitForDbInit() 等待数据库就绪
 let _initResolve: (() => void) | null = null;
@@ -19,6 +20,78 @@ export function useDatabaseSync() {
   const { toast } = useToast();
   const [isInitialized, setIsInitialized] = useState(false);
   const initStartedRef = useRef(false);
+
+  // 监听账套切换
+  const currentAccountSetId = useAccountSetStore((s) => s.currentAccountSetId);
+  const lastAccountSetIdRef = useRef<string | null>(null);
+
+  // 重新加载所有 store 数据
+  const reloadAllStores = async () => {
+    const { useVoucherStore } = await import('@/stores/useVoucherStore');
+    const { useSubjectStore } = await import('@/stores/useSubjectStore');
+    const { useDepartmentStore } = await import('@/stores/useDepartmentStore');
+    const { useFinancialProjectStore } = await import('@/stores/useFinancialProjectStore');
+    const { useCurrencyStore } = await import('@/stores/useCurrencyStore');
+    const { useVoucherTemplateStore } = await import('@/stores/useVoucherTemplateStore');
+    const { useSummaryStore } = await import('@/stores/useSummaryStore');
+    const { usePartnerStore } = await import('@/stores/usePartnerStore');
+    const { useFixedAssetStore } = await import('@/stores/useFixedAssetStore');
+
+    await Promise.all([
+      useSubjectStore.getState().initializeSubjects(),
+      useDepartmentStore.getState().initializeDepartments(),
+      useFinancialProjectStore.getState().initializeProjects(),
+      useCurrencyStore.getState().initializeCurrencies(),
+      useVoucherTemplateStore.getState().initializeTemplates(),
+      useSummaryStore.getState().initializeSummaries(),
+      usePartnerStore.getState().initializePartners(),
+      useVoucherStore.getState().initialize(),
+      useFixedAssetStore.getState().initialize()
+    ]);
+  };
+
+  // 监听账套切换
+  useEffect(() => {
+    if (!currentAccountSetId || !isInitialized) return;
+
+    // 首次加载时记录当前账套
+    if (!lastAccountSetIdRef.current) {
+      lastAccountSetIdRef.current = currentAccountSetId;
+      return;
+    }
+
+    // 账套切换时重新加载数据
+    if (lastAccountSetIdRef.current !== currentAccountSetId) {
+      lastAccountSetIdRef.current = currentAccountSetId;
+      console.log('检测到账套切换，正在重新加载数据...', currentAccountSetId);
+
+      // 异步处理账套切换
+      (async () => {
+        try {
+          // 1. 尝试打开新账套的数据库文件（如果存在）
+          const { accountSetDbManager } = await import('@/lib/database/account-set-db-manager');
+          try {
+            await accountSetDbManager.openAccountSetDatabase(currentAccountSetId);
+            console.log('新账套数据库已打开:', currentAccountSetId);
+          } catch (dbError) {
+            // 账套数据库文件不存在，使用全局数据库（通过 accountSetId 字段隔离数据）
+            console.log('账套数据库文件不存在，使用全局数据库:', dbError);
+          }
+
+          // 2. 更新 sqliteService 的账套ID（清空缓存，强制重新获取数据库）
+          const { sqliteService } = await import('@/lib/database/sqlite-service');
+          sqliteService.setAccountSetId(currentAccountSetId);
+          console.log('sqliteService.accountSetId 已更新:', sqliteService.accountSetId);
+
+          // 3. 重新加载所有数据
+          await reloadAllStores();
+          console.log('账套切换后数据重新加载完成');
+        } catch (error) {
+          console.error('账套切换后数据重新加载失败:', error);
+        }
+      })();
+    }
+  }, [currentAccountSetId, isInitialized]);
 
   useEffect(() => {
     // 防止重复初始化
@@ -141,25 +214,7 @@ export function useDatabaseSync() {
       await getCurrentManager().importData(data);
 
       // 重新加载所有数据（动态导入以避免循环依赖）
-      const { useVoucherStore } = await import('@/stores/useVoucherStore');
-      const { useSubjectStore } = await import('@/stores/useSubjectStore');
-      const { useDepartmentStore } = await import('@/stores/useDepartmentStore');
-      const { useFinancialProjectStore } = await import('@/stores/useFinancialProjectStore');
-      const { useCurrencyStore } = await import('@/stores/useCurrencyStore');
-      const { useVoucherTemplateStore } = await import('@/stores/useVoucherTemplateStore');
-      const { useSummaryStore } = await import('@/stores/useSummaryStore');
-      const { usePartnerStore } = await import('@/stores/usePartnerStore');
-
-      await Promise.all([
-        useSubjectStore.getState().initializeSubjects(),
-        useDepartmentStore.getState().initializeDepartments(),
-        useFinancialProjectStore.getState().initializeProjects(),
-        useCurrencyStore.getState().initializeCurrencies(),
-        useVoucherTemplateStore.getState().initializeTemplates(),
-        useSummaryStore.getState().initializeSummaries(),
-        usePartnerStore.getState().initializePartners(),
-        useVoucherStore.getState().initialize()
-      ]);
+      await reloadAllStores();
 
       toast({
         title: "数据导入成功",

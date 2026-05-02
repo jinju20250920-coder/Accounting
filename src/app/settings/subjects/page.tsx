@@ -116,8 +116,14 @@ export default function SubjectsPage() {
     }
 
     // 获取符合条件的科目
+    // 处理 parentId 为空字符串的情况（一级科目）
     let filtered = subjects
-      .filter(s => s.parentId === parentId || (parentId === null && !s.parentId))
+      .filter(s => {
+        // 处理空字符串和 null 的统一
+        const sParentId = s.parentId || null;
+        const targetParentId = parentId || null;
+        return sParentId === targetParentId;
+      })
       .filter(s => !filterDisabled || !s.disabled);
 
     // 如果有搜索查询，只保留可见的科目
