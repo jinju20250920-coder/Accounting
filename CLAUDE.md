@@ -521,6 +521,9 @@ npm run lint
 - ✅ 固定资产入账规则配置 - 双栏布局对话框，Portal科目选择器，折旧参数与科目映射
 - ✅ 会计期间endDate修复 - 使用本地日期方法避免toISOString时区问题，提取getMonthEndDate工具函数
 - ✅ 资产编号持久化 - 从现有编码提取最大值+1，避免重复编号
+- ✅ 资产时序账凭证修正 - VoucherCorrectionDialog组件，红字冲销+蓝字重录引导
+- ✅ 固定资产导出优化 - 导出模板使用中文列标题，增加折旧开始/结束日期字段
+- ✅ 资产导入模板简化 - 移除费用科目字段，简化导入流程
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎

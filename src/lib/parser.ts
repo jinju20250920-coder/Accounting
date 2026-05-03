@@ -333,8 +333,6 @@ export interface ParsedFixedAsset {
   acquisitionDate?: string;
   departmentCode?: string;
   departmentName?: string;
-  expenseSubjectCode?: string;
-  expenseSubjectName?: string;
   notes?: string;
 }
 
@@ -418,8 +416,7 @@ export async function parseFixedAssetsExcel(file: File): Promise<AssetParseResul
       usefulLifeYears: parseInt(row[6]) || undefined,
       acquisitionDate: parseExcelDate(row[7]),
       departmentCode: row[8]?.toString()?.trim(),
-      expenseSubjectCode: row[9]?.toString()?.trim(),
-      notes: row[10]?.toString()?.trim(),
+      notes: row[9]?.toString()?.trim(),
     };
 
     // 验证必填字段
@@ -622,7 +619,7 @@ function parseExcelDate(value: any): string | undefined {
 export function exportFixedAssetsToExcel(assets: any[]): void {
   const headers = [
     '资产编码', '资产名称', '分类', '原值', '残值', '累计折旧', '净值',
-    '折旧方法', '使用年限', '购置日期', '状态', '部门', '费用科目', '备注'
+    '折旧方法', '使用年限', '购置日期', '折旧开始日期', '折旧结束日期', '状态', '部门编号', '备注'
   ];
 
   const rows = assets.map(asset => [
@@ -636,9 +633,10 @@ export function exportFixedAssetsToExcel(assets: any[]): void {
     asset.depreciationMethod,
     asset.usefulLifeYears,
     asset.acquisitionDate,
+    asset.depreciationStartDate || '',
+    asset.depreciationEndDate || '',
     asset.status,
-    asset.departmentName || '',
-    asset.expenseSubjectCode || '',
+    asset.departmentCode || '',
     asset.notes || ''
   ]);
 

@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { VoucherCorrectionDialog } from './voucher-correction-dialog';
 import type { AssetChangeRecord } from '@/types';
 
 const CHANGE_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -30,6 +32,8 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [selectedChangeType, setSelectedChangeType] = useState<string>('');
   const [records, setRecords] = useState<AssetChangeRecord[]>([]);
+  const [correctionRecord, setCorrectionRecord] = useState<any>(null);
+  const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
   useEffect(() => {
     if (initialAssetId) setSelectedAssetId(initialAssetId);
@@ -42,6 +46,13 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
     }
     getAssetChangeRecords(selectedAssetId).then(setRecords);
   }, [open, selectedAssetId, getAssetChangeRecords]);
+
+  // 刷新记录
+  const refreshRecords = () => {
+    if (selectedAssetId) {
+      getAssetChangeRecords(selectedAssetId).then(setRecords);
+    }
+  };
 
   const filteredRecords = useMemo(() => {
     let result = [...records];
@@ -225,18 +236,20 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
                 <th className="px-3 py-2 text-right font-medium text-slate-600">原值余额</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600">累计折旧</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600">净值</th>
+                <th className="px-3 py-2 text-center font-medium text-slate-600 w-16">操作</th>
               </tr>
             </thead>
             <tbody>
               {timelineRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
                     {selectedAssetId ? '暂无变动记录' : '请选择资产'}
                   </td>
                 </tr>
               ) : (
                 timelineRows.map((row) => {
                   const cfg = CHANGE_TYPE_CONFIG[row.changeType] || { label: row.changeType, color: 'bg-slate-50 text-slate-500' };
+                  const hasVoucher = !!row.voucherId || !!row.voucherNo;
                   return (
                     <tr key={row.id} className="border-b last:border-b-0 hover:bg-slate-50/50">
                       <td className="px-3 py-2 text-slate-700">{row.changeDate.substring(5)}</td>
@@ -253,6 +266,23 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
                       <td className="px-3 py-2 text-right font-mono text-slate-700">{row.origBal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-2 text-right font-mono text-slate-700">{row.depBal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-2 text-right font-mono text-slate-700">{row.netBal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-center">
+                        {hasVoucher ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => {
+                              setCorrectionRecord(row);
+                              setShowCorrectionDialog(true);
+                            }}
+                          >
+                            修正
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-slate-300">-</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -261,6 +291,14 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
           </table>
         </div>
       </DialogContent>
+
+      {/* 修正对话框 */}
+      <VoucherCorrectionDialog
+        open={showCorrectionDialog}
+        onOpenChange={setShowCorrectionDialog}
+        record={correctionRecord}
+        onSuccess={refreshRecords}
+      />
     </Dialog>
   );
 }

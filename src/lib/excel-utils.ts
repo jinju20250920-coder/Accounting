@@ -96,7 +96,13 @@ export const exportTemplate = <T>(
   sampleData: T,
   headers: { key: keyof T; label: string; placeholder?: string }[]
 ) => {
-  const ws = XLSX.utils.json_to_sheet([sampleData]);
+  // 使用 headers 的 label 作为列标题
+  const rowWithLabels: Record<string, any> = {};
+  headers.forEach(({ key, label }) => {
+    rowWithLabels[label] = (sampleData as any)[key];
+  });
+
+  const ws = XLSX.utils.json_to_sheet([rowWithLabels]);
 
   // 设置列宽
   const colWidths = headers.map(() => ({ wch: 20 }));
@@ -107,7 +113,7 @@ export const exportTemplate = <T>(
   XLSX.utils.book_append_sheet(wb, ws, '模板');
 
   // 导出文件
-  XLSX.writeFile(wb, `${filename}_模板.xlsx`);
+  XLSX.writeFile(wb, `${filename}.xlsx`);
 };
 
 // 固定资产相关导出函数
@@ -122,7 +128,6 @@ export const parseFixedAssetsExcel = async (file: File) => {
     { key: 'usefulLifeYears', label: '使用年限', required: false },
     { key: 'acquisitionDate', label: '购置日期', required: true },
     { key: 'departmentCode', label: '部门编码', required: false },
-    { key: 'expenseSubjectCode', label: '费用科目', required: false },
     { key: 'notes', label: '备注', required: false },
   ];
 
@@ -146,6 +151,9 @@ export const exportFixedAssetsToExcel = (assets: FixedAsset[]) => {
     { key: 'depreciationMethod', label: '折旧方法' },
     { key: 'usefulLifeYears', label: '使用年限' },
     { key: 'acquisitionDate', label: '购置日期' },
+    { key: 'depreciationStartDate', label: '折旧开始日期' },
+    { key: 'depreciationEndDate', label: '折旧结束日期' },
+    { key: 'departmentCode', label: '部门编号' },
     { key: 'status', label: '状态' },
     { key: 'location', label: '存放地点' },
     { key: 'notes', label: '备注' },
@@ -173,7 +181,6 @@ export const generateAssetImportTemplate = (type: 'fixed' | 'intangible' | 'prep
         usefulLifeYears: 3,
         acquisitionDate: '2024-01-01',
         departmentCode: '',
-        expenseSubjectCode: '660204',
         notes: '',
       },
       headers: [
@@ -186,7 +193,6 @@ export const generateAssetImportTemplate = (type: 'fixed' | 'intangible' | 'prep
         { key: 'usefulLifeYears', label: '使用年限' },
         { key: 'acquisitionDate', label: '购置日期' },
         { key: 'departmentCode', label: '部门编码' },
-        { key: 'expenseSubjectCode', label: '费用科目' },
         { key: 'notes', label: '备注' },
       ],
     },
