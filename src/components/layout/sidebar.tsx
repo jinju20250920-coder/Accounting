@@ -73,6 +73,7 @@ const menuItems = [
   ]},
   { icon: Package, label: '资产管理', path: '/assets', children: [
     { label: '固定资产', path: '/assets/fixed' },
+    { label: '固定资产汇总表', path: '/assets/summary' },
     { label: '待摊费用', path: '/assets/prepaid' },
   ]},
   { icon: Building2, label: '账套管理', path: '/sets' },

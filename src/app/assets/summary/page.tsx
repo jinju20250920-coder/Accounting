@@ -174,8 +174,12 @@ export default function AssetSummaryPage() {
   const { assets, depreciationRecords, categories, initialize } = useFixedAssetStore();
   const { getCurrentAccountSet } = useAccountSetStore();
 
-  // 获取当前账期
+  // 客户端挂载状态
+  const [mounted, setMounted] = useState(false);
+
+  // 获取当前账期（仅在客户端计算）
   const currentPeriod = useMemo(() => {
+    if (!mounted) return '';
     const accountSet = getCurrentAccountSet();
     const currentPeriodData = accountSet?.accountingPeriods?.find(p => p.isCurrent);
     if (currentPeriodData) {
@@ -183,9 +187,9 @@ export default function AssetSummaryPage() {
     }
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  }, []);
+  }, [mounted]);
 
-  const [period, setPeriod] = useState<string>(currentPeriod);
+  const [period, setPeriod] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'detail' | 'ledger'>('detail');
   const [showAlmostDoneDialog, setShowAlmostDoneDialog] = useState(false);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
@@ -193,7 +197,15 @@ export default function AssetSummaryPage() {
   // 初始化
   useEffect(() => {
     initialize();
+    setMounted(true);
   }, [initialize]);
+
+  // 设置初始期间
+  useEffect(() => {
+    if (mounted && !period && currentPeriod) {
+      setPeriod(currentPeriod);
+    }
+  }, [mounted, period, currentPeriod]);
 
   // 核心指标计算
   const metrics = useMemo(() => {
@@ -383,19 +395,31 @@ export default function AssetSummaryPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-slate-600">期间：</span>
-            <ChineseMonthPicker
-              value={period}
-              onChange={setPeriod}
-              className="w-36"
-            />
+            {mounted && period ? (
+              <ChineseMonthPicker
+                value={period}
+                onChange={setPeriod}
+                className="w-36"
+              />
+            ) : (
+              <div className="h-9 w-36 rounded-md border border-input bg-slate-100 px-3 py-1.5 text-sm text-slate-400">
+                加载中...
+              </div>
+            )}
           </div>
-          <Button variant="outline" size="sm" onClick={handleExport}>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={!mounted}>
             <Download className="w-4 h-4 mr-2" />
             导出
           </Button>
         </div>
       </div>
 
+      {!mounted ? (
+        <div className="text-center py-12 text-slate-500">
+          加载中...
+        </div>
+      ) : (
+      <>
       {/* 核心指标层（财务视角） */}
       <div>
         <h2 className="text-sm font-medium text-slate-500 mb-3 flex items-center gap-2">
@@ -639,6 +663,8 @@ export default function AssetSummaryPage() {
           </div>
         </DialogContent>
       </Dialog>
+      </>
+      )}
     </div>
   );
 }
