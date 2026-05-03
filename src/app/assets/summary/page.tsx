@@ -66,11 +66,11 @@ function AssetTimelineLedgerView({
   assets: FixedAsset[];
   period: string;
 }) {
-  const { getAssetChangeRecords } = useFixedAssetStore();
+  const { getAssetChangeRecords, depreciationRecords } = useFixedAssetStore();
   const [selectedAssetId, setSelectedAssetId] = useState<string>('');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [selectedEventType, setSelectedEventType] = useState<string>('');
-  const [records, setRecords] = useState<AssetChangeRecord[]>([]);
+  const [allRecords, setAllRecords] = useState<AssetChangeRecord[]>([]);
 
   // 获取期间列表
   const periods = useMemo(() => {
@@ -79,59 +79,98 @@ function AssetTimelineLedgerView({
       if (a.acquisitionDate) set.add(a.acquisitionDate.substring(0, 7));
       if (a.disposalDate) set.add(a.disposalDate.substring(0, 7));
     });
+    depreciationRecords.forEach(r => {
+      if (r.period) set.add(r.period);
+    });
     return Array.from(set).sort();
-  }, [assets]);
+  }, [assets, depreciationRecords]);
 
-  // 加载变动记录
+  // 加载所有资产的变动记录
   useEffect(() => {
-    if (!selectedAssetId) {
-      setRecords([]);
-      return;
-    }
-    getAssetChangeRecords(selectedAssetId).then(setRecords);
-  }, [selectedAssetId, getAssetChangeRecords]);
+    const loadAllRecords = async () => {
+      const allChangeRecords: AssetChangeRecord[] = [];
+
+      // 为每个资产生成变动记录
+      for (const asset of assets) {
+        // 取得记录
+        if (asset.acquisitionDate) {
+          allChangeRecords.push({
+            id: `acq_${asset.id}`,
+            assetId: asset.id,
+            assetCode: asset.assetCode,
+            assetName: asset.assetName,
+            accountSetId: asset.accountSetId || '',
+            changeType: 'acquisition',
+            changeDate: asset.acquisitionDate,
+            period: asset.acquisitionDate.substring(0, 7),
+            fieldName: 'originalValue',
+            beforeValue: '0',
+            afterValue: String(asset.originalValue),
+            originalValueChange: asset.originalValue,
+            depreciationChange: 0,
+            originalValueBalance: asset.originalValue,
+            accumulatedDepreciationBalance: 0,
+            netValueBalance: asset.originalValue,
+            voucherId: asset.acquisitionVoucherId,
+            voucherNo: asset.acquisitionVoucherNo,
+            reason: '资产取得',
+            createTime: asset.createTime,
+          });
+        }
+
+        // 加载该资产的其他变动记录
+        try {
+          const records = await getAssetChangeRecords(asset.id);
+          allChangeRecords.push(...records);
+        } catch (e) {
+          // 忽略错误
+        }
+      }
+
+      // 按日期排序
+      allChangeRecords.sort((a, b) => a.changeDate.localeCompare(b.changeDate));
+      setAllRecords(allChangeRecords);
+    };
+
+    loadAllRecords();
+  }, [assets, getAssetChangeRecords]);
 
   // 筛选记录
   const filteredRecords = useMemo(() => {
-    let result = [...records];
+    let result = [...allRecords];
+
+    if (selectedAssetId) {
+      result = result.filter(r => r.assetId === selectedAssetId);
+    }
     if (selectedPeriod) {
       result = result.filter(r => r.period?.startsWith(selectedPeriod));
     }
     if (selectedEventType) {
       result = result.filter(r => r.changeType === selectedEventType);
     }
-    result.sort((a, b) => a.changeDate.localeCompare(b.changeDate));
+
     return result;
-  }, [records, selectedPeriod, selectedEventType]);
+  }, [allRecords, selectedAssetId, selectedPeriod, selectedEventType]);
 
-  // 计算时序账行
+  // 计算时序账行（带余额累计）
   const timelineRows = useMemo(() => {
-    if (!selectedAssetId) return [];
-
-    const asset = assets.find(a => a.id === selectedAssetId);
-    if (!asset) return [];
-
-    if (filteredRecords.length === 0 && records.length === 0) {
-      return [{
-        id: 'current',
-        date: asset.acquisitionDate,
-        eventType: 'acquisition',
-        eventDetail: asset.acquisitionVoucherNo || '-',
-        origChange: asset.originalValue,
-        depChange: 0,
-        origBal: asset.originalValue,
-        depBal: asset.accumulatedDepreciation,
-        netBal: asset.netValue,
-      }];
-    }
-
-    let runOrigBal = 0;
-    let runDepBal = 0;
+    // 按资产分组计算余额
+    const assetBalances = new Map<string, { origBal: number; depBal: number }>();
 
     return filteredRecords.map((r) => {
+      const assetId = r.assetId || '';
+
+      // 获取或初始化该资产的余额
+      let balance = assetBalances.get(assetId);
+      if (!balance) {
+        balance = { origBal: 0, depBal: 0 };
+        assetBalances.set(assetId, balance);
+      }
+
       let origChange = r.originalValueChange ?? 0;
       let depChange = r.depreciationChange ?? 0;
 
+      // 从 changeType 推断变动
       switch (r.changeType) {
         case 'acquisition':
           origChange = r.originalValueChange ?? parseFloat(r.afterValue) ?? 0;
@@ -147,33 +186,35 @@ function AssetTimelineLedgerView({
           break;
       }
 
+      // 更新余额
       if (r.originalValueBalance !== undefined) {
-        runOrigBal = r.originalValueBalance;
-        runDepBal = r.accumulatedDepreciationBalance ?? 0;
+        balance.origBal = r.originalValueBalance;
+        balance.depBal = r.accumulatedDepreciationBalance ?? 0;
       } else {
-        runOrigBal += origChange;
-        runDepBal += depChange;
+        balance.origBal += origChange;
+        balance.depBal += depChange;
       }
 
-      const netBal = r.netValueBalance ?? (runOrigBal - runDepBal);
+      const netBal = r.netValueBalance ?? (balance.origBal - balance.depBal);
 
       return {
         id: r.id,
+        assetId: r.assetId,
+        assetCode: r.assetCode || assets.find(a => a.id === r.assetId)?.assetCode || '-',
+        assetName: r.assetName || assets.find(a => a.id === r.assetId)?.assetName || '-',
         date: r.changeDate,
         eventType: r.changeType,
         eventDetail: r.voucherNo || r.reason || '-',
         origChange,
         depChange,
-        origBal: runOrigBal,
-        depBal: runDepBal,
+        origBal: balance.origBal,
+        depBal: balance.depBal,
         netBal,
         voucherId: r.voucherId,
         voucherNo: r.voucherNo,
       };
     });
-  }, [filteredRecords, selectedAssetId, assets, records]);
-
-  const selectedAsset = assets.find(a => a.id === selectedAssetId);
+  }, [filteredRecords, assets]);
 
   const formatChange = (val: number) => {
     if (val === 0) return <span className="text-slate-300">-</span>;
@@ -186,12 +227,13 @@ function AssetTimelineLedgerView({
   return (
     <div className="space-y-4">
       {/* 筛选栏 */}
-      <div className="flex gap-3 items-center">
-        <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
+      <div className="flex gap-3 items-center flex-wrap">
+        <Select value={selectedAssetId || '__all__'} onValueChange={v => setSelectedAssetId(v === '__all__' ? '' : v)}>
           <SelectTrigger className="w-56">
-            <SelectValue placeholder="选择资产" />
+            <SelectValue placeholder="全部资产" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="__all__">全部资产</SelectItem>
             {assets.map(a => (
               <SelectItem key={a.id} value={a.id}>
                 {a.assetCode} {a.assetName}
@@ -223,27 +265,20 @@ function AssetTimelineLedgerView({
             ))}
           </SelectContent>
         </Select>
+
+        <span className="text-sm text-slate-500 ml-auto">
+          共 {timelineRows.length} 条记录
+        </span>
       </div>
 
-      {/* 资产信息 */}
-      {selectedAsset && (
-        <div className="text-sm text-slate-600 bg-slate-50 rounded-lg px-4 py-2">
-          <span className="font-medium">{selectedAsset.assetCode}</span>
-          <span className="mx-2">—</span>
-          <span>{selectedAsset.assetName}</span>
-          <span className="ml-6">原值: ¥{formatAmount(selectedAsset.originalValue)}</span>
-          <span className="ml-4">累计折旧: ¥{formatAmount(selectedAsset.accumulatedDepreciation)}</span>
-          <span className="ml-4">净值: ¥{formatAmount(selectedAsset.netValue)}</span>
-        </div>
-      )}
-
       {/* 时序账表格 */}
-      <div className="border rounded-lg overflow-auto">
+      <div className="border rounded-lg overflow-auto max-h-[500px]">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50 border-b">
+          <thead className="sticky top-0 bg-slate-50 z-10">
+            <tr className="border-b">
               <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">日期</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600 w-48">事件类型</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">资产编号</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-600 w-40">事件类型</th>
               <th className="px-3 py-2 text-right font-medium text-slate-600">原值变动</th>
               <th className="px-3 py-2 text-right font-medium text-slate-600">折旧变动</th>
               <th className="px-3 py-2 text-right font-medium text-slate-600">原值余额</th>
@@ -255,8 +290,8 @@ function AssetTimelineLedgerView({
           <tbody>
             {timelineRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
-                  {selectedAssetId ? '暂无变动记录' : '请选择资产'}
+                <td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                  暂无变动记录
                 </td>
               </tr>
             ) : (
@@ -265,11 +300,14 @@ function AssetTimelineLedgerView({
                 return (
                   <tr key={row.id} className="border-b hover:bg-slate-50">
                     <td className="px-3 py-2 text-slate-700">{row.date.substring(5)}</td>
+                    <td className="px-3 py-2 font-mono text-slate-600">{row.assetCode}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <Badge className={eventCfg.color}>{eventCfg.label}</Badge>
                         {row.eventDetail !== '-' && (
-                          <span className="text-xs text-slate-500 font-mono">{row.eventDetail}</span>
+                          <span className="text-xs text-slate-500 font-mono truncate max-w-[100px]" title={row.eventDetail}>
+                            {row.eventDetail}
+                          </span>
                         )}
                       </div>
                     </td>
