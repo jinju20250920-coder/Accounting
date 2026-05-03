@@ -1042,7 +1042,6 @@ export default function FixedAssetsPage() {
         usefulLifeMonths: (item.usefulLifeYears || 5) * 12,
         acquisitionDate: item.acquisitionDate!,
         departmentCode: item.departmentCode,
-        expenseSubjectCode: item.expenseSubjectCode || '660204',
         notes: item.notes,
       }));
 
