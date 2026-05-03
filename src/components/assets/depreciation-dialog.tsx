@@ -7,7 +7,6 @@ import { useSubjectStore } from '@/stores/useSubjectStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -30,8 +29,6 @@ import {
   Search,
   Calculator,
   FileText,
-  AlertCircle,
-  CheckCircle,
   ChevronDown,
   ChevronUp,
   ArrowUpRight,
@@ -187,8 +184,7 @@ export function DepreciationDialog({
   const [showDetailTable, setShowDetailTable] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // 凭证入账状态
-  const [showVoucherDialog, setShowVoucherDialog] = useState(false);
+  // 凭证入账日期
   const [voucherDate, setVoucherDate] = useState<string>(() => {
     const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
     const currentPeriodData = accountSet?.accountingPeriods?.find(p => p.isCurrent);
@@ -198,7 +194,6 @@ export function DepreciationDialog({
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-28`;
   });
-  const [isPosting, setIsPosting] = useState(false);
 
   // 获取科目列表
   const subjects = useSubjectStore((s) => s.subjects);
@@ -325,10 +320,6 @@ export function DepreciationDialog({
     }
   };
 
-  // 本期草稿记录
-  const draftRecords = depreciationRecords.filter(r => r.period === period && r.status === 'draft');
-  const draftTotalAmount = draftRecords.reduce((sum, r) => sum + r.periodDepreciation, 0);
-
   // 记账
   const handlePost = async (recordIds: string[]) => {
     try {
@@ -339,56 +330,6 @@ export function DepreciationDialog({
       showToast('error', error.message || '记账失败');
     }
   };
-
-  // 打开凭证入账对话框
-  const handleOpenVoucherDialog = () => {
-    if (draftRecords.length === 0) {
-      showToast('warning', '没有草稿折旧记录');
-      return;
-    }
-    // 设置默认入账日期为当前账期最后一天
-    const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
-    const currentPeriodData = accountSet?.accountingPeriods?.find(p => p.isCurrent);
-    if (currentPeriodData) {
-      setVoucherDate(currentPeriodData.endDate);
-    }
-    setShowVoucherDialog(true);
-  };
-
-  // 凭证预览数据（基于草稿记录）
-  const voucherPreviewData = useMemo(() => {
-    if (draftRecords.length === 0) return null;
-
-    const assetMap = new Map(assets.map(a => [a.id, a]));
-    const expenseMap = new Map<string, { code: string; name: string; amount: number }>();
-
-    for (const record of draftRecords) {
-      const asset = assetMap.get(record.assetId);
-      if (!asset) continue;
-
-      const expenseCode = asset.expenseSubjectCode || '660204';
-      const expenseName = asset.expenseSubjectName || '管理费用-折旧费';
-
-      const existing = expenseMap.get(expenseCode);
-      if (existing) {
-        existing.amount += record.periodDepreciation;
-      } else {
-        expenseMap.set(expenseCode, {
-          code: expenseCode,
-          name: expenseName,
-          amount: record.periodDepreciation,
-        });
-      }
-    }
-
-    const totalDepreciation = draftRecords.reduce((sum, r) => sum + r.periodDepreciation, 0);
-
-    return {
-      expenseEntries: Array.from(expenseMap.values()),
-      totalDepreciation,
-      depreciationSubject: { code: '1502', name: '累计折旧' },
-    };
-  }, [draftRecords, assets]);
 
   // 凭证预览数据（基于预览结果）
   const previewVoucherData = useMemo(() => {
@@ -425,29 +366,6 @@ export function DepreciationDialog({
     };
   }, [previewResult, assets]);
 
-  // 科目校验（基于草稿记录）
-  const validateSubjects = () => {
-    if (!voucherPreviewData) return { valid: false, errors: [] };
-
-    const errors: string[] = [];
-
-    // 校验费用科目
-    for (const expense of voucherPreviewData.expenseEntries) {
-      const subject = subjects.find(s => s.code === expense.code);
-      if (!subject) {
-        errors.push(`费用科目 ${expense.code} 不存在`);
-      }
-    }
-
-    // 校验累计折旧科目
-    const depreciationSubject = subjects.find(s => s.code === '1502');
-    if (!depreciationSubject) {
-      errors.push('累计折旧科目 1502 不存在');
-    }
-
-    return { valid: errors.length === 0, errors };
-  };
-
   // 科目校验（基于预览结果）
   const validateSubjectsForPreview = () => {
     if (!previewVoucherData) return { valid: false, errors: [] };
@@ -475,55 +393,6 @@ export function DepreciationDialog({
   const validatePeriod = () => {
     const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
     return validateAccountingPeriod(voucherDate, accountSet);
-  };
-
-  // 确认生成凭证并记账
-  const handleConfirmVoucher = async () => {
-    // 账期校验
-    const periodValidation = validatePeriod();
-    if (!periodValidation.valid) {
-      showToast('error', periodValidation.error!);
-      return;
-    }
-
-    // 科目校验
-    const subjectValidation = validateSubjects();
-    if (!subjectValidation.valid) {
-      showToast('error', `科目校验失败: ${subjectValidation.errors.join(', ')}`);
-      return;
-    }
-
-    setIsPosting(true);
-    try {
-      const result = await generateDepreciationVoucher(draftRecords.map(r => r.id), voucherDate);
-      if (result) {
-        // 更新凭证状态为已记账
-        const { sqliteService } = await import('@/lib/database/sqlite-service');
-        const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
-        if (accountSet?.id) {
-          sqliteService.setAccountSetId(accountSet.id);
-          const db = await sqliteService.getDatabase();
-          if (db) {
-            const stmt = db.prepare('UPDATE vouchers SET status = ? WHERE id = ?');
-            stmt.run(['posted', result.voucherId]);
-            stmt.free();
-          }
-        }
-
-        showToast('success', `凭证 ${result.voucherNo} 已生成并记账`);
-        setShowVoucherDialog(false);
-        initialize();
-      }
-    } catch (error: any) {
-      showToast('error', error.message || '生成凭证失败');
-    } finally {
-      setIsPosting(false);
-    }
-  };
-
-  // 生成凭证（保留原有功能，但改为打开入账对话框）
-  const handleGenerateVoucher = () => {
-    handleOpenVoucherDialog();
   };
 
   // 统计数据
@@ -567,30 +436,6 @@ export function DepreciationDialog({
               <span className="text-slate-600">原值合计: <strong>¥{formatAmount(totalOriginalValue)}</strong></span>
             </div>
           </div>
-
-          {/* 本期草稿记录提示（历史遗留） */}
-          {draftRecords.length > 0 && (
-            <Card className="border-yellow-200 bg-yellow-50">
-              <CardContent className="pt-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5 text-yellow-600" />
-                    <span className="text-sm">
-                      本期有 <strong>{draftRecords.length}</strong> 条未记账折旧记录，
-                      合计金额: <strong>¥{formatAmount(draftTotalAmount)}</strong>
-                    </span>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={handleGenerateVoucher}
-                  >
-                    <FileText className="h-4 w-4 mr-1" />
-                    生成凭证并记账
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* 筛选和操作 */}
           <div className="flex gap-4 items-center">
@@ -965,124 +810,6 @@ export function DepreciationDialog({
               >
                 {isProcessing ? '处理中...' : '确认生成并记账'}
                 {!isProcessing && <ArrowUpRight className="h-4 w-4" />}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* 凭证入账对话框 */}
-        <Dialog open={showVoucherDialog} onOpenChange={setShowVoucherDialog}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>生成折旧凭证并记账</DialogTitle>
-            </DialogHeader>
-
-            {voucherPreviewData && (
-              <div className="space-y-4 py-4">
-                {/* 入账日期选择 */}
-                <div className="space-y-1.5">
-                  <Label required>入账日期</Label>
-                  <ChineseDatePicker
-                    value={voucherDate}
-                    onChange={setVoucherDate}
-                  />
-                  <p className="text-xs text-slate-500">
-                    凭证将使用此日期生成，必须在当前账期内
-                  </p>
-                </div>
-
-                {/* 凭证预览 */}
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-blue-50 px-3 py-2 border-b flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-700">凭证预览</span>
-                  </div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-slate-50">
-                        <th className="text-left p-2 font-medium">科目</th>
-                        <th className="text-right p-2 font-medium w-28">借方</th>
-                        <th className="text-right p-2 font-medium w-28">贷方</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* 借方：费用科目 */}
-                      {voucherPreviewData.expenseEntries.map((entry, idx) => {
-                        const subject = subjects.find(s => s.code === entry.code);
-                        return (
-                          <tr key={idx} className="border-b">
-                            <td className="p-2">
-                              <span className="font-mono text-xs text-slate-500">{entry.code}</span>
-                              <span className="ml-1">{subject?.name || entry.name}</span>
-                              {!subject && (
-                                <span className="ml-1 text-red-500 text-xs">(不存在)</span>
-                              )}
-                            </td>
-                            <td className="p-2 text-right">
-                              ¥{formatAmount(entry.amount)}
-                            </td>
-                            <td className="p-2 text-right"></td>
-                          </tr>
-                        );
-                      })}
-                      {/* 贷方：累计折旧 */}
-                      <tr className="border-b">
-                        <td className="p-2">
-                          <span className="font-mono text-xs text-slate-500">1502</span>
-                          <span className="ml-1">{subjects.find(s => s.code === '1502')?.name || '累计折旧'}</span>
-                          {!subjects.find(s => s.code === '1502') && (
-                            <span className="ml-1 text-red-500 text-xs">(不存在)</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-right"></td>
-                        <td className="p-2 text-right">
-                          ¥{formatAmount(voucherPreviewData.totalDepreciation)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <div className="bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                    摘要: 固定资产折旧 | 合计: {draftRecords.length} 条记录
-                  </div>
-                </div>
-
-                {/* 校验提示 */}
-                {(() => {
-                  const subjectValidation = validateSubjects();
-                  const periodValidation = validatePeriod();
-
-                  if (!subjectValidation.valid || !periodValidation.valid) {
-                    return (
-                      <div className="p-3 bg-red-50 rounded-lg text-sm text-red-600">
-                        <div className="font-medium mb-1">校验失败:</div>
-                        <ul className="list-disc list-inside">
-                          {subjectValidation.errors.map((e, i) => (
-                            <li key={i}>{e}</li>
-                          ))}
-                          {periodValidation.error && <li>{periodValidation.error}</li>}
-                        </ul>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="p-3 bg-green-50 rounded-lg text-sm text-green-600">
-                      校验通过，可以生成凭证并记账
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowVoucherDialog(false)}>
-                取消
-              </Button>
-              <Button
-                onClick={handleConfirmVoucher}
-                disabled={isPosting || !validateSubjects().valid || !validatePeriod().valid}
-              >
-                {isPosting ? '处理中...' : '确认入账'}
               </Button>
             </DialogFooter>
           </DialogContent>
