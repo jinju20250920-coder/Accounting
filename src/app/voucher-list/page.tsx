@@ -442,12 +442,8 @@ export default function VoucherListPage() {
 
   const confirmBatchDelete = async () => {
     try {
-      let successCount = 0;
-      for (const voucher of selectedDraftVouchers) {
-        await deleteVoucher(voucher.id);
-        successCount++;
-      }
-      showToast('success', `成功删除 ${successCount} 张草稿凭证`);
+      await Promise.all(selectedDraftVouchers.map(v => deleteVoucher(v.id)));
+      showToast('success', `成功删除 ${selectedDraftVouchers.length} 张草稿凭证`);
       setSelectedVoucherIds(new Set());
     } catch (error) {
       console.error('Batch delete error:', error);
