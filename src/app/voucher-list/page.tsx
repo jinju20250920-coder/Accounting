@@ -295,6 +295,7 @@ export default function VoucherListPage() {
   const [selectedVoucher, setSelectedVoucher] = useState<VoucherType | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState<VoucherType | null>(null);
+  const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
 
   // 筛选和排序凭证
   const filteredVouchers = vouchers
@@ -423,6 +424,38 @@ export default function VoucherListPage() {
     }
   };
 
+  // 获取选中的草稿凭证
+  const selectedDraftVouchers = useMemo(() => {
+    return filteredVouchers.filter(v =>
+      selectedVoucherIds.has(v.id) && v.status === 'draft'
+    );
+  }, [filteredVouchers, selectedVoucherIds]);
+
+  // 批量删除草稿凭证
+  const handleBatchDeleteDraft = () => {
+    if (selectedDraftVouchers.length === 0) {
+      showToast('warning', '请选择草稿状态的凭证');
+      return;
+    }
+    setShowBatchDeleteDialog(true);
+  };
+
+  const confirmBatchDelete = async () => {
+    try {
+      let successCount = 0;
+      for (const voucher of selectedDraftVouchers) {
+        await deleteVoucher(voucher.id);
+        successCount++;
+      }
+      showToast('success', `成功删除 ${successCount} 张草稿凭证`);
+      setSelectedVoucherIds(new Set());
+    } catch (error) {
+      console.error('Batch delete error:', error);
+      showToast('error', '批量删除失败');
+    }
+    setShowBatchDeleteDialog(false);
+  };
+
   const handlePost = (voucher: VoucherType) => {
     // 记账逻辑
     showToast('info', '记账功能需要调用完整的会计引擎');
@@ -530,6 +563,12 @@ export default function VoucherListPage() {
           <p className="text-slate-500 mt-1">查看和管理所有凭证记录</p>
         </div>
         <div className="flex gap-2">
+          {selectedDraftVouchers.length > 0 && (
+            <Button variant="destructive" onClick={handleBatchDeleteDraft}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              删除草稿 ({selectedDraftVouchers.length})
+            </Button>
+          )}
           {selectedVoucherIds.size > 0 && (
             <Button onClick={handleBatchPrint}>
               <Printer className="w-4 h-4 mr-2" />
@@ -903,6 +942,39 @@ export default function VoucherListPage() {
             <Button variant="destructive" onClick={confirmDelete}>
               <Trash2 className="w-4 h-4 mr-2" />
               删除
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量删除草稿凭证确认对话框 */}
+      <Dialog open={showBatchDeleteDialog} onOpenChange={setShowBatchDeleteDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>确认批量删除</DialogTitle>
+            <DialogDescription>
+              确定要删除选中的 <span className="font-medium text-slate-900">{selectedDraftVouchers.length}</span> 张草稿凭证吗？
+              <br />
+              <span className="text-red-600">此操作不可撤销。</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 max-h-48 overflow-y-auto border rounded-lg bg-slate-50">
+            <ul className="p-2 space-y-1 text-sm">
+              {selectedDraftVouchers.map(v => (
+                <li key={v.id} className="flex justify-between text-slate-600">
+                  <span className="font-mono">{v.voucherNo}</span>
+                  <span className="text-slate-400">{v.date}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowBatchDeleteDialog(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={confirmBatchDelete}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              确认删除
             </Button>
           </div>
         </DialogContent>
