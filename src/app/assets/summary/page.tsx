@@ -607,19 +607,30 @@ export default function AssetSummaryPage() {
         r.assetId === asset.id && r.period === period
       );
 
-      // 判断业务类型
+      // 判断业务类型和金额
       let businessType = '常规';
       let amount = 0;
 
       if (asset.acquisitionDate.startsWith(period)) {
+        // 本期入库：显示原值
         businessType = '资产入库';
         amount = asset.originalValue;
       } else if (asset.disposalDate?.startsWith(period)) {
+        // 本期处置：显示净值
         businessType = '资产处置';
         amount = asset.netValue;
       } else if (thisPeriodRecord) {
+        // 本期已计提折旧：显示折旧额
         businessType = '计提折旧';
         amount = -thisPeriodRecord.periodDepreciation;
+      } else if (status === 'pending' && asset.status === 'active') {
+        // 待计提状态：显示本期应计提金额（估算）
+        businessType = '待计提';
+        // 计算本期应计提折旧（直线法估算）
+        const monthlyDep = asset.depreciableValue && asset.usefulLifeMonths
+          ? asset.depreciableValue / asset.usefulLifeMonths
+          : 0;
+        amount = -monthlyDep;
       }
 
       return {
