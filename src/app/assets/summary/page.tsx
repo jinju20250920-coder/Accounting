@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   TrendingUp,
   TrendingDown,
@@ -21,7 +22,8 @@ import {
   Calculator,
   FileText,
 } from 'lucide-react';
-import type { FixedAsset, DepreciationRecord } from '@/types';
+import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
+import type { FixedAsset, DepreciationRecord, AssetChangeRecord } from '@/types';
 
 // 格式化金额
 const formatAmount = (value: number | undefined | null): string => {
@@ -46,6 +48,255 @@ const DEPRECIATION_STATUS_CONFIG = {
   almost_done: { label: '即将提足', color: 'bg-orange-100 text-orange-700', dot: '!' },
   terminated: { label: '已终止', color: 'bg-slate-100 text-slate-500', dot: '-' },
 };
+
+// 事件类型配置
+const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
+  acquisition: { label: '取得', color: 'bg-blue-50 text-blue-600' },
+  depreciation: { label: '折旧', color: 'bg-green-50 text-green-600' },
+  improvement: { label: '改造', color: 'bg-purple-50 text-purple-600' },
+  disposal: { label: '处置', color: 'bg-red-50 text-red-500' },
+  status_change: { label: '状态变更', color: 'bg-slate-50 text-slate-500' },
+};
+
+// 序时账视图组件
+function AssetTimelineLedgerView({
+  assets,
+  period,
+}: {
+  assets: FixedAsset[];
+  period: string;
+}) {
+  const { getAssetChangeRecords } = useFixedAssetStore();
+  const [selectedAssetId, setSelectedAssetId] = useState<string>('');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+  const [selectedEventType, setSelectedEventType] = useState<string>('');
+  const [records, setRecords] = useState<AssetChangeRecord[]>([]);
+
+  // 获取期间列表
+  const periods = useMemo(() => {
+    const set = new Set<string>();
+    assets.forEach(a => {
+      if (a.acquisitionDate) set.add(a.acquisitionDate.substring(0, 7));
+      if (a.disposalDate) set.add(a.disposalDate.substring(0, 7));
+    });
+    return Array.from(set).sort();
+  }, [assets]);
+
+  // 加载变动记录
+  useEffect(() => {
+    if (!selectedAssetId) {
+      setRecords([]);
+      return;
+    }
+    getAssetChangeRecords(selectedAssetId).then(setRecords);
+  }, [selectedAssetId, getAssetChangeRecords]);
+
+  // 筛选记录
+  const filteredRecords = useMemo(() => {
+    let result = [...records];
+    if (selectedPeriod) {
+      result = result.filter(r => r.period?.startsWith(selectedPeriod));
+    }
+    if (selectedEventType) {
+      result = result.filter(r => r.changeType === selectedEventType);
+    }
+    result.sort((a, b) => a.changeDate.localeCompare(b.changeDate));
+    return result;
+  }, [records, selectedPeriod, selectedEventType]);
+
+  // 计算时序账行
+  const timelineRows = useMemo(() => {
+    if (!selectedAssetId) return [];
+
+    const asset = assets.find(a => a.id === selectedAssetId);
+    if (!asset) return [];
+
+    if (filteredRecords.length === 0 && records.length === 0) {
+      return [{
+        id: 'current',
+        date: asset.acquisitionDate,
+        eventType: 'acquisition',
+        eventDetail: asset.acquisitionVoucherNo || '-',
+        origChange: asset.originalValue,
+        depChange: 0,
+        origBal: asset.originalValue,
+        depBal: asset.accumulatedDepreciation,
+        netBal: asset.netValue,
+      }];
+    }
+
+    let runOrigBal = 0;
+    let runDepBal = 0;
+
+    return filteredRecords.map((r) => {
+      let origChange = r.originalValueChange ?? 0;
+      let depChange = r.depreciationChange ?? 0;
+
+      switch (r.changeType) {
+        case 'acquisition':
+          origChange = r.originalValueChange ?? parseFloat(r.afterValue) ?? 0;
+          break;
+        case 'depreciation':
+          depChange = r.depreciationChange ?? ((parseFloat(r.afterValue) - parseFloat(r.beforeValue)) || 0);
+          break;
+        case 'improvement':
+          origChange = r.originalValueChange ?? ((parseFloat(r.afterValue) - parseFloat(r.beforeValue)) || 0);
+          break;
+        case 'disposal':
+          origChange = r.originalValueChange ?? -(parseFloat(r.beforeValue) || 0);
+          break;
+      }
+
+      if (r.originalValueBalance !== undefined) {
+        runOrigBal = r.originalValueBalance;
+        runDepBal = r.accumulatedDepreciationBalance ?? 0;
+      } else {
+        runOrigBal += origChange;
+        runDepBal += depChange;
+      }
+
+      const netBal = r.netValueBalance ?? (runOrigBal - runDepBal);
+
+      return {
+        id: r.id,
+        date: r.changeDate,
+        eventType: r.changeType,
+        eventDetail: r.voucherNo || r.reason || '-',
+        origChange,
+        depChange,
+        origBal: runOrigBal,
+        depBal: runDepBal,
+        netBal,
+        voucherId: r.voucherId,
+        voucherNo: r.voucherNo,
+      };
+    });
+  }, [filteredRecords, selectedAssetId, assets, records]);
+
+  const selectedAsset = assets.find(a => a.id === selectedAssetId);
+
+  const formatChange = (val: number) => {
+    if (val === 0) return <span className="text-slate-300">-</span>;
+    const str = Math.abs(val).toLocaleString('zh-CN', { minimumFractionDigits: 2 });
+    const color = val > 0 ? 'text-green-600' : 'text-red-500';
+    const prefix = val > 0 ? '+' : '-';
+    return <span className={color}>{prefix}{str}</span>;
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* 筛选栏 */}
+      <div className="flex gap-3 items-center">
+        <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="选择资产" />
+          </SelectTrigger>
+          <SelectContent>
+            {assets.map(a => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.assetCode} {a.assetName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={selectedPeriod || '__all__'} onValueChange={v => setSelectedPeriod(v === '__all__' ? '' : v)}>
+          <SelectTrigger className="w-32">
+            <SelectValue placeholder="全部期间" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部期间</SelectItem>
+            {periods.map(p => (
+              <SelectItem key={p} value={p}>{p}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={selectedEventType || '__all__'} onValueChange={v => setSelectedEventType(v === '__all__' ? '' : v)}>
+          <SelectTrigger className="w-28">
+            <SelectValue placeholder="全部类型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部类型</SelectItem>
+            {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
+              <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* 资产信息 */}
+      {selectedAsset && (
+        <div className="text-sm text-slate-600 bg-slate-50 rounded-lg px-4 py-2">
+          <span className="font-medium">{selectedAsset.assetCode}</span>
+          <span className="mx-2">—</span>
+          <span>{selectedAsset.assetName}</span>
+          <span className="ml-6">原值: ¥{formatAmount(selectedAsset.originalValue)}</span>
+          <span className="ml-4">累计折旧: ¥{formatAmount(selectedAsset.accumulatedDepreciation)}</span>
+          <span className="ml-4">净值: ¥{formatAmount(selectedAsset.netValue)}</span>
+        </div>
+      )}
+
+      {/* 时序账表格 */}
+      <div className="border rounded-lg overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b">
+              <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">日期</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-600 w-48">事件类型</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-600">原值变动</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-600">折旧变动</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-600">原值余额</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-600">累计折旧</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-600">净值</th>
+              <th className="px-3 py-2 text-center font-medium text-slate-600 w-16">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {timelineRows.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
+                  {selectedAssetId ? '暂无变动记录' : '请选择资产'}
+                </td>
+              </tr>
+            ) : (
+              timelineRows.map((row) => {
+                const eventCfg = EVENT_TYPE_CONFIG[row.eventType] || { label: row.eventType, color: 'bg-slate-50 text-slate-600' };
+                return (
+                  <tr key={row.id} className="border-b hover:bg-slate-50">
+                    <td className="px-3 py-2 text-slate-700">{row.date.substring(5)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <Badge className={eventCfg.color}>{eventCfg.label}</Badge>
+                        {row.eventDetail !== '-' && (
+                          <span className="text-xs text-slate-500 font-mono">{row.eventDetail}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">{formatChange(row.origChange)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatChange(row.depChange)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-slate-700">{formatAmount(row.origBal)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-slate-700">{formatAmount(row.depBal)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-slate-700">{formatAmount(row.netBal)}</td>
+                    <td className="px-3 py-2 text-center">
+                      {row.voucherId ? (
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50">
+                          修正
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-slate-300">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 // 指标卡片组件
 function MetricCard({
@@ -548,50 +799,10 @@ export default function AssetSummaryPage() {
               </table>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-slate-50">
-                    <th className="text-left p-3 font-medium">折旧日期</th>
-                    <th className="text-left p-3 font-medium">资产编号</th>
-                    <th className="text-left p-3 font-medium">资产名称</th>
-                    <th className="text-right p-3 font-medium">本期折旧</th>
-                    <th className="text-right p-3 font-medium">累计折旧</th>
-                    <th className="text-right p-3 font-medium">折后净值</th>
-                    <th className="text-center p-3 font-medium">状态</th>
-                    <th className="text-left p-3 font-medium">凭证号</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerData.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center p-8 text-slate-500">
-                        暂无折旧记录
-                      </td>
-                    </tr>
-                  ) : (
-                    ledgerData.map((record) => (
-                      <tr key={record.id} className="border-b hover:bg-slate-50">
-                        <td className="p-3">{record.depreciationDate}</td>
-                        <td className="p-3 font-mono">{record.assetCode}</td>
-                        <td className="p-3">{record.assetName}</td>
-                        <td className="p-3 text-right font-mono text-orange-600">
-                          -{formatAmount(record.periodDepreciation)}
-                        </td>
-                        <td className="p-3 text-right font-mono">{formatAmount(record.accumulatedDepreciation)}</td>
-                        <td className="p-3 text-right font-mono">{formatAmount(record.netValueAfter)}</td>
-                        <td className="p-3 text-center">
-                          <Badge className={record.status === 'posted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
-                            {record.status === 'posted' ? '已记账' : '草稿'}
-                          </Badge>
-                        </td>
-                        <td className="p-3 font-mono text-blue-600">{record.voucherNo || '-'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <AssetTimelineLedgerView
+              assets={assets}
+              period={period}
+            />
           )}
         </CardContent>
       </Card>
