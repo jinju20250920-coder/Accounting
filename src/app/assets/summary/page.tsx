@@ -587,10 +587,27 @@ export default function AssetSummaryPage() {
   // 计算预计提足账期
   const getEstimatedEndPeriod = (asset: FixedAsset): string => {
     if (asset.status === 'disposed') return '-';
-    if (!asset.remainingDepreciationMonths) return '-';
+
+    // 使用 remainingDepreciationMonths，如果没有则计算
+    let remainingMonths = asset.remainingDepreciationMonths;
+
+    if (!remainingMonths || remainingMonths <= 0) {
+      // 从折旧开始日期和使用月数计算
+      const startDate = asset.depreciationStartDate || asset.acquisitionDate;
+      const usefulMonths = asset.usefulLifeMonths || (asset.usefulLifeYears * 12);
+
+      if (!startDate || !usefulMonths) return '-';
+
+      // 计算已折旧月数（从累计折旧推算）
+      const monthlyDep = asset.depreciableValue / usefulMonths;
+      const depreciatedMonths = Math.round(asset.accumulatedDepreciation / monthlyDep);
+      remainingMonths = usefulMonths - depreciatedMonths;
+
+      if (remainingMonths <= 0) return '已提足';
+    }
 
     const [year, month] = period.split('-').map(Number);
-    const endMonth = month + asset.remainingDepreciationMonths;
+    const endMonth = month + remainingMonths;
     const endYear = year + Math.floor((endMonth - 1) / 12);
     const actualEndMonth = ((endMonth - 1) % 12) + 1;
 
