@@ -22,7 +22,8 @@ import {
   X,
   Lock,
   Unlock,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { useSubjectStore } from '@/stores';
 import { useCurrencyStore } from '@/stores';
@@ -30,6 +31,7 @@ import { Subject } from '@/types';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { generateCode, CodeRuleManager } from '@/lib/code-generator';
+import { sqliteService } from '@/lib/database';
 
 export default function SubjectsPage() {
   const { showToast } = useToast();
@@ -60,6 +62,7 @@ export default function SubjectsPage() {
 
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingSubjectHasVoucher, setEditingSubjectHasVoucher] = useState(false);
 
   // 确认对话框状态
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -178,6 +181,35 @@ export default function SubjectsPage() {
     clearError();
   };
 
+  // 添加子科目
+  const handleAddChildSubject = (parentSubject: Subject) => {
+    // 计算子科目代码：父科目代码 + 2位序号
+    const existingChildren = subjects.filter(s => s.parentId === parentSubject.id);
+    const nextNumber = existingChildren.length + 1;
+    const childCode = parentSubject.code + String(nextNumber).padStart(2, '0');
+
+    // 重置表单并设置默认值
+    setEditingId(null);
+    setFormData({
+      code: childCode,
+      name: '',
+      parentId: parentSubject.id,
+      direction: parentSubject.direction,
+      enableDept: parentSubject.enableDept,
+      enableProject: parentSubject.enableProject,
+      enableForeign: parentSubject.enableForeign,
+      foreignCurrency: parentSubject.foreignCurrency || '',
+      isCustomer: (parentSubject as any).isCustomer || false,
+      isSupplier: (parentSubject as any).isSupplier || false,
+      isEmployee: (parentSubject as any).isEmployee || false,
+      enableCashFlow: (parentSubject as any).enableCashFlow || false,
+      block: false,
+      subjectType: parentSubject.subjectType || ''
+    });
+    setEditingSubjectHasVoucher(false);
+    setShowDialog(true);
+  };
+
   const handleDeleteSubject = (id: string) => {
     const subject = subjects.find(s => s.id === id);
     if (!subject) return;
@@ -261,15 +293,11 @@ export default function SubjectsPage() {
 
   // 使用计算后的parentId，确保与formData同步
   const getComputedParentId = () => {
-    // 如果正在编辑，使用编辑的科目ID，否则使用表单的parentId
-    if (editingId) {
-      const editingSubject = subjects.find(s => s.id === editingId);
-      return editingSubject?.parentId || '';
-    }
-    return formData.parentId;
+    // 总是使用formData中的parentId，这样编辑时可以正确显示和修改
+    return formData.parentId || '';
   };
 
-  const handleEdit = (subject: Subject) => {
+  const handleEdit = async (subject: Subject) => {
     setEditingId(subject.id);
     const computedParentId = subject.parentId || '';
     setFormData({
@@ -288,6 +316,16 @@ export default function SubjectsPage() {
       block: subject.block,
       subjectType: subject.subjectType || ''
     });
+
+    // 检查科目是否有凭证
+    try {
+      const hasVoucher = await sqliteService.hasVoucherForSubject(subject.code);
+      setEditingSubjectHasVoucher(hasVoucher);
+    } catch (error) {
+      console.error('检查科目凭证数据失败:', error);
+      setEditingSubjectHasVoucher(false);
+    }
+
     setShowDialog(true);
   };
 
@@ -516,7 +554,7 @@ export default function SubjectsPage() {
               </div>
             ) : (
               subjectTree.map((subject) => (
-                <SubjectTreeNode key={subject.id} subject={subject} onToggleExpand={handleToggleExpand} onEdit={() => handleEdit(subject)} onDelete={() => handleDeleteSubject(subject.id)} onToggleDisabled={() => handleToggleDisabled(subject.id)} onToggleBlocked={() => toggleSubjectBlocked(subject.id)} />
+                <SubjectTreeNode key={subject.id} subject={subject} onToggleExpand={handleToggleExpand} onEdit={handleEdit} onAddChild={handleAddChildSubject} onDelete={handleDeleteSubject} onToggleDisabled={handleToggleDisabled} onToggleBlocked={toggleSubjectBlocked} />
               ))
             )}
           </div>
@@ -556,12 +594,61 @@ export default function SubjectsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>上级科目</Label>
-                <select value={getComputedParentId()} onChange={e => setFormData(prev => ({ ...prev, parentId: e.target.value || null }))} className="w-full px-3 py-2 border rounded-md">
-                  <option value="">无（顶级科目）</option>
-                  {subjects.filter(s => !s.parentId).map(s => (
-                    <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <select
+                    value={getComputedParentId()}
+                    onChange={e => setFormData(prev => ({ ...prev, parentId: e.target.value || null }))}
+                    className={`w-full px-3 py-2 border rounded-md ${editingId && editingSubjectHasVoucher ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                    disabled={editingId && editingSubjectHasVoucher}
+                  >
+                    <option value="">无（顶级科目）</option>
+                    {subjects.filter(s => !s.parentId).map(s => (
+                      <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
+                    ))}
+                  </select>
+
+                  {/* 编辑模式且有凭证的情况 - 显示红色警告 */}
+                  {editingId && editingSubjectHasVoucher && (
+                    <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium">该科目已有凭证数据</p>
+                          <p className="mt-1 text-xs">
+                            • 科目代码：{subjects.find(s => s.id === editingId)?.code} - {subjects.find(s => s.id === editingId)?.name}
+                          </p>
+                          <p className="mt-1 text-xs">
+                            • 已使用该科目生成过凭证，不能修改上级科目
+                          </p>
+                          <p className="mt-1 text-xs">
+                            • 如需调整科目结构，请先禁用该科目
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 新增模式或无凭证的编辑模式 - 显示黄色警告 */}
+                  {!editingSubjectHasVoucher && getComputedParentId() && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium">请谨慎选择上级科目</p>
+                          <p className="mt-1 text-xs">
+                            • 新科目将作为所选上级科目的下级科目，层级自动设置为上级科目层级 + 1
+                          </p>
+                          <p className="mt-1 text-xs">
+                            • 上级科目分类变动时可能影响下级科目的会计核算
+                          </p>
+                          <p className="mt-1 text-xs">
+                            • 建议先确认科目层级关系后再进行选择
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-2">
                 <Label required>借贷方向</Label>
@@ -785,9 +872,19 @@ function CurrencySelector({ value, onChange }: { value: string; onChange: (value
   );
 }
 
-function SubjectTreeNode({ subject, onToggleExpand, onEdit, onDelete, onToggleDisabled, onToggleBlocked }: any) {
+interface SubjectTreeNodeProps {
+  subject: Subject & { children?: SubjectTreeNodeProps['subject'][]; expanded?: boolean };
+  onToggleExpand: (id: string) => void;
+  onEdit: (subject: Subject) => void;
+  onAddChild: (subject: Subject) => void;
+  onDelete: (id: string) => void;
+  onToggleDisabled: (id: string) => void;
+  onToggleBlocked: (id: string) => void;
+}
+
+function SubjectTreeNode({ subject, onToggleExpand, onEdit, onAddChild, onDelete, onToggleDisabled, onToggleBlocked }: SubjectTreeNodeProps) {
   const hasChildren = subject.children && subject.children.length > 0;
-  const indentLevel = subject.level - 1; // 缩进级别：一级0，二级1，三级2...
+  const indentLevel = subject.level - 1;
 
   return (
     <div style={{ paddingLeft: `${indentLevel * 24}px` }} className="border-l border-slate-200 ml-2">
@@ -800,24 +897,27 @@ function SubjectTreeNode({ subject, onToggleExpand, onEdit, onDelete, onToggleDi
           {subject.block && <Badge variant="destructive" className="text-xs">冻结</Badge>}
         </button>
         <div className="flex gap-1 ml-2">
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onEdit}>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-green-500 hover:text-green-600" onClick={() => onAddChild(subject)} title="添加子科目">
+            <Plus className="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(subject)}>
             <Edit className="h-3 w-3" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onToggleDisabled}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onToggleDisabled(subject.id)}>
             {subject.disabled ? <FolderOpen className="h-3 w-3 text-green-500" /> : <Ban className="h-3 w-3 text-red-500" />}
           </Button>
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onToggleBlocked(subject.id)}>
             {subject.block ? <Unlock className="h-3 w-3 text-blue-500" /> : <Lock className="h-3 w-3 text-orange-500" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={onDelete}>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => onDelete(subject.id)}>
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
       </div>
       {subject.expanded && hasChildren && (
         <div>
-          {subject.children.map((child: any) => (
-            <SubjectTreeNode key={child.id} subject={child} onToggleExpand={onToggleExpand} onEdit={onEdit} onDelete={onDelete} onToggleDisabled={onToggleDisabled} />
+          {subject.children.map((child) => (
+            <SubjectTreeNode key={child.id} subject={child} onToggleExpand={onToggleExpand} onEdit={onEdit} onAddChild={onAddChild} onDelete={onDelete} onToggleDisabled={onToggleDisabled} onToggleBlocked={onToggleBlocked} />
           ))}
         </div>
       )}

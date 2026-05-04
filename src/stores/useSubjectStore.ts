@@ -150,14 +150,14 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       console.warn('检查数据库科目失败:', e);
     }
 
-    // 计算层级
-    const level = calculateSubjectLevel(subject.code);
-
     // 查找父科目
     let parentSubject: Subject | undefined;
     if (subject.parentId) {
       parentSubject = state.subjects.find(s => s.id === subject.parentId);
     }
+
+    // 计算层级：优先基于上级科目，否则基于代码长度
+    const level = parentSubject ? parentSubject.level + 1 : calculateSubjectLevel(subject.code);
 
     // 获取当前账套ID
     const accountSetStore = useAccountSetStore.getState();
@@ -203,7 +203,37 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
         return;
       }
 
+      // 检查科目是否有凭证数据
+      const hasVoucher = await sqliteService.hasVoucherForSubject(subject.code);
+
+      // 如果有凭证，检查是否尝试修改上级科目
+      if (hasVoucher && updates.parentId !== undefined && updates.parentId !== subject.parentId) {
+        set({ error: '该科目已有凭证数据，不能修改上级科目。如需调整，请先禁用该科目' });
+        return;
+      }
+
+      // 检查是否有重要属性变更
+      const hasImportantChanges =
+        updates.subjectType && updates.subjectType !== subject.subjectType ||
+        updates.direction && updates.direction !== subject.direction;
+
+      // 检查是否有下级科目需要处理
+      const hasChildren = state.subjects.some(s => s.parentId === id);
+
+      if (hasImportantChanges && hasChildren) {
+        // 如果有重要属性变更且有下级科目，需要特别警告
+        set({ error: '该科目有下级科目，科目分类/方向变动可能影响会计核算，请谨慎操作' });
+        return;
+      }
+
       const updatedSubject = { ...subject, ...updates };
+
+      // 如果更新了 parentId，需要重新计算 level
+      if (updates.parentId && updates.parentId !== subject.parentId) {
+        const newParentSubject = state.subjects.find(s => s.id === updates.parentId);
+        updatedSubject.level = newParentSubject ? newParentSubject.level + 1 : 1;
+      }
+
       await getCurrentService().saveSubjects([updatedSubject]);
 
       set((state) => ({

@@ -1920,6 +1920,15 @@ class SQLiteService {
     };
   }
 
+  async hasVoucherForSubject(subjectIdOrCode: string): Promise<boolean> {
+    await this.ensureInitialized();
+    const result = await this.querySingleAsync<any>(
+      `SELECT COUNT(*) as count FROM entries WHERE accountSetId = ? AND (subjectCode = ? OR subjectCode = (SELECT code FROM subjects WHERE accountSetId = ? AND id = ?))`,
+      [this.accountSetId, subjectIdOrCode, this.accountSetId, subjectIdOrCode]
+    );
+    return (result?.count || 0) > 0;
+  }
+
   // ========== 部门操作 ==========
 
   async saveDepartments(departments: Department[]): Promise<void> {

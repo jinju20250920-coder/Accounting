@@ -520,8 +520,8 @@
   {
     "code": "1503",
     "name": "固定资产减值准备",
-    "parentId": "1501",
-    "level": 2,
+    "parentId": null,
+    "level": 1,
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
@@ -562,8 +562,8 @@
   {
     "code": "1702",
     "name": "累计摊销",
-    "parentId": "1701",
-    "level": 2,
+    "parentId": null,
+    "level": 1,
     "direction": "credit",
     "enableDept": true,
     "enableProject": true,
@@ -576,8 +576,8 @@
   {
     "code": "1703",
     "name": "无形资产减值准备",
-    "parentId": "1701",
-    "level": 2,
+    "parentId": null,
+    "level": 1,
     "direction": "credit",
     "enableDept": false,
     "enableProject": false,
