@@ -57,7 +57,7 @@ import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTem
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule } from '@/lib/depreciation';
 import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, refreshVoucherStore } from '@/lib/utils';
 import type { FixedAsset, AssetCategory } from '@/types';
 
 // 生成唯一ID
@@ -962,6 +962,7 @@ export default function FixedAssetsPage() {
         setShowAccountDialog(false);
         setAccountingAsset(null);
         initialize();
+        await refreshVoucherStore();
       } else {
         showToast('warning', '入账失败，请检查取得规则配置');
       }
@@ -1006,6 +1007,9 @@ export default function FixedAssetsPage() {
     const success = results.filter(r => r.status === 'fulfilled' && r.value).length;
     showToast('success', `批量入账完成：${success}/${pendingAssets.length} 成功`);
     setSelectedIds(new Set());
+    if (success > 0) {
+      await refreshVoucherStore();
+    }
   };
 
   const handleBatchDelete = async () => {

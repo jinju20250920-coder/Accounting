@@ -108,11 +108,26 @@ const defaultSettings: AppSettings = {
   assetFinancialSettings: {
     impairmentMethod: 'provision',
     disposalVoucherMode: 'auto',
-    disposalClearingSubjectCode: '1601',
-    impairmentLossSubjectCode: '6701',
-    impairmentProvisionSubjectCode: '1503',
-    gainSubjectCode: '6301',
-    lossSubjectCode: '6711',
+    subjectConfigs: [
+      // 固定资产
+      {
+        assetType: 'fixed',
+        clearingSubjectCode: '1601',        // 固定资产清理
+        impairmentLossSubjectCode: '6701',  // 资产减值损失
+        impairmentProvisionSubjectCode: '1503', // 固定资产减值准备
+        gainSubjectCode: '6301',            // 营业外收入
+        lossSubjectCode: '6711',            // 营业外支出
+      },
+      // 无形资产
+      {
+        assetType: 'intangible',
+        clearingSubjectCode: '1703',        // 无形资产清理（或累计摊销）
+        impairmentLossSubjectCode: '6701',  // 资产减值损失
+        impairmentProvisionSubjectCode: '1703', // 无形资产减值准备
+        gainSubjectCode: '6301',            // 营业外收入
+        lossSubjectCode: '6711',            // 营业外支出
+      },
+    ],
   }
 };
 

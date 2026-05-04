@@ -13,11 +13,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, TrendingUp, TrendingDown, RefreshCw, Trash2, Info, AlertTriangle, Split, Merge } from 'lucide-react';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, getMonthEndDate, getDefaultAssetTypeSubjectConfig } from '@/lib/utils';
 import { ACCOUNT_CODES } from '@/lib/accounting';
 import type { FixedAsset, AssetCategory } from '@/types';
 import { AssetVoucherPreviewDialog, AssetVoucherPreviewData, AssetVoucherPreviewEntry } from './asset-voucher-preview-dialog';
@@ -29,6 +31,9 @@ type RestructureSubType = 'reclassify' | 'split' | 'merge';
 
 // 拆分方式
 type SplitMethod = 'average' | 'percentage';
+
+// 增值方式（与取得方式完全一致，用于确定贷方科目）
+type AppreciationType = 'purchase' | 'invoice' | 'shareholder_input' | 'surplus' | 'internal_transfer' | 'other';
 
 interface AssetChangeDialogProps {
   asset: FixedAsset | null;
@@ -69,12 +74,22 @@ export function AssetChangeDialog({
   const { improveAsset, updateAsset, disposeAsset, calculatePartialDisposal, getDisposalVoucherPreview, splitAsset, mergeAssets } = useFixedAssetStore();
   const { showToast } = useToast();
 
+  // 获取当前账期（从 accountingPeriods 中找 isCurrent: true 的期间）
+  const currentAccountSet = useAccountSetStore((s) => s.getCurrentAccountSet());
+  const currentPeriodInfo = currentAccountSet?.accountingPeriods?.find(p => p.isCurrent);
+  const defaultChangeDate = currentPeriodInfo
+    ? getMonthEndDate(currentPeriodInfo.year, currentPeriodInfo.month)
+    : new Date().toISOString().split('T')[0];
+
   const [loading, setLoading] = useState(false);
   const [changeType, setChangeType] = useState<ChangeType>('appreciation');
-  const [changeDate, setChangeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [changeDate, setChangeDate] = useState(defaultChangeDate);
   const [changeAmount, setChangeAmount] = useState(0);
   const [extendedMonths, setExtendedMonths] = useState(0);
   const [reason, setReason] = useState('');
+
+  // 增值方式
+  const [appreciationType, setAppreciationType] = useState<AppreciationType>('purchase');
 
   // 减值方式
   const [impairmentMethod, setImpairmentMethod] = useState<'provision' | 'direct_reduction'>('provision');
@@ -261,19 +276,31 @@ export function AssetChangeDialog({
       ];
     } else if (changeType === 'depreciation') {
       title = '资产减值凭证预览';
+      // 根据资产分类确定科目
+      const category = categories.find(c => c.id === asset.categoryId);
+      const isIntangible = category?.assetType === 'intangible';
+      const assetType: 'fixed' | 'intangible' = isIntangible ? 'intangible' : 'fixed';
+
+      // 从按资产类型的配置中获取科目
+      const typeConfig = settings.subjectConfigs?.find(c => c.assetType === assetType)
+        || getDefaultAssetTypeSubjectConfig(assetType);
+
+      const defaultAssetSubjectCode = isIntangible ? ACCOUNT_CODES.INTANGIBLE_ASSET : ACCOUNT_CODES.FIXED_ASSET;
+      const defaultAssetSubjectName = isIntangible ? '无形资产' : '固定资产';
+
       if (impairmentMethod === 'provision') {
         entries = [
           {
             summary: `${asset.assetName}计提减值准备`,
-            subjectCode: settings.impairmentLossSubjectCode,
+            subjectCode: typeConfig.impairmentLossSubjectCode,
             subjectName: '资产减值损失',
             debit: Math.abs(changeAmount),
             credit: 0,
           },
           {
             summary: `${asset.assetName}减值准备`,
-            subjectCode: settings.impairmentProvisionSubjectCode,
-            subjectName: '固定资产减值准备',
+            subjectCode: typeConfig.impairmentProvisionSubjectCode,
+            subjectName: isIntangible ? '无形资产减值准备' : '固定资产减值准备',
             debit: 0,
             credit: Math.abs(changeAmount),
           },
@@ -282,15 +309,15 @@ export function AssetChangeDialog({
         entries = [
           {
             summary: `${asset.assetName}减值损失`,
-            subjectCode: settings.lossSubjectCode,
+            subjectCode: typeConfig.lossSubjectCode,
             subjectName: '营业外支出',
             debit: Math.abs(changeAmount),
             credit: 0,
           },
           {
             summary: `${asset.assetName}减值`,
-            subjectCode: asset.assetSubjectCode || ACCOUNT_CODES.FIXED_ASSET,
-            subjectName: asset.assetSubjectName || '固定资产',
+            subjectCode: asset.assetSubjectCode || defaultAssetSubjectCode,
+            subjectName: asset.assetSubjectName || defaultAssetSubjectName,
             debit: 0,
             credit: Math.abs(changeAmount),
           },
@@ -502,6 +529,10 @@ export function AssetChangeDialog({
   const updateSplitPercentage = (index: number, value: number) => {
     const newPercentages = [...splitPercentages];
     newPercentages[index] = value;
+    // 如果只有2行，第二行自动计算为 100 - 第一行
+    if (newPercentages.length === 2 && index === 0) {
+      newPercentages[1] = Math.max(0, 100 - value);
+    }
     setSplitPercentages(newPercentages);
   };
 
@@ -567,17 +598,38 @@ export function AssetChangeDialog({
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label required>变动日期</Label>
-                  <Input
-                    type="date"
+                  <ChineseDatePicker
                     value={changeDate}
-                    onChange={(e) => setChangeDate(e.target.value)}
-                    className="w-48"
+                    onChange={setChangeDate}
                   />
                 </div>
 
                 {/* 增值/减值字段 */}
                 {changeType !== 'restructure' && changeType !== 'disposal' && (
                   <>
+                    {/* 增值方式选择 */}
+                    {changeType === 'appreciation' && (
+                      <div className="space-y-2">
+                        <Label required>增值方式</Label>
+                        <Select
+                          value={appreciationType}
+                          onValueChange={(v) => setAppreciationType(v as AppreciationType)}
+                        >
+                          <SelectTrigger className="w-48">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="purchase">购入</SelectItem>
+                            <SelectItem value="invoice">发票取得</SelectItem>
+                            <SelectItem value="shareholder_input">股东投入</SelectItem>
+                            <SelectItem value="surplus">盘盈</SelectItem>
+                            <SelectItem value="internal_transfer">内部转入</SelectItem>
+                            <SelectItem value="other">其他</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       <Label required>变动金额</Label>
                       <div className="flex items-center gap-2">
@@ -851,6 +903,7 @@ export function AssetChangeDialog({
                                     value={pct || ''}
                                     onChange={(e) => updateSplitPercentage(i, parseFloat(e.target.value) || 0)}
                                     className="w-24"
+                                    autoComplete="off"
                                   />
                                   <span className="text-sm text-slate-500">%</span>
                                   {splitPercentages.length > 2 && (

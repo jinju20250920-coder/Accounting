@@ -44,6 +44,7 @@ import {
   ACQUISITION_TYPE_NAMES,
   type AssetAcquisitionRule,
 } from '@/lib/asset-acquisition-rule';
+import { getDefaultAssetTypeSubjectConfig } from '@/lib/utils';
 import type { AssetCategory, DepreciationMethod, AssetFinancialSettings } from '@/types';
 
 // 科目选择器组件 - Portal 模式（compact 模式用于表格内）
@@ -554,6 +555,34 @@ export function AssetCategoryDialog({
     });
   };
 
+  // 更新特定资产类型的科目配置
+  const updateAssetTypeSubjectConfig = (
+    assetType: 'fixed' | 'intangible',
+    field: keyof import('@/types').AssetTypeSubjectConfig,
+    value: string
+  ) => {
+    const currentConfigs = settings.assetFinancialSettings.subjectConfigs || [];
+    const newConfigs = currentConfigs.map(config =>
+      config.assetType === assetType
+        ? { ...config, [field]: value }
+        : config
+    );
+    // 如果该类型不存在，添加新配置
+    if (!currentConfigs.find(c => c.assetType === assetType)) {
+      newConfigs.push({
+        ...getDefaultAssetTypeSubjectConfig(assetType),
+        [field]: value,
+      });
+    }
+    updateAssetFinancialSettings({ subjectConfigs: newConfigs });
+  };
+
+  // 获取特定资产类型的科目配置
+  const getAssetTypeSubjectConfig = (assetType: 'fixed' | 'intangible') => {
+    const configs = settings.assetFinancialSettings.subjectConfigs || [];
+    return configs.find(c => c.assetType === assetType) || getDefaultAssetTypeSubjectConfig(assetType);
+  };
+
   const getDepreciationMethodName = (method: DepreciationMethod) => {
     const map: Record<DepreciationMethod, string> = {
       straight_line: '直线法',
@@ -888,49 +917,54 @@ export function AssetCategoryDialog({
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg space-y-3">
               <div className="text-xs font-medium text-blue-700 flex items-center gap-1">
                 <BookOpen className="h-3 w-3" />
-                过账科目配置
+                过账科目配置（按资产类型）
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <SubjectSelector
-                  value={settings.assetFinancialSettings.disposalClearingSubjectCode || ''}
-                  onChange={(code, name) => updateAssetFinancialSettings({ disposalClearingSubjectCode: code })}
-                  placeholder="1601"
-                  subjects={availableSubjects}
-                  label="固定资产清理科目"
-                  icon={<FileText className="h-3 w-3 text-blue-500" />}
-                />
-                <SubjectSelector
-                  value={settings.assetFinancialSettings.impairmentLossSubjectCode || ''}
-                  onChange={(code, name) => updateAssetFinancialSettings({ impairmentLossSubjectCode: code })}
-                  placeholder="6701"
-                  subjects={availableSubjects}
-                  label="资产减值损失科目"
-                  icon={<Calculator className="h-3 w-3 text-red-500" />}
-                />
-                <SubjectSelector
-                  value={settings.assetFinancialSettings.impairmentProvisionSubjectCode || ''}
-                  onChange={(code, name) => updateAssetFinancialSettings({ impairmentProvisionSubjectCode: code })}
-                  placeholder="1503"
-                  subjects={availableSubjects}
-                  label="减值准备科目"
-                  icon={<Package className="h-3 w-3 text-orange-500" />}
-                />
-                <SubjectSelector
-                  value={settings.assetFinancialSettings.gainSubjectCode || ''}
-                  onChange={(code, name) => updateAssetFinancialSettings({ gainSubjectCode: code })}
-                  placeholder="6301"
-                  subjects={availableSubjects}
-                  label="处置收益科目"
-                  icon={<FileText className="h-3 w-3 text-green-500" />}
-                />
-                <SubjectSelector
-                  value={settings.assetFinancialSettings.lossSubjectCode || ''}
-                  onChange={(code, name) => updateAssetFinancialSettings({ lossSubjectCode: code })}
-                  placeholder="6711"
-                  subjects={availableSubjects}
-                  label="处置损失科目"
-                  icon={<Calculator className="h-3 w-3 text-red-500" />}
-                />
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-blue-200">
+                      <th className="text-left p-2 font-medium text-blue-800">资产类型</th>
+                      <th className="text-left p-2 font-medium text-blue-800">资产清理科目</th>
+                      <th className="text-left p-2 font-medium text-blue-800">减值损失科目</th>
+                      <th className="text-left p-2 font-medium text-blue-800">减值准备科目</th>
+                      <th className="text-left p-2 font-medium text-blue-800">处置收益科目</th>
+                      <th className="text-left p-2 font-medium text-blue-800">处置损失科目</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(['fixed', 'intangible'] as const).map((assetType, idx) => {
+                      const config = getAssetTypeSubjectConfig(assetType);
+                      const label = assetType === 'fixed' ? '固定资产' : '无形资产';
+                      const placeholders = {
+                        clearingSubjectCode: assetType === 'fixed' ? '1601' : '1703',
+                        impairmentLossSubjectCode: '6701',
+                        impairmentProvisionSubjectCode: assetType === 'fixed' ? '1503' : '1703',
+                        gainSubjectCode: '6301',
+                        lossSubjectCode: '6711',
+                      };
+                      const fields: (keyof import('@/types').AssetTypeSubjectConfig)[] = [
+                        'clearingSubjectCode', 'impairmentLossSubjectCode', 'impairmentProvisionSubjectCode',
+                        'gainSubjectCode', 'lossSubjectCode'
+                      ];
+                      return (
+                        <tr key={assetType} className={idx === 0 ? 'border-b border-blue-100' : ''}>
+                          <td className="p-2 font-medium text-slate-700">{label}</td>
+                          {fields.map(field => (
+                            <td key={field} className="p-2">
+                              <SubjectSelector
+                                value={config[field] || ''}
+                                onChange={(code) => updateAssetTypeSubjectConfig(assetType, field, code)}
+                                placeholder={placeholders[field]}
+                                subjects={availableSubjects}
+                                compact
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
 

@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -90,40 +91,42 @@ function AssetTimelineLedgerView({
     const loadAllRecords = async () => {
       const allChangeRecords: AssetChangeRecord[] = [];
 
-      // 为每个资产生成变动记录
+      // 为每个资产加载变动记录
       for (const asset of assets) {
-        // 取得记录
-        if (asset.acquisitionDate) {
-          allChangeRecords.push({
-            id: `acq_${asset.id}`,
-            assetId: asset.id,
-            assetCode: asset.assetCode,
-            assetName: asset.assetName,
-            accountSetId: asset.accountSetId || '',
-            changeType: 'acquisition',
-            changeDate: asset.acquisitionDate,
-            period: asset.acquisitionDate.substring(0, 7),
-            fieldName: 'originalValue',
-            beforeValue: '0',
-            afterValue: String(asset.originalValue),
-            originalValueChange: asset.originalValue,
-            depreciationChange: 0,
-            originalValueBalance: asset.originalValue,
-            accumulatedDepreciationBalance: 0,
-            netValueBalance: asset.originalValue,
-            voucherId: asset.acquisitionVoucherId,
-            voucherNo: asset.acquisitionVoucherNo,
-            reason: '资产取得',
-            createTime: asset.createTime,
-          });
-        }
-
-        // 加载该资产的其他变动记录
+        // 从数据库加载该资产的变动记录
         try {
           const records = await getAssetChangeRecords(asset.id);
-          allChangeRecords.push(...records);
+          if (records.length > 0) {
+            allChangeRecords.push(...records);
+          } else {
+            // 如果没有变动记录，根据资产属性生成初始取得记录（兼容旧数据）
+            if (asset.acquisitionDate) {
+              allChangeRecords.push({
+                id: `acq_${asset.id}`,
+                assetId: asset.id,
+                assetCode: asset.assetCode,
+                assetName: asset.assetName,
+                accountSetId: asset.accountSetId || '',
+                changeType: 'acquisition',
+                changeDate: asset.acquisitionDate,
+                period: asset.acquisitionDate.substring(0, 7),
+                fieldName: 'originalValue',
+                beforeValue: '0',
+                afterValue: String(asset.originalValue),
+                originalValueChange: asset.originalValue,
+                depreciationChange: 0,
+                originalValueBalance: asset.originalValue,
+                accumulatedDepreciationBalance: 0,
+                netValueBalance: asset.originalValue,
+                voucherId: asset.acquisitionVoucherId,
+                voucherNo: asset.acquisitionVoucherNo,
+                reason: '资产取得',
+                createTime: asset.createTime,
+              });
+            }
+          }
         } catch (e) {
-          // 忽略错误
+          console.warn('加载资产变动记录失败:', asset.assetCode, e);
         }
       }
 
@@ -212,6 +215,8 @@ function AssetTimelineLedgerView({
         netBal,
         voucherId: r.voucherId,
         voucherNo: r.voucherNo,
+        isReversal: r.fieldName === 'voucher_reversal', // 红冲标记
+        reason: r.reason,
       };
     });
   }, [filteredRecords, assets]);
@@ -298,12 +303,15 @@ function AssetTimelineLedgerView({
               timelineRows.map((row) => {
                 const eventCfg = EVENT_TYPE_CONFIG[row.eventType] || { label: row.eventType, color: 'bg-slate-50 text-slate-600' };
                 return (
-                  <tr key={row.id} className="border-b hover:bg-slate-50">
+                  <tr key={row.id} className={`border-b hover:bg-slate-50 ${row.isReversal ? 'bg-red-50/30' : ''}`}>
                     <td className="px-3 py-2 text-slate-700">{row.date.substring(5)}</td>
                     <td className="px-3 py-2 font-mono text-slate-600">{row.assetCode}</td>
                     <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Badge className={eventCfg.color}>{eventCfg.label}</Badge>
+                        {row.isReversal && (
+                          <Badge className="bg-red-100 text-red-600 border border-red-200">红冲</Badge>
+                        )}
                         {row.eventDetail !== '-' && (
                           <span className="text-xs text-slate-500 font-mono truncate max-w-[100px]" title={row.eventDetail}>
                             {row.eventDetail}

@@ -1454,6 +1454,16 @@ export interface InvoiceSummaryItem {
 // 资产财务规则配置
 // ============================================
 
+// 按资产类型的过账科目配置
+export interface AssetTypeSubjectConfig {
+  assetType: 'fixed' | 'intangible';  // 固定资产 / 无形资产
+  clearingSubjectCode: string;        // 资产清理科目
+  impairmentLossSubjectCode: string;  // 资产减值损失科目
+  impairmentProvisionSubjectCode: string; // 减值准备科目
+  gainSubjectCode: string;            // 处置收益科目
+  lossSubjectCode: string;            // 处置损失科目
+}
+
 export interface AssetFinancialSettings {
   // 减值处理方式
   impairmentMethod: 'provision' | 'direct_reduction';
@@ -1466,12 +1476,8 @@ export interface AssetFinancialSettings {
   // multiple: 拆分多张凭证
   // auto: 简单处置合并，复杂处置拆分
 
-  // 凭证科目配置
-  disposalClearingSubjectCode: string;
-  impairmentLossSubjectCode: string;
-  impairmentProvisionSubjectCode: string;
-  gainSubjectCode: string;
-  lossSubjectCode: string;
+  // 按资产类型的过账科目配置
+  subjectConfigs: AssetTypeSubjectConfig[];
 }
 
 // 资产拆分记录

@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
+import { refreshVoucherStore } from '@/lib/utils';
 import {
   Search,
   Calculator,
@@ -287,10 +288,11 @@ export function DepreciationDialog({
       // 1. 保存折旧记录
       await saveDepreciationRecords(previewResult.records);
 
-      // 2. 生成凭证并记账
+      // 2. 生成凭证
       const result = await generateDepreciationVoucher(previewResult.records.map(r => r.id), voucherDate);
+
       if (result) {
-        // 更新凭证状态为已记账
+        // 3. 更新凭证状态为已记账
         const { sqliteService } = await import('@/lib/database/sqlite-service');
         const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
         if (accountSet?.id) {
@@ -302,6 +304,12 @@ export function DepreciationDialog({
             stmt.free();
           }
         }
+
+        // 4. 记账折旧记录（更新资产累计折旧、记录变动）
+        await postDepreciationRecords(previewResult.records.map(r => r.id));
+
+        // 5. 刷新凭证 store
+        await refreshVoucherStore();
 
         showToast('success', `成功生成 ${previewResult.records.length} 条折旧记录，凭证 ${result.voucherNo} 已记账`);
       } else {

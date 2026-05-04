@@ -28,6 +28,28 @@ export function getMonthStartDate(year: number, month: number): string {
 }
 
 /**
+ * 获取资产类型的默认科目配置
+ */
+export function getDefaultAssetTypeSubjectConfig(assetType: 'fixed' | 'intangible') {
+  return {
+    assetType,
+    clearingSubjectCode: assetType === 'fixed' ? '1601' : '1703',
+    impairmentLossSubjectCode: '6701',
+    impairmentProvisionSubjectCode: assetType === 'fixed' ? '1503' : '1703',
+    gainSubjectCode: '6301',
+    lossSubjectCode: '6711',
+  };
+}
+
+/**
+ * 刷新凭证 store（用于凭证生成后更新列表）
+ */
+export async function refreshVoucherStore(): Promise<void> {
+  const { useVoucherStore } = await import('@/stores/useVoucherStore');
+  await useVoucherStore.getState().initialize();
+}
+
+/**
  * 格式化数字（不带货币符号，保留2位小数）
  */
 export function formatNumber(amount: number | null | undefined): string {
