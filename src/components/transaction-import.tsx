@@ -40,6 +40,7 @@ import { waitForDbInit } from '@/hooks/useDatabaseSync';
 
 type SqliteServiceType = typeof sqliteService;
 import { matchBankTransaction } from '@/lib/accounting';
+import { autoMatchBankSubjects } from '@/lib/bank-match';
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
 import { FieldMappingCoach } from '@/components/field-mapping-coach';
 import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
@@ -173,15 +174,17 @@ function SubjectPopover({
 
 interface TransactionImportProps {
   importType: 'bank' | 'tax';
+  defaultBankAccountId?: string;
+  onImportComplete?: (importedCount: number, voucherCount: number) => void;
 }
 
-export function TransactionImport({ importType }: TransactionImportProps) {
+export function TransactionImport({ importType, defaultBankAccountId, onImportComplete }: TransactionImportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [showPreview, setShowPreview] = useState(false);
-  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(defaultBankAccountId || null);
   const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
 
@@ -357,90 +360,10 @@ export function TransactionImport({ importType }: TransactionImportProps) {
     }
   };
 
-  /**
-   * 自动匹配银行流水到1002子科目。
-   * 如果找不到匹配的子科目，自动在1002下创建新子科目。
-   * 返回自动选择的 bankAccountId。
-   */
-  const autoMatchBankSubject = async (transactions: BankTransaction[]): Promise<string | null> => {
-    const { subjects, addSubject } = useSubjectStore.getState();
-
-    // 找到 1002 科目
-    const bankRoot = subjects.find(s => s.code === '1002');
-    if (!bankRoot) return null;
-
-    // 收集本次导入涉及的所有银行账号
-    const accountMap = new Map<string, { accountNumber: string; branch: string }>();
-    for (const tx of transactions) {
-      if (tx.ourAccount && !accountMap.has(tx.ourAccount)) {
-        accountMap.set(tx.ourAccount, {
-          accountNumber: tx.ourAccount,
-          branch: tx.ourBranch || '',
-        });
-      }
-    }
-
-    // 对每个银行账号，匹配或创建子科目
-    let firstMatchedId: string | null = null;
-
-    for (const [accountNo, info] of accountMap) {
-      // 在 1002 子科目中查找 accountNumber 匹配的
-      const existing = subjects.find(
-        s => s.parentId === bankRoot.id && s.bankAccountNumber === accountNo
-      );
-
-      if (existing) {
-        if (!firstMatchedId) firstMatchedId = existing.id;
-        continue;
-      }
-
-      // 没有匹配 → 自动创建子科目
-      const last4 = accountNo.slice(-4);
-      const shortName = info.branch
-        .replace(/^中国/, '')
-        .replace(/股份有限公司.*/, '')
-        .replace(/有限责任公司.*/, '')
-        .slice(0, 6) || `银行${last4}`;
-
-      // 计算新科目代码：100201, 100202, ...
-      const siblings = subjects.filter(s => s.parentId === bankRoot.id);
-      const nextSeq = siblings.length + 1;
-      const newCode = `1002${String(nextSeq).padStart(2, '0')}`;
-
-      const newSubject: Omit<Subject, 'id'> = {
-        code: newCode,
-        name: shortName,
-        parentId: bankRoot.id,
-        level: 2,
-        direction: 'debit' as const,
-        enableDept: false,
-        enableProject: false,
-        enableForeign: false,
-        isCustomer: false,
-        isSupplier: false,
-        isEmployee: false,
-        enableCashFlow: true,
-        disabled: false,
-        block: false,
-        subjectType: 'Asset',
-        bankAccountNumber: accountNo,
-      };
-
-      await addSubject(newSubject);
-
-      // 重新获取刚创建的科目 ID
-      const updated = useSubjectStore.getState().subjects;
-      const created = updated.find(s => s.code === newCode);
-      if (created && !firstMatchedId) firstMatchedId = created.id;
-    }
-
-    return firstMatchedId;
-  };
-
   /** 将解析结果保存到数据库（与确认逻辑分离） */
   const saveParsedTransactions = async (result: BankStatementParseResult) => {
-    // 自动匹配/创建银行子科目
-    const matchedBankId = await autoMatchBankSubject(result.transactions);
+    // Auto-match/create bank sub-subjects
+    const matchedBankId = await autoMatchBankSubjects(result.transactions);
     if (matchedBankId && !selectedBankAccountId) {
       setSelectedBankAccountId(matchedBankId);
     }
@@ -891,6 +814,11 @@ export function TransactionImport({ importType }: TransactionImportProps) {
 
       if (successCount > 0) {
         showToast('success', messages.join('，'));
+        // Call onImportComplete callback if provided
+        if (onImportComplete) {
+          const totalImported = transactions.length;
+          onImportComplete(totalImported, successCount);
+        }
       } else {
         showToast('error', messages.join('，') || '生成凭证失败');
       }
@@ -1110,7 +1038,7 @@ export function TransactionImport({ importType }: TransactionImportProps) {
           </Card>
 
           {/* 统计信息 */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">

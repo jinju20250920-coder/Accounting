@@ -58,6 +58,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 12. **汇兑损益** - 外币科目、汇率管理、期末自动调汇
 13. **期末结转** - 损益结转、年结处理
 14. **资金中心** - 资金头寸总览、多银行汇总、现金流图表、账龄分布、结算预警、到期日历、往来单位结算
+15. **资金管理控制台** - 4区布局（账户选择器+概览卡片+操作中心+日记账明细表），期间范围选择，银行科目自动匹配/创建，手动记一笔，凭证印章，对方账号，银行列
 
 ---
 
@@ -71,7 +72,7 @@ src/
 │   ├── balance/page.tsx            # 科目余额表
 │   ├── voucher-entry-page/         # 凭证录入
 │   ├── voucher-list/               # 凭证列表
-│   ├── import/page.tsx             # 银行流水导入
+│   ├── import/page.tsx             # 资金管理控制台（4区布局：账户选择+概览+操作+日记账）
 │   ├── invoices/
 │   │   ├── input/page.tsx          # 进项发票
 │   │   ├── output/page.tsx         # 销项发票
@@ -119,6 +120,12 @@ src/
 │   ├── partner/                    # 往来单位组件（2个）
 │   ├── project/                    # 项目管理组件（9个）
 │   ├── transaction-import.tsx      # 银行流水导入（支持AI智能匹配）
+│   ├── cash-console/               # 资金管理控制台组件（4个）
+│   │   ├── account-selector.tsx    # 账户选择器（含"全部账户"选项）
+│   │   ├── cash-overview.tsx       # 概览卡片（期初/收入/支出/余额+对账差异）
+│   │   ├── action-center.tsx       # 操作中心（导入/手动记一笔/智能对账）
+│   │   ├── journal-table.tsx       # 日记账明细表（全字段+内联科目编辑+凭证印章+批量删除）
+│   │   └── manual-entry-dialog.tsx # 手动记一笔对话框
 │   ├── import-history.tsx          # 导入历史
 │   ├── ai-learning-dashboard.tsx   # AI学习看板
 │   ├── ai-subject-recommendation.tsx # AI科目推荐
@@ -165,7 +172,8 @@ src/
 │   ├── useFinancialProjectStore.ts # 财务项目
 │   └── useProjectStore.ts          # 项目管理
 ├── lib/                            # 核心业务逻辑
-│   ├── accounting.ts               # 会计引擎核心（含 getSmartMatch）
+│   ├── accounting.ts               # 会计引擎核心（含 getSmartMatch、formatMoney）
+│   ├── bank-match.ts               # 银行科目自动匹配/创建（共享模块，供导入页和流水导入组件复用）
 │   ├── invoice-rule-engine.ts      # 发票智能规则引擎（条件匹配、动作执行、税金科目自动生成）
 │   ├── ai-learning.ts              # AI学习模块
 │   ├── template-engine.ts          # 自动化模板引擎（4个系统模板，支持科目覆盖）
@@ -530,6 +538,18 @@ npm run lint
 - ✅ 科目编辑警告提示 - 选择上级科目时显示黄色警告，已有凭证时显示红色警告并禁用上级科目选择
 - ✅ 快速添加子科目 - 科目树每个节点右侧增加"+"按钮，点击自动生成子科目（继承父科目属性）
 - ✅ 默认科目层级修复 - 1503/1702/1703 改为一级科目，避免错误缩进显示
+- ✅ 资金管理控制台 - 4区布局（账户选择器+概览卡片+操作中心+日记账明细表），替代原导入页
+- ✅ 日记账明细表 - 全字段（序号/日期/摘要/对方账号/对应科目/收入/支出/余额/状态/银行/备注/凭证编号/复选框），内联科目编辑，已入账锁定
+- ✅ 凭证印章 - VoucherStamp组件（已入账=红/草稿=灰/审核=蓝/已冲销=深红），凭证详情弹窗右上角显示
+- ✅ 期间范围选择 - 从单月选择改为起止期间范围，导入后自动扩展范围覆盖流水日期
+- ✅ 凭证生成账期校验 - 预览生成凭证时检查交易日期是否在当前会计期间内
+- ✅ 银行科目自动匹配/创建 - 导入时自动匹配ourAccount到1002子科目，不存在则创建（提取为bank-match.ts共享模块）
+- ✅ 手动记一笔 - ManualEntryDialog组件，支持手动录入银行流水（source='manual'）
+- ✅ 银行列显示 - 通过bank_account_bindings查找BANK_BRANDS显示银行简称（如"建行"）
+- ✅ 对方账号字段 - 日记账明细表显示对方户名
+- ✅ 状态标签修复 - 已生成凭证显示"已入账"Badge而非凭证号，凭证号改为可点击链接
+- ✅ Tab切换修复 - 空数据tab不再隐藏整个tab栏，使用statusCounts判断hasAnyData
+- ✅ 代码简化 - 提取bank-match.ts共享模块消除重复，统一formatMoney替代内联formatAmount，清除debug日志
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎

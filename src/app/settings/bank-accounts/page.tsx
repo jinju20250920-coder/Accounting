@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +21,7 @@ import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
 import {
   Plus, Trash2, Edit2, Building2, Search, X, Landmark, CheckCircle2,
   Upload, Download, FileSpreadsheet, FlaskConical, ChevronDown, ChevronRight,
-  ArrowRight, Check,
+  ArrowRight, Check, ArrowLeft,
 } from 'lucide-react';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -348,6 +349,10 @@ export default function BankAccountsPage() {
   // === Render ===
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      <Link href="/import" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-blue-600 transition-colors mb-4">
+        <ArrowLeft className="h-4 w-4" />
+        返回资金管理
+      </Link>
       {/* Title */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">银行账户管理</h1>

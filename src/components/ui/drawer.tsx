@@ -14,9 +14,10 @@ interface DrawerProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   children: React.ReactNode
+  width?: string
 }
 
-const Drawer = ({ open, onOpenChange, children }: DrawerProps) => {
+const Drawer = ({ open, onOpenChange, children, width }: DrawerProps) => {
   const handleClose = () => onOpenChange?.(false)
 
   // 阻止抽屉内部点击时关闭
@@ -36,10 +37,11 @@ const Drawer = ({ open, onOpenChange, children }: DrawerProps) => {
 
           {/* 抽屉内容 */}
           <div
-            className="relative z-10 w-full max-w-md transform rounded-l-lg bg-white transition-all duration-300 ease-in-out"
+            className="relative z-10 w-full transform rounded-l-lg bg-white transition-all duration-300 ease-in-out"
             onClick={handleContentClick}
             style={{
               maxHeight: "100vh",
+              maxWidth: width || "28rem",
               transform: open ? "translateX(0)" : "translateX(100%)",
             }}
           >

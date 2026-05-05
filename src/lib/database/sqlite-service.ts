@@ -183,6 +183,7 @@ class SQLiteService {
     // 迁移：invoices 表增加 groupName 列（旧 templateId 列重命名）
     await this.migrateAddInvoiceGroupName();
     await this.migrateFixedAssetLifecycle();
+    await this.migrateBankTransactionsSourceColumn();
   }
 
   /**
@@ -1507,6 +1508,23 @@ class SQLiteService {
     }
   }
 
+  // Helper to execute a write statement (INSERT/UPDATE/DELETE) with params
+  private async runAsync(sql: string, params: any[] = []): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.dbInstance) {
+      throw new Error('Database instance is null after initialization');
+    }
+    const safeParams = params.map(param =>
+      param === undefined || param === null ? '' : param
+    );
+    const stmt = this.dbInstance.prepare(sql);
+    try {
+      stmt.run(safeParams);
+    } finally {
+      stmt.free();
+    }
+  }
+
   // Helper to execute a query and return multiple results (sync version for backward compatibility - not recommended)
   private queryAll<T>(sql: string, params: any[] = []): T[] {
     if (!this.dbInstance) {
@@ -1856,12 +1874,25 @@ class SQLiteService {
     // 自动修复：确保 1122（应收账款）有 isCustomer=true
     // 2202（应付账款）有 isSupplier=true
     // 这是为了确保即使数据库中的值不正确，应用也能正常工作
+    // 同时修复 1122 的 parentId 和 level（应该是一级科目）
     const fixedSubjects = subjects.map(subject => {
       if (subject.code === '1122') {
-        if (!subject.isCustomer) {
-          console.log('Auto-fix: Force setting isCustomer=true for subject 1122 (应收账款)');
+        const needsFix = !subject.isCustomer || subject.parentId !== null || subject.level !== 1;
+        if (needsFix) {
+          console.log('Auto-fix: Fixing subject 1122 (应收账款)', {
+            isCustomer: subject.isCustomer,
+            parentId: subject.parentId,
+            level: subject.level
+          });
         }
-        return { ...subject, isCustomer: true, enableDept: true, enableProject: true };
+        return {
+          ...subject,
+          isCustomer: true,
+          enableDept: true,
+          enableProject: true,
+          parentId: null,
+          level: 1
+        };
       }
       if (subject.code === '2202') {
         if (!subject.isSupplier) {
@@ -1875,7 +1906,7 @@ class SQLiteService {
     // 检查是否需要更新数据库
     const needsDbUpdate = fixedSubjects.some((s, i) => {
       const orig = subjects[i];
-      return (s.code === '1122' && s.isCustomer !== orig.isCustomer) ||
+      return (s.code === '1122' && (s.isCustomer !== orig.isCustomer || s.parentId !== orig.parentId || s.level !== orig.level)) ||
              (s.code === '2202' && s.isSupplier !== orig.isSupplier);
     });
 
@@ -1927,6 +1958,157 @@ class SQLiteService {
       [this.accountSetId, subjectIdOrCode, this.accountSetId, subjectIdOrCode]
     );
     return (result?.count || 0) > 0;
+  }
+
+  // 迁移科目凭证数据到新科目
+  async migrateSubjectVouchers(oldSubjectCode: string, newSubjectCode: string): Promise<number> {
+    await this.ensureInitialized();
+    const stmt = this.dbInstance.prepare(
+      `UPDATE entries SET subjectCode = ? WHERE accountSetId = ? AND subjectCode = ?`
+    );
+    stmt.run([newSubjectCode, this.accountSetId, oldSubjectCode]);
+    const changes = this.dbInstance.getRowsModified();
+    stmt.free();
+    await this.persist();
+    return changes;
+  }
+
+  // 迁移：为 bankTransactions 添加 source 列和 ourAccount 索引
+  private async migrateBankTransactionsSourceColumn(): Promise<void> {
+    try {
+      const columns = this.dbInstance.exec("PRAGMA table_info(bankTransactions)");
+      if (columns.length > 0) {
+        const columnNames = columns[0].values?.map((row: any[]) => row[1]) || [];
+        if (!columnNames.includes('source')) {
+          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN source TEXT DEFAULT \'import\'');
+          console.log('Migration: Added source column to bankTransactions');
+        }
+      }
+      // Add index for ourAccount filtering
+      this.dbInstance.run('CREATE INDEX IF NOT EXISTS idx_bankTransactions_ourAccount ON bankTransactions(ourAccount)');
+    } catch (e) {
+      console.warn('Migration: bankTransactions source column failed', e);
+    }
+  }
+
+  // 获取资金概览数据
+  async getCashOverview(ourAccount: string, periodStart: string, periodEnd: string): Promise<{
+    openingBalance: number;
+    totalCredit: number;
+    totalDebit: number;
+    closingBalance: number;
+    lastBankBalance: number | null;
+  }> {
+    await this.ensureInitialized();
+
+    const accountFilter = ourAccount ? `AND ourAccount = ?` : '';
+    const openingParams = ourAccount
+      ? [this.accountSetId, ourAccount, periodStart]
+      : [this.accountSetId, periodStart];
+
+    // 期初余额 = 期初之前的所有收入 - 所有支出
+    const openingResult = await this.querySingleAsync<any>(
+      `SELECT COALESCE(SUM(credit), 0) as totalCredit,
+              COALESCE(SUM(debit), 0) as totalDebit
+       FROM bankTransactions
+       WHERE accountSetId = ? ${accountFilter} AND date < ?`,
+      openingParams
+    );
+
+    // 本月收支
+    const periodParams = ourAccount
+      ? [this.accountSetId, ourAccount, periodStart, periodEnd]
+      : [this.accountSetId, periodStart, periodEnd];
+    const periodResult = await this.querySingleAsync<any>(
+      `SELECT COALESCE(SUM(credit), 0) as totalCredit,
+              COALESCE(SUM(debit), 0) as totalDebit
+       FROM bankTransactions
+       WHERE accountSetId = ? ${accountFilter} AND date >= ? AND date <= ?`,
+      periodParams
+    );
+
+    // 银行报告的最后余额
+    const lastBalanceResult = await this.querySingleAsync<any>(
+      `SELECT balance FROM bankTransactions
+       WHERE accountSetId = ? ${accountFilter} AND date >= ? AND date <= ? AND balance IS NOT NULL
+       ORDER BY date DESC, id DESC LIMIT 1`,
+      periodParams
+    );
+
+    const openingCredit = openingResult?.totalCredit || 0;
+    const openingDebit = openingResult?.totalDebit || 0;
+    const openingBalance = Math.round((openingCredit - openingDebit) * 100) / 100;
+    const totalCredit = periodResult?.totalCredit || 0;
+    const totalDebit = periodResult?.totalDebit || 0;
+    const closingBalance = Math.round((openingBalance + totalCredit - totalDebit) * 100) / 100;
+
+    return {
+      openingBalance,
+      totalCredit,
+      totalDebit,
+      closingBalance,
+      lastBankBalance: lastBalanceResult?.balance ?? null
+    };
+  }
+
+  // 获取日记账明细（ourAccount为空时显示所有记录）
+  async getJournalEntries(ourAccount: string, periodStart: string, periodEnd: string, options?: {
+    statusFilter?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ entries: any[]; total: number }> {
+    await this.ensureInitialized();
+
+    const page = options?.page || 1;
+    const pageSize = options?.pageSize || 50;
+    const offset = (page - 1) * pageSize;
+
+    const params: any[] = [this.accountSetId, periodStart, periodEnd];
+    let whereClause = `WHERE accountSetId = ? AND date >= ? AND date <= ?`;
+
+    if (ourAccount) {
+      whereClause += ` AND ourAccount = ?`;
+      params.push(ourAccount);
+    }
+
+    if (options?.statusFilter) {
+      whereClause += ` AND status = ?`;
+      params.push(options.statusFilter);
+    }
+
+    const countResult = await this.querySingleAsync<any>(
+      `SELECT COUNT(*) as total FROM bankTransactions ${whereClause}`,
+      params
+    );
+
+    const entries = await this.queryAllAsync<any>(
+      `SELECT * FROM bankTransactions ${whereClause} ORDER BY date ASC, id ASC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+
+    return {
+      entries: entries || [],
+      total: countResult?.total || 0
+    };
+  }
+
+  async getTransactionStatusCounts(ourAccount: string, periodStart: string, periodEnd: string): Promise<Record<string, number>> {
+    await this.ensureInitialized();
+    const params: any[] = [this.accountSetId, periodStart, periodEnd];
+    let whereClause = `WHERE accountSetId = ? AND date >= ? AND date <= ?`;
+    if (ourAccount) {
+      whereClause += ` AND ourAccount = ?`;
+      params.push(ourAccount);
+    }
+    const rows = await this.queryAllAsync<any>(
+      `SELECT status, COUNT(*) as count FROM bankTransactions ${whereClause} GROUP BY status`,
+      params
+    );
+    const counts: Record<string, number> = { pending: 0, matched: 0, voucher_generated: 0 };
+    for (const row of rows) {
+      counts[row.status] = row.count;
+    }
+    return counts;
   }
 
   // ========== 部门操作 ==========
@@ -2992,21 +3174,19 @@ class SQLiteService {
 
   // --- Bank Account Bindings ---
   async getBankAccountBindings(): Promise<any[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM bank_account_bindings WHERE accountSetId = ? ORDER BY createdAt DESC`,
       [this.accountSetId]
     );
-    return result[0]?.values?.map((row: any[]) => ({
-      id: row[0], accountSetId: row[1], accountNumber: row[2], bankId: row[3],
-      bankName: row[4], aliasName: row[5], subSubjectCode: row[6], subSubjectName: row[7],
-      branch: row[8], currency: row[9], isDefault: !!row[10], createdAt: row[11],
-    })) || [];
+    return (results || []).map(row => ({
+      id: row.id, accountSetId: row.accountSetId, accountNumber: row.accountNumber, bankId: row.bankId,
+      bankName: row.bankName, aliasName: row.aliasName, subSubjectCode: row.subSubjectCode, subSubjectName: row.subSubjectName,
+      branch: row.branch, currency: row.currency, isDefault: !!row.isDefault, createdAt: row.createdAt,
+    }));
   }
 
   async saveBankAccountBinding(binding: any): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO bank_account_bindings
        (id, accountSetId, accountNumber, bankId, bankName, aliasName, subSubjectCode, subSubjectName, branch, currency, isDefault, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3018,42 +3198,37 @@ class SQLiteService {
   }
 
   async deleteBankAccountBinding(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM bank_account_bindings WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM bank_account_bindings WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
   async findBankAccountBinding(accountNumber: string): Promise<any | null> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const result = await this.querySingleAsync<any>(
       `SELECT * FROM bank_account_bindings WHERE accountNumber = ? AND accountSetId = ?`,
       [accountNumber, this.accountSetId]
     );
-    if (!result[0]?.values?.length) return null;
-    const row = result[0].values[0];
+    if (!result) return null;
     return {
-      id: row[0], accountSetId: row[1], accountNumber: row[2], bankId: row[3],
-      bankName: row[4], aliasName: row[5], subSubjectCode: row[6], subSubjectName: row[7],
-      branch: row[8], currency: row[9], isDefault: !!row[10], createdAt: row[11],
+      id: result.id, accountSetId: result.accountSetId, accountNumber: result.accountNumber, bankId: result.bankId,
+      bankName: result.bankName, aliasName: result.aliasName, subSubjectCode: result.subSubjectCode, subSubjectName: result.subSubjectName,
+      branch: result.branch, currency: result.currency, isDefault: !!result.isDefault, createdAt: result.createdAt,
     };
   }
 
   // --- Custom Bank Configs ---
   async getCustomBankConfigs(): Promise<any[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM custom_bank_configs WHERE accountSetId = ? ORDER BY createdAt DESC`,
       [this.accountSetId]
     );
-    return result[0]?.values?.map((row: any[]) => ({
-      id: row[0], accountSetId: row[1], name: row[2], config: JSON.parse(row[3]),
-      createdAt: row[4], updatedAt: row[5],
-    })) || [];
+    return (results || []).map(row => ({
+      id: row.id, accountSetId: row.accountSetId, name: row.name, config: JSON.parse(row.config),
+      createdAt: row.createdAt, updatedAt: row.updatedAt,
+    }));
   }
 
   async saveCustomBankConfig(customConfig: any): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO custom_bank_configs (id, accountSetId, name, config, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [customConfig.id, customConfig.accountSetId, customConfig.name,
@@ -3063,8 +3238,7 @@ class SQLiteService {
   }
 
   async deleteCustomBankConfig(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM custom_bank_configs WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM custom_bank_configs WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
@@ -3072,28 +3246,22 @@ class SQLiteService {
 
   // --- Smart Rules ---
   async getSmartRules(): Promise<InvoiceSmartRule[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM invoice_smart_rules WHERE accountSetId = ? ORDER BY priority DESC, name ASC`,
       [this.accountSetId]
     );
-    if (!result[0]?.values?.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map((row: any[]) => {
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      try { obj.conditions = JSON.parse(obj.conditions); } catch { obj.conditions = []; }
-      try { obj.actions = JSON.parse(obj.actions); } catch { obj.actions = []; }
-      obj.enabled = !!obj.enabled;
-      return obj as InvoiceSmartRule;
+    return (results || []).map(row => {
+      try { row.conditions = JSON.parse(row.conditions); } catch { row.conditions = []; }
+      try { row.actions = JSON.parse(row.actions); } catch { row.actions = []; }
+      row.enabled = !!row.enabled;
+      return row as InvoiceSmartRule;
     });
   }
 
   async saveSmartRule(rule: InvoiceSmartRule): Promise<void> {
-    await this.ensureInitialized();
     const conditions = typeof rule.conditions === 'string' ? rule.conditions : JSON.stringify(rule.conditions || []);
     const actions = typeof rule.actions === 'string' ? rule.actions : JSON.stringify(rule.actions || []);
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO invoice_smart_rules
         (id, accountSetId, name, invoiceType, priority, conditions, actions, enabled, createTime, updateTime)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -3105,46 +3273,30 @@ class SQLiteService {
   }
 
   async deleteSmartRule(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM invoice_smart_rules WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM invoice_smart_rules WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
   // --- Supplier Subject Mapping ---
   async getSupplierMappings(): Promise<SupplierSubjectMapping[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? ORDER BY groupName, sellerName`,
       [this.accountSetId]
     );
-    if (!result[0]?.values?.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map((row: any[]) => {
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      return obj as SupplierSubjectMapping;
-    });
+    return (results || []) as SupplierSubjectMapping[];
   }
 
   async getSupplierMappingsByGroup(groupName: string): Promise<SupplierSubjectMapping[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND groupName = ? ORDER BY sellerName`,
       [this.accountSetId, groupName]
     );
-    if (!result[0]?.values?.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map((row: any[]) => {
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      return obj as SupplierSubjectMapping;
-    });
+    return (results || []) as SupplierSubjectMapping[];
   }
 
   async saveSupplierMapping(mapping: SupplierSubjectMapping): Promise<void> {
-    await this.ensureInitialized();
     const now = new Date().toISOString();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO supplier_subject_mapping
         (id, accountSetId, groupName, sellerName,
          defaultDebitSubject, defaultDebitSubjectName,
@@ -3163,47 +3315,33 @@ class SQLiteService {
   }
 
   async deleteSupplierMapping(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM supplier_subject_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM supplier_subject_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
   async getSupplierMappingBySellerName(sellerName: string): Promise<SupplierSubjectMapping | null> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const result = await this.querySingleAsync<any>(
       `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND sellerName = ? LIMIT 1`,
       [this.accountSetId, sellerName]
     );
-    if (!result[0]?.values?.length) return null;
-    const cols = result[0].columns;
-    const obj: any = {};
-    cols.forEach((col: string, i: number) => { obj[col] = result[0].values[0][i]; });
-    return obj as SupplierSubjectMapping;
+    return result as SupplierSubjectMapping | null;
   }
 
   // --- Purchase Invoice Rule Config ---
   async getPurchaseInvoiceRuleConfig(): Promise<PurchaseInvoiceRuleConfig> {
-    console.log('SQLite getPurchaseInvoiceRuleConfig called');
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const result = await this.querySingleAsync<any>(
       `SELECT * FROM purchase_invoice_rule_config WHERE accountSetId = ?`,
       [this.accountSetId]
     );
-    console.log('SQLite getPurchaseInvoiceRuleConfig result:', result);
-    if (result[0]?.values?.length) {
-      const row = result[0].values[0];
-      const cols = result[0].columns;
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
+    if (result) {
       const parsedConfig = {
-        id: obj.id,
-        accountSetId: obj.accountSetId,
-        businessGroups: JSON.parse(obj.businessGroups),
-        keywordRules: JSON.parse(obj.keywordRules),
-        globalSettings: JSON.parse(obj.globalSettings),
-        updateTime: obj.updateTime,
+        id: result.id,
+        accountSetId: result.accountSetId,
+        businessGroups: JSON.parse(result.businessGroups),
+        keywordRules: JSON.parse(result.keywordRules),
+        globalSettings: JSON.parse(result.globalSettings),
+        updateTime: result.updateTime,
       };
-      console.log('SQLite getPurchaseInvoiceRuleConfig parsed:', parsedConfig);
       return parsedConfig;
     }
     // 返回默认配置
@@ -3233,8 +3371,6 @@ class SQLiteService {
   }
 
   async savePurchaseInvoiceRuleConfig(config: PurchaseInvoiceRuleConfig): Promise<void> {
-    console.log('SQLite savePurchaseInvoiceRuleConfig called with:', config);
-    await this.ensureInitialized();
     const now = new Date().toISOString();
     const values = [
       config.id,
@@ -3244,37 +3380,27 @@ class SQLiteService {
       JSON.stringify(config.globalSettings),
       config.updateTime || now,
     ];
-    console.log('SQLite save values:', values);
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO purchase_invoice_rule_config
         (id, accountSetId, businessGroups, keywordRules, globalSettings, updateTime)
        VALUES (?,?,?,?,?,?)`,
       values
     );
     await this.persist();
-    console.log('SQLite savePurchaseInvoiceRuleConfig completed');
   }
 
   // --- Expense Reimbursement ---
   async getExpenseReimbursements(): Promise<ExpenseReimbursement[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM expense_reimbursement WHERE accountSetId = ? ORDER BY createTime DESC`,
       [this.accountSetId]
     );
-    if (!result[0]?.values?.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map((row: any[]) => {
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      return obj as ExpenseReimbursement;
-    });
+    return (results || []) as ExpenseReimbursement[];
   }
 
   async saveExpenseReimbursement(record: ExpenseReimbursement): Promise<void> {
-    await this.ensureInitialized();
     const now = new Date().toISOString();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO expense_reimbursement
         (id, accountSetId, invoiceCode, reimburserName, reimburserId, notes, importBatchId, createTime, updateTime)
        VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -3287,11 +3413,10 @@ class SQLiteService {
   }
 
   async updateExpenseReimbursement(id: string, updates: Partial<ExpenseReimbursement>): Promise<void> {
-    await this.ensureInitialized();
     const now = new Date().toISOString();
     const updateFields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
     const values = [...Object.values(updates), now, id, this.accountSetId];
-    this.dbInstance.exec(
+    await this.runAsync(
       `UPDATE expense_reimbursement SET ${updateFields}, updateTime = ? WHERE id = ? AND accountSetId = ?`,
       values
     );
@@ -3299,41 +3424,33 @@ class SQLiteService {
   }
 
   async deleteExpenseReimbursement(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM expense_reimbursement WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM expense_reimbursement WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
   async clearExpenseReimbursements(): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM expense_reimbursement WHERE accountSetId = ?`, [this.accountSetId]);
+    await this.runAsync(`DELETE FROM expense_reimbursement WHERE accountSetId = ?`, [this.accountSetId]);
     await this.persist();
   }
 
   // --- Expense Keyword Categories ---
   async getExpenseKeywordCategories(): Promise<ExpenseKeywordCategory[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM expense_keyword_categories WHERE accountSetId = ? ORDER BY category`,
       [this.accountSetId]
     );
-    if (!result[0]?.values?.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map((row: any[]) => {
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      try { obj.keywords = JSON.parse(obj.keywords); } catch { obj.keywords = []; }
-      obj.isSystem = !!obj.isSystem;
-      obj.enabled = !!obj.enabled;
-      return obj as ExpenseKeywordCategory;
+    return (results || []).map(row => {
+      try { row.keywords = JSON.parse(row.keywords); } catch { row.keywords = []; }
+      row.isSystem = !!row.isSystem;
+      row.enabled = !!row.enabled;
+      return row as ExpenseKeywordCategory;
     });
   }
 
   async saveExpenseKeywordCategory(cat: ExpenseKeywordCategory): Promise<void> {
-    await this.ensureInitialized();
     const keywords = typeof cat.keywords === 'string' ? cat.keywords : JSON.stringify(cat.keywords || []);
     const now = new Date().toISOString();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO expense_keyword_categories
         (id, accountSetId, category, keywords, expenseSubjectCode, expenseSubjectName,
          isSystem, enabled, createTime, updateTime)
@@ -3348,31 +3465,24 @@ class SQLiteService {
   }
 
   async deleteExpenseKeywordCategory(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM expense_keyword_categories WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM expense_keyword_categories WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
   // --- Auxiliary Strategy ---
   async getAuxiliaryStrategy(): Promise<AuxiliaryStrategyConfig | null> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const result = await this.querySingleAsync<any>(
       `SELECT * FROM auxiliary_strategy_config WHERE accountSetId = ? LIMIT 1`,
       [this.accountSetId]
     );
-    if (!result[0]?.values?.length) return null;
-    const cols = result[0].columns;
-    const row = result[0].values[0];
-    const obj: any = {};
-    cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-    obj.autoCreatePartner = !!obj.autoCreatePartner;
-    obj.autoDisableAuxiliaryOnSubAccount = !!obj.autoDisableAuxiliaryOnSubAccount;
-    return obj as AuxiliaryStrategyConfig;
+    if (!result) return null;
+    result.autoCreatePartner = !!result.autoCreatePartner;
+    result.autoDisableAuxiliaryOnSubAccount = !!result.autoDisableAuxiliaryOnSubAccount;
+    return result as AuxiliaryStrategyConfig;
   }
 
   async saveAuxiliaryStrategy(config: AuxiliaryStrategyConfig): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO auxiliary_strategy_config
         (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
        VALUES (?,?,?,?,?,?)`,
@@ -3387,27 +3497,21 @@ class SQLiteService {
 
   // --- Asset Category Mapping ---
   async getAssetCategoryMappings(): Promise<AssetCategoryMapping[]> {
-    await this.ensureInitialized();
-    const result = this.dbInstance.exec(
+    const results = await this.queryAllAsync<any>(
       `SELECT * FROM asset_category_mapping WHERE accountSetId = ? ORDER BY assetCategory`,
       [this.accountSetId]
     );
-    if (!result[0]?.values?.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map((row: any[]) => {
-      const obj: any = {};
-      cols.forEach((col: string, i: number) => { obj[col] = row[i]; });
-      try { obj.keywords = JSON.parse(obj.keywords); } catch { obj.keywords = []; }
-      obj.isSystem = !!obj.isSystem;
-      return obj as AssetCategoryMapping;
+    return (results || []).map(row => {
+      try { row.keywords = JSON.parse(row.keywords); } catch { row.keywords = []; }
+      row.isSystem = !!row.isSystem;
+      return row as AssetCategoryMapping;
     });
   }
 
   async saveAssetCategoryMapping(mapping: AssetCategoryMapping): Promise<void> {
-    await this.ensureInitialized();
     const keywords = typeof mapping.keywords === 'string' ? mapping.keywords : JSON.stringify(mapping.keywords || []);
     const now = new Date().toISOString();
-    this.dbInstance.exec(
+    await this.runAsync(
       `INSERT OR REPLACE INTO asset_category_mapping
         (id, accountSetId, keywords, assetCategory, depreciationYears, depreciationMethod,
          subjectCode, residualRate, isSystem, createTime, updateTime)
@@ -3423,16 +3527,14 @@ class SQLiteService {
   }
 
   async deleteAssetCategoryMapping(id: string): Promise<void> {
-    await this.ensureInitialized();
-    this.dbInstance.exec(`DELETE FROM asset_category_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
+    await this.runAsync(`DELETE FROM asset_category_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
     await this.persist();
   }
 
   // --- Invoice hold/category updates ---
   async updateInvoiceHoldStatus(id: string, holdStatus: 'normal' | 'on_hold'): Promise<void> {
-    await this.ensureInitialized();
     const now = new Date().toISOString();
-    this.dbInstance.exec(
+    await this.runAsync(
       `UPDATE invoices SET holdStatus = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
       [holdStatus, now, id, this.accountSetId]
     );
@@ -3440,9 +3542,8 @@ class SQLiteService {
   }
 
   async updateInvoiceCategory(id: string, category: string | null): Promise<void> {
-    await this.ensureInitialized();
     const now = new Date().toISOString();
-    this.dbInstance.exec(
+    await this.runAsync(
       `UPDATE invoices SET category = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
       [category, now, id, this.accountSetId]
     );

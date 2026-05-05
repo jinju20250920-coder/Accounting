@@ -206,9 +206,10 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       // 检查科目是否有凭证数据
       const hasVoucher = await sqliteService.hasVoucherForSubject(subject.code);
 
-      // 如果有凭证，检查是否尝试修改上级科目
-      if (hasVoucher && updates.parentId !== undefined && updates.parentId !== subject.parentId) {
-        set({ error: '该科目已有凭证数据，不能修改上级科目。如需调整，请先禁用该科目' });
+      // 如果有凭证且有分类，检查是否尝试修改上级科目
+      // 没有分类的科目允许修改上级科目
+      if (hasVoucher && subject.subjectType && updates.parentId !== undefined && updates.parentId !== subject.parentId) {
+        set({ error: '该科目已有凭证数据且有分类，不能修改上级科目。如需调整，请先禁用该科目' });
         return;
       }
 
@@ -229,8 +230,9 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       const updatedSubject = { ...subject, ...updates };
 
       // 如果更新了 parentId，需要重新计算 level
-      if (updates.parentId && updates.parentId !== subject.parentId) {
-        const newParentSubject = state.subjects.find(s => s.id === updates.parentId);
+      // 注意：parentId 可能变为 null（设为一级科目），所以用 !== undefined 判断
+      if (updates.parentId !== undefined && updates.parentId !== subject.parentId) {
+        const newParentSubject = updates.parentId ? state.subjects.find(s => s.id === updates.parentId) : null;
         updatedSubject.level = newParentSubject ? newParentSubject.level + 1 : 1;
       }
 

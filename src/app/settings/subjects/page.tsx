@@ -63,6 +63,10 @@ export default function SubjectsPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingSubjectHasVoucher, setEditingSubjectHasVoucher] = useState(false);
+  const [editingSubjectHasType, setEditingSubjectHasType] = useState(false);
+
+  // 待添加子科目的父科目（用于凭证迁移确认）
+  const [pendingParentSubject, setPendingParentSubject] = useState<Subject | null>(null);
 
   // 确认对话框状态
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -150,7 +154,7 @@ export default function SubjectsPage() {
     setExpandedSubjects(newExpanded);
   };
 
-  const handleAddSubject = () => {
+  const handleAddSubject = async () => {
     const formData = getFormData();
     console.log('保存科目数据:', formData);
     if (!formData.code || !formData.name || !formData.direction || !formData.subjectType) {
@@ -165,6 +169,54 @@ export default function SubjectsPage() {
       showToast('success', '科目更新成功');
     } else {
       // 新增模式
+      // 检查是否需要创建同名二级科目并迁移数据
+      if (pendingParentSubject) {
+        // 计算同名二级科目编码（父科目编码 + 01）
+        const sameNameChildCode = pendingParentSubject.code + '01';
+        const sameNameChildName = `${pendingParentSubject.name}-${pendingParentSubject.name}`;
+
+        // 检查同名二级科目是否已存在
+        const existingSameName = subjects.find(s => s.code === sameNameChildCode);
+        if (!existingSameName) {
+          // 创建同名二级科目
+          const sameNameChild: Subject = {
+            id: `subject-${Date.now()}-same`,
+            code: sameNameChildCode,
+            name: sameNameChildName,
+            parentId: pendingParentSubject.id,
+            level: pendingParentSubject.level + 1,
+            direction: pendingParentSubject.direction,
+            enableDept: pendingParentSubject.enableDept,
+            enableProject: pendingParentSubject.enableProject,
+            enableForeign: pendingParentSubject.enableForeign,
+            foreignCurrency: pendingParentSubject.foreignCurrency || '',
+            isCustomer: (pendingParentSubject as any).isCustomer || false,
+            isSupplier: (pendingParentSubject as any).isSupplier || false,
+            isEmployee: false,
+            enableCashFlow: (pendingParentSubject as any).enableCashFlow || false,
+            disabled: false,
+            block: false,
+            subjectType: pendingParentSubject.subjectType
+          };
+
+          // 保存同名二级科目
+          await addSubject(sameNameChild as any);
+
+          // 迁移凭证数据
+          const migratedCount = await sqliteService.migrateSubjectVouchers(
+            pendingParentSubject.code,
+            sameNameChildCode
+          );
+
+          console.log(`迁移了 ${migratedCount} 条凭证数据从 ${pendingParentSubject.code} 到 ${sameNameChildCode}`);
+          showToast('success', `已创建同名二级科目并迁移 ${migratedCount} 条凭证数据`);
+        }
+
+        // 清除待处理的父科目
+        setPendingParentSubject(null);
+      }
+
+      // 保存用户输入的子科目
       console.log('新增科目:', formData);
       addSubject(formData as any);
       showToast('success', '科目添加成功');
@@ -182,32 +234,73 @@ export default function SubjectsPage() {
   };
 
   // 添加子科目
-  const handleAddChildSubject = (parentSubject: Subject) => {
-    // 计算子科目代码：父科目代码 + 2位序号
-    const existingChildren = subjects.filter(s => s.parentId === parentSubject.id);
-    const nextNumber = existingChildren.length + 1;
-    const childCode = parentSubject.code + String(nextNumber).padStart(2, '0');
+  const handleAddChildSubject = async (parentSubject: Subject) => {
+    // 检查父科目是否有凭证数据
+    const hasVoucher = await sqliteService.hasVoucherForSubject(parentSubject.code);
 
-    // 重置表单并设置默认值
-    setEditingId(null);
-    setFormData({
-      code: childCode,
-      name: '',
-      parentId: parentSubject.id,
-      direction: parentSubject.direction,
-      enableDept: parentSubject.enableDept,
-      enableProject: parentSubject.enableProject,
-      enableForeign: parentSubject.enableForeign,
-      foreignCurrency: parentSubject.foreignCurrency || '',
-      isCustomer: (parentSubject as any).isCustomer || false,
-      isSupplier: (parentSubject as any).isSupplier || false,
-      isEmployee: (parentSubject as any).isEmployee || false,
-      enableCashFlow: (parentSubject as any).enableCashFlow || false,
-      block: false,
-      subjectType: parentSubject.subjectType || ''
-    });
-    setEditingSubjectHasVoucher(false);
-    setShowDialog(true);
+    if (hasVoucher) {
+      // 有凭证数据，需要确认是否进行数据迁移
+      setPendingParentSubject(parentSubject);
+      const existingChildren = subjects.filter(s => s.parentId === parentSubject.id);
+      const nextNumber = existingChildren.length + 1;
+      const childCode = parentSubject.code + String(nextNumber).padStart(2, '0');
+
+      // 计算同名二级科目编码（父科目编码 + 01）
+      const sameNameChildCode = parentSubject.code + '01';
+
+      setConfirmDialog({
+        open: true,
+        title: '上级科目已有数据',
+        description: `保存后，将同时新增同名下级科目"${sameNameChildCode} ${parentSubject.name}-${parentSubject.name}"替代。\n\n原"${parentSubject.code} ${parentSubject.name}"的数据将迁移至"${sameNameChildCode} ${parentSubject.name}-${parentSubject.name}"二级科目。\n\n您确定要继续吗？`,
+        onConfirm: () => {
+          // 确认后打开对话框，设置表单
+          setEditingId(null);
+          setFormData({
+            code: childCode,
+            name: '',
+            parentId: parentSubject.id,
+            direction: parentSubject.direction,
+            enableDept: parentSubject.enableDept,
+            enableProject: parentSubject.enableProject,
+            enableForeign: parentSubject.enableForeign,
+            foreignCurrency: parentSubject.foreignCurrency || '',
+            isCustomer: (parentSubject as any).isCustomer || false,
+            isSupplier: (parentSubject as any).isSupplier || false,
+            isEmployee: (parentSubject as any).isEmployee || false,
+            enableCashFlow: (parentSubject as any).enableCashFlow || false,
+            block: false,
+            subjectType: parentSubject.subjectType || ''
+          });
+          setEditingSubjectHasVoucher(false);
+          setShowDialog(true);
+        }
+      });
+    } else {
+      // 无凭证数据，直接添加
+      const existingChildren = subjects.filter(s => s.parentId === parentSubject.id);
+      const nextNumber = existingChildren.length + 1;
+      const childCode = parentSubject.code + String(nextNumber).padStart(2, '0');
+
+      setEditingId(null);
+      setFormData({
+        code: childCode,
+        name: '',
+        parentId: parentSubject.id,
+        direction: parentSubject.direction,
+        enableDept: parentSubject.enableDept,
+        enableProject: parentSubject.enableProject,
+        enableForeign: parentSubject.enableForeign,
+        foreignCurrency: parentSubject.foreignCurrency || '',
+        isCustomer: (parentSubject as any).isCustomer || false,
+        isSupplier: (parentSubject as any).isSupplier || false,
+        isEmployee: (parentSubject as any).isEmployee || false,
+        enableCashFlow: (parentSubject as any).enableCashFlow || false,
+        block: false,
+        subjectType: parentSubject.subjectType || ''
+      });
+      setEditingSubjectHasVoucher(false);
+      setShowDialog(true);
+    }
   };
 
   const handleDeleteSubject = (id: string) => {
@@ -316,6 +409,9 @@ export default function SubjectsPage() {
       block: subject.block,
       subjectType: subject.subjectType || ''
     });
+
+    // 检查科目是否有分类
+    setEditingSubjectHasType(Boolean(subject.subjectType));
 
     // 检查科目是否有凭证
     try {
@@ -570,18 +666,18 @@ export default function SubjectsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>科目代码</Label>
-                <Input placeholder={editingId ? '' : '4位或6位数字，如1001，留空自动生成'} value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))} />
+                <Input placeholder={editingId ? '' : '4位或6位数字，如1001，留空自动生成'} value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))} autoComplete="off" />
                 {!editingId && (
                   <p className="text-xs text-slate-500">留空则自动生成编码：{String(codeRule.lastNumber + 1).padStart(codeRule.padding, '0')}</p>
                 )}
               </div>
               <div className="space-y-2">
                 <Label required>科目名称</Label>
-                <Input placeholder="输入科目名称" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} />
+                <Input placeholder="输入科目名称" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} autoComplete="off" />
               </div>
               <div className="space-y-2">
                 <Label required>科目类型</Label>
-                <select value={formData.subjectType} onChange={e => setFormData(prev => ({ ...prev, subjectType: e.target.value }))} className="w-full px-3 py-2 border rounded-md">
+                <select value={formData.subjectType} onChange={e => setFormData(prev => ({ ...prev, subjectType: e.target.value }))} className="w-full px-3 py-2 border rounded-md" autoComplete="off">
                   <option value="">请选择科目类型</option>
                   <option value="Asset">资产 (Asset)</option>
                   <option value="Liability">负债 (Liability)</option>
@@ -598,8 +694,9 @@ export default function SubjectsPage() {
                   <select
                     value={getComputedParentId()}
                     onChange={e => setFormData(prev => ({ ...prev, parentId: e.target.value || null }))}
-                    className={`w-full px-3 py-2 border rounded-md ${editingId && editingSubjectHasVoucher ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                    disabled={editingId && editingSubjectHasVoucher}
+                    className={`w-full px-3 py-2 border rounded-md ${editingId && editingSubjectHasVoucher && editingSubjectHasType ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                    disabled={editingId && editingSubjectHasVoucher && editingSubjectHasType}
+                    autoComplete="off"
                   >
                     <option value="">无（顶级科目）</option>
                     {subjects.filter(s => !s.parentId).map(s => (
@@ -607,21 +704,42 @@ export default function SubjectsPage() {
                     ))}
                   </select>
 
-                  {/* 编辑模式且有凭证的情况 - 显示红色警告 */}
-                  {editingId && editingSubjectHasVoucher && (
+                  {/* 编辑模式且有凭证且有分类的情况 - 显示红色警告 */}
+                  {editingId && editingSubjectHasVoucher && editingSubjectHasType && (
                     <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-800">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="font-medium">该科目已有凭证数据</p>
+                          <p className="font-medium">该科目已有凭证数据且有分类</p>
                           <p className="mt-1 text-xs">
                             • 科目代码：{subjects.find(s => s.id === editingId)?.code} - {subjects.find(s => s.id === editingId)?.name}
                           </p>
                           <p className="mt-1 text-xs">
-                            • 已使用该科目生成过凭证，不能修改上级科目
+                            • 已使用该科目生成过凭证且有分类，不能修改上级科目
                           </p>
                           <p className="mt-1 text-xs">
                             • 如需调整科目结构，请先禁用该科目
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 有凭证但无分类的情况 - 显示黄色警告 */}
+                  {editingId && editingSubjectHasVoucher && !editingSubjectHasType && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium">该科目已有凭证数据但无分类</p>
+                          <p className="mt-1 text-xs">
+                            • 科目代码：{subjects.find(s => s.id === editingId)?.code} - {subjects.find(s => s.id === editingId)?.name}
+                          </p>
+                          <p className="mt-1 text-xs">
+                            • 该科目没有设置分类，可以修改上级科目
+                          </p>
+                          <p className="mt-1 text-xs">
+                            • 请谨慎操作，修改后可能影响会计核算
                           </p>
                         </div>
                       </div>
@@ -652,7 +770,7 @@ export default function SubjectsPage() {
               </div>
               <div className="space-y-2">
                 <Label required>借贷方向</Label>
-                <select value={formData.direction} onChange={e => setFormData(prev => ({ ...prev, direction: e.target.value }))} className="w-full px-3 py-2 border rounded-md">
+                <select value={formData.direction} onChange={e => setFormData(prev => ({ ...prev, direction: e.target.value }))} className="w-full px-3 py-2 border rounded-md" autoComplete="off">
                   <option value="debit">借方</option>
                   <option value="credit">贷方</option>
                 </select>
