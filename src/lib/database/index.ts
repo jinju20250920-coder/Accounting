@@ -1,5 +1,3 @@
-import { databaseManager } from './manager';
-import { databaseService } from './service';
 import { sqliteManager } from './sqlite-manager';
 import { sqliteService } from './sqlite-service';
 import { accountSetDbManager } from './account-set-db-manager';
@@ -11,14 +9,13 @@ export type DatabaseType = 'indexeddb' | 'sqlite';
 let currentDatabase: DatabaseType = 'sqlite';
 
 // Get current database manager
-// For SQLite, we use accountSetDbManager which supports multiple account sets
 export function getCurrentManager() {
-  return currentDatabase === 'sqlite' ? accountSetDbManager : databaseManager;
+  return currentDatabase === 'sqlite' ? sqliteManager : null;
 }
 
 // Get current database service
 export function getCurrentService() {
-  return currentDatabase === 'sqlite' ? sqliteService : databaseService;
+  return currentDatabase === 'sqlite' ? sqliteService : null;
 }
 
 // Switch database type
@@ -31,5 +28,5 @@ export function getDatabaseType(): DatabaseType {
   return currentDatabase;
 }
 
-// Re-export sqliteService for direct access (e.g., accountSetId sync)
-export { sqliteService };
+// Re-export for direct access
+export { sqliteService, accountSetDbManager };

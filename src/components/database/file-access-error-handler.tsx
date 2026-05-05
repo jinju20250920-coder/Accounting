@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toast';
-import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
+import { sqliteService } from '@/lib/database/sqlite-service';
 import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
 import { FilePickerDialog } from './file-picker-dialog';
 
@@ -107,8 +107,8 @@ export function FileAccessErrorHandler({ onError, onResolved }: FileAccessErrorH
 
     setIsRetrying(true);
     try {
-      // 尝试重新打开数据库
-      await accountSetDbManager.openAccountSetDatabase(currentError.accountSetId);
+      // 确保数据库可用
+      await sqliteService.getDatabase();
 
       showToast('success', '文件访问已恢复');
       setShowRecoveryDialog(false);
@@ -152,8 +152,8 @@ export function FileAccessErrorHandler({ onError, onResolved }: FileAccessErrorH
         'fsa'
       );
 
-      // 尝试打开数据库
-      await accountSetDbManager.openAccountSetDatabase(currentError.accountSetId);
+      // 确保数据库可用
+      await sqliteService.getDatabase();
 
       showToast('success', '数据库文件已重新关联');
       setShowFilePicker(false);

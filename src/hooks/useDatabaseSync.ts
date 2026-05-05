@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { getCurrentManager } from '@/lib/database';
+import { sqliteService } from '@/lib/database/sqlite-service';
 import { useToast } from '@/hooks/use-toast';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 
@@ -65,25 +65,13 @@ export function useDatabaseSync() {
       lastAccountSetIdRef.current = currentAccountSetId;
       console.log('检测到账套切换，正在重新加载数据...', currentAccountSetId);
 
-      // 异步处理账套切换
       (async () => {
         try {
-          // 1. 尝试打开新账套的数据库文件（如果存在）
-          const { accountSetDbManager } = await import('@/lib/database/account-set-db-manager');
-          try {
-            await accountSetDbManager.openAccountSetDatabase(currentAccountSetId);
-            console.log('新账套数据库已打开:', currentAccountSetId);
-          } catch (dbError) {
-            // 账套数据库文件不存在，使用全局数据库（通过 accountSetId 字段隔离数据）
-            console.log('账套数据库文件不存在，使用全局数据库:', dbError);
-          }
-
-          // 2. 更新 sqliteService 的账套ID（清空缓存，强制重新获取数据库）
-          const { sqliteService } = await import('@/lib/database/sqlite-service');
+          // 更新 sqliteService 的账套ID
           sqliteService.setAccountSetId(currentAccountSetId);
           console.log('sqliteService.accountSetId 已更新:', sqliteService.accountSetId);
 
-          // 3. 重新加载所有数据
+          // 重新加载所有数据
           await reloadAllStores();
           console.log('账套切换后数据重新加载完成');
         } catch (error) {
@@ -112,39 +100,19 @@ export function useDatabaseSync() {
         const { useFixedAssetStore } = await import('@/stores/useFixedAssetStore');
         const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
 
-        // 1. 初始化当前配置的数据库
-        const manager = getCurrentManager();
-        await manager.init();
+        // 1. 初始化全局数据库
+        const { sqliteManager } = await import('@/lib/database/sqlite-manager');
+        await sqliteManager.init();
 
-        // 2. 设置当前账套并打开其数据库
+        // 2. 设置当前账套ID
         const accountSetStore = useAccountSetStore.getState();
         const currentAccountSet = accountSetStore.getCurrentAccountSet();
         if (currentAccountSet) {
-          manager.setCurrentAccountSet(currentAccountSet.id);
-
-          // 对于 SQLite，需要打开账套数据库
-          const { accountSetDbManager } = await import('@/lib/database/account-set-db-manager');
-          const { fileHandleManager } = await import('@/lib/database/file-handle-manager');
-
-          try {
-            await accountSetDbManager.openAccountSetDatabase(currentAccountSet.id);
-            console.log('Account set database opened:', currentAccountSet.id);
-          } catch (error) {
-            console.warn('Failed to open account set database:', error);
-            // 数据库可能不存在，检查是否需要创建
-            const dbInfo = await fileHandleManager.getAccountSetInfo(currentAccountSet.id);
-            if (!dbInfo) {
-              console.log('Account set database does not exist, will be created on first save');
-            }
-          }
-
-          // 重要：同时更新 sqliteService 的账套ID
-          const { sqliteService } = await import('@/lib/database/sqlite-service');
           sqliteService.setAccountSetId(currentAccountSet.id);
           console.log('Database sync: Set account set ID to', currentAccountSet.id);
         }
 
-        // 3. 从 SQLite 加载数据到各个 store（使用 getState 避免订阅）
+        // 3. 从 SQLite 加载数据到各个 store
         await Promise.all([
           useSubjectStore.getState().initializeSubjects(),
           useDepartmentStore.getState().initializeDepartments(),
@@ -174,12 +142,11 @@ export function useDatabaseSync() {
     initDatabase();
   }, [toast]);
 
-  // 导出数据功能 - 从当前配置的数据库获取数据
+  // 导出数据功能
   const exportData = async () => {
     try {
-      const data = await getCurrentManager().exportData();
+      const data = await sqliteService.exportData();
 
-      // 创建下载链接
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -205,15 +172,14 @@ export function useDatabaseSync() {
     }
   };
 
-  // 导入数据功能 - 直接导入到 IndexedDB
+  // 导入数据功能
   const importData = async (file: File) => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      await getCurrentManager().importData(data);
+      await sqliteService.importData(data);
 
-      // 重新加载所有数据（动态导入以避免循环依赖）
       await reloadAllStores();
 
       toast({

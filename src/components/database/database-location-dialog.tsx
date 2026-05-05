@@ -15,7 +15,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
-import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
+import { sqliteService } from '@/lib/database/sqlite-service';
 import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
 import type { AccountSetHandleInfo } from '@/lib/database/file-handle-manager';
 import initSqlJs from 'sql.js';
@@ -75,7 +75,7 @@ export function DatabaseLocationDialog({
   const handleDownload = async () => {
     setIsProcessing(true);
     try {
-      const db = accountSetDbManager.getDatabaseById(accountSetId);
+      const db = await sqliteService.getDatabase();
       if (!db) {
         showToast('error', '数据库未打开，请先切换到该账套');
         return;
@@ -118,7 +118,7 @@ export function DatabaseLocationDialog({
       });
 
       // 获取当前数据库
-      const db = accountSetDbManager.getDatabaseById(accountSetId);
+      const db = await sqliteService.getDatabase();
       if (!db) {
         showToast('error', '数据库未打开');
         return;
@@ -173,7 +173,7 @@ export function DatabaseLocationDialog({
     setIsProcessing(true);
     try {
       // 获取当前数据库
-      const db = accountSetDbManager.getDatabaseById(accountSetId);
+      const db = await sqliteService.getDatabase();
       if (!db) {
         showToast('error', '数据库未打开');
         return;

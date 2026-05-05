@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAccountSetStore } from '@/stores';
 import { FirstTimeWizard } from './first-time-wizard';
-import { fileHandleManager } from '@/lib/database/file-handle-manager';
+import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
 
 interface FirstTimeWrapperProps {
   children: React.ReactNode;
@@ -25,8 +25,8 @@ export function FirstTimeWrapper({ children }: FirstTimeWrapperProps) {
       setIsLoading(true);
 
       try {
-        // 检查 IndexedDB 中是否有账套文件信息
-        const dbAccountSets = await fileHandleManager.getAllAccountSets();
+        // 检查全局数据库中是否有账套记录
+        const dbAccountSets = await accountSetDbManager.getAllAccountSets();
 
         // 检查 localStorage 是否有首次使用标记
         const hasCompletedWizard = localStorage.getItem('hasCompletedWizard');

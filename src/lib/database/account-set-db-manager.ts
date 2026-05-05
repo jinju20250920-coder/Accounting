@@ -1,34 +1,22 @@
 /**
- * AccountSetDbManager - 账套数据库管理器
- * 管理账套数据库的创建、切换、关闭、删除
- * 实现一账套一文件架构
+ * AccountSetDbManager - 账套管理器
+ * 管理账套的创建、删除、重命名、数据导出/导入
+ * 所有账套共享全局数据库，通过 accountSetId 字段隔离
  */
 
-import initSqlJs from 'sql.js';
-import { fileHandleManager } from './file-handle-manager';
-import type { AccountSetHandleInfo } from './file-handle-manager';
+import { sqliteService } from './sqlite-service';
 
-// 账套数据库实例
-interface AccountSetDatabase {
-  accountSetId: string;
-  db: any;
-  handle: FileSystemFileHandle | null;
-  lastAccess: number;
-}
-
-// 数据库配置
-interface DatabaseConfig {
-  accountSetId: string;
-  storageType: 'fsa' | 'opfs' | 'local';
-  handle?: FileSystemFileHandle;
+export interface AccountSetInfo {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  createTime: string;
+  updateTime: string;
 }
 
 class AccountSetDbManager {
   private static instance: AccountSetDbManager;
-  // 当前打开的数据库实例映射 (accountSetId -> db instance)
-  private openDatabases: Map<string, AccountSetDatabase> = new Map();
-  // 当前激活的账套
-  private currentAccountSetId: string | null = null;
 
   private constructor() {}
 
@@ -40,209 +28,203 @@ class AccountSetDbManager {
   }
 
   /**
-   * 获取 SQL.js 实例
+   * 初始化（接口兼容，无需操作）
    */
-  private async getSqlJs(): Promise<any> {
-    return await initSqlJs({
-      locateFile: (file: string) => `/sqljs/${file}`,
-    });
-  }
-
-  /**
-   * 初始化数据库管理器
-   * 与 sqliteManager 接口兼容
-   */
-  async init(): Promise<void> {
-    // 检查是否有当前账套，如果有则打开其数据库
-    if (this.currentAccountSetId) {
-      try {
-        const db = await this.openAccountSetDatabase(this.currentAccountSetId);
-        console.log(`Account set database initialized: ${this.currentAccountSetId}`);
-      } catch (error) {
-        console.warn('Failed to open current account set database:', error);
-      }
-    } else {
-      console.log('No current account set set, database manager initialized but no database opened');
-    }
-  }
+  async init(): Promise<void> {}
 
   /**
    * 设置当前账套 ID
-   * 与 sqliteManager 接口兼容
    */
   setCurrentAccountSet(accountSetId: string): void {
-    this.currentAccountSetId = accountSetId;
+    sqliteService.setAccountSetId(accountSetId);
   }
 
   /**
-   * 获取数据库（同步版本，用于兼容）
-   * 如果数据库未打开，返回 null
+   * 获取当前账套 ID
    */
-  getDatabase(): any | null {
-    return this.getCurrentDatabase();
+  getCurrentAccountSetId(): string | null {
+    return sqliteService.accountSetId || null;
   }
 
   /**
-   * 检查数据库是否已初始化
+   * 创建账套（在全局数据库 accountSets 表插入记录）
    */
-  isInitialized(): boolean {
-    return this.currentAccountSetId !== null && this.openDatabases.has(this.currentAccountSetId);
+  async createAccountSet(accountSetId: string, name: string, code?: string, description?: string): Promise<void> {
+    const db = await sqliteService.getDatabase();
+    const now = new Date().toISOString();
+    const stmt = db.prepare(
+      `INSERT OR IGNORE INTO accountSets (id, code, name, description, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    stmt.run([accountSetId, code || accountSetId, name, description || '', now, now]);
+    stmt.free();
   }
 
   /**
-   * 导出当前账套的数据
-   * 与 sqliteManager 接口兼容
+   * 删除账套（删除该账套的所有数据）
    */
-  async exportData(): Promise<any> {
-    const db = this.getCurrentDatabase();
-    if (!db) {
-      throw new Error('No current database opened');
+  async deleteAccountSet(accountSetId: string): Promise<void> {
+    const db = await sqliteService.getDatabase();
+
+    db.run('BEGIN TRANSACTION');
+    try {
+    const tables = [
+      'amortizationRecords',
+      'depreciationRecords',
+      'invoiceReconciliations',
+      'invoices',
+      'prepaidExpenses',
+      'intangibleAssets',
+      'fixedAssets',
+      'assetCategories',
+      'recRelations',
+      'auditLogs',
+      'userPreferences',
+      'commonSummaries',
+      'voucherTemplates',
+      'partners',
+      'currencies',
+      'projects',
+      'departments',
+      'entries',
+      'vouchers',
+      'subjects',
+      'bankTransactions',
+      'bankTransactionRules',
+      'invoice_smart_rules',
+      'supplier_subject_mapping',
+      'purchase_invoice_rule_config',
+      'bank_account_bindings',
+      'custom_bank_configs',
+      'asset_category_mapping',
+      'assetChangeRecords',
+      'assetSplitRecords',
+      'assetMergeRecords',
+      'codeRules',
+      'expense_reimbursement',
+      'expense_keyword_categories',
+      'auxiliary_strategy_config',
+    ];
+
+    for (const table of tables) {
+      try {
+        const stmt = db.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
+        stmt.run([accountSetId]);
+        stmt.free();
+      } catch {
+        // 表可能不存在，忽略
+      }
     }
 
-    const accountSetId = this.currentAccountSetId;
+    const stmt = db.prepare(`DELETE FROM accountSets WHERE id = ?`);
+    stmt.run([accountSetId]);
+    stmt.free();
 
-    // Get vouchers
-    const vouchersResult = db.exec(`SELECT * FROM vouchers`);
-    const vouchers = vouchersResult[0]?.values.map((row: any[], index: number) => {
-      const columns = vouchersResult[0].columns;
-      const voucher: any = {};
-      columns.forEach((col: string, idx: number) => {
-        voucher[col] = row[idx];
-      });
-      return voucher;
-    }) || [];
-
-    // Get entries for each voucher
-    const vouchersWithEntries = [];
-    for (const voucher of vouchers) {
-      const entriesResult = db.exec(`SELECT * FROM entries WHERE voucherId = ?`, [voucher.id]);
-      const entries = entriesResult[0]?.values.map((row: any[], index: number) => {
-        const columns = entriesResult[0].columns;
-        const entry: any = {};
-        columns.forEach((col: string, idx: number) => {
-          entry[col] = row[idx];
-        });
-        return entry;
-      }) || [];
-
-      vouchersWithEntries.push({
-        ...voucher,
-        entries
-      });
+    db.run('COMMIT');
+    } catch (error) {
+      db.run('ROLLBACK');
+      throw error;
     }
+  }
 
-    // Get other data
-    const subjectsResult = db.exec(`SELECT * FROM subjects`);
-    const subjects = subjectsResult[0]?.values.map((row: any[]) => {
-      const columns = subjectsResult[0].columns;
-      const subject: any = {};
-      columns.forEach((col: string, idx: number) => {
-        subject[col] = row[idx];
-      });
-      return subject;
-    }) || [];
+  /**
+   * 重命名账套
+   */
+  async updateAccountSetName(accountSetId: string, newName: string): Promise<void> {
+    const db = await sqliteService.getDatabase();
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`UPDATE accountSets SET name = ?, updateTime = ? WHERE id = ?`);
+    stmt.run([newName, now, accountSetId]);
+    stmt.free();
+  }
 
-    const departmentsResult = db.exec(`SELECT * FROM departments`);
-    const departments = departmentsResult[0]?.values.map((row: any[]) => {
-      const columns = departmentsResult[0].columns;
-      const dept: any = {};
-      columns.forEach((col: string, idx: number) => {
-        dept[col] = row[idx];
-      });
-      return dept;
-    }) || [];
+  /**
+   * 获取所有账套信息
+   */
+  async getAllAccountSets(): Promise<AccountSetInfo[]> {
+    const db = await sqliteService.getDatabase();
+    const result = db.exec(`SELECT id, code, name, description, createTime, updateTime FROM accountSets ORDER BY createTime`);
+    if (!result[0]?.values) return [];
 
-    const projectsResult = db.exec(`SELECT * FROM projects`);
-    const projects = projectsResult[0]?.values.map((row: any[]) => {
-      const columns = projectsResult[0].columns;
-      const project: any = {};
-      columns.forEach((col: string, idx: number) => {
-        project[col] = row[idx];
-      });
-      return project;
-    }) || [];
+    return result[0].values.map((row: any[]) => ({
+      id: row[0],
+      code: row[1],
+      name: row[2],
+      description: row[3],
+      createTime: row[4],
+      updateTime: row[5],
+    }));
+  }
 
-    const currenciesResult = db.exec(`SELECT * FROM currencies`);
-    const currencies = currenciesResult[0]?.values.map((row: any[]) => {
-      const columns = currenciesResult[0].columns;
-      const currency: any = {};
-      columns.forEach((col: string, idx: number) => {
-        currency[col] = row[idx];
-      });
-      return currency;
-    }) || [];
+  /**
+   * 获取账套信息
+   */
+  async getAccountSetInfo(accountSetId: string): Promise<AccountSetInfo | null> {
+    const db = await sqliteService.getDatabase();
+    const stmt = db.prepare(`SELECT id, code, name, description, createTime, updateTime FROM accountSets WHERE id = ?`);
+    stmt.bind([accountSetId]);
+    const hasRow = stmt.step();
+    if (!hasRow) {
+      stmt.free();
+      return null;
+    }
+    const row = stmt.get();
+    stmt.free();
+    return {
+      id: row[0],
+      code: row[1],
+      name: row[2],
+      description: row[3],
+      createTime: row[4],
+      updateTime: row[5],
+    };
+  }
 
-    const partnersResult = db.exec(`SELECT * FROM partners`);
-    const partners = partnersResult[0]?.values.map((row: any[]) => {
-      const columns = partnersResult[0].columns;
-      const partner: any = {};
-      columns.forEach((col: string, idx: number) => {
-        partner[col] = row[idx];
-      });
-      return partner;
-    }) || [];
+  /**
+   * 导出账套数据（从全局数据库按 accountSetId 过滤）
+   */
+  async exportAccountSetData(accountSetId: string): Promise<any> {
+    const db = await sqliteService.getDatabase();
 
-    const voucherTemplatesResult = db.exec(`SELECT * FROM voucherTemplates`);
-    const voucherTemplates = voucherTemplatesResult[0]?.values.map((row: any[]) => {
-      const columns = voucherTemplatesResult[0].columns;
-      const template: any = {};
-      columns.forEach((col: string, idx: number) => {
-        const value = row[idx];
-        template[col] = col === 'entries' || col === 'validations' || col === 'variables' ? JSON.parse(value) : value;
-      });
-      return template;
-    }) || [];
+    const queryTable = (tableName: string) => {
+      try {
+        const stmt = db.prepare(`SELECT * FROM ${tableName} WHERE accountSetId = ?`);
+        stmt.bind([accountSetId]);
+        const rows: any[] = [];
+        while (stmt.step()) {
+          const row = stmt.get();
+          rows.push(row);
+        }
+        stmt.free();
+        return rows;
+      } catch {
+        return [];
+      }
+    };
 
-    const commonSummariesResult = db.exec(`SELECT * FROM commonSummaries`);
-    const commonSummaries = commonSummariesResult[0]?.values.map((row: any[]) => {
-      const columns = commonSummariesResult[0].columns;
-      const summary: any = {};
-      columns.forEach((col: string, idx: number) => {
-        summary[col] = row[idx];
-      });
-      return {
-        id: summary.id,
-        text: summary.content,
-        sortOrder: summary.frequency,
-        createTime: summary.createTime,
-        updateTime: summary.updateTime
-      };
-    }) || [];
-
-    const preferencesResult = db.exec(`SELECT * FROM userPreferences`);
-    const preferences = preferencesResult[0]?.values.map((row: any[]) => {
-      const columns = preferencesResult[0].columns;
-      const pref: any = {};
-      columns.forEach((col: string, idx: number) => {
-        const value = row[idx];
-        pref[col] = col === 'value' ? JSON.parse(value) : value;
-      });
-      return pref;
-    }) || [];
-
-    const auditLogsResult = db.exec(`SELECT * FROM auditLogs`);
-    const auditLogs = auditLogsResult[0]?.values.map((row: any[]) => {
-      const columns = auditLogsResult[0].columns;
-      const log: any = {};
-      columns.forEach((col: string, idx: number) => {
-        const value = row[idx];
-        log[col] = col === 'details' ? JSON.parse(value) : value;
-      });
-      return log;
-    }) || [];
-
-    const recRelationsResult = db.exec(`SELECT * FROM recRelations`);
-    const recRelations = recRelationsResult[0]?.values.map((row: any[]) => {
-      const columns = recRelationsResult[0].columns;
-      const relation: any = {};
-      columns.forEach((col: string, idx: number) => {
-        relation[col] = row[idx];
-      });
-      return relation;
-    }) || [];
+    const vouchers = queryTable('vouchers');
+    const entries = queryTable('entries');
+    const subjects = queryTable('subjects');
+    const departments = queryTable('departments');
+    const projects = queryTable('projects');
+    const currencies = queryTable('currencies');
+    const partners = queryTable('partners');
+    const voucherTemplates = queryTable('voucherTemplates');
+    const commonSummaries = queryTable('commonSummaries');
+    const userPreferences = queryTable('userPreferences');
+    const auditLogs = queryTable('auditLogs');
+    const recRelations = queryTable('recRelations');
+    const fixedAssets = queryTable('fixedAssets');
+    const depreciationRecords = queryTable('depreciationRecords');
+    const intangibleAssets = queryTable('intangibleAssets');
+    const prepaidExpenses = queryTable('prepaidExpenses');
+    const amortizationRecords = queryTable('amortizationRecords');
+    const invoices = queryTable('invoices');
+    const bankTransactions = queryTable('bankTransactions');
 
     return {
-      vouchers: vouchersWithEntries,
+      accountSetId,
+      vouchers,
+      entries,
       subjects,
       departments,
       projects,
@@ -250,934 +232,134 @@ class AccountSetDbManager {
       partners,
       voucherTemplates,
       commonSummaries,
-      preferences,
+      userPreferences,
       auditLogs,
       recRelations,
+      fixedAssets,
+      depreciationRecords,
+      intangibleAssets,
+      prepaidExpenses,
+      amortizationRecords,
+      invoices,
+      bankTransactions,
       exportDate: new Date().toISOString(),
-      version: '3.0'
+      version: '4.0',
     };
   }
 
   /**
-   * 导入数据到当前账套
-   * 与 sqliteManager 接口兼容
+   * 导入数据到指定账套
    */
-  async importData(data: any): Promise<void> {
-    const db = this.getCurrentDatabase();
-    if (!db) {
-      throw new Error('No current database opened');
-    }
+  async importAccountSetData(accountSetId: string, data: any): Promise<void> {
+    const db = await sqliteService.getDatabase();
 
     try {
-      // Import vouchers and entries
+      // Import vouchers
       if (data.vouchers) {
         for (const voucher of data.vouchers) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO vouchers (
               id, voucherNo, date, status, summary, creator, reviewer, poster,
-              reverseVoucherId, referenceNumber, attachmentCount,
+              reverseVoucherId, referenceNumber, attachmentCount, accountSetId,
               createTime, updateTime
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           stmt.run([
-            voucher.id,
-            voucher.voucherNo,
-            voucher.date,
-            voucher.status,
-            voucher.summary,
-            voucher.creator,
-            voucher.reviewer,
-            voucher.poster,
-            voucher.reverseVoucherId,
-            voucher.referenceNumber,
-            voucher.attachmentCount || 0,
-            voucher.createTime,
-            voucher.updateTime
+            voucher.id, voucher.voucherNo, voucher.date, voucher.status,
+            voucher.summary, voucher.creator, voucher.reviewer, voucher.poster,
+            voucher.reverseVoucherId, voucher.referenceNumber, voucher.attachmentCount || 0,
+            accountSetId,
+            voucher.createTime, voucher.updateTime
           ]);
           stmt.free();
+        }
+      }
 
-          for (const entry of voucher.entries) {
-            const entryStmt = db.prepare(`
-              INSERT OR REPLACE INTO entries (
-                id, voucherId, subjectCode, subjectName, direction, debit, credit,
-                summary, customerName, supplierName, auxiliary, recRefNo,
-                departmentCode, departmentName, projectCode, projectName,
-                currencyCode, exchangeRate, originalAmount, date,
-                createTime, updateTime
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-            entryStmt.run([
-              entry.id,
-              entry.voucherId,
-              entry.subjectCode,
-              entry.subjectName,
-              entry.direction,
-              entry.debit,
-              entry.credit,
-              entry.summary,
-              entry.customerName,
-              entry.supplierName,
-              JSON.stringify(entry.auxiliary || {}),
-              entry.recRefNo,
-              entry.departmentCode,
-              entry.departmentName,
-              entry.projectCode,
-              entry.projectName,
-              entry.currencyCode,
-              entry.exchangeRate,
-              entry.originalAmount,
-              entry.date,
-              entry.createTime,
-              entry.updateTime
-            ]);
-            entryStmt.free();
+      // Import entries
+      if (data.entries) {
+        for (const entry of data.entries) {
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO entries (
+              id, voucherId, subjectCode, subjectName, direction, debit, credit,
+              summary, customerName, supplierName, auxiliary, recRefNo,
+              departmentCode, departmentName, projectCode, projectName,
+              currencyCode, exchangeRate, originalAmount, date, accountSetId,
+              createTime, updateTime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run([
+            entry.id, entry.voucherId, entry.subjectCode, entry.subjectName,
+            entry.direction, entry.debit, entry.credit, entry.summary,
+            entry.customerName, entry.supplierName, entry.auxiliary, entry.recRefNo,
+            entry.departmentCode, entry.departmentName, entry.projectCode, entry.projectName,
+            entry.currencyCode, entry.exchangeRate, entry.originalAmount, entry.date,
+            accountSetId,
+            entry.createTime, entry.updateTime
+          ]);
+          stmt.free();
+        }
+      }
+
+      // Import subjects
+      if (data.subjects) {
+        for (const subject of data.subjects) {
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO subjects (
+              id, code, name, parentId, level, type, direction, balance,
+              enabled, frozen, description, enableDept, enableProject, enableForeign,
+              foreignCurrency, isCustomer, isSupplier, isEmployee, enableCashFlow,
+              accountSetId, createTime, updateTime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run([
+            subject.id, subject.code, subject.name, subject.parentId, subject.level,
+            subject.type, subject.direction, subject.balance,
+            subject.enabled ? 1 : 0, subject.frozen ? 1 : 0, subject.description,
+            subject.enableDept ? 1 : 0, subject.enableProject ? 1 : 0, subject.enableForeign ? 1 : 0,
+            subject.foreignCurrency, subject.isCustomer ? 1 : 0, subject.isSupplier ? 1 : 0,
+            subject.isEmployee ? 1 : 0, subject.enableCashFlow ? 1 : 0,
+            accountSetId, subject.createTime, subject.updateTime
+          ]);
+          stmt.free();
+        }
+      }
+
+      // Import simpler tables
+      const simpleTables = [
+        { name: 'departments', cols: 'id, code, name, parentId, level, enabled, description, accountSetId, createTime, updateTime' },
+        { name: 'projects', cols: 'id, code, name, description, enabled, accountSetId, createTime, updateTime' },
+        { name: 'currencies', cols: 'id, code, name, symbol, exchangeRate, enabled, accountSetId, createTime, updateTime' },
+        { name: 'partners', cols: 'id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled, accountSetId, createTime, updateTime' },
+      ];
+
+      for (const table of simpleTables) {
+        const records = data[table.name];
+        if (!records) continue;
+        const placeholders = table.cols.split(', ').map(() => '?').join(', ');
+        for (const record of records) {
+          try {
+            const stmt = db.prepare(
+              `INSERT OR REPLACE INTO ${table.name} (${table.cols}) VALUES (${placeholders})`
+            );
+            const values = table.cols.split(', ').map(col => {
+              if (col === 'accountSetId') return accountSetId;
+              return record[col] ?? null;
+            });
+            stmt.run(values);
+            stmt.free();
+          } catch {
+            // Skip records that fail
           }
         }
       }
 
-      // Import other data (simplified for brevity)
-      // ... subjects, departments, projects, currencies, partners, templates, summaries, preferences, auditLogs, recRelations
+      console.log(`Data imported to account set: ${accountSetId}`);
     } catch (error) {
       console.error('Import data failed:', error);
       throw error;
     }
   }
 
-  /**
-   * 为账套创建新数据库
-   */
-  async createAccountSetDatabase(
-    accountSetId: string,
-    accountSetName: string,
-    storageType: 'fsa' | 'opfs' | 'local'
-  ): Promise<{
-    handle: FileSystemFileHandle | null;
-    fileName: string;
-  }> {
-    const SQL = await this.getSqlJs();
-
-    if (storageType === 'fsa') {
-      // 使用 File System Access API
-      const defaultFileName = `${accountSetName}_${new Date().toISOString().slice(0, 10)}.db`;
-      const { handle, fileName } = await fileHandleManager.requestNewFile(defaultFileName);
-
-      // 创建新的数据库
-      const db = new SQL.Database();
-      this.createTables(db);
-
-      // 写入文件
-      await this.writeFile(handle, db);
-
-      // 保存句柄
-      await fileHandleManager.saveHandle(accountSetId, accountSetName, fileName, handle, 'fsa');
-
-      // 缓存数据库实例
-      this.openDatabases.set(accountSetId, {
-        accountSetId,
-        db,
-        handle,
-        lastAccess: Date.now()
-      });
-
-      return { handle, fileName };
-    } else if (storageType === 'opfs') {
-      // 使用 OPFS
-      const opfsRoot = await (navigator.storage as any).getDirectory();
-      const fileName = `${accountSetName}_${new Date().toISOString().slice(0, 10)}.db`;
-      const handle = await opfsRoot.getFileHandle(fileName, { create: true });
-
-      const db = new SQL.Database();
-      this.createTables(db);
-
-      // 写入 OPFS 文件
-      await this.writeOPFSFile(handle, db);
-
-      // 保存句柄（虽然 OPFS 句柄不需要持久化，但统一管理）
-      await fileHandleManager.saveHandle(accountSetId, accountSetName, fileName, handle, 'opfs');
-
-      this.openDatabases.set(accountSetId, {
-        accountSetId,
-        db,
-        handle,
-        lastAccess: Date.now()
-      });
-
-      return { handle, fileName };
-    } else {
-      // localStorage 方式（后备）
-      // 这种方式不需要文件句柄
-      throw new Error('localStorage storage type not implemented for account set isolation');
-    }
-  }
-
-  /**
-   * 打开账套数据库
-   */
-  async openAccountSetDatabase(accountSetId: string): Promise<any> {
-    // 如果已经打开，直接返回
-    const cached = this.openDatabases.get(accountSetId);
-    if (cached) {
-      this.currentAccountSetId = accountSetId;
-      return cached.db;
-    }
-
-    // 获取账套文件信息
-    const info = await fileHandleManager.getAccountSetInfo(accountSetId);
-    if (!info) {
-      throw new Error(`Account set ${accountSetId} not found`);
-    }
-
-    const SQL = await this.getSqlJs();
-
-    if (info.storageType === 'fsa') {
-      // 从 IndexedDB 获取句柄
-      const handle = await fileHandleManager.getHandle(accountSetId);
-      if (!handle) {
-        throw new Error('File handle not found in storage');
-      }
-
-      // 读取文件内容
-      const file = await handle.getFile();
-      const buffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(buffer);
-
-      // 创建数据库实例
-      const db = new SQL.Database(uint8Array);
-
-      // 缓存
-      this.openDatabases.set(accountSetId, {
-        accountSetId,
-        db,
-        handle,
-        lastAccess: Date.now()
-      });
-
-      this.currentAccountSetId = accountSetId;
-      return db;
-    } else if (info.storageType === 'opfs') {
-      // OPFS 方式
-      const handle = await fileHandleManager.getHandle(accountSetId);
-      if (!handle) {
-        throw new Error('OPFS file handle not found');
-      }
-
-      const file = await handle.getFile();
-      const buffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(buffer);
-
-      const db = new SQL.Database(uint8Array);
-
-      this.openDatabases.set(accountSetId, {
-        accountSetId,
-        db,
-        handle,
-        lastAccess: Date.now()
-      });
-
-      this.currentAccountSetId = accountSetId;
-      return db;
-    } else {
-      throw new Error('Unsupported storage type');
-    }
-  }
-
-  /**
-   * 获取当前账套的数据库
-   */
-  getCurrentDatabase(): any | null {
-    if (!this.currentAccountSetId) {
-      return null;
-    }
-    const cached = this.openDatabases.get(this.currentAccountSetId);
-    return cached?.db || null;
-  }
-
-  /**
-   * 获取指定账套的数据库
-   */
-  getDatabaseById(accountSetId: string): any | null {
-    const cached = this.openDatabases.get(accountSetId);
-    return cached?.db || null;
-  }
-
-  /**
-   * 切换当前账套
-   */
-  async switchAccountSet(accountSetId: string): Promise<any> {
-    if (this.currentAccountSetId === accountSetId) {
-      return this.getCurrentDatabase();
-    }
-
-    return await this.openAccountSetDatabase(accountSetId);
-  }
-
-  /**
-   * 保存当前账套数据库
-   */
-  async saveCurrentDatabase(): Promise<void> {
-    if (!this.currentAccountSetId) {
-      throw new Error('No current account set');
-    }
-
-    const cached = this.openDatabases.get(this.currentAccountSetId);
-    if (!cached) {
-      throw new Error('Database not opened');
-    }
-
-    if (cached.handle) {
-      await this.writeFile(cached.handle, cached.db);
-    }
-  }
-
-  /**
-   * 保存指定账套数据库
-   */
-  async saveAccountSetDatabase(accountSetId: string): Promise<void> {
-    const cached = this.openDatabases.get(accountSetId);
-    if (!cached) {
-      throw new Error('Database not opened');
-    }
-
-    if (cached.handle) {
-      await this.writeFile(cached.handle, cached.db);
-    }
-  }
-
-  /**
-   * 关闭账套数据库
-   */
-  async closeAccountSetDatabase(accountSetId: string): Promise<void> {
-    const cached = this.openDatabases.get(accountSetId);
-    if (cached) {
-      // 保存更改
-      if (cached.handle) {
-        await this.writeFile(cached.handle, cached.db);
-      }
-
-      // 从缓存中移除
-      this.openDatabases.delete(accountSetId);
-
-      // 如果是当前账套，清除
-      if (this.currentAccountSetId === accountSetId) {
-        this.currentAccountSetId = null;
-      }
-    }
-  }
-
-  /**
-   * 删除账套数据库（关闭并删除文件）
-   */
-  async deleteAccountSetDatabase(accountSetId: string): Promise<void> {
-    // 先关闭
-    await this.closeAccountSetDatabase(accountSetId);
-
-    // 获取账套信息
-    const info = await fileHandleManager.getAccountSetInfo(accountSetId);
-    if (!info) {
-      return; // 已经不存在
-    }
-
-    // 尝试删除文件（如果可能）
-    if (info.storageType === 'opfs') {
-      try {
-        const opfsRoot = await (navigator.storage as any).getDirectory();
-        // @ts-ignore - removeEntry 是 OPFS API
-        await opfsRoot.removeEntry(info.fileName);
-      } catch (error) {
-        console.warn('Failed to delete OPFS file:', error);
-      }
-    }
-
-    // 从 IndexedDB 移除句柄
-    await fileHandleManager.removeHandle(accountSetId);
-  }
-
-  /**
-   * 复制账套数据库（创建新账套时复制现有账套）
-   */
-  async copyAccountSetDatabase(
-    sourceAccountSetId: string,
-    targetAccountSetId: string,
-    targetAccountSetName: string
-  ): Promise<void> {
-    const sourceDb = this.getDatabaseById(sourceAccountSetId);
-    if (!sourceDb) {
-      throw new Error('Source database not opened');
-    }
-
-    // 导出源数据库
-    const data = sourceDb.export();
-
-    // 为目标账套创建新文件
-    const SQL = await this.getSqlJs();
-    const targetDb = new SQL.Database(data);
-
-    // 保存到新文件
-    const { handle, fileName } = await this.createAccountSetDatabase(
-      targetAccountSetId,
-      targetAccountSetName,
-      'fsa' // 默认使用 FSA
-    );
-
-    // 使用导出的数据替换新创建的空数据库
-    await this.writeFile(handle, targetDb);
-  }
-
-  /**
-   * 获取所有账套信息
-   */
-  async getAllAccountSets(): Promise<AccountSetHandleInfo[]> {
-    return await fileHandleManager.getAllAccountSets();
-  }
-
-  /**
-   * 获取账套信息
-   */
-  async getAccountSetInfo(accountSetId: string): Promise<AccountSetHandleInfo | null> {
-    return await fileHandleManager.getAccountSetInfo(accountSetId);
-  }
-
-  /**
-   * 更新账套名称
-   */
-  async updateAccountSetName(accountSetId: string, newName: string): Promise<void> {
-    await fileHandleManager.updateAccountSetName(accountSetId, newName);
-  }
-
-  /**
-   * 获取当前账套 ID
-   */
-  getCurrentAccountSetId(): string | null {
-    return this.currentAccountSetId;
-  }
-
-  /**
-   * 写入文件（File System Access API）
-   */
-  private async writeFile(handle: FileSystemFileHandle, db: any): Promise<void> {
-    const data = db.export();
-    const writable = await handle.createWritable();
-    await writable.write(data);
-    await writable.close();
-  }
-
-  /**
-   * 写入 OPFS 文件
-   */
-  private async writeOPFSFile(handle: FileSystemFileHandle, db: any): Promise<void> {
-    const data = db.export();
-    const writable = await handle.createWritable();
-    await writable.write(data);
-    await writable.close();
-
-    // 如果支持 sync()，调用它确保数据写入磁盘
-    if ('sync' in handle && typeof (handle as any).sync === 'function') {
-      await (handle as any).sync();
-    }
-  }
-
-  /**
-   * 创建数据库表结构
-   */
-  private createTables(db: any): void {
-    const tables = `
-      -- 账套表（可选，主要用于记录账套元数据）
-      CREATE TABLE IF NOT EXISTS accountSets (
-        id TEXT PRIMARY KEY,
-        code TEXT UNIQUE,
-        name TEXT,
-        description TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 凭证表
-      CREATE TABLE IF NOT EXISTS vouchers (
-        id TEXT PRIMARY KEY,
-        voucherNo TEXT,
-        date TEXT,
-        status TEXT,
-        summary TEXT,
-        creator TEXT,
-        reviewer TEXT,
-        poster TEXT,
-        reverseVoucherId TEXT,
-        referenceNumber TEXT,
-        attachmentCount INTEGER DEFAULT 0,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 分录表
-      CREATE TABLE IF NOT EXISTS entries (
-        id TEXT PRIMARY KEY,
-        voucherId TEXT,
-        subjectCode TEXT,
-        subjectName TEXT,
-        direction TEXT,
-        debit REAL,
-        credit REAL,
-        summary TEXT,
-        customerName TEXT,
-        supplierName TEXT,
-        auxiliary TEXT,
-        recRefNo TEXT,
-        departmentCode TEXT,
-        departmentName TEXT,
-        projectCode TEXT,
-        projectName TEXT,
-        currencyCode TEXT,
-        exchangeRate REAL DEFAULT 1.0,
-        originalAmount REAL DEFAULT 0,
-        date TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (voucherId) REFERENCES vouchers(id)
-      );
-
-      -- 科目表
-      CREATE TABLE IF NOT EXISTS subjects (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        parentId TEXT,
-        level INTEGER DEFAULT 1,
-        type TEXT,
-        direction TEXT DEFAULT 'debit',
-        balance REAL DEFAULT 0,
-        enabled INTEGER DEFAULT 1,
-        frozen INTEGER DEFAULT 0,
-        description TEXT,
-        enableDept INTEGER DEFAULT 0,
-        enableProject INTEGER DEFAULT 0,
-        enableForeign INTEGER DEFAULT 0,
-        foreignCurrency TEXT,
-        isCustomer INTEGER DEFAULT 0,
-        isSupplier INTEGER DEFAULT 0,
-        isEmployee INTEGER DEFAULT 0,
-        enableCashFlow INTEGER DEFAULT 0,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (parentId) REFERENCES subjects(id)
-      );
-
-      -- 部门表
-      CREATE TABLE IF NOT EXISTS departments (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        parentId TEXT,
-        level INTEGER DEFAULT 1,
-        enabled INTEGER DEFAULT 1,
-        description TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (parentId) REFERENCES departments(id)
-      );
-
-      -- 项目表
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        description TEXT,
-        enabled INTEGER DEFAULT 1,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 币别表
-      CREATE TABLE IF NOT EXISTS currencies (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        symbol TEXT,
-        exchangeRate REAL DEFAULT 1.0,
-        enabled INTEGER DEFAULT 1,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 往来单位表
-      CREATE TABLE IF NOT EXISTS partners (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        type TEXT DEFAULT 'customer',
-        contact TEXT,
-        phone TEXT,
-        email TEXT,
-        address TEXT,
-        taxNo TEXT,
-        bankAccount TEXT,
-        enabled INTEGER DEFAULT 1,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 凭证模板表
-      CREATE TABLE IF NOT EXISTS voucherTemplates (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        description TEXT,
-        entries TEXT,
-        validations TEXT,
-        variables TEXT,
-        isSystem INTEGER DEFAULT 0,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 常用摘要表
-      CREATE TABLE IF NOT EXISTS commonSummaries (
-        id TEXT PRIMARY KEY,
-        content TEXT,
-        frequency INTEGER DEFAULT 0,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 用户偏好表
-      CREATE TABLE IF NOT EXISTS userPreferences (
-        id TEXT PRIMARY KEY,
-        userId TEXT,
-        type TEXT,
-        key TEXT,
-        value TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 审计日志表
-      CREATE TABLE IF NOT EXISTS auditLogs (
-        id TEXT PRIMARY KEY,
-        type TEXT,
-        entityType TEXT,
-        entityId TEXT,
-        details TEXT,
-        userId TEXT,
-        timestamp TEXT,
-        accountSetId TEXT
-      );
-
-      -- 核销关系表
-      CREATE TABLE IF NOT EXISTS recRelations (
-        id TEXT PRIMARY KEY,
-        recRefNo TEXT,
-        debitEntryId TEXT,
-        creditEntryId TEXT,
-        amount REAL,
-        recDate TEXT,
-        partnerName TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (debitEntryId) REFERENCES entries(id),
-        FOREIGN KEY (creditEntryId) REFERENCES entries(id)
-      );
-
-      -- 资产分类表
-      CREATE TABLE IF NOT EXISTS assetCategories (
-        id TEXT PRIMARY KEY,
-        code TEXT UNIQUE,
-        name TEXT NOT NULL,
-        assetType TEXT NOT NULL,
-        defaultUsefulLifeYears INTEGER,
-        defaultDepreciationMethod TEXT,
-        defaultSalvageRate REAL DEFAULT 0.05,
-        assetSubjectCode TEXT,
-        depreciationSubjectCode TEXT,
-        expenseSubjectCode TEXT,
-        description TEXT,
-        sortOrder INTEGER DEFAULT 0,
-        enabled INTEGER DEFAULT 1,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 固定资产卡片表
-      CREATE TABLE IF NOT EXISTS fixedAssets (
-        id TEXT PRIMARY KEY,
-        assetCode TEXT UNIQUE,
-        assetName TEXT NOT NULL,
-        categoryId TEXT,
-        categoryName TEXT,
-        specification TEXT,
-        unit TEXT,
-        quantity INTEGER DEFAULT 1,
-        originalValue REAL NOT NULL,
-        salvageValue REAL DEFAULT 0,
-        depreciableValue REAL,
-        accumulatedDepreciation REAL DEFAULT 0,
-        netValue REAL,
-        depreciationMethod TEXT NOT NULL,
-        usefulLifeYears INTEGER,
-        usefulLifeMonths INTEGER,
-        totalUnits REAL,
-        unitsUsed REAL DEFAULT 0,
-        acquisitionDate TEXT NOT NULL,
-        depreciationStartDate TEXT,
-        lastDepreciationDate TEXT,
-        disposalDate TEXT,
-        status TEXT DEFAULT 'active',
-        location TEXT,
-        departmentCode TEXT,
-        departmentName TEXT,
-        assetSubjectCode TEXT,
-        assetSubjectName TEXT,
-        depreciationSubjectCode TEXT,
-        depreciationSubjectName TEXT,
-        expenseSubjectCode TEXT,
-        expenseSubjectName TEXT,
-        supplierName TEXT,
-        invoiceNo TEXT,
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 折旧记录表
-      CREATE TABLE IF NOT EXISTS depreciationRecords (
-        id TEXT PRIMARY KEY,
-        assetId TEXT NOT NULL,
-        assetCode TEXT,
-        assetName TEXT,
-        period TEXT NOT NULL,
-        depreciationDate TEXT NOT NULL,
-        periodDepreciation REAL NOT NULL,
-        accumulatedDepreciation REAL,
-        netValueAfter REAL,
-        unitsThisPeriod REAL,
-        unitDepreciationRate REAL,
-        voucherId TEXT,
-        voucherNo TEXT,
-        status TEXT DEFAULT 'draft',
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 无形资产表
-      CREATE TABLE IF NOT EXISTS intangibleAssets (
-        id TEXT PRIMARY KEY,
-        assetCode TEXT UNIQUE,
-        assetName TEXT NOT NULL,
-        assetType TEXT NOT NULL,
-        originalValue REAL NOT NULL,
-        residualValue REAL DEFAULT 0,
-        accumulatedAmortization REAL DEFAULT 0,
-        netValue REAL,
-        amortizationMethod TEXT NOT NULL,
-        usefulLifeYears INTEGER,
-        usefulLifeMonths INTEGER,
-        totalUnits REAL,
-        unitsUsed REAL DEFAULT 0,
-        acquisitionDate TEXT NOT NULL,
-        amortizationStartDate TEXT,
-        lastAmortizationDate TEXT,
-        expiryDate TEXT,
-        status TEXT DEFAULT 'active',
-        assetSubjectCode TEXT,
-        assetSubjectName TEXT,
-        amortizationSubjectCode TEXT,
-        amortizationSubjectName TEXT,
-        expenseSubjectCode TEXT,
-        expenseSubjectName TEXT,
-        registrationNo TEXT,
-        legalLifeYears INTEGER,
-        departmentCode TEXT,
-        departmentName TEXT,
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 待摊费用表
-      CREATE TABLE IF NOT EXISTS prepaidExpenses (
-        id TEXT PRIMARY KEY,
-        expenseCode TEXT UNIQUE,
-        expenseName TEXT NOT NULL,
-        expenseType TEXT NOT NULL,
-        originalAmount REAL NOT NULL,
-        amortizedAmount REAL DEFAULT 0,
-        remainingAmount REAL,
-        amortizationMethod TEXT DEFAULT 'straight_line',
-        amortizationPeriods INTEGER,
-        amortizedPeriods INTEGER DEFAULT 0,
-        periodAmount REAL,
-        paymentDate TEXT NOT NULL,
-        startDate TEXT NOT NULL,
-        endDate TEXT NOT NULL,
-        lastAmortizationDate TEXT,
-        status TEXT DEFAULT 'active',
-        prepaidSubjectCode TEXT,
-        prepaidSubjectName TEXT,
-        expenseSubjectCode TEXT,
-        expenseSubjectName TEXT,
-        supplierName TEXT,
-        invoiceNo TEXT,
-        contractNo TEXT,
-        departmentCode TEXT,
-        departmentName TEXT,
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 摊销记录表（统一用于无形资产和待摊费用）
-      CREATE TABLE IF NOT EXISTS amortizationRecords (
-        id TEXT PRIMARY KEY,
-        entityType TEXT NOT NULL,
-        entityId TEXT NOT NULL,
-        entityCode TEXT,
-        entityName TEXT,
-        period TEXT NOT NULL,
-        amortizationDate TEXT NOT NULL,
-        periodAmortization REAL NOT NULL,
-        accumulatedAmortization REAL,
-        remainingAmount REAL,
-        unitsThisPeriod REAL,
-        voucherId TEXT,
-        voucherNo TEXT,
-        status TEXT DEFAULT 'draft',
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 发票表
-      CREATE TABLE IF NOT EXISTS invoices (
-        id TEXT PRIMARY KEY,
-        invoiceType TEXT NOT NULL,
-        invoiceCode TEXT NOT NULL,
-        digitalInvoiceNo TEXT,
-        invoiceDate TEXT NOT NULL,
-        sellerName TEXT,
-        sellerTaxNo TEXT, -- 销方识别号
-        buyerName TEXT,
-        buyerTaxNo TEXT, -- 购方识别号
-        goodsName TEXT,
-        specification TEXT,
-        unit TEXT,
-        quantity REAL,
-        unitPrice REAL,
-        amount REAL NOT NULL,
-        taxRate REAL,
-        taxAmount REAL,
-        totalAmount REAL NOT NULL,
-        paymentStatus TEXT DEFAULT 'unpaid',
-        paidAmount REAL DEFAULT 0,
-        voucherId TEXT,
-        voucherNo TEXT,
-        partnerId TEXT,
-        partnerName TEXT,
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
-      );
-
-      -- 发票核销记录表
-      CREATE TABLE IF NOT EXISTS invoiceReconciliations (
-        id TEXT PRIMARY KEY,
-        invoiceId TEXT NOT NULL,
-        voucherId TEXT,
-        entryId TEXT,
-        amount REAL NOT NULL,
-        reconcileDate TEXT NOT NULL,
-        notes TEXT,
-        accountSetId TEXT,
-        createTime TEXT
-      );
-    `;
-
-    db.exec(tables);
-
-    // 创建索引
-    const indexes = `
-      CREATE INDEX IF NOT EXISTS idx_vouchers_accountSetId ON vouchers(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(date);
-      CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status);
-      CREATE INDEX IF NOT EXISTS idx_vouchers_voucherNo ON vouchers(voucherNo);
-      CREATE INDEX IF NOT EXISTS idx_entries_accountSetId ON entries(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_entries_voucherId ON entries(voucherId);
-      CREATE INDEX IF NOT EXISTS idx_entries_subjectCode ON entries(subjectCode);
-      CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
-      CREATE INDEX IF NOT EXISTS idx_entries_recRefNo ON entries(recRefNo);
-      CREATE INDEX IF NOT EXISTS idx_subjects_accountSetId ON subjects(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_subjects_code ON subjects(code);
-      CREATE INDEX IF NOT EXISTS idx_subjects_parentId ON subjects(parentId);
-      CREATE INDEX IF NOT EXISTS idx_departments_accountSetId ON departments(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_departments_code ON departments(code);
-      CREATE INDEX IF NOT EXISTS idx_projects_accountSetId ON projects(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_projects_code ON projects(code);
-      CREATE INDEX IF NOT EXISTS idx_currencies_accountSetId ON currencies(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_currencies_code ON currencies(code);
-      CREATE INDEX IF NOT EXISTS idx_partners_accountSetId ON partners(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_partners_code ON partners(code);
-      CREATE INDEX IF NOT EXISTS idx_voucherTemplates_accountSetId ON voucherTemplates(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_commonSummaries_accountSetId ON commonSummaries(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_userPreferences_accountSetId ON userPreferences(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_auditLogs_accountSetId ON auditLogs(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_recRelations_accountSetId ON recRelations(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_recRelations_recRefNo ON recRelations(recRefNo);
-
-      -- Asset indexes
-      CREATE INDEX IF NOT EXISTS idx_assetCategories_accountSetId ON assetCategories(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_assetCategories_code ON assetCategories(code);
-      CREATE INDEX IF NOT EXISTS idx_assetCategories_assetType ON assetCategories(assetType);
-      CREATE INDEX IF NOT EXISTS idx_fixedAssets_accountSetId ON fixedAssets(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_fixedAssets_assetCode ON fixedAssets(assetCode);
-      CREATE INDEX IF NOT EXISTS idx_fixedAssets_categoryId ON fixedAssets(categoryId);
-      CREATE INDEX IF NOT EXISTS idx_fixedAssets_status ON fixedAssets(status);
-      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_accountSetId ON depreciationRecords(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_assetId ON depreciationRecords(assetId);
-      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_period ON depreciationRecords(period);
-      CREATE INDEX IF NOT EXISTS idx_depreciationRecords_status ON depreciationRecords(status);
-      CREATE INDEX IF NOT EXISTS idx_intangibleAssets_accountSetId ON intangibleAssets(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_intangibleAssets_assetCode ON intangibleAssets(assetCode);
-      CREATE INDEX IF NOT EXISTS idx_intangibleAssets_status ON intangibleAssets(status);
-      CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_accountSetId ON prepaidExpenses(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_expenseCode ON prepaidExpenses(expenseCode);
-      CREATE INDEX IF NOT EXISTS idx_prepaidExpenses_status ON prepaidExpenses(status);
-      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_accountSetId ON amortizationRecords(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_entityId ON amortizationRecords(entityId);
-      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_period ON amortizationRecords(period);
-      CREATE INDEX IF NOT EXISTS idx_amortizationRecords_status ON amortizationRecords(status);
-
-      -- Invoice indexes
-      CREATE INDEX IF NOT EXISTS idx_invoices_accountSetId ON invoices(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_invoices_invoiceType ON invoices(invoiceType);
-      CREATE INDEX IF NOT EXISTS idx_invoices_invoiceCode ON invoices(invoiceCode);
-      CREATE INDEX IF NOT EXISTS idx_invoices_invoiceDate ON invoices(invoiceDate);
-      CREATE INDEX IF NOT EXISTS idx_invoices_partnerId ON invoices(partnerId);
-      CREATE INDEX IF NOT EXISTS idx_invoices_voucherId ON invoices(voucherId);
-      CREATE INDEX IF NOT EXISTS idx_invoices_paymentStatus ON invoices(paymentStatus);
-
-      -- Invoice Reconciliation indexes
-      CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_accountSetId ON invoiceReconciliations(accountSetId);
-      CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_invoiceId ON invoiceReconciliations(invoiceId);
-      CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
-    `;
-
-    db.exec(indexes);
-  }
 }
 
 export const accountSetDbManager = AccountSetDbManager.getInstance();

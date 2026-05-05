@@ -1,4 +1,3 @@
-import { accountSetDbManager } from './account-set-db-manager';
 import type {
   Voucher as _Voucher,
   VoucherEntry as _VoucherEntry,
@@ -53,7 +52,6 @@ export interface AuditLog {
 class SQLiteService {
   private dbInstance: any = null;
   private _accountSetId: string = 'default'; // 当前账套ID
-  private _usingAccountSetDb: boolean = false; // 是否使用账套数据库
 
   /** 写操作后立即持久化到 OPFS/localStorage/磁盘 */
   private async persist(): Promise<void> {
@@ -67,21 +65,13 @@ class SQLiteService {
 
   // 设置当前账套ID
   setAccountSetId(accountSetId: string) {
-    // 如果 ID 没变，不做任何操作，避免不必要地清空 dbInstance
     if (this._accountSetId === accountSetId) return;
     this._accountSetId = accountSetId;
-    this._usingAccountSetDb = (accountSetId !== 'default');
-    this.dbInstance = null; // 清除缓存的数据库实例
   }
 
   // 获取当前账套ID
   get accountSetId(): string {
     return this._accountSetId;
-  }
-
-  // 是否使用账套数据库（每个账套一个独立文件，不需要accountSetId字段）
-  get usingAccountSetDb(): boolean {
-    return this._usingAccountSetDb;
   }
 
   // 公开方法：获取数据库实例（带完整初始化和降级逻辑）
@@ -96,40 +86,11 @@ class SQLiteService {
       return this.dbInstance;
     }
 
-    let db: any = null;
-
-    // 尝试从 accountSetDbManager 获取当前账套的数据库
-    if (this._usingAccountSetDb && this._accountSetId) {
-      try {
-        // 先检查当前数据库是否已经打开
-        const currentDb = accountSetDbManager.getCurrentDatabase();
-        if (currentDb) {
-          this.dbInstance = currentDb;
-          return currentDb;
-        }
-
-        // 尝试打开账套数据库（如果文件句柄存在的话）
-        try {
-          await accountSetDbManager.openAccountSetDatabase(this._accountSetId);
-          const openedDb = accountSetDbManager.getCurrentDatabase();
-          if (openedDb) {
-            this.dbInstance = openedDb;
-            return openedDb;
-          }
-        } catch (openError) {
-          // 账套数据库文件不存在，回退到全局数据库
-          console.log('Account set database not found, falling back to global database:', openError);
-        }
-      } catch (error) {
-        console.error('Failed to get account set database:', error);
-      }
-    }
-
-    // 回退到全局 sqliteManager
+    // 从全局 sqliteManager 获取数据库
     try {
       const { sqliteManager } = await import('./sqlite-manager');
       await sqliteManager.init();
-      db = await sqliteManager.getDatabaseSafe();
+      const db = await sqliteManager.getDatabaseSafe();
       if (db) {
         this.dbInstance = db;
         return db;
@@ -143,7 +104,7 @@ class SQLiteService {
       const SQL = await (await import('sql.js')).default({
         locateFile: (file: string) => `/sqljs/${file}`,
       });
-      db = new SQL.Database();
+      const db = new SQL.Database();
       console.warn('Using in-memory database as last resort');
       this.dbInstance = db;
       return db;
@@ -1213,7 +1174,6 @@ class SQLiteService {
 
   /**
    * 迁移：为现有数据库添加 accountSetId 列
-   * 这是为了兼容性，处理使用 accountSetDbManager 创建的旧数据库
    */
   private async migrateAddAccountSetIdColumns(): Promise<void> {
     if (!this.dbInstance) return;
@@ -1223,7 +1183,7 @@ class SQLiteService {
       const pragma = this.dbInstance.exec("PRAGMA table_info(vouchers)");
       const hasAccountSetId = pragma[0]?.values?.some((row: any[]) => row[1] === 'accountSetId');
 
-      if (!hasAccountSetId && this._usingAccountSetDb) {
+      if (!hasAccountSetId) {
         console.log('Migrating database: adding accountSetId columns to existing tables...');
         const alterTables = `
           ALTER TABLE vouchers ADD COLUMN accountSetId TEXT;

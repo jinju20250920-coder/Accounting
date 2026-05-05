@@ -36,8 +36,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### 4. 数据持久化架构（双层）
 - **主数据层**：SQLite 数据库（`sqlite-service.ts`），存储凭证、科目、分录、银行流水、发票等所有业务数据
 - **UI状态层**：Zustand persist 中间件（`persistence-config.ts`），仅保存 UI 配置和少量状态
-- **数据库切换**：`lib/database/index.ts` 通过 `getCurrentService()` 返回 `sqliteService`（默认）或 `databaseService`（IndexedDB）
-- **账套隔离**：每个账套通过 `accountSetId` 字段隔离数据
+- **数据库切换**：`lib/database/index.ts` 通过 `getCurrentService()` 返回 `sqliteService`
+- **账套隔离**：统一使用"共享全局数据库 + accountSetId 过滤"模式，所有账套数据存储在同一个 SQLite 文件中，通过 `WHERE accountSetId = ?` 隔离
+
+### 5. 账套隔离架构（统一模式）
+- **单一数据库**：所有账套共享一个全局 SQLite 文件，不再为每个账套创建独立文件
+- **accountSetId 过滤**：所有业务表均有 `accountSetId` 列，查询时统一使用 `WHERE accountSetId = ?` 过滤
+- **账套切换**：`sqliteService.setAccountSetId()` 设置当前账套 ID，不涉及数据库文件切换
+- **账套管理**：`account-set-db-manager.ts` 负责账套 CRUD（创建/删除/重命名/导出/导入），均在全局数据库内操作
+- **删除安全**：`deleteAccountSet()` 使用事务（BEGIN/COMMIT/ROLLBACK）确保原子性
+- **多租户扩展路径**：未来加 `tenantId` 只需 `WHERE tenantId = ? AND accountSetId = ?`，层级：Tenant → AccountSet → 业务数据
 
 ---
 
@@ -218,8 +226,8 @@ src/
 │       ├── index.ts                # 数据库服务工厂（SQLite/IndexedDB切换）
 │       ├── sqlite-service.ts       # SQLite CRUD（核心数据持久化）
 │       ├── sqlite-manager.ts       # SQLite 连接管理
-│       ├── account-set-db-manager.ts # 账套数据库管理
-│       ├── file-handle-manager.ts  # 文件句柄管理（OPFS/FSA）
+│       ├── account-set-db-manager.ts # 账套管理（CRUD、导出/导入，全局数据库内操作）
+│       ├── file-handle-manager.ts  # 全局数据库文件句柄管理（OPFS/FSA）
 │       ├── service.ts              # IndexedDB 服务（兼容层）
 │       └── manager.ts              # IndexedDB 管理器
 ├── hooks/                          # 自定义Hooks
@@ -399,13 +407,22 @@ npm run lint
 - 通过 sql.js 在浏览器端运行 SQLite
 - 支持 OPFS（Origin Private File System）持久化
 - 自动数据库迁移（添加新表、新列）
-- 所有操作带 `accountSetId` 隔离
+- 所有操作带 `accountSetId` 隔离（统一模式，共享全局数据库）
 - `sqliteService` 通过 `@/lib/database` 导出，供 store 直接访问（如 `accountSetId` 同步）
+- `setAccountSetId()` 仅设置当前账套 ID，不切换数据库文件
+
+#### 账套管理器 (account-set-db-manager.ts)
+- 统一在全局数据库内操作，不再管理独立数据库文件
+- `createAccountSet()` — 在 accountSets 表插入记录
+- `deleteAccountSet()` — 事务删除该账套所有数据（30+表）
+- `updateAccountSetName()` — 更新账套名称
+- `getAccountSetInfo()` / `getAllAccountSets()` — 查询账套信息
+- `exportAccountSetData()` / `importAccountSetData()` — 按账套导出/导入数据
 
 #### 数据库索引
 - `lib/database/index.ts` 提供统一入口
-- `getCurrentService()` 返回当前数据库服务（默认 SQLite）
-- `getCurrentManager()` 返回当前数据库管理器
+- `getCurrentService()` 返回 `sqliteService`
+- `getCurrentManager()` 返回 `sqliteManager`
 - `sqliteService` 直接导出，用于 store 层同步 `accountSetId`
 
 ### 审计追踪 (useAuditStore)
@@ -550,6 +567,7 @@ npm run lint
 - ✅ 状态标签修复 - 已生成凭证显示"已入账"Badge而非凭证号，凭证号改为可点击链接
 - ✅ Tab切换修复 - 空数据tab不再隐藏整个tab栏，使用statusCounts判断hasAnyData
 - ✅ 代码简化 - 提取bank-match.ts共享模块消除重复，统一formatMoney替代内联formatAmount，清除debug日志
+- ✅ 账套隔离架构统一 - 移除独立文件模式，改为共享全局数据库 + accountSetId 过滤单一模式，删除2152行冗余代码
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
@@ -560,6 +578,8 @@ npm run lint
 6. **模板引擎与银行流水集成** - `template-engine.ts` 的银行模板（bank_deposit/bank_payment）未与银行导入流程集成
 7. **往来卡片辅助核算** - 生成凭证时往来科目分录未写入auxiliary字段中的供应商/客户卡片信息（已部分实现：auxiliary存储名称，凭证列表显示往来列）
 8. **销项发票业务组** - 销项发票页面暂未实现业务组配置（仅进项发票有业务组规则）
+9. **DataAdapter 适配层** - 未来 Electron/服务器双部署需抽象 DataAdapter（LocalAdapter=better-sqlite3, RemoteAdapter=PostgreSQL API）
+10. **用户/权限管理** - RBAC 权限模型，多租户 tenantId 隔离
 
 ---
 

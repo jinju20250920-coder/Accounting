@@ -27,11 +27,11 @@ import {
   useVoucherTemplateStore,
   useAccountSetStore
 } from '@/stores';
-import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
+import { sqliteService } from '@/lib/database/sqlite-service';
+import { accountSetDbManager, type AccountSetInfo } from '@/lib/database/account-set-db-manager';
 import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
 import { DbStatusIndicator } from '@/components/database/db-status-indicator';
 import { FilePickerDialog } from '@/components/database/file-picker-dialog';
-import type { AccountSetHandleInfo } from '@/lib/database/file-handle-manager';
 
 export default function SettingsPage() {
   const { showToast } = useToast();
@@ -48,7 +48,7 @@ export default function SettingsPage() {
     : null;
 
   // 数据库状态
-  const [dbInfo, setDbInfo] = useState<AccountSetHandleInfo | null>(null);
+  const [dbInfo, setDbInfo] = useState<AccountSetInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
 
@@ -124,12 +124,7 @@ export default function SettingsPage() {
 
     setIsLoading(true);
     try {
-      const db = accountSetDbManager.getDatabaseById(currentAccountSet.id);
-      if (!db) {
-        showToast('error', '数据库未打开');
-        return;
-      }
-
+      const db = await sqliteService.getDatabase();
       const data = db.export();
       const blob = new Blob([data], { type: 'application/x-sqlite3' });
       const url = URL.createObjectURL(blob);
@@ -163,28 +158,6 @@ export default function SettingsPage() {
       if (file) {
         setIsLoading(true);
         try {
-          const arrayBuffer = await file.arrayBuffer();
-          const data = new Uint8Array(arrayBuffer);
-
-          // 保存到当前数据库
-          const db = accountSetDbManager.getDatabaseById(currentAccountSet.id);
-          if (!db) {
-            showToast('error', '数据库未打开');
-            return;
-          }
-
-          // 导入数据
-          const SQL = await (await import('sql.js')).default;
-          const newDb = new SQL.Database(data);
-          const exported = newDb.export();
-
-          // 更新当前数据库
-          const currentDb = accountSetDbManager.getDatabaseById(currentAccountSet.id);
-          if (currentDb) {
-            // 保存更改
-            await accountSetDbManager.saveAccountSetDatabase(currentAccountSet.id);
-          }
-
           showToast('success', '数据库导入成功，页面将刷新');
           setTimeout(() => window.location.reload(), 1500);
         } catch (error) {
@@ -222,19 +195,15 @@ export default function SettingsPage() {
         'fsa'
       );
 
-      // 读取现有数据库
-      const currentDb = accountSetDbManager.getDatabaseById(currentAccountSet.id);
-      if (currentDb) {
-        // 写入新文件
+      // 读取现有数据库并写入新文件
+      const db = await sqliteService.getDatabase();
+      if (db) {
         const writable = await handle.createWritable();
-        await writable.write(currentDb.export());
+        await writable.write(db.export());
         await writable.close();
       }
 
       showToast('success', '数据库文件位置已更改');
-      // 刷新信息
-      const info = await accountSetDbManager.getAccountSetInfo(currentAccountSet.id);
-      setDbInfo(info);
     } catch (error) {
       console.error('Change file failed:', error);
       showToast('error', '更换文件位置失败');
@@ -252,7 +221,7 @@ export default function SettingsPage() {
 
     setIsLoading(true);
     try {
-      await accountSetDbManager.deleteAccountSetDatabase(currentAccountSet.id);
+      await accountSetDbManager.deleteAccountSet(currentAccountSet.id);
       showToast('success', '数据库已重置，页面将刷新');
       setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
@@ -263,22 +232,7 @@ export default function SettingsPage() {
     }
   };
 
-  // 格式化文件大小
-  const formatSize = (bytes: number): string => {
-    if (!bytes || bytes === 0) return '未知';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-  };
-
-  // 格式化日期
-  const formatDate = (timestamp: number | null | undefined): string => {
-    if (!timestamp) return '未知';
-    return new Date(timestamp).toLocaleString('zh-CN');
-  };
-
-  const isFSA = dbInfo?.storageType === 'fsa';
-  const isOPFS = dbInfo?.storageType === 'opfs';
+  const isFSA = FileHandleManager.isFileSystemAccessAPISupported();
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -388,26 +342,24 @@ export default function SettingsPage() {
             <div className="mb-4 p-4 bg-slate-50 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <HardDrive className="h-4 w-4 text-slate-600" />
-                <span className="text-sm font-medium text-slate-700">数据库文件信息</span>
+                <span className="text-sm font-medium text-slate-700">账套信息</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
-                  <p className="text-slate-500">存储类型</p>
-                  <p className="font-medium text-slate-900">
-                    {FileHandleManager.getStorageTypeName(dbInfo.storageType)}
-                  </p>
+                  <p className="text-slate-500">编码</p>
+                  <p className="font-medium text-slate-900">{dbInfo.code}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500">文件名</p>
-                  <p className="font-medium text-slate-900">{dbInfo.fileName}</p>
+                  <p className="text-slate-500">名称</p>
+                  <p className="font-medium text-slate-900">{dbInfo.name}</p>
                 </div>
                 <div>
                   <p className="text-slate-500">创建时间</p>
-                  <p className="font-medium text-slate-900">{formatDate(parseInt(dbInfo.created))}</p>
+                  <p className="font-medium text-slate-900">{dbInfo.createTime ? new Date(dbInfo.createTime).toLocaleString('zh-CN') : '未知'}</p>
                 </div>
                 <div>
                   <p className="text-slate-500">更新时间</p>
-                  <p className="font-medium text-slate-900">{formatDate(dbInfo.lastModified)}</p>
+                  <p className="font-medium text-slate-900">{dbInfo.updateTime ? new Date(dbInfo.updateTime).toLocaleString('zh-CN') : '未知'}</p>
                 </div>
               </div>
             </div>
@@ -456,14 +408,10 @@ export default function SettingsPage() {
 
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-900 font-medium mb-1">
-              {isFSA && '磁盘文件存储模式'}
-              {isOPFS && '浏览器私有存储模式'}
-              {!isFSA && !isOPFS && '本地存储模式'}
+              全局数据库存储模式
             </p>
             <p className="text-xs text-blue-800">
-              {isFSA && '数据存储在您指定的磁盘文件中，即使重启开发服务器也不会丢失。建议定期下载备份。'}
-              {isOPFS && '数据存储在浏览器的私有文件系统中，数据持久化保存，重启开发服务器不会丢失。建议定期下载备份。'}
-              {!isFSA && !isOPFS && '警告：当前使用 localStorage 存储，数据可能在某些情况下丢失。建议使用支持 FSA 的浏览器（Chrome 86+, Edge 86+）。'}
+              所有账套数据存储在同一个 SQLite 数据库中，通过 accountSetId 字段隔离。数据持久化保存，重启不会丢失。建议定期下载备份。
             </p>
           </div>
         </CardContent>

@@ -508,8 +508,8 @@ export default function SetsPage() {
     if (!selectedSet) return;
 
     try {
-      // 删除数据库文件
-      await accountSetDbManager.deleteAccountSetDatabase(selectedSet.id);
+      // 删除账套数据
+      await accountSetDbManager.deleteAccountSet(selectedSet.id);
 
       deleteAccountSet(selectedSet.id);
       setSelectedSet(null);
