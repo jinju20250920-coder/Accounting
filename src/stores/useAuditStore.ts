@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createAccountSetPersistConfig, DATA_VERSIONS } from './persistence-config';
+import { useAuthStore } from './useAuthStore';
 
 // 操作类型枚举
 enum OperationType {
@@ -333,9 +334,10 @@ export function logVoucherAction(
   details: any,
   result: 'success' | 'failed' = 'success',
   errorMessage?: string,
-  userId = 'current_user',
-  userName = '当前用户'
 ) {
+  const user = useAuthStore.getState().currentUser;
+  const userId = user?.id || 'current_user';
+  const userName = user?.displayName || '当前用户';
   useAuditStore.getState().addRecord({
     userId,
     userName,
@@ -370,9 +372,10 @@ export function logLogin(userId: string, userName: string, success: boolean) {
 
 // 便捷函数：记录导出
 export function logExport(type: 'voucher' | 'report', format: 'excel' | 'pdf' | 'csv') {
+  const user = useAuthStore.getState().currentUser;
   useAuditStore.getState().addRecord({
-    userId: 'current_user',
-    userName: '当前用户',
+    userId: user?.id || 'current_user',
+    userName: user?.displayName || '当前用户',
     operation: OperationType.EXPORT,
     entityType: type === 'voucher' ? 'voucher' : 'system',
     entityId: `export_${Date.now()}`,

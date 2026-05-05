@@ -145,6 +145,8 @@ class SQLiteService {
     await this.migrateAddInvoiceGroupName();
     await this.migrateFixedAssetLifecycle();
     await this.migrateBankTransactionsSourceColumn();
+    // 迁移：创建用户/角色/权限相关表
+    await this.migrateCreateUserTables();
   }
 
   /**
@@ -1951,7 +1953,214 @@ class SQLiteService {
     }
   }
 
-  // 获取资金概览数据
+  /**
+   * 迁移：创建用户/角色/权限相关表
+   */
+  private async migrateCreateUserTables(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      // 创建 users 表
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          passwordHash TEXT NOT NULL,
+          displayName TEXT NOT NULL,
+          email TEXT,
+          phone TEXT,
+          status TEXT DEFAULT 'active',
+          lastLoginTime TEXT,
+          createTime TEXT,
+          updateTime TEXT
+        )
+      `);
+
+      // 创建 roles 表
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS roles (
+          id TEXT PRIMARY KEY,
+          name TEXT UNIQUE NOT NULL,
+          displayName TEXT NOT NULL,
+          description TEXT,
+          isSystem INTEGER DEFAULT 0,
+          createTime TEXT,
+          updateTime TEXT
+        )
+      `);
+
+      // 创建 permissions 表
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS permissions (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          description TEXT
+        )
+      `);
+
+      // 创建 role_permissions 表
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS role_permissions (
+          roleId TEXT NOT NULL,
+          permissionId TEXT NOT NULL,
+          PRIMARY KEY (roleId, permissionId)
+        )
+      `);
+
+      // 创建 user_roles 表
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS user_roles (
+          userId TEXT NOT NULL,
+          roleId TEXT NOT NULL,
+          PRIMARY KEY (userId, roleId)
+        )
+      `);
+
+      // 创建 account_set_users 表
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS account_set_users (
+          accountSetId TEXT NOT NULL,
+          userId TEXT NOT NULL,
+          roleId TEXT NOT NULL,
+          PRIMARY KEY (accountSetId, userId)
+        )
+      `);
+
+      // 插入预设角色
+      const now = new Date().toISOString();
+      const roles = [
+        { id: 'role_admin', name: 'admin', displayName: '管理员', description: '拥有系统全部权限', isSystem: 1 },
+        { id: 'role_accountant', name: 'accountant', displayName: '会计', description: '凭证录入、审核、记账、报表查看、往来管理、发票管理、资产管理', isSystem: 1 },
+        { id: 'role_cashier', name: 'cashier', displayName: '出纳', description: '资金管理、银行流水导入、手动记账、凭证查看、报表查看', isSystem: 1 },
+      ];
+      for (const role of roles) {
+        const stmt = this.dbInstance.prepare(
+          `INSERT OR IGNORE INTO roles (id, name, displayName, description, isSystem, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        stmt.run([role.id, role.name, role.displayName, role.description, role.isSystem, now, now]);
+        stmt.free();
+      }
+
+      // 插入权限定义
+      const permissions = [
+        // 凭证
+        { id: 'voucher:create', name: '新增凭证', category: 'voucher' },
+        { id: 'voucher:edit', name: '编辑凭证', category: 'voucher' },
+        { id: 'voucher:delete', name: '删除凭证', category: 'voucher' },
+        { id: 'voucher:review', name: '审核凭证', category: 'voucher' },
+        { id: 'voucher:post', name: '记账', category: 'voucher' },
+        { id: 'voucher:reverse', name: '冲销', category: 'voucher' },
+        { id: 'voucher:view', name: '查看凭证', category: 'voucher' },
+        // 资金管理
+        { id: 'fund:import', name: '导入银行流水', category: 'fund' },
+        { id: 'fund:manual', name: '手动记一笔', category: 'fund' },
+        { id: 'fund:reconcile', name: '智能对账', category: 'fund' },
+        { id: 'fund:view', name: '查看资金管理', category: 'fund' },
+        // 发票
+        { id: 'invoice:import', name: '导入发票', category: 'invoice' },
+        { id: 'invoice:edit', name: '编辑发票', category: 'invoice' },
+        { id: 'invoice:delete', name: '删除发票', category: 'invoice' },
+        { id: 'invoice:view', name: '查看发票', category: 'invoice' },
+        // 报表
+        { id: 'report:view', name: '查看报表', category: 'report' },
+        // 资产
+        { id: 'asset:create', name: '新增资产', category: 'asset' },
+        { id: 'asset:edit', name: '编辑资产', category: 'asset' },
+        { id: 'asset:delete', name: '删除资产', category: 'asset' },
+        { id: 'asset:depreciate', name: '计提折旧/摊销', category: 'asset' },
+        { id: 'asset:view', name: '查看资产', category: 'asset' },
+        // 往来
+        { id: 'partner:manage', name: '管理往来单位', category: 'partner' },
+        { id: 'partner:view', name: '查看往来', category: 'partner' },
+        // 基础档案
+        { id: 'settings:manage', name: '管理基础档案', category: 'settings' },
+        { id: 'settings:view', name: '查看基础档案', category: 'settings' },
+        // 账套
+        { id: 'accountset:manage', name: '管理账套', category: 'accountset' },
+        { id: 'accountset:view', name: '查看账套', category: 'accountset' },
+        // 用户管理
+        { id: 'user:manage', name: '管理用户和角色', category: 'user' },
+        { id: 'user:view', name: '查看用户', category: 'user' },
+      ];
+      for (const perm of permissions) {
+        const stmt = this.dbInstance.prepare(
+          `INSERT OR IGNORE INTO permissions (id, name, category, description) VALUES (?, ?, ?, ?)`
+        );
+        stmt.run([perm.id, perm.name, perm.category, '']);
+        stmt.free();
+      }
+
+      // 管理员拥有全部权限
+      for (const perm of permissions) {
+        const stmt = this.dbInstance.prepare(
+          `INSERT OR IGNORE INTO role_permissions (roleId, permissionId) VALUES (?, ?)`
+        );
+        stmt.run(['role_admin', perm.id]);
+        stmt.free();
+      }
+
+      // 会计权限：凭证CRUD+审核+记账、报表、往来管理、发票管理、资产管理（不含冲销）
+      const accountantPerms = [
+        'voucher:create', 'voucher:edit', 'voucher:delete', 'voucher:review', 'voucher:post', 'voucher:view',
+        'fund:view',
+        'invoice:import', 'invoice:edit', 'invoice:view',
+        'report:view',
+        'asset:create', 'asset:edit', 'asset:depreciate', 'asset:view',
+        'partner:manage', 'partner:view',
+        'settings:view',
+        'accountset:view',
+        'user:view',
+      ];
+      for (const permId of accountantPerms) {
+        const stmt = this.dbInstance.prepare(
+          `INSERT OR IGNORE INTO role_permissions (roleId, permissionId) VALUES (?, ?)`
+        );
+        stmt.run(['role_accountant', permId]);
+        stmt.free();
+      }
+
+      // 出纳权限：资金管理、银行流水导入、手动记账、凭证查看、报表查看
+      const cashierPerms = [
+        'voucher:view',
+        'fund:import', 'fund:manual', 'fund:reconcile', 'fund:view',
+        'invoice:view',
+        'report:view',
+        'asset:view',
+        'partner:view',
+        'settings:view',
+        'accountset:view',
+        'user:view',
+      ];
+      for (const permId of cashierPerms) {
+        const stmt = this.dbInstance.prepare(
+          `INSERT OR IGNORE INTO role_permissions (roleId, permissionId) VALUES (?, ?)`
+        );
+        stmt.run(['role_cashier', permId]);
+        stmt.free();
+      }
+
+      // 创建默认管理员用户（密码: admin123）
+      // SHA-256 hash of 'admin123' with salt 'default'
+      const defaultPasswordHash = 'sha256:default:8938e28d00cc4d0b087f84900e8b17bb489132fb161466446704226cdc4ca338';
+      const userStmt = this.dbInstance.prepare(
+        `INSERT OR IGNORE INTO users (id, username, passwordHash, displayName, status, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      userStmt.run(['user_admin', 'admin', defaultPasswordHash, '管理员', 'active', now, now]);
+      userStmt.free();
+
+      // 分配管理员角色给默认用户
+      const urStmt = this.dbInstance.prepare(
+        `INSERT OR IGNORE INTO user_roles (userId, roleId) VALUES (?, ?)`
+      );
+      urStmt.run(['user_admin', 'role_admin']);
+      urStmt.free();
+
+      console.log('Migration: User/role/permission tables created with preset data');
+    } catch (error) {
+      console.error('Migration: Failed to create user tables', error);
+    }
+  }
   async getCashOverview(ourAccount: string, periodStart: string, periodEnd: string): Promise<{
     openingBalance: number;
     totalCredit: number;

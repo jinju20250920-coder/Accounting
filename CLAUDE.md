@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 框架：Next.js + React + shadcn/ui + Zustand + Tailwind CSS
 - 特性：Excel-like网格、凭证导入/流水生成、AI学习功能、凭证冲销、自动化模板引擎、状态机管理
 - 数据存储：SQLite 数据库（默认，通过 sql.js + OPFS），支持多账套管理和数据持久化
+- 用户管理：本地账号密码登录，预设角色（管理员/会计/出纳），权限矩阵，账套级用户授权
 
 ---
 
@@ -47,6 +48,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **删除安全**：`deleteAccountSet()` 使用事务（BEGIN/COMMIT/ROLLBACK）确保原子性
 - **多租户扩展路径**：未来加 `tenantId` 只需 `WHERE tenantId = ? AND accountSetId = ?`，层级：Tenant → AccountSet → 业务数据
 
+### 6. 用户与权限管理
+- **本地认证**：用户账号密码存储在 SQLite `users` 表，密码使用 SHA-256 + salt 哈希
+- **登录流程**：`useAuthStore` 管理登录状态，`AuthGuard` 组件拦截未登录访问，重定向到 `/login`
+- **默认管理员**：首次启动自动创建 admin/admin123 用户，分配管理员角色
+- **预设角色**：管理员（全部权限）、会计（凭证+报表+发票+资产）、出纳（资金+凭证查看+报表）
+- **自定义角色**：支持创建自定义角色并分配权限，权限按 category 分组（voucher/fund/invoice/report/asset/partner/settings/accountset/user）
+- **权限检查**：`usePermission` Hook 检查当前用户权限，Sidebar 菜单和页面按钮根据权限显示/隐藏
+- **账套授权**：`account_set_users` 表控制用户对账套的访问权限和角色，优先于全局 `user_roles`
+- **审计日志联动**：`logVoucherAction` 和 `logExport` 使用 `useAuthStore.currentUser` 记录真实用户
+
 ---
 
 ## 核心功能模块
@@ -76,6 +87,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 src/
 ├── app/
 │   ├── layout.tsx
+│   ├── login/page.tsx              # 登录页面
+│   ├── layout.tsx                  # 根布局（AuthGuard + AppLayout）
 │   ├── page.tsx                    # 仪表盘首页
 │   ├── balance/page.tsx            # 科目余额表
 │   ├── voucher-entry-page/         # 凭证录入
@@ -100,12 +113,16 @@ src/
 │   │   ├── currencies/             # 币别管理
 │   │   ├── summaries/              # 常用摘要
 │   │   ├── templates/              # 凭证模板
+│   │   ├── users/                  # 用户管理
+│   │   ├── roles/                  # 角色权限管理
 │   │   └── bank-accounts/          # 银行账户管理（含格式配置向导）
 │   └── partner-dashboard/          # 往来单位详情
 │   └── fund-hub/                   # 资金中心（结算看板）
 ├── components/
 │   ├── ui/                         # shadcn/ui 组件（16个）+ 中文日期/月份选择器
 │   ├── layout/                     # 布局（sidebar, VoucherLayout）
+│   │   ├── app-layout.tsx          # 应用布局（Sidebar + 内容区）
+│   │   ├── auth-guard.tsx          # 认证守卫（未登录重定向）
 │   │   ├── current-period-bar.tsx   # 当前期间指示栏
 │   │   └── current-period-wrapper.tsx # 当前期间包装器
 │   ├── voucher/                    # 凭证相关组件（15个）
@@ -119,6 +136,7 @@ src/
 │   ├── reports/                    # 报表组件（5个）
 │   ├── database/                   # 数据库管理组件（7个）
 │   ├── account-set/                # 账套管理组件（3个）
+│   │   └── account-set-members-dialog.tsx # 账套成员管理对话框
 │   ├── invoice-rule/               # 发票智能规则组件
 │   │   ├── purchase-invoice-rules.tsx # 采购发票规则设置（业务组表格、供应商矩阵）
 │   │   └── components/
@@ -154,9 +172,11 @@ src/
 │       ├── settlement-alerts.tsx   # 结算预警
 │       ├── due-date-calendar.tsx   # 到期日历
 │       └── counterparty-settlement.tsx # 往来单位结算
-├── stores/                         # Zustand 状态管理（22个Store）
+├── stores/                         # Zustand 状态管理（24个Store）
 │   ├── index.ts                    # Store 导出
 │   ├── persistence-config.ts       # 持久化配置（UI状态用localStorage）
+│   ├── useAuthStore.ts             # 认证状态（登录/登出/权限检查）
+│   ├── useUserStore.ts             # 用户/角色/权限 CRUD
 │   ├── useVoucherStore.ts          # 凭证录入
 │   ├── useSubjectStore.ts          # 科目管理
 │   ├── useInvoiceStore.ts          # 发票管理（含自动凭证生成）
@@ -181,6 +201,7 @@ src/
 │   └── useProjectStore.ts          # 项目管理
 ├── lib/                            # 核心业务逻辑
 │   ├── accounting.ts               # 会计引擎核心（含 getSmartMatch、formatMoney）
+│   ├── auth-utils.ts               # 密码哈希/验证（SHA-256 + salt）
 │   ├── bank-match.ts               # 银行科目自动匹配/创建（共享模块，供导入页和流水导入组件复用）
 │   ├── invoice-rule-engine.ts      # 发票智能规则引擎（条件匹配、动作执行、税金科目自动生成）
 │   ├── ai-learning.ts              # AI学习模块
@@ -236,6 +257,7 @@ src/
 │   ├── useErrorHandling.ts
 │   ├── useAccountSetSwitch.ts
 │   ├── useDatabaseSync.ts
+│   ├── usePermission.ts            # 权限检查Hook（usePermission/usePermissions/useAnyPermission）
 │   └── use-toast.ts
 └── types/
     ├── index.ts                    # 类型定义（1000+行）
@@ -568,6 +590,11 @@ npm run lint
 - ✅ Tab切换修复 - 空数据tab不再隐藏整个tab栏，使用statusCounts判断hasAnyData
 - ✅ 代码简化 - 提取bank-match.ts共享模块消除重复，统一formatMoney替代内联formatAmount，清除debug日志
 - ✅ 账套隔离架构统一 - 移除独立文件模式，改为共享全局数据库 + accountSetId 过滤单一模式，删除2152行冗余代码
+- ✅ 用户管理 - 本地账号密码登录、用户CRUD、启用/禁用、密码重置
+- ✅ 权限管理 - 预设角色（管理员/会计/出纳）、自定义角色、权限矩阵配置
+- ✅ 权限控制 - usePermission Hook、Sidebar菜单权限过滤、页面按钮权限控制
+- ✅ 账套用户授权 - account_set_users 表控制用户对账套的访问和角色
+- ✅ 审计日志联动 - 操作记录关联真实用户信息
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
@@ -579,7 +606,8 @@ npm run lint
 7. **往来卡片辅助核算** - 生成凭证时往来科目分录未写入auxiliary字段中的供应商/客户卡片信息（已部分实现：auxiliary存储名称，凭证列表显示往来列）
 8. **销项发票业务组** - 销项发票页面暂未实现业务组配置（仅进项发票有业务组规则）
 9. **DataAdapter 适配层** - 未来 Electron/服务器双部署需抽象 DataAdapter（LocalAdapter=better-sqlite3, RemoteAdapter=PostgreSQL API）
-10. **用户/权限管理** - RBAC 权限模型，多租户 tenantId 隔离
+10. **后端认证** - 当前为本地账号密码，后续对接后端 API 实现手机/邮箱登录
+11. **行级权限** - 当前仅菜单/按钮级权限，未来可扩展到数据行级隔离
 
 ---
 

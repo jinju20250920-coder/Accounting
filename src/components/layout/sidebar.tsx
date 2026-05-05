@@ -27,6 +27,7 @@ import {
   Lightbulb,
   Clock,
   ArrowDownCircle,
+  LogOut,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -43,50 +44,53 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { useToast } from '@/components/ui/toast';
 
 const menuItems = [
-  { icon: Home, label: '首页', path: '/' },
-  { icon: FolderKanban, label: '凭证', path: '/voucher-entry-page', children: [
-    { label: '新增凭证', path: '/voucher-entry-page' },
-    { label: '查看凭证', path: '/voucher-list' },
+  { icon: Home, label: '首页', path: '/', permission: '' },
+  { icon: FolderKanban, label: '凭证', path: '/voucher-entry-page', permission: 'voucher:view', children: [
+    { label: '新增凭证', path: '/voucher-entry-page', permission: 'voucher:create' },
+    { label: '查看凭证', path: '/voucher-list', permission: 'voucher:view' },
   ]},
-  { icon: Calculator, label: '科目余额', path: '/balance' },
-  { icon: FileSpreadsheet, label: '报表查询', path: '/reports', children: [
-    { label: '资产负债表', path: '/reports/assets' },
-    { label: '损益表', path: '/reports/profit' },
-    { label: '现金流量表', path: '/reports/cashflow' },
+  { icon: Calculator, label: '科目余额', path: '/balance', permission: 'report:view' },
+  { icon: FileSpreadsheet, label: '报表查询', path: '/reports', permission: 'report:view', children: [
+    { label: '资产负债表', path: '/reports/assets', permission: 'report:view' },
+    { label: '损益表', path: '/reports/profit', permission: 'report:view' },
+    { label: '现金流量表', path: '/reports/cashflow', permission: 'report:view' },
   ]},
-  { icon: Users, label: '往来管理', path: '/aging', children: [
-    { label: '往来单位管理', path: '/partner-dashboard' },
-    { label: '应收明细', path: '/aging/ar' },
-    { label: '应付明细', path: '/aging/ap' },
+  { icon: Users, label: '往来管理', path: '/aging', permission: 'partner:view', children: [
+    { label: '往来单位管理', path: '/partner-dashboard', permission: 'partner:view' },
+    { label: '应收明细', path: '/aging/ar', permission: 'partner:view' },
+    { label: '应付明细', path: '/aging/ap', permission: 'partner:view' },
   ]},
-  { icon: Upload, label: '资金管理', path: '/import', children: [
-    { label: '银行流水导入', path: '/import' },
-    { label: '资金结算中心', path: '/fund-hub' },
+  { icon: Upload, label: '资金管理', path: '/import', permission: 'fund:view', children: [
+    { label: '银行流水导入', path: '/import', permission: 'fund:view' },
+    { label: '资金结算中心', path: '/fund-hub', permission: 'fund:view' },
   ]},
-  { icon: FileText, label: '发票管理', path: '/invoices', children: [
-    { label: '进项发票', path: '/invoices/input' },
-    { label: '销项发票', path: '/invoices/output' },
-    { label: '发票资金一览表', path: '/invoices/summary' },
+  { icon: FileText, label: '发票管理', path: '/invoices', permission: 'invoice:view', children: [
+    { label: '进项发票', path: '/invoices/input', permission: 'invoice:view' },
+    { label: '销项发票', path: '/invoices/output', permission: 'invoice:view' },
+    { label: '发票资金一览表', path: '/invoices/summary', permission: 'invoice:view' },
   ]},
-  { icon: Package, label: '资产管理', path: '/assets', children: [
-    { label: '固定资产', path: '/assets/fixed' },
-    { label: '固定资产汇总表', path: '/assets/summary' },
-    { label: '待摊费用', path: '/assets/prepaid' },
+  { icon: Package, label: '资产管理', path: '/assets', permission: 'asset:view', children: [
+    { label: '固定资产', path: '/assets/fixed', permission: 'asset:view' },
+    { label: '固定资产汇总表', path: '/assets/summary', permission: 'asset:view' },
+    { label: '待摊费用', path: '/assets/prepaid', permission: 'asset:view' },
   ]},
-  { icon: Building2, label: '账套管理', path: '/sets' },
-  { icon: RefreshCw, label: '汇兑损益', path: '/exchange' },
-  { icon: Settings, label: '基础档案', path: '/settings', children: [
-    { label: '科目管理', path: '/settings/subjects' },
-    { label: '部门管理', path: '/settings/departments' },
-    { label: '项目管理', path: '/settings/projects' },
-    { label: '往来单位管理', path: '/settings/auxiliary' },
-    { label: '币别管理', path: '/settings/currencies' },
-    { label: '常用摘要库', path: '/settings/summaries' },
-    { label: '凭证模版', path: '/settings/templates' },
-    { label: '银行账户', path: '/settings/bank-accounts' },
+  { icon: Building2, label: '账套管理', path: '/sets', permission: 'accountset:view' },
+  { icon: RefreshCw, label: '汇兑损益', path: '/exchange', permission: 'voucher:view' },
+  { icon: Settings, label: '基础档案', path: '/settings', permission: 'settings:view', children: [
+    { label: '科目管理', path: '/settings/subjects', permission: 'settings:view' },
+    { label: '部门管理', path: '/settings/departments', permission: 'settings:view' },
+    { label: '项目管理', path: '/settings/projects', permission: 'settings:view' },
+    { label: '往来单位管理', path: '/settings/auxiliary', permission: 'settings:view' },
+    { label: '币别管理', path: '/settings/currencies', permission: 'settings:view' },
+    { label: '常用摘要库', path: '/settings/summaries', permission: 'settings:view' },
+    { label: '凭证模版', path: '/settings/templates', permission: 'settings:view' },
+    { label: '银行账户', path: '/settings/bank-accounts', permission: 'settings:view' },
+    { label: '用户管理', path: '/settings/users', permission: 'user:view' },
+    { label: '角色权限', path: '/settings/roles', permission: 'user:view' },
   ]},
 ];
 
@@ -290,6 +294,18 @@ export function Sidebar() {
     pricingPlans,
     currentPricingPlanId,
   } = useAccountSetStore();
+  const { currentUser, logout, hasPermission } = useAuthStore();
+
+  const visibleMenuItems = menuItems.filter(item => {
+    if (!item.permission) return true;
+    return hasPermission(item.permission);
+  }).map(item => ({
+    ...item,
+    children: item.children?.filter(child => {
+      if (!child.permission) return true;
+      return hasPermission(child.permission);
+    }),
+  }));
 
   const currentAccountSet = getCurrentAccountSet();
   const currentLicense = getCurrentLicense();
@@ -432,7 +448,7 @@ export function Sidebar() {
       {/* 菜单 */}
       <nav className="flex-1 py-4 overflow-y-auto">
         <ul className="space-y-1">
-          {menuItems.map((item) => (
+          {visibleMenuItems.map((item) => (
             <li key={item.label}>
               {item.children ? (
                 <div>
@@ -501,7 +517,20 @@ export function Sidebar() {
           <span>期间: {hasMounted ? (currentAccountSet?.currentPeriod || '2026-03') : '2026-03'}</span>
           <span>记-001</span>
         </div>
-        <div>操作员: 管理员</div>
+        <div>操作员: {hasMounted ? (currentUser?.displayName || '未登录') : '加载中...'}</div>
+        {currentUser && (
+          <div className="mt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800 h-7 px-1"
+              onClick={() => { logout(); window.location.href = '/login'; }}
+            >
+              <LogOut className="h-3.5 w-3.5 mr-2" />
+              退出登录
+            </Button>
+          </div>
+        )}
         {hasMounted && currentLicense && (
           <div className="mt-2 pt-2 border-t border-slate-700">
             <div className="flex items-center justify-between">

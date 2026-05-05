@@ -29,7 +29,8 @@ import {
   Play,
   Pause,
   RotateCcw,
-  ChevronRight
+  ChevronRight,
+  Users
 } from 'lucide-react';
 import { PeriodManagement } from '@/components/account-set/period-management';
 import { useToast } from '@/components/ui/toast';
@@ -41,6 +42,7 @@ import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle
 import type { AccountSetHandleInfo } from '@/lib/database/file-handle-manager';
 import { DbStatusIndicator, StorageTypeBadge } from '@/components/database/db-status-indicator';
 import { DatabaseLocationDialog } from '@/components/database/database-location-dialog';
+import { AccountSetMembersDialog } from '@/components/account-set/account-set-members-dialog';
 import initSqlJs from 'sql.js';
 
 interface AccountSetFormData {
@@ -80,6 +82,9 @@ export default function SetsPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showDbLocationDialog, setShowDbLocationDialog] = useState(false);
+  const [showMembersDialog, setShowMembersDialog] = useState(false);
+  const [membersAccountSetId, setMembersAccountSetId] = useState('');
+  const [membersAccountSetName, setMembersAccountSetName] = useState('');
 
   // 选中的账套
   const [selectedSet, setSelectedSet] = useState<AccountSet | null>(null);
@@ -707,6 +712,18 @@ export default function SetsPage() {
                       title="管理数据库位置"
                     >
                       <HardDrive className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setMembersAccountSetId(accountSet.id);
+                        setMembersAccountSetName(accountSet.name);
+                        setShowMembersDialog(true);
+                      }}
+                      title="成员管理"
+                    >
+                      <Users className="h-3 w-3" />
                     </Button>
                     <Button
                       size="sm"
