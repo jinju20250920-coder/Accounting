@@ -1,12 +1,11 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
-/**
- * 合并类名
- */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+export const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
 /**
  * 获取月份的最后一天日期 (YYYY-MM-DD 格式)

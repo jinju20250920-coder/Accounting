@@ -846,7 +846,7 @@ export type AmortizationMethod = 'straight_line' | 'units_of_production';
 export type IntangibleAssetType = 'patent' | 'trademark' | 'software' | 'copyright' | 'goodwill' | 'other';
 
 // 无形资产摊销状态
-export type AmortizationStatus = 'active' | 'fully_amortized' | 'disposed';
+export type AmortizationStatus = 'not_started' | 'active' | 'fully_amortized' | 'disposed';
 
 // 待摊费用类型
 export type PrepaidExpenseType = 'rent' | 'insurance' | 'subscription' | 'maintenance' | 'advertising' | 'other';

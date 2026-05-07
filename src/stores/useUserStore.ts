@@ -2,7 +2,8 @@
 
 import { create } from 'zustand';
 import { sqliteService } from '@/lib/database/sqlite-service';
-import { hashPassword } from '@/lib/auth-utils';
+import { hashPassword, verifyPassword } from '@/lib/auth-utils';
+import { generateId } from '@/lib/utils';
 
 export interface UserRecord {
   id: string;
@@ -56,6 +57,11 @@ interface UserStore {
   deleteUser: (id: string) => Promise<void>;
   resetPassword: (userId: string, newPassword: string) => Promise<void>;
   toggleUserStatus: (userId: string, status: string) => Promise<void>;
+
+  registerUser: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  approveUser: (userId: string, roleIds: string[]) => Promise<void>;
+  rejectUser: (userId: string) => Promise<void>;
+  changePassword: (userId: string, oldPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 
   loadRoles: () => Promise<void>;
   createRole: (name: string, displayName: string, description?: string) => Promise<RoleRecord | null>;
@@ -192,6 +198,96 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       await get().loadUsers();
     } catch (error) {
       console.error('Failed to toggle user status:', error);
+    }
+  },
+
+  registerUser: async (username, password) => {
+    try {
+      const db = await sqliteService.getDatabase();
+
+      const checkStmt = db.prepare(`SELECT id FROM users WHERE username = ?`);
+      checkStmt.bind([username]);
+      if (checkStmt.step()) {
+        checkStmt.free();
+        return { success: false, error: '用户名已存在' };
+      }
+      checkStmt.free();
+
+      const id = `user_${generateId()}`;
+      const now = new Date().toISOString();
+      const passwordHash = await hashPassword(password);
+
+      const stmt = db.prepare(
+        `INSERT INTO users (id, username, passwordHash, displayName, email, phone, status, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run([id, username, passwordHash, username, null, null, 'pending', now, now]);
+      stmt.free();
+
+      await get().loadUsers();
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to register user:', error);
+      return { success: false, error: '注册失败' };
+    }
+  },
+
+  approveUser: async (userId, roleIds) => {
+    try {
+      const db = await sqliteService.getDatabase();
+      const now = new Date().toISOString();
+
+      const stmt = db.prepare(`UPDATE users SET status = 'active', updateTime = ? WHERE id = ?`);
+      stmt.run([now, userId]);
+      stmt.free();
+
+      const delStmt = db.prepare(`DELETE FROM user_roles WHERE userId = ?`);
+      delStmt.run([userId]);
+      delStmt.free();
+
+      for (const roleId of roleIds) {
+        const urStmt = db.prepare(`INSERT OR IGNORE INTO user_roles (userId, roleId) VALUES (?, ?)`);
+        urStmt.run([userId, roleId]);
+        urStmt.free();
+      }
+
+      await get().loadUsers();
+    } catch (error) {
+      console.error('Failed to approve user:', error);
+    }
+  },
+
+  rejectUser: async (userId) => {
+    await get().deleteUser(userId);
+  },
+
+  changePassword: async (userId, oldPassword, newPassword) => {
+    try {
+      const db = await sqliteService.getDatabase();
+
+      const stmt = db.prepare(`SELECT passwordHash FROM users WHERE id = ?`);
+      stmt.bind([userId]);
+      if (!stmt.step()) {
+        stmt.free();
+        return { success: false, error: '用户不存在' };
+      }
+      const passwordHash = stmt.get()[0];
+      stmt.free();
+
+      const valid = await verifyPassword(oldPassword, passwordHash);
+      if (!valid) {
+        return { success: false, error: '旧密码不正确' };
+      }
+
+      const newHash = await hashPassword(newPassword);
+      const now = new Date().toISOString();
+      const updateStmt = db.prepare(`UPDATE users SET passwordHash = ?, updateTime = ? WHERE id = ?`);
+      updateStmt.run([newHash, now, userId]);
+      updateStmt.free();
+
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to change password:', error);
+      return { success: false, error: '修改密码失败' };
     }
   },
 

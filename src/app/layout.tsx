@@ -1,5 +1,6 @@
 'use client';
 
+import '@/app/globals.css';
 import { usePathname } from 'next/navigation';
 import { ToastProvider } from '@/components/ui/toast';
 import { AuthGuard } from '@/components/layout/auth-guard';

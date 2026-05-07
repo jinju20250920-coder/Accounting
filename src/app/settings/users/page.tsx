@@ -24,19 +24,28 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Users, UserPlus, Search, Pencil, Trash2, KeyRound, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Users, UserPlus, Search, Pencil, Trash2, KeyRound, ToggleLeft, ToggleRight, Check, X } from 'lucide-react';
+
+const STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  active: { label: '正常', className: 'bg-green-50 text-green-600 border-green-200' },
+  pending: { label: '待审批', className: 'bg-yellow-50 text-yellow-600 border-yellow-200' },
+  disabled: { label: '已禁用', className: 'bg-red-50 text-red-500 border-red-200' },
+};
 
 export default function UsersPage() {
   const { showToast } = useToast();
-  const { users, loadUsers, createUser, updateUser, deleteUser, resetPassword, toggleUserStatus } = useUserStore();
+  const { users, roles, loadUsers, loadRoles, createUser, updateUser, deleteUser, resetPassword, toggleUserStatus, approveUser, rejectUser } = useUserStore();
   const currentUser = useAuthStore((s) => s.currentUser);
 
   const [search, setSearch] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [resetUserId, setResetUserId] = useState('');
+  const [approveUserId, setApproveUserId] = useState('');
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
 
   // 新增用户表单
   const [newUsername, setNewUsername] = useState('');
@@ -55,7 +64,8 @@ export default function UsersPage() {
 
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+    loadRoles();
+  }, [loadUsers, loadRoles]);
 
   const filteredUsers = users.filter(u =>
     u.username.toLowerCase().includes(search.toLowerCase()) ||
@@ -136,6 +146,33 @@ export default function UsersPage() {
     setShowResetDialog(true);
   };
 
+  const openApproveDialog = (userId: string) => {
+    setApproveUserId(userId);
+    setSelectedRoleIds(['role_cashier']);
+    setShowApproveDialog(true);
+  };
+
+  const handleApprove = async () => {
+    if (selectedRoleIds.length === 0) {
+      showToast('error', '请至少选择一个角色');
+      return;
+    }
+    await approveUser(approveUserId, selectedRoleIds);
+    showToast('success', '用户已审批通过');
+    setShowApproveDialog(false);
+  };
+
+  const handleReject = async (userId: string) => {
+    await rejectUser(userId);
+    showToast('success', '已拒绝该用户注册');
+  };
+
+  const toggleRole = (roleId: string) => {
+    setSelectedRoleIds(prev =>
+      prev.includes(roleId) ? prev.filter(id => id !== roleId) : [...prev, roleId]
+    );
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
@@ -174,44 +211,60 @@ export default function UsersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.username}</TableCell>
-                  <TableCell>{user.displayName}</TableCell>
-                  <TableCell>{user.email || '-'}</TableCell>
-                  <TableCell>{user.phone || '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant={user.status === 'active' ? 'default' : 'secondary'}>
-                      {user.status === 'active' ? '启用' : '禁用'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-slate-500">
-                    {user.lastLoginTime ? new Date(user.lastLoginTime).toLocaleString('zh-CN') : '从未登录'}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => openEditDialog(user)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openResetDialog(user.id)}>
-                        <KeyRound className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(user.id, user.status)}>
-                        {user.status === 'active' ? (
-                          <ToggleLeft className="h-4 w-4 text-green-600" />
+              {filteredUsers.map((user) => {
+                const statusCfg = STATUS_BADGE[user.status] || STATUS_BADGE.disabled;
+                return (
+                  <TableRow key={user.id}>
+                    <TableCell className="font-medium">{user.username}</TableCell>
+                    <TableCell>{user.displayName}</TableCell>
+                    <TableCell>{user.email || '-'}</TableCell>
+                    <TableCell>{user.phone || '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={statusCfg.className}>
+                        {statusCfg.label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      {user.lastLoginTime ? new Date(user.lastLoginTime).toLocaleString('zh-CN') : '从未登录'}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {user.status === 'pending' ? (
+                          <>
+                            <Button variant="ghost" size="sm" className="text-green-600" onClick={() => openApproveDialog(user.id)} title="审批">
+                              <Check className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleReject(user.id)} title="拒绝">
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </>
                         ) : (
-                          <ToggleRight className="h-4 w-4 text-slate-400" />
+                          <>
+                            <Button variant="ghost" size="sm" onClick={() => openEditDialog(user)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => openResetDialog(user.id)}>
+                              <KeyRound className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(user.id, user.status)}>
+                              {user.status === 'active' ? (
+                                <ToggleLeft className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <ToggleRight className="h-4 w-4 text-slate-400" />
+                              )}
+                            </Button>
+                            {user.id !== currentUser?.id && (
+                              <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDelete(user.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </>
                         )}
-                      </Button>
-                      {user.id !== currentUser?.id && (
-                        <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDelete(user.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
 
@@ -301,6 +354,38 @@ export default function UsersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowResetDialog(false)}>取消</Button>
             <Button onClick={handleResetPassword}>重置</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 审批用户对话框 */}
+      <Dialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>审批用户</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">请为该用户分配角色：</p>
+            <div className="space-y-2">
+              {roles.map((role) => (
+                <label key={role.id} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedRoleIds.includes(role.id)}
+                    onChange={() => toggleRole(role.id)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">{role.displayName}</span>
+                  {role.description && (
+                    <span className="text-xs text-slate-400">({role.description})</span>
+                  )}
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowApproveDialog(false)}>取消</Button>
+            <Button onClick={handleApprove}>确认审批</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

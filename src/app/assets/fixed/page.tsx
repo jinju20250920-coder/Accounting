@@ -57,11 +57,8 @@ import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTem
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule } from '@/lib/depreciation';
 import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
-import { formatNumber, refreshVoucherStore } from '@/lib/utils';
+import { formatNumber, refreshVoucherStore, generateId } from '@/lib/utils';
 import type { FixedAsset, AssetCategory } from '@/types';
-
-// 生成唯一ID
-const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
 // 资产卡片对话框组件
 function AssetCardDialog({
@@ -1816,8 +1813,6 @@ export default function FixedAssetsPage() {
           initialize();
           setSelectedAsset(null);
         }}
-        categories={categories}
-        allAssets={assets}
       />
 
       {/* QR标签对话框 - 支持打印 */}

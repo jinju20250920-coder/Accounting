@@ -4,11 +4,13 @@ import { create } from 'zustand';
 import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import { calculatePeriodAmount } from '@/lib/amortization';
+import { generateId } from '@/lib/utils';
 import type {
   PrepaidExpense,
   AmortizationRecord,
   BatchAmortizationResult,
   PrepaidExpenseType,
+  AmortizationStatus,
 } from '@/types';
 
 interface PrepaidExpenseStore {
@@ -44,14 +46,14 @@ interface PrepaidExpenseStore {
   // 凭证生成
   generateAmortizationVoucher: (recordIds: string[], voucherDate: string) => Promise<{ voucherId: string; voucherNo: string } | null>;
 
+  // 更正摊销（红字冲销）
+  correctAmortizationRecord: (recordId: string, voucherDate: string) => Promise<{ voucherId: string; voucherNo: string } | null>;
+
   // 状态管理
   setSelectedExpenseId: (id: string | null) => void;
   clearError: () => void;
   initialize: () => Promise<void>;
 }
-
-// 生成唯一ID
-const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
 export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => ({
   // 初始状态
@@ -115,7 +117,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       amortizedAmount: expenseData.amortizedAmount || 0,
       remainingAmount: expenseData.originalAmount - (expenseData.amortizedAmount || 0),
       amortizedPeriods: expenseData.amortizedPeriods || 0,
-      status: expenseData.status || 'active',
+      status: expenseData.status || 'not_started',
       accountSetId: currentAccountSet?.id,
       createTime: now,
       updateTime: now,
@@ -133,7 +135,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           lastAmortizationDate, status, prepaidSubjectCode, prepaidSubjectName,
           expenseSubjectCode, expenseSubjectName, supplierName, invoiceNo, contractNo,
           departmentCode, departmentName, notes, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newExpense.id, newExpense.expenseCode, newExpense.expenseName,
@@ -288,7 +290,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
   // 计算本期摊销额
   calculatePeriodAmortization: (expenseId) => {
     const expense = get().expenses.find(e => e.id === expenseId);
-    if (!expense || expense.status !== 'active') return 0;
+    if (!expense || (expense.status !== 'active' && expense.status !== 'not_started')) return 0;
     return expense.periodAmount;
   },
 
@@ -306,8 +308,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         continue;
       }
 
-      if (expense.status !== 'active') {
-        errors.push({ entityId: expenseId, entityName: expense.expenseName, error: '待摊费用状态不是在用' });
+      if (expense.status !== 'active' && expense.status !== 'not_started') {
+        errors.push({ entityId: expenseId, entityName: expense.expenseName, error: '待摊费用状态不可摊销' });
         continue;
       }
 
@@ -444,7 +446,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
               remainingAmount: e.originalAmount - newAmortized,
               amortizedPeriods: newPeriods,
               lastAmortizationDate: relatedRecord.amortizationDate,
-              status: newPeriods >= e.amortizationPeriods ? 'fully_amortized' as const : 'active' as const,
+              status: newPeriods >= e.amortizationPeriods ? 'fully_amortized' as const : newPeriods > 0 ? 'active' as const : 'not_started' as const,
               updateTime: new Date().toISOString(),
             };
           }
@@ -460,7 +462,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
   // 获取在用待摊费用
   getActiveExpenses: () => {
-    return get().expenses.filter(e => e.status === 'active');
+    return get().expenses.filter(e => e.status === 'active' || e.status === 'not_started');
   },
 
   // 获取摊销历史
@@ -514,7 +516,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           paymentDate: item.paymentDate || item.startDate,
           startDate: item.startDate,
           endDate: item.endDate,
-          status: 'active',
+          status: 'not_started',
           prepaidSubjectCode: item.prepaidSubjectCode || '1811',
           expenseSubjectCode: item.expenseSubjectCode || '660205',
           supplierName: item.supplierName,
@@ -822,6 +824,204 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       return { voucherId, voucherNo };
     } catch (error: any) {
       set({ error: error.message || '生成摊销凭证失败' });
+      throw error;
+    }
+  },
+
+  // 更正摊销（红字冲销）：生成负数摊销记录 + 红字凭证，回退费用累计
+  correctAmortizationRecord: async (recordId, voucherDate) => {
+    const state = get();
+    const record = state.amortizationRecords.find(r => r.id === recordId);
+    if (!record) {
+      set({ error: '摊销记录不存在' });
+      return null;
+    }
+    if (record.status !== 'posted') {
+      set({ error: '只能更正已记账的摊销记录' });
+      return null;
+    }
+
+    const expense = state.expenses.find(e => e.id === record.entityId);
+    if (!expense) {
+      set({ error: '对应的待摊费用不存在' });
+      return null;
+    }
+
+    // 校验入账日期是否在当前账期内
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+    const currentPeriod = currentAccountSet?.accountingPeriods?.find(p => p.isCurrent);
+    if (currentPeriod) {
+      const voucherPeriod = voucherDate.substring(0, 7);
+      const currentPeriodStr = `${currentPeriod.year}-${String(currentPeriod.month).padStart(2, '0')}`;
+      if (voucherPeriod !== currentPeriodStr) {
+        set({ error: `更正入账日期必须在当前账期（${currentPeriodStr}）内` });
+        return null;
+      }
+    }
+
+    // 校验该记录是否已被更正（已有指向它的红字冲销记录）
+    const hasCorrection = state.amortizationRecords.some(
+      r => r.entityId === record.entityId && r.entityType === 'prepaid'
+        && r.periodAmortization < 0 && r.notes?.includes(record.id)
+    );
+    if (hasCorrection) {
+      set({ error: '该摊销记录已被更正，不可重复更正' });
+      return null;
+    }
+
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetId = currentAccountSet?.id;
+      if (!accountSetId) { set({ error: '请先选择账套' }); return null; }
+
+      sqliteService.setAccountSetId(accountSetId);
+      const db = await sqliteService.getDatabase();
+      if (!db) { set({ error: '数据库未初始化' }); return null; }
+
+      const now = new Date().toISOString();
+
+      // 1. 生成红字凭证号
+      const yearMonth = voucherDate.substring(0, 7).replace('-', '');
+      const vouchersResult = db.exec(
+        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [accountSetId, `记-${yearMonth}-%`]
+      );
+      let lastSeq = 0;
+      if (vouchersResult[0]?.values?.length > 0) {
+        const match = (vouchersResult[0].values[0][0] as string).match(/-(\d{3})$/);
+        if (match) lastSeq = parseInt(match[1], 10);
+      }
+      const voucherNo = `记-${yearMonth}-${String(lastSeq + 1).padStart(3, '0')}`;
+      const voucherId = generateId();
+
+      // 2. 创建红字凭证（借贷反转，金额为负）
+      const expenseCode = expense.expenseSubjectCode || '660205';
+      const expenseName = expense.expenseSubjectName || '管理费用-摊销费';
+      const prepaidCode = expense.prepaidSubjectCode || '1811';
+      const prepaidName = expense.prepaidSubjectName || '待摊费用';
+      const amount = record.periodAmortization;
+
+      let stmt = db.prepare(
+        `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run([voucherId, voucherNo, voucherDate, 'posted', `更正摊销-红字冲销`, 'system', accountSetId, now, now]);
+      stmt.free();
+
+      // 红字分录：贷方费用科目（冲销原借方）
+      const entryId1 = generateId();
+      stmt = db.prepare(
+        `INSERT INTO entries (
+          id, voucherId, subjectCode, subjectName, direction, debit, credit,
+          summary, customerName, supplierName, auxiliary, recRefNo,
+          departmentCode, departmentName, projectCode, projectName,
+          currencyCode, exchangeRate, originalAmount, date, accountSetId,
+          createTime, updateTime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run([
+        entryId1, voucherId, expenseCode, expenseName, 'credit', 0, amount,
+        `更正摊销-红字冲销`, '', '', '{}', '',
+        '', '', '', '',
+        '', 0, 0, voucherDate, accountSetId, now, now
+      ]);
+      stmt.free();
+
+      // 红字分录：借方待摊科目（冲销原贷方）
+      const entryId2 = generateId();
+      stmt = db.prepare(
+        `INSERT INTO entries (
+          id, voucherId, subjectCode, subjectName, direction, debit, credit,
+          summary, customerName, supplierName, auxiliary, recRefNo,
+          departmentCode, departmentName, projectCode, projectName,
+          currencyCode, exchangeRate, originalAmount, date, accountSetId,
+          createTime, updateTime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run([
+        entryId2, voucherId, prepaidCode, prepaidName, 'debit', amount, 0,
+        `更正摊销-红字冲销`, '', '', '{}', '',
+        '', '', '', '',
+        '', 0, 0, voucherDate, accountSetId, now, now
+      ]);
+      stmt.free();
+
+      // 3. 创建负数摊销记录
+      const correctionRecord: AmortizationRecord = {
+        id: generateId(),
+        entityType: 'prepaid',
+        entityId: expense.id,
+        entityCode: expense.expenseCode,
+        entityName: expense.expenseName,
+        period: voucherDate.substring(0, 7),
+        amortizationDate: voucherDate,
+        periodAmortization: -amount,
+        accumulatedAmortization: expense.amortizedAmount - amount,
+        remainingAmount: expense.remainingAmount + amount,
+        status: 'posted',
+        voucherId,
+        voucherNo,
+        notes: `更正：冲销 ${record.period} 期摊销 ¥${amount.toFixed(2)} [原记录:${record.id}]`,
+        accountSetId: expense.accountSetId,
+        createTime: now,
+        updateTime: now,
+      };
+
+      stmt = db.prepare(
+        `INSERT INTO amortizationRecords (
+          id, entityType, entityId, entityCode, entityName,
+          period, amortizationDate, periodAmortization, accumulatedAmortization, remainingAmount,
+          unitsThisPeriod, voucherId, voucherNo, status, notes,
+          accountSetId, createTime, updateTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      );
+      stmt.run([
+        correctionRecord.id, correctionRecord.entityType, correctionRecord.entityId,
+        correctionRecord.entityCode, correctionRecord.entityName,
+        correctionRecord.period, correctionRecord.amortizationDate,
+        correctionRecord.periodAmortization, correctionRecord.accumulatedAmortization,
+        correctionRecord.remainingAmount,
+        null, correctionRecord.voucherId, correctionRecord.voucherNo,
+        correctionRecord.status, correctionRecord.notes,
+        correctionRecord.accountSetId, correctionRecord.createTime, correctionRecord.updateTime,
+      ]);
+      stmt.free();
+
+      // 4. 回退待摊费用累计
+      const newAmortized = expense.amortizedAmount - amount;
+      const newRemaining = expense.originalAmount - newAmortized;
+      const newPeriods = Math.max(0, expense.amortizedPeriods - 1);
+      const newStatus = newPeriods <= 0 ? 'not_started' : (newPeriods >= expense.amortizationPeriods ? 'fully_amortized' : 'active');
+
+      stmt = db.prepare(
+        `UPDATE prepaidExpenses SET
+          amortizedAmount = ?, remainingAmount = ?, amortizedPeriods = ?,
+          status = ?, updateTime = ?
+        WHERE id = ?`
+      );
+      stmt.run([newAmortized, newRemaining, newPeriods, newStatus, now, expense.id]);
+      stmt.free();
+
+      // 5. 更新本地状态
+      set((state) => ({
+        amortizationRecords: [...state.amortizationRecords, correctionRecord],
+        expenses: state.expenses.map(e =>
+          e.id === expense.id ? {
+            ...e,
+            amortizedAmount: newAmortized,
+            remainingAmount: newRemaining,
+            amortizedPeriods: newPeriods,
+            status: newStatus as AmortizationStatus,
+            updateTime: now,
+          } : e
+        ),
+        error: null,
+      }));
+
+      return { voucherId, voucherNo };
+    } catch (error: any) {
+      set({ error: error.message || '更正摊销失败' });
       throw error;
     }
   },

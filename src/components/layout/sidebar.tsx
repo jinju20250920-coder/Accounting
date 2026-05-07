@@ -28,8 +28,10 @@ import {
   Clock,
   ArrowDownCircle,
   LogOut,
+  KeyRound,
+  User,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -46,6 +48,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useToast } from '@/components/ui/toast';
+import { ChangePasswordDialog } from '@/components/shared/change-password-dialog';
 
 const menuItems = [
   { icon: Home, label: '首页', path: '/', permission: '' },
@@ -284,6 +287,8 @@ export function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const [showLicenseDialog, setShowLicenseDialog] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const {
     accountSets,
@@ -519,16 +524,38 @@ export function Sidebar() {
         </div>
         <div>操作员: {hasMounted ? (currentUser?.displayName || '未登录') : '加载中...'}</div>
         {currentUser && (
-          <div className="mt-2">
+          <div className="mt-2 relative">
             <Button
               variant="ghost"
               size="sm"
               className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800 h-7 px-1"
-              onClick={() => { logout(); window.location.href = '/login'; }}
+              onClick={() => setShowUserMenu(!showUserMenu)}
             >
-              <LogOut className="h-3.5 w-3.5 mr-2" />
-              退出登录
+              <User className="h-3.5 w-3.5 mr-2" />
+              {currentUser.displayName}
+              <ChevronDown className="h-3 w-3 ml-auto" />
             </Button>
+            {showUserMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
+                <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 rounded-lg shadow-lg z-20 overflow-hidden">
+                  <button
+                    className="w-full px-4 py-2 text-left text-sm text-slate-300 hover:bg-slate-700 flex items-center gap-2"
+                    onClick={() => { setShowUserMenu(false); setShowChangePassword(true); }}
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    修改密码
+                  </button>
+                  <button
+                    className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
+                    onClick={() => { setShowUserMenu(false); logout(); window.location.href = '/login'; }}
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    退出登录
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
         {hasMounted && currentLicense && (
@@ -545,6 +572,12 @@ export function Sidebar() {
       <LicenseActivationDialog
         open={showLicenseDialog}
         onOpenChange={setShowLicenseDialog}
+      />
+
+      {/* 修改密码对话框 */}
+      <ChangePasswordDialog
+        open={showChangePassword}
+        onOpenChange={setShowChangePassword}
       />
     </div>
   );

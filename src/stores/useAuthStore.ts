@@ -20,8 +20,7 @@ interface AuthStore {
   isAuthenticated: boolean;
   permissions: string[];
   currentRoleId: string | null;
-
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<string | null>;
   logout: () => void;
   getCurrentUser: () => User | null;
   hasPermission: (permissionId: string) => boolean;
@@ -37,7 +36,7 @@ export const useAuthStore = create<AuthStore>()(
       permissions: [],
       currentRoleId: null,
 
-      login: async (username: string, password: string): Promise<boolean> => {
+      login: async (username: string, password: string, rememberMe?: boolean): Promise<string | null> => {
         try {
           const db = await sqliteService.getDatabase();
 
@@ -47,7 +46,7 @@ export const useAuthStore = create<AuthStore>()(
 
           if (!hasRow) {
             stmt.free();
-            return false;
+            return '用户名或密码错误';
           }
 
           const row = stmt.get();
@@ -62,10 +61,22 @@ export const useAuthStore = create<AuthStore>()(
           const passwordHash = row[6];
           const lastLoginTime = row[7];
 
-          if (status !== 'active') return false;
+          if (status === 'pending') {
+            return '账号待审批，请联系管理员';
+          }
+
+          if (status === 'disabled') {
+            return '账号已禁用';
+          }
+
+          if (status !== 'active') {
+            return '账号状态异常';
+          }
 
           const valid = await verifyPassword(password, passwordHash);
-          if (!valid) return false;
+          if (!valid) {
+            return '用户名或密码错误';
+          }
 
           const user: User = {
             id: userId,
@@ -87,15 +98,22 @@ export const useAuthStore = create<AuthStore>()(
           updateStmt.run([now, userId]);
           updateStmt.free();
 
+          // 记住密码
+          if (rememberMe) {
+            localStorage.setItem('saved_credentials', JSON.stringify({ username }));
+          } else {
+            localStorage.removeItem('saved_credentials');
+          }
+
           set({
             currentUser: user,
             isAuthenticated: true,
           });
 
-          return true;
+          return null;
         } catch (error) {
           console.error('Login failed:', error);
-          return false;
+          return '登录失败';
         }
       },
 

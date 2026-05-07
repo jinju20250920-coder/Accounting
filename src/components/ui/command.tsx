@@ -69,4 +69,16 @@ const CommandItem = React.forwardRef<
 ))
 CommandItem.displayName = "CommandItem"
 
-export { Command, CommandInput, CommandEmpty, CommandGroup, CommandItem }
+const CommandList = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={`overflow-y-auto overflow-x-hidden ${className}`}
+    {...props}
+  />
+))
+CommandList.displayName = "CommandList"
+
+export { Command, CommandInput, CommandEmpty, CommandGroup, CommandItem, CommandList }
