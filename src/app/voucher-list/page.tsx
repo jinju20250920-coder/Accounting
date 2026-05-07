@@ -22,7 +22,9 @@ import {
   ArrowUpDown,
   CheckSquare,
   Square,
-  RefreshCw
+  RefreshCw,
+  LayoutList,
+  Table2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +39,7 @@ import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { Voucher as VoucherType, VoucherEntry as VoucherEntryType } from '@/types';
 import { toChineseAmount } from '@/lib/chinese-number';
+import { formatMoney } from '@/lib/accounting';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { DatabaseManager } from '@/components/DatabaseManager';
 
@@ -236,6 +239,46 @@ export default function VoucherListPage() {
   const { showToast } = useToast();
   const currentAccountSet = getCurrentAccountSet();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'gl'>('list');
+  const handleViewModeChange = (mode: 'list' | 'gl') => {
+    setViewMode(mode);
+    setCurrentPage(1);
+  };
+
+  const voucherMap = useMemo(() => {
+    const m = new Map<string, Voucher>();
+    filteredVouchers.forEach(v => m.set(v.id, v));
+    return m;
+  }, [filteredVouchers]);
+
+  const glRows = useMemo(() => filteredVouchers.flatMap(voucher =>
+    voucher.entries
+      .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
+      .map((entry, idx) => ({
+        voucherId: voucher.id,
+        voucherNo: voucher.voucherNo,
+        date: voucher.date,
+        voucherType: voucher.voucherType,
+        status: voucher.status,
+        createdBy: voucher.createdBy,
+        subjectCode: entry.subjectCode,
+        subjectName: entry.subjectName,
+        summary: entry.summary,
+        debit: entry.debit,
+        credit: entry.credit,
+        currencyCode: entry.currencyCode,
+        originalAmount: entry.originalAmount,
+        auxiliary: entry.auxiliary,
+        customerName: entry.customerName,
+        supplierName: entry.supplierName,
+        deptCode: entry.deptCode,
+        projectCode: entry.projectCode,
+        cashFlowItem: entry.cashFlowItem,
+        docNo: entry.docNo,
+        recRefNo: entry.recRefNo,
+        _isFirst: idx === 0,
+      }))
+  ), [filteredVouchers]);
 
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
@@ -490,54 +533,100 @@ export default function VoucherListPage() {
   }, [showToast]);
 
   const handleExport = () => {
-    // 导出为CSV
-    const headers = ['凭证号', '日期', '摘要', '往来单位', '项目', '创建人', '创建时间', '状态', '借方合计', '贷方合计'];
-    const rows = filteredVouchers.map(v => {
-      const debitTotal = v.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
-      const creditTotal = v.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+    if (viewMode === 'gl') {
+      // GL 序列视图导出：每行一条分录，全字段
+      const headers = ['序号', '凭证号', '日期', '凭证类型', '状态', '摘要', '科目代码', '科目名称', '借方金额', '贷方金额', '币别', '原币金额', '往来单位', '部门', '项目', '现金流量', '业务单据号', '核销单号', '创建人'];
+      const glRows = filteredVouchers.flatMap(voucher =>
+        voucher.entries
+          .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
+          .map((entry, idx) => ({
+            voucherNo: voucher.voucherNo,
+            date: voucher.date,
+            voucherType: voucher.voucherType,
+            status: voucher.status,
+            createdBy: voucher.createdBy,
+            ...entry,
+          }))
+      );
+      const rows = glRows.map((row, idx) => [
+        idx + 1,
+        row.voucherNo,
+        row.date,
+        typeConfig[row.voucherType as keyof typeof typeConfig],
+        statusConfig[row.status as keyof typeof statusConfig].label,
+        row.summary || '',
+        row.subjectCode || '',
+        row.subjectName || '',
+        row.debit > 0 ? row.debit.toFixed(2) : '',
+        row.credit > 0 ? row.credit.toFixed(2) : '',
+        row.currencyCode || '',
+        row.originalAmount > 0 ? row.originalAmount.toFixed(2) : '',
+        row.auxiliary?.customer || row.auxiliary?.supplier || row.customerName || row.supplierName || '',
+        row.auxiliary?.department || row.deptCode || '',
+        row.auxiliary?.project || row.projectCode || '',
+        row.cashFlowItem || '',
+        row.docNo || '',
+        row.recRefNo || '',
+        row.createdBy || '',
+      ]);
+      const csvContent = [headers, ...rows]
+        .map(row => row.map(cell => `"${cell}"`).join(','))
+        .join('\n');
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `GL凭证序列_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      // 列表视图导出
+      const headers = ['凭证号', '日期', '摘要', '往来单位', '项目', '创建人', '创建时间', '状态', '借方合计', '贷方合计'];
+      const rows = filteredVouchers.map(v => {
+        const debitTotal = v.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
+        const creditTotal = v.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
 
-      // 提取往来单位（客户或供应商）
-      const partnerNames = new Set<string>();
-      v.entries.forEach(entry => {
-        if (entry.auxiliary?.customer) partnerNames.add(entry.auxiliary.customer);
-        if (entry.auxiliary?.supplier) partnerNames.add(entry.auxiliary.supplier);
-        if (entry.customerName) partnerNames.add(entry.customerName);
-        if (entry.supplierName) partnerNames.add(entry.supplierName);
+        const partnerNames = new Set<string>();
+        v.entries.forEach(entry => {
+          if (entry.auxiliary?.customer) partnerNames.add(entry.auxiliary.customer);
+          if (entry.auxiliary?.supplier) partnerNames.add(entry.auxiliary.supplier);
+          if (entry.customerName) partnerNames.add(entry.customerName);
+          if (entry.supplierName) partnerNames.add(entry.supplierName);
+        });
+
+        const projectNames = new Set<string>();
+        v.entries.forEach(entry => {
+          if (entry.projectCode) projectNames.add(entry.projectCode);
+          if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
+        });
+
+        return [
+          v.voucherNo,
+          v.date,
+          v.summary || '',
+          Array.from(partnerNames).join('; '),
+          Array.from(projectNames).join('; '),
+          v.createdBy || '',
+          v.createTime ? new Date(v.createTime).toLocaleString('zh-CN') : '',
+          statusConfig[v.status as keyof typeof statusConfig].label,
+          debitTotal.toFixed(2),
+          creditTotal.toFixed(2)
+        ];
       });
 
-      // 提取项目
-      const projectNames = new Set<string>();
-      v.entries.forEach(entry => {
-        if (entry.projectCode) projectNames.add(entry.projectCode);
-        if (entry.auxiliary?.project) projectNames.add(entry.auxiliary.project);
-      });
-
-      return [
-        v.voucherNo,
-        v.date,
-        v.summary || '',
-        Array.from(partnerNames).join('; '),
-        Array.from(projectNames).join('; '),
-        v.createdBy || '',
-        v.createTime ? new Date(v.createTime).toLocaleString('zh-CN') : '',
-        statusConfig[v.status as keyof typeof statusConfig].label,
-        debitTotal.toFixed(2),
-        creditTotal.toFixed(2)
-      ];
-    });
-
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `凭证列表_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const csvContent = [headers, ...rows]
+        .map(row => row.map(cell => `"${cell}"`).join(','))
+        .join('\n');
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `凭证列表_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const toggleSort = (field: 'date' | 'voucherNo') => {
@@ -559,6 +648,27 @@ export default function VoucherListPage() {
           <p className="text-slate-500 mt-1">查看和管理所有凭证记录</p>
         </div>
         <div className="flex gap-2">
+          {/* 视图切换 */}
+          <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="sm"
+              className={`rounded-none ${viewMode === 'list' ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+              onClick={() => handleViewModeChange('list')}
+            >
+              <LayoutList className="w-4 h-4 mr-1" />
+              列表
+            </Button>
+            <Button
+              variant={viewMode === 'gl' ? 'default' : 'ghost'}
+              size="sm"
+              className={`rounded-none ${viewMode === 'gl' ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+              onClick={() => handleViewModeChange('gl')}
+            >
+              <Table2 className="w-4 h-4 mr-1" />
+              GL序列
+            </Button>
+          </div>
           {selectedDraftVouchers.length > 0 && (
             <Button variant="destructive" onClick={handleBatchDeleteDraft}>
               <Trash2 className="w-4 h-4 mr-2" />
@@ -675,7 +785,8 @@ export default function VoucherListPage() {
         </CardContent>
       </Card>
 
-      {/* 凭证列表 */}
+      {/* 凭证列表 / GL序列视图 */}
+      {viewMode === 'list' ? (
       <Card className="border-slate-200">
         <CardContent className="p-0">
           {filteredVouchers.length === 0 ? (
@@ -898,8 +1009,188 @@ export default function VoucherListPage() {
           )}
         </CardContent>
       </Card>
+      ) : (
+      /* GL 序列视图 */
+      <Card className="border-slate-200">
+        <CardContent className="p-0">
+          {glRows.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <Table2 className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+              <p className="text-lg font-medium mb-2">暂无凭证记录</p>
+              <p className="text-sm">点击"新增凭证"开始创建第一张凭证</p>
+            </div>
+          ) : (
+            (() => {
+              const glPageSize = 50;
+              const glTotalPages = Math.ceil(glRows.length / glPageSize);
+              const safePage = Math.min(currentPage, glTotalPages);
+              const glPaginatedRows = glRows.slice((safePage - 1) * glPageSize, safePage * glPageSize);
+              const glDebitTotal = glPaginatedRows.reduce((s, r) => s + (r.debit || 0), 0);
+              const glCreditTotal = glPaginatedRows.reduce((s, r) => s + (r.credit || 0), 0);
 
-      {/* 凭证明细对话框 */}
+              return (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '1800px' }}>
+                      <colgroup>
+                        <col style={{ width: '50px' }} />
+                        <col style={{ width: '120px' }} />
+                        <col style={{ width: '100px' }} />
+                        <col style={{ width: '80px' }} />
+                        <col style={{ width: '80px' }} />
+                        <col style={{ width: '150px' }} />
+                        <col style={{ width: '90px' }} />
+                        <col style={{ width: '140px' }} />
+                        <col style={{ width: '110px' }} />
+                        <col style={{ width: '110px' }} />
+                        <col style={{ width: '60px' }} />
+                        <col style={{ width: '100px' }} />
+                        <col style={{ width: '100px' }} />
+                        <col style={{ width: '80px' }} />
+                        <col style={{ width: '80px' }} />
+                        <col style={{ width: '150px' }} />
+                        <col style={{ width: '130px' }} />
+                        <col style={{ width: '100px' }} />
+                        <col style={{ width: '70px' }} />
+                      </colgroup>
+                      <thead className="bg-slate-50 sticky top-0 z-10">
+                        <tr className="border-b-2 border-slate-200">
+                          <th className="text-center py-3 px-2 font-semibold text-slate-700 text-xs">序号</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">凭证号</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">日期</th>
+                          <th className="text-center py-3 px-2 font-semibold text-slate-700 text-xs">凭证类型</th>
+                          <th className="text-center py-3 px-2 font-semibold text-slate-700 text-xs">状态</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">摘要</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">科目代码</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">科目名称</th>
+                          <th className="text-right py-3 px-2 font-semibold text-slate-700 text-xs">借方金额</th>
+                          <th className="text-right py-3 px-2 font-semibold text-slate-700 text-xs">贷方金额</th>
+                          <th className="text-center py-3 px-2 font-semibold text-slate-700 text-xs">币别</th>
+                          <th className="text-right py-3 px-2 font-semibold text-slate-700 text-xs">原币金额</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">往来单位</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">部门</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">项目</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">现金流量</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">业务单据号</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">核销单号</th>
+                          <th className="text-left py-3 px-2 font-semibold text-slate-700 text-xs">创建人</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {glPaginatedRows.map((row, idx) => {
+                          const globalIdx = (safePage - 1) * glPageSize + idx + 1;
+                          const partner = row.auxiliary?.customer || row.auxiliary?.supplier || row.customerName || row.supplierName || '';
+                          const dept = row.auxiliary?.department || row.deptCode || '';
+                          const project = row.auxiliary?.project || row.projectCode || '';
+                          const statusKey = row.status as keyof typeof statusConfig;
+                          return (
+                            <tr
+                              key={`${row.voucherId}_${row.subjectCode}_${idx}`}
+                              className={`hover:bg-blue-50/30 border-b border-slate-100 ${row._isFirst && idx > 0 ? 'border-t-2 border-t-slate-300' : ''}`}
+                            >
+                              <td className="py-2 px-2 text-center text-xs text-slate-400">{globalIdx}</td>
+                              <td className="py-2 px-2">
+                                <button
+                                  className="text-blue-600 hover:underline font-mono text-xs font-semibold"
+                                  onClick={() => {
+                                    const v = voucherMap.get(row.voucherId);
+                                    if (v) handleView(v);
+                                  }}
+                                >
+                                  {row.voucherNo}
+                                </button>
+                              </td>
+                              <td className="py-2 px-2 text-xs text-slate-700">{row.date}</td>
+                              <td className="py-2 px-2 text-center text-xs text-slate-600">{typeConfig[row.voucherType as keyof typeof typeConfig]}</td>
+                              <td className="py-2 px-2 text-center">
+                                <Badge className={`${statusConfig[statusKey].color} text-xs`}>
+                                  {statusConfig[statusKey].label}
+                                </Badge>
+                              </td>
+                              <td className="py-2 px-2 text-xs">
+                                <span className="block truncate" title={row.summary || ''}>{row.summary || ''}</span>
+                              </td>
+                              <td className="py-2 px-2 font-mono text-xs text-blue-500">{row.subjectCode || ''}</td>
+                              <td className="py-2 px-2 text-xs text-slate-700">
+                                <span className="block truncate" title={row.subjectName || ''}>{row.subjectName || ''}</span>
+                              </td>
+                              <td className="py-2 px-2 text-right font-mono text-xs text-slate-800">
+                                {row.debit > 0 ? formatMoney(row.debit) : ''}
+                              </td>
+                              <td className="py-2 px-2 text-right font-mono text-xs text-slate-800">
+                                {row.credit > 0 ? formatMoney(row.credit) : ''}
+                              </td>
+                              <td className="py-2 px-2 text-center text-xs text-slate-500">{row.currencyCode || ''}</td>
+                              <td className="py-2 px-2 text-right font-mono text-xs text-slate-600">
+                                {row.originalAmount > 0 ? formatMoney(row.originalAmount) : ''}
+                              </td>
+                              <td className="py-2 px-2 text-xs text-slate-600">
+                                <span className="block truncate" title={partner}>{partner}</span>
+                              </td>
+                              <td className="py-2 px-2 text-xs text-slate-600">
+                                <span className="block truncate" title={dept}>{dept}</span>
+                              </td>
+                              <td className="py-2 px-2 text-xs text-slate-600">
+                                <span className="block truncate" title={project}>{project}</span>
+                              </td>
+                              <td className="py-2 px-2 text-xs text-slate-600">
+                                <span className="block truncate" title={row.cashFlowItem || ''}>{row.cashFlowItem || ''}</span>
+                              </td>
+                              <td className="py-2 px-2 text-xs font-mono text-slate-500">
+                                <span className="block truncate" title={row.docNo || ''}>{row.docNo || ''}</span>
+                              </td>
+                              <td className="py-2 px-2 text-xs font-mono text-slate-500">
+                                <span className="block truncate" title={row.recRefNo || ''}>{row.recRefNo || ''}</span>
+                              </td>
+                              <td className="py-2 px-2 text-xs text-slate-500">{row.createdBy || ''}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-slate-50 font-medium border-t-2 border-slate-300">
+                          <td className="py-2 px-2" colSpan={8}>合计</td>
+                          <td className="py-2 px-2 text-right font-mono text-xs text-blue-600">{formatMoney(glDebitTotal)}</td>
+                          <td className="py-2 px-2 text-right font-mono text-xs text-blue-600">{formatMoney(glCreditTotal)}</td>
+                          <td colSpan={9}></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {glTotalPages > 1 && (
+                    <div className="flex items-center justify-between p-4 border-t">
+                      <div className="text-sm text-slate-500">
+                        共 {glRows.length} 行（{filteredVouchers.length} 张凭证），第 {safePage} / {glTotalPages} 页
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" disabled={safePage === 1} onClick={() => setCurrentPage(p => p - 1)}>
+                          <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                        {Array.from({ length: Math.min(5, glTotalPages) }, (_, i) => {
+                          let pageNum = i + 1;
+                          if (glTotalPages > 5) {
+                            if (safePage <= 3) pageNum = i + 1;
+                            else if (safePage >= glTotalPages - 2) pageNum = glTotalPages - 4 + i;
+                            else pageNum = safePage - 2 + i;
+                          }
+                          return (
+                            <Button key={pageNum} variant={pageNum === safePage ? 'default' : 'outline'} size="sm" className={pageNum === safePage ? 'bg-blue-600' : ''} onClick={() => setCurrentPage(pageNum)}>
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                        <Button variant="outline" size="sm" disabled={safePage === glTotalPages} onClick={() => setCurrentPage(p => p + 1)}>
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()
+          )}
+        </CardContent>
+      </Card>
+      )}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
