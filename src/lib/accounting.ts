@@ -2,7 +2,7 @@
  * 会计引擎核心逻辑
  */
 
-import type { VoucherEntry } from '@/types';
+import type { Voucher, VoucherEntry } from '@/types';
 
 // 常用会计科目代码
 export const ACCOUNT_CODES = {
@@ -84,7 +84,7 @@ export function generateVoucherNo(year: number, month: number, seq: number): str
 /**
  * 计算借贷平衡
  */
-export function isVoucherBalanced(entries: any[]): boolean {
+export function isVoucherBalanced(entries: Pick<VoucherEntry, 'debit' | 'credit'>[]): boolean {
   const totalDebit = entries.reduce((sum, e) => sum + (e.debit || 0), 0);
   const totalCredit = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
   return Math.abs(totalDebit - totalCredit) < 0.01;
@@ -333,6 +333,7 @@ export function getSmartMatch(
 
   // 2. 尝试 L1：在预设规则中寻找匹配
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const rules: KeywordRule[] = require('./data/keyword-rules.json');
     const l1Match = rules.find(rule =>
       summary.includes(rule.keyword) ||
@@ -418,14 +419,16 @@ export function calculateVoucherStatus(
  * 创建冲销凭证
  */
 export function createReverseVoucher(
-  originalVoucher: any,
+  originalVoucher: Voucher,
   reverseDateParam?: string
-): any {
+): Voucher & {
+  originalVoucher: string;
+} {
   const reverseNumber = `冲${originalVoucher.voucherNo}`;
   const reverseDate = reverseDateParam || new Date().toISOString().split('T')[0];
 
   // 创建冲销凭证，所有分录借贷方向相反
-  const reversedEntries = originalVoucher.entries.map((entry: any) => ({
+  const reversedEntries = originalVoucher.entries.map((entry: VoucherEntry) => ({
     ...entry,
     debit: entry.credit,
     credit: entry.debit,
@@ -442,8 +445,8 @@ export function createReverseVoucher(
     status: VoucherStatus.REVERSED,
     originalVoucher: originalVoucher.id,
     createdBy: 'system',
-    createdAt: new Date().toISOString(),
-    voucherType: 'reverse'
+    createTime: new Date().toISOString(),
+    voucherType: originalVoucher.voucherType
   };
 }
 
@@ -482,8 +485,9 @@ export function generateId(): string {
 export function getSubjects(): Array<{ code: string; name: string }> {
   // 从默认科目数据加载
   try {
-    const subjects = require('./data/subjects.json');
-    return subjects.map((subject: any) => ({
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const subjects = require('./data/subjects.json') as Array<{ code: string; name: string }>;
+    return subjects.map((subject) => ({
       code: subject.code,
       name: subject.name
     }));
@@ -754,8 +758,8 @@ export function getAgingDetails(
   entries: VoucherEntry[],
   config: AgingConfig & { bucket?: string; partner?: string },
   isAccountsReceivable: boolean = true,
-  vouchers?: any[], // 新增：可选的凭证列表参数，用于获取真正的凭证号
-  recRelations?: any[], // 新增：可选的核销关系，用于计算剩余金额
+  vouchers?: Voucher[], // 新增：可选的凭证列表参数，用于获取真正的凭证号
+  recRelations?: Array<{ entryId?: string; debitEntryId?: string; creditEntryId?: string; amount?: number }>, // 新增：可选的核销关系，用于计算剩余金额
   partners: Array<{ code: string; name: string; isCustomer: boolean; isSupplier: boolean }> = []
 ): AgingDetail[] {
   const details: AgingDetail[] = [];
@@ -873,7 +877,7 @@ export function validateSubjectExists(
 }
 
 // 核销相关方法
-export function calculateClearedAmount(relations: any[]): number {
+export function calculateClearedAmount(relations: Array<{ amount?: number }>): number {
   return relations.reduce((sum, rel) => sum + rel.amount, 0);
 }
 

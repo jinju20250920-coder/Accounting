@@ -12,7 +12,6 @@ import {
   Copy,
   Trash2,
   CheckCircle2,
-  XCircle,
   RotateCcw,
   FileText,
   Plus,
@@ -27,21 +26,20 @@ import {
   Table2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { SimpleSelect, SelectOption as SelectOptionType } from '@/components/ui/select';
+import { SimpleSelect } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/components/ui/toast';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
-import { Voucher as VoucherType, VoucherEntry as VoucherEntryType } from '@/types';
-import { toChineseAmount } from '@/lib/chinese-number';
-import { formatMoney } from '@/lib/accounting';
+import { Voucher as VoucherType } from '@/types';
+import { formatMoney, calculateVoucherStatus, createReverseVoucher, VoucherStatus } from '@/lib/accounting';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { DatabaseManager } from '@/components/DatabaseManager';
+import { getCurrentService } from '@/lib/database';
+
 
 // 状态配置
 const statusConfig = {
@@ -63,7 +61,15 @@ const typeConfig = {
 };
 
 // 统计卡片组件
-function StatsCard({ title, value, icon: Icon, color = 'blue', trend }: any) {
+interface StatsCardProps {
+  title: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+  color?: 'blue' | 'green' | 'yellow' | 'red' | 'purple';
+  trend?: number;
+}
+
+function StatsCard({ title, value, icon: Icon, color = 'blue', trend }: StatsCardProps) {
   const colorClasses = {
     blue: 'text-blue-600 bg-blue-50',
     green: 'text-green-600 bg-green-50',
@@ -95,15 +101,17 @@ function StatsCard({ title, value, icon: Icon, color = 'blue', trend }: any) {
 }
 
 // 凭证明细组件
-function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, currentAccountSet }: {
+interface VoucherDetailProps {
   voucher: VoucherType;
   onClose: () => void;
   onEdit: () => void;
   onCopy: () => void;
   onPost: () => void;
   onReverse: () => void;
-  currentAccountSet: any;
-}) {
+  currentAccountSet: { name?: string } | null;
+}
+
+function VoucherDetail({ voucher, onClose, onEdit, onCopy, onPost, onReverse, currentAccountSet }: VoucherDetailProps) {
   const debitTotal = voucher.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
   const creditTotal = voucher.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
   const canEdit = voucher.status === 'draft' || voucher.status === 'review';
@@ -245,41 +253,6 @@ export default function VoucherListPage() {
     setCurrentPage(1);
   };
 
-  const voucherMap = useMemo(() => {
-    const m = new Map<string, Voucher>();
-    filteredVouchers.forEach(v => m.set(v.id, v));
-    return m;
-  }, [filteredVouchers]);
-
-  const glRows = useMemo(() => filteredVouchers.flatMap(voucher =>
-    voucher.entries
-      .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
-      .map((entry, idx) => ({
-        voucherId: voucher.id,
-        voucherNo: voucher.voucherNo,
-        date: voucher.date,
-        voucherType: voucher.voucherType,
-        status: voucher.status,
-        createdBy: voucher.createdBy,
-        subjectCode: entry.subjectCode,
-        subjectName: entry.subjectName,
-        summary: entry.summary,
-        debit: entry.debit,
-        credit: entry.credit,
-        currencyCode: entry.currencyCode,
-        originalAmount: entry.originalAmount,
-        auxiliary: entry.auxiliary,
-        customerName: entry.customerName,
-        supplierName: entry.supplierName,
-        deptCode: entry.deptCode,
-        projectCode: entry.projectCode,
-        cashFlowItem: entry.cashFlowItem,
-        docNo: entry.docNo,
-        recRefNo: entry.recRefNo,
-        _isFirst: idx === 0,
-      }))
-  ), [filteredVouchers]);
-
   // 筛选状态
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'all' | 'subject'>('all'); // 搜索模式：全部或科目
@@ -318,7 +291,7 @@ export default function VoucherListPage() {
         window.history.replaceState({}, '', '/voucher-list');
       }
     }
-  }); // 依赖 selectedStatus，确保状态同步
+  }, [selectedStatus]);
 
   const handleEndMonthChange = (value: string) => {
     setEndMonth(value);
@@ -383,6 +356,41 @@ export default function VoucherListPage() {
         ? aVal.localeCompare(bVal)
         : bVal.localeCompare(aVal);
     });
+
+  const voucherMap = useMemo(() => {
+    const m = new Map<string, VoucherType>();
+    filteredVouchers.forEach(v => m.set(v.id, v));
+    return m;
+  }, [filteredVouchers]);
+
+  const glRows = useMemo(() => filteredVouchers.flatMap(voucher =>
+    voucher.entries
+      .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
+      .map((entry, idx) => ({
+        voucherId: voucher.id,
+        voucherNo: voucher.voucherNo,
+        date: voucher.date,
+        voucherType: voucher.voucherType,
+        status: voucher.status,
+        createdBy: voucher.createdBy,
+        subjectCode: entry.subjectCode,
+        subjectName: entry.subjectName,
+        summary: entry.summary,
+        debit: entry.debit,
+        credit: entry.credit,
+        originalAmount: Number((entry as { originalAmount?: number }).originalAmount || 0),
+        currencyCode: entry.currencyCode,
+        auxiliary: entry.auxiliary,
+        customerName: entry.customerName,
+        supplierName: entry.supplierName,
+        deptCode: entry.deptCode,
+        projectCode: entry.projectCode,
+        cashFlowItem: entry.cashFlowItem,
+        docNo: entry.docNo,
+        recRefNo: entry.recRefNo,
+        _isFirst: idx === 0,
+      }))
+  ), [filteredVouchers]);
 
   // 获取要打印的凭证
   const vouchersToPrint = filteredVouchers.filter(v => selectedVoucherIds.has(v.id));
@@ -495,14 +503,59 @@ export default function VoucherListPage() {
     setShowBatchDeleteDialog(false);
   };
 
-  const handlePost = (voucher: VoucherType) => {
-    // 记账逻辑
-    showToast('info', '记账功能需要调用完整的会计引擎');
+  // 执行凭证操作的通用方法
+  const executeVoucherAction = async (
+    voucher: VoucherType,
+    action: 'post' | 'reverse',
+    actionName: string,
+    callback: () => Promise<void>
+  ) => {
+    try {
+      // 检查状态转换合法性
+      const statusResult = calculateVoucherStatus(voucher.status as VoucherStatus, action);
+      if (!statusResult.isValid) {
+        showToast('error', statusResult.message);
+        return;
+      }
+
+      // 执行具体操作
+      await callback();
+
+      // 更新本地store
+      await useVoucherStore.getState().initialize();
+
+      showToast('success', `凭证 ${voucher.voucherNo} ${actionName}成功`);
+    } catch (error) {
+      console.error(`${actionName}失败:`, error);
+      showToast('error', `${actionName}失败：${error instanceof Error ? error.message : '未知错误'}`);
+    }
   };
 
-  const handleReverse = (voucher: VoucherType) => {
-    // 冲销逻辑
-    showToast('info', '冲销功能需要调用完整的会计引擎');
+  const handlePost = async (voucher: VoucherType) => {
+    await executeVoucherAction(
+      voucher,
+      'post',
+      '记账',
+      async () => {
+        // 更新凭证状态为已记账
+        await getCurrentService().updateVoucherStatus(voucher.id, 'posted');
+      }
+    );
+  };
+
+  const handleReverse = async (voucher: VoucherType) => {
+    await executeVoucherAction(
+      voucher,
+      'reverse',
+      '冲销',
+      async () => {
+        // 创建并保存冲销凭证
+        const reversedVoucher = createReverseVoucher(voucher);
+        await getCurrentService().saveVoucher(reversedVoucher);
+        // 更新原凭证状态为已冲销
+        await getCurrentService().updateVoucherStatus(voucher.id, 'reversed');
+      }
+    );
   };
 
   const handleRefresh = useCallback(async () => {
@@ -535,11 +588,11 @@ export default function VoucherListPage() {
   const handleExport = () => {
     if (viewMode === 'gl') {
       // GL 序列视图导出：每行一条分录，全字段
-      const headers = ['序号', '凭证号', '日期', '凭证类型', '状态', '摘要', '科目代码', '科目名称', '借方金额', '贷方金额', '币别', '原币金额', '往来单位', '部门', '项目', '现金流量', '业务单据号', '核销单号', '创建人'];
+      const headers = ['序号', '凭证号', '日期', '凭证类型', '状态', '摘要', '科目代码', '科目名称', '借方金额', '贷方金额', '币别', '往来单位', '部门', '项目', '现金流量', '业务单据号', '核销单号', '创建人'];
       const glRows = filteredVouchers.flatMap(voucher =>
         voucher.entries
           .filter(e => e.subjectCode || e.debit > 0 || e.credit > 0)
-          .map((entry, idx) => ({
+          .map(entry => ({
             voucherNo: voucher.voucherNo,
             date: voucher.date,
             voucherType: voucher.voucherType,
@@ -560,7 +613,6 @@ export default function VoucherListPage() {
         row.debit > 0 ? row.debit.toFixed(2) : '',
         row.credit > 0 ? row.credit.toFixed(2) : '',
         row.currencyCode || '',
-        row.originalAmount > 0 ? row.originalAmount.toFixed(2) : '',
         row.auxiliary?.customer || row.auxiliary?.supplier || row.customerName || row.supplierName || '',
         row.auxiliary?.department || row.deptCode || '',
         row.auxiliary?.project || row.projectCode || '',
@@ -705,7 +757,7 @@ export default function VoucherListPage() {
           title="草稿"
           value={stats.draft}
           icon={FileText}
-          color="slate"
+          color="blue"
         />
         <StatsCard
           title="审核中"
@@ -793,7 +845,7 @@ export default function VoucherListPage() {
             <div className="text-center py-12 text-slate-500">
               <FileText className="w-12 h-12 mx-auto mb-4 text-slate-300" />
               <p className="text-lg font-medium mb-2">暂无凭证记录</p>
-              <p className="text-sm">点击"新增凭证"开始创建第一张凭证</p>
+              <p className="text-sm">点击&quot;新增凭证&quot;开始创建第一张凭证</p>
             </div>
           ) : (
             <>
@@ -1017,7 +1069,7 @@ export default function VoucherListPage() {
             <div className="text-center py-12 text-slate-500">
               <Table2 className="w-12 h-12 mx-auto mb-4 text-slate-300" />
               <p className="text-lg font-medium mb-2">暂无凭证记录</p>
-              <p className="text-sm">点击"新增凭证"开始创建第一张凭证</p>
+              <p className="text-sm">点击&quot;新增凭证&quot;开始创建第一张凭证</p>
             </div>
           ) : (
             (() => {

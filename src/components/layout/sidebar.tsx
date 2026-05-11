@@ -51,7 +51,8 @@ import { useToast } from '@/components/ui/toast';
 import { ChangePasswordDialog } from '@/components/shared/change-password-dialog';
 
 const menuItems = [
-  { icon: Home, label: '首页', path: '/', permission: '' },
+  { icon: FileSpreadsheet, label: '凭证序时账', path: '/voucher-journal', permission: 'voucher:view' },
+  { icon: Home, label: '智能做账', path: '/', permission: '' },
   { icon: FolderKanban, label: '凭证', path: '/voucher-entry-page', permission: 'voucher:view', children: [
     { label: '新增凭证', path: '/voucher-entry-page', permission: 'voucher:create' },
     { label: '查看凭证', path: '/voucher-list', permission: 'voucher:view' },
@@ -318,6 +319,7 @@ export function Sidebar() {
 
   // 防止 Hydration 错误：只有在客户端挂载后才显示动态内容
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHasMounted(true);
   }, []);
 

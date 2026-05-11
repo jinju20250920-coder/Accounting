@@ -3,6 +3,8 @@
  * 核心思路：模板驱动 + 公式解释器
  */
 
+import type { Voucher, VoucherEntry } from '@/types';
+
 // 模板类型定义
 export interface VoucherTemplate {
   id: string;
@@ -40,12 +42,12 @@ export interface VariableDefinition {
   type: 'number' | 'string' | 'date';
   source: 'extracted' | 'calculated' | 'constant';
   description?: string;
-  defaultValue?: any;
+  defaultValue?: unknown | ((data: InputData) => unknown);
 }
 
 // 输入数据
 export interface InputData {
-  [key: string]: any;
+  [key: string]: unknown;
   total_amount?: number;
   tax_amount?: number;
   base_amount?: number;
@@ -110,8 +112,6 @@ export class FormulaInterpreter {
    * 安全计算表达式
    */
   private static safeEval(expression: string, data: InputData): number {
-    // 创建安全的计算环境
-    const allowedOperators = ['+', '-', '*', '/', '(', ')', 'Math.abs'];
     const cleaned = expression.replace(/[^0-9+\-*/().\s]/g, '');
 
     // 使用Function构造函数进行计算
@@ -395,13 +395,65 @@ export class TemplateEngine {
    * 生成凭证（支持科目覆盖）
    * subjectOverrides: key = entry.id, value = { code, name }
    */
+  /**
+   * 为凭证分录添加往来卡片辅助核算信息
+   */
+  private addAuxiliaryInfoToEntries(
+    entries: Array<{
+      subject: string;
+      subjectName?: string;
+      direction: 'debit' | 'credit';
+      amount: number;
+      description?: string;
+    }>,
+    template: VoucherTemplate,
+    partnerName: string,
+    voucherDate: string
+  ): VoucherEntry[] {
+    return entries.map(entry => {
+      let customerName = '';
+      let supplierName = '';
+      let auxiliary: { customer?: string; supplier?: string } = {};
+
+      if (entry.subject.startsWith('1122') || entry.subject.startsWith('2202')) {
+        const isInputTemplate = template.invoiceType === 'input';
+        customerName = !isInputTemplate ? partnerName : '';
+        supplierName = isInputTemplate ? partnerName : '';
+
+        auxiliary = {
+          customer: !isInputTemplate ? partnerName : undefined,
+          supplier: isInputTemplate ? partnerName : undefined,
+        };
+      }
+
+      return {
+        id: generateId(),
+        voucherId: '',
+        date: voucherDate,
+        summary: entry.description || '',
+        subjectCode: entry.subject,
+        subjectName: entry.subjectName || '',
+        debit: entry.direction === 'debit' ? entry.amount : 0,
+        credit: entry.direction === 'credit' ? entry.amount : 0,
+        customerName,
+        supplierName,
+        auxiliary
+      };
+    });
+  }
+
   generateVoucherWithOverrides(
     templateId: string,
     inputData: InputData,
     subjectOverrides?: Record<string, { code: string; name: string }>
   ): {
     success: boolean;
-    voucher?: any;
+    voucher?: Omit<Voucher, 'accountSetId' | 'createTime' | 'updateTime' | 'voucherType'> & {
+      partnerName?: string;
+      voucherType?: string;
+      createdBy?: string;
+      createdAt?: string;
+    };
     errors?: string[];
     warnings?: string[];
   } {
@@ -410,16 +462,13 @@ export class TemplateEngine {
       return { success: false, errors: ['模板不存在'] };
     }
 
-    // 验证输入数据
     const validationResult = this.validateInput(template, inputData);
     if (!validationResult.valid) {
       return { success: false, errors: validationResult.errors };
     }
 
-    // 计算分录（应用科目覆盖）
     const entries = this.calculateEntries(template, inputData, subjectOverrides);
 
-    // 检查借贷是否平衡，不平衡时自动调整（如跳过税金分录后贷方需调整）
     let totalDebit = entries
       .filter(e => e.direction === 'debit')
       .reduce((sum, e) => sum + e.amount, 0);
@@ -428,9 +477,7 @@ export class TemplateEngine {
       .reduce((sum, e) => sum + e.amount, 0);
 
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      // 调整金额较小的一侧，使其与较大侧平衡
       if (totalDebit > totalCredit) {
-        // 借方大，调整贷方最后一个分录
         const creditEntries = entries.filter(e => e.direction === 'credit');
         if (creditEntries.length > 0) {
           const lastCredit = creditEntries[creditEntries.length - 1];
@@ -438,7 +485,6 @@ export class TemplateEngine {
           totalCredit = totalDebit;
         }
       } else {
-        // 贷方大，调整借方最后一个分录
         const debitEntries = entries.filter(e => e.direction === 'debit');
         if (debitEntries.length > 0) {
           const lastDebit = debitEntries[debitEntries.length - 1];
@@ -450,24 +496,16 @@ export class TemplateEngine {
 
     const partnerName = inputData.partner_name || '';
     const voucherDate = inputData.invoice_date || new Date().toISOString().split('T')[0];
+    const entriesWithAuxiliary = this.addAuxiliaryInfoToEntries(entries, template, partnerName, voucherDate);
 
     const voucher = {
       id: generateId(),
       voucherNo: `自动-${Date.now()}`,
       date: voucherDate,
       summary: template.name,
-      entries: entries.map(entry => ({
-        id: generateId(),
-        voucherId: '',
-        date: voucherDate,
-        summary: entry.description,
-        subjectCode: entry.subject,
-        subjectName: entry.subjectName,
-        debit: entry.direction === 'debit' ? entry.amount : 0,
-        credit: entry.direction === 'credit' ? entry.amount : 0,
-      })),
+      entries: entriesWithAuxiliary,
       partnerName,
-      status: 'draft',
+      status: 'draft' as const,
       voucherType: 'auto',
       createdBy: 'system',
       createdAt: new Date().toISOString()
@@ -485,7 +523,12 @@ export class TemplateEngine {
    */
   generateVoucher(templateId: string, inputData: InputData): {
     success: boolean;
-    voucher?: any;
+    voucher?: Omit<Voucher, 'accountSetId' | 'createTime' | 'updateTime' | 'voucherType'> & {
+      partnerName?: string;
+      voucherType?: string;
+      createdBy?: string;
+      createdAt?: string;
+    };
     errors?: string[];
     warnings?: string[];
   } {
@@ -524,23 +567,18 @@ export class TemplateEngine {
       };
     }
 
-    // 生成凭证
+    const partnerName = inputData.partner_name || '';
+    const voucherDate = inputData.invoice_date || new Date().toISOString().split('T')[0];
+    const entriesWithAuxiliary = this.addAuxiliaryInfoToEntries(entries, template, partnerName, voucherDate);
+
     const voucher = {
       id: generateId(),
       voucherNo: `自动-${Date.now()}`,
-      date: inputData.invoice_date || new Date().toISOString().split('T')[0],
+      date: voucherDate,
       summary: template.name,
-      entries: entries.map(entry => ({
-        id: generateId(),
-        voucherId: '',
-        date: voucher.date,
-        summary: entry.description,
-        subjectCode: entry.subject,
-        subjectName: entry.subjectName,
-        debit: entry.direction === 'debit' ? entry.amount : 0,
-        credit: entry.direction === 'credit' ? entry.amount : 0
-      })),
-      status: 'draft',
+      entries: entriesWithAuxiliary,
+      partnerName,
+      status: 'draft' as const,
       voucherType: 'auto',
       createdBy: 'system',
       createdAt: new Date().toISOString()
@@ -577,7 +615,7 @@ export class TemplateEngine {
     for (const validation of template.validations) {
       if (validation.condition === 'numeric') {
         const value = data[validation.field];
-        if (value !== undefined && value !== null && isNaN(parseFloat(value))) {
+        if (value !== undefined && value !== null && isNaN(parseFloat(String(value)))) {
           errors.push(validation.message);
         }
       }
@@ -624,7 +662,14 @@ export class TemplateEngine {
         // 如果覆盖的科目为空字符串，表示跳过该分录（如员工报销无税金科目）
         const subjectCode = override?.code !== undefined ? override.code : entry.subject;
         if (!subjectCode) {
-          return { ...entry, subject: '', amount: 0, skip: true };
+          return {
+            subject: '',
+            subjectName: entry.subjectName,
+            direction: entry.direction,
+            amount: 0,
+            description: entry.description,
+            skip: true
+          };
         }
 
         return {
@@ -635,13 +680,13 @@ export class TemplateEngine {
           description: entry.description
         };
       })
-      .filter(entry => !(entry as any).skip);
+      .filter((entry): entry is Exclude<typeof entry, { skip: true }> => !(entry as { skip?: boolean }).skip);
   }
 
   /**
    * 获取变量默认值
    */
-  private getVariableDefaultValue(template: VoucherTemplate, variable: string, data: InputData): any {
+  private getVariableDefaultValue(template: VoucherTemplate, variable: string, data: InputData): unknown {
     const variableDef = template.variables.find(v => v.name === variable);
     if (variableDef?.defaultValue && typeof variableDef.defaultValue === 'function') {
       return variableDef.defaultValue(data);
