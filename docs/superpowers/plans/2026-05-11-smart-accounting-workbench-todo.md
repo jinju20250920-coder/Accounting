@@ -27,3 +27,9 @@
 - [ ] Block `closePeriod` when blocker checks fail.
 - [ ] Add configurable rule switches.
 - [ ] Add dedicated check report page.
+
+## 已完成的新增项
+
+- [x] 首页增加“系统预设，用户可编辑”的状态修正区。
+- [x] 任务状态支持按账套 + 期间持久化保存。
+- [x] 用户可将发票、折旧、摊销等任务标记为“本月无需处理”。

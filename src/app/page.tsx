@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { SimpleSelect } from '@/components/ui/select';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -34,6 +36,12 @@ import {
   type SmartTaskStatus,
   type SmartRiskSeverity,
 } from '@/lib/smart-accounting-workbench';
+import {
+  applySmartAccountingOverrides,
+  useSmartAccountingWorkbenchStore,
+  type SmartAccountingSummaryView,
+  type SmartWorkbenchEditableStatus,
+} from '@/lib/smart-accounting-workbench-state';
 
 const statusLabels: Record<SmartTaskStatus, string> = {
   completed: '已完成',
@@ -43,12 +51,30 @@ const statusLabels: Record<SmartTaskStatus, string> = {
   not_started: '未开始',
 };
 
+const editableStatusLabels: Record<SmartWorkbenchEditableStatus, string> = {
+  completed: '已完成',
+  in_progress: '进行中',
+  warning: '提醒',
+  blocked: '阻塞',
+  not_started: '未开始',
+  confirmed_not_needed: '本月无须处理',
+};
+
 const statusClassNames: Record<SmartTaskStatus, string> = {
   completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
   warning: 'bg-amber-50 text-amber-700 border-amber-200',
   blocked: 'bg-red-50 text-red-700 border-red-200',
   not_started: 'bg-slate-50 text-slate-600 border-slate-200',
+};
+
+const editableStatusClassNames: Record<SmartWorkbenchEditableStatus, string> = {
+  completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
+  warning: 'bg-amber-50 text-amber-700 border-amber-200',
+  blocked: 'bg-red-50 text-red-700 border-red-200',
+  not_started: 'bg-slate-50 text-slate-600 border-slate-200',
+  confirmed_not_needed: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
 const severityLabels: Record<SmartRiskSeverity, string> = {
@@ -88,6 +114,9 @@ export default function SmartAccountingWorkbench() {
   const { subjects, initializeSubjects } = useSubjectStore();
   const { invoices, initialize: initializeInvoices } = useInvoiceStore();
   const { getCurrentAccountSet } = useAccountSetStore();
+  const overridesByAccountSet = useSmartAccountingWorkbenchStore((state) => state.overridesByAccountSet);
+  const setTaskOverride = useSmartAccountingWorkbenchStore((state) => state.setTaskOverride);
+  const clearTaskOverride = useSmartAccountingWorkbenchStore((state) => state.clearTaskOverride);
   const currentAccountSet = getCurrentAccountSet();
   const [bankTransactions, setBankTransactions] = useState<SmartAccountingBankTransaction[]>([]);
   const [lastCheckedAt, setLastCheckedAt] = useState<string>('');
@@ -153,6 +182,64 @@ export default function SmartAccountingWorkbench() {
     })),
   }), [bankTransactions, invoices, periodInfo.period, vouchers]);
 
+  const periodOverrides = useMemo(
+    () => (currentAccountSet?.id ? overridesByAccountSet[currentAccountSet.id]?.[periodInfo.period] || {} : {}),
+    [currentAccountSet?.id, overridesByAccountSet, periodInfo.period],
+  );
+
+  const workbenchView = useMemo<SmartAccountingSummaryView>(
+    () => applySmartAccountingOverrides(workbenchSummary, periodOverrides),
+    [periodOverrides, workbenchSummary],
+  );
+
+  const editedTaskCount = workbenchView.tasks.filter((item) => item.isUserEdited).length;
+
+  const editableStatusOptions = [
+    { value: 'completed', label: editableStatusLabels.completed },
+    { value: 'in_progress', label: editableStatusLabels.in_progress },
+    { value: 'warning', label: editableStatusLabels.warning },
+    { value: 'blocked', label: editableStatusLabels.blocked },
+    { value: 'not_started', label: editableStatusLabels.not_started },
+    { value: 'confirmed_not_needed', label: editableStatusLabels.confirmed_not_needed },
+  ] as const;
+
+  const updateTaskStatus = (taskCode: string, nextStatus: SmartWorkbenchEditableStatus, note?: string) => {
+    if (!currentAccountSet?.id) return;
+
+    const currentTask = workbenchView.tasks.find((task) => task.code === taskCode);
+    if (!currentTask) return;
+
+    const cleanNote = note?.trim() || '';
+    if (nextStatus === currentTask.systemStatus && !cleanNote) {
+      clearTaskOverride(currentAccountSet.id, periodInfo.period, taskCode);
+      return;
+    }
+
+    setTaskOverride(currentAccountSet.id, periodInfo.period, taskCode, nextStatus, cleanNote || undefined);
+  };
+
+  const updateTaskNote = (taskCode: string, note: string) => {
+    if (!currentAccountSet?.id) return;
+
+    const currentTask = workbenchView.tasks.find((task) => task.code === taskCode);
+    if (!currentTask) return;
+
+    const nextStatus = currentTask.overrideStatus || currentTask.systemStatus;
+    const cleanNote = note.trim();
+
+    if (nextStatus === currentTask.systemStatus && !cleanNote) {
+      clearTaskOverride(currentAccountSet.id, periodInfo.period, taskCode);
+      return;
+    }
+
+    setTaskOverride(currentAccountSet.id, periodInfo.period, taskCode, nextStatus, cleanNote || undefined);
+  };
+
+  const resetPeriodOverrides = () => {
+    if (!currentAccountSet?.id) return;
+    useSmartAccountingWorkbenchStore.getState().resetPeriodOverrides(currentAccountSet.id, periodInfo.period);
+  };
+
   const coreMetrics = useMemo(() => {
     const postedVouchers = vouchers.filter((voucher) => voucher.status === 'posted');
     const periodVouchers = postedVouchers.filter((voucher) => voucher.date.startsWith(periodInfo.period));
@@ -200,31 +287,31 @@ export default function SmartAccountingWorkbench() {
   const overviewCards = [
     {
       title: '做账进度',
-      value: `${workbenchSummary.progress}%`,
-      detail: `已完成 ${workbenchSummary.completedCount}/${workbenchSummary.totalCount} 项`,
+      value: `${workbenchView.progress}%`,
+      detail: `已完成 ${workbenchView.completedCount}/${workbenchView.totalCount} 项`,
       icon: Activity,
       className: 'border-blue-200 bg-blue-50/60',
     },
     {
       title: '待处理任务',
-      value: `${workbenchSummary.pendingCount} 项`,
-      detail: `今日建议 ${workbenchSummary.nextActions.length} 项`,
+      value: `${workbenchView.pendingCount} 项`,
+      detail: `今日建议 ${workbenchView.nextActions.length} 项`,
       icon: ListChecks,
       className: 'border-slate-200 bg-white',
     },
     {
       title: '风险事项',
-      value: `${workbenchSummary.warningCount + workbenchSummary.blockerCount} 项`,
-      detail: `阻塞 ${workbenchSummary.blockerCount} 项 / 提醒 ${workbenchSummary.warningCount} 项`,
+      value: `${workbenchView.warningCount + workbenchView.blockerCount} 项`,
+      detail: `阻塞 ${workbenchView.blockerCount} 项 / 提醒 ${workbenchView.warningCount} 项`,
       icon: ShieldAlert,
-      className: workbenchSummary.blockerCount > 0 ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60',
+      className: workbenchView.blockerCount > 0 ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60',
     },
     {
       title: '月结状态',
-      value: workbenchSummary.canClose ? '可月结' : '不可月结',
-      detail: workbenchSummary.canClose ? '关键检查未发现阻塞项' : '需先处理阻塞项',
+      value: workbenchView.canClose ? '可月结' : '不可月结',
+      detail: workbenchView.canClose ? '关键检查未发现阻塞项' : '需先处理阻塞项',
       icon: ClipboardCheck,
-      className: workbenchSummary.canClose ? 'border-emerald-200 bg-emerald-50/60' : 'border-red-200 bg-red-50/60',
+      className: workbenchView.canClose ? 'border-emerald-200 bg-emerald-50/60' : 'border-red-200 bg-red-50/60',
     },
   ];
 
@@ -243,10 +330,17 @@ export default function SmartAccountingWorkbench() {
             {lastCheckedAt ? ` / 最近检查：${lastCheckedAt}` : ''}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+            人工调整 {editedTaskCount} 项
+          </Badge>
           <Button variant="outline" onClick={refreshWorkbench} disabled={loading}>
             <RefreshCw className="w-4 h-4 mr-2" />
             {loading ? '刷新中' : '刷新状态'}
+          </Button>
+          <Button variant="outline" onClick={resetPeriodOverrides} disabled={editedTaskCount === 0}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            恢复系统预设
           </Button>
           <Button onClick={refreshWorkbench} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
             <ClipboardCheck className="w-4 h-4 mr-2" />
@@ -270,12 +364,90 @@ export default function SmartAccountingWorkbench() {
                 </div>
               </div>
               {item.title === '做账进度' && (
-                <Progress value={workbenchSummary.progress} className="h-2 mt-4 bg-blue-100" />
+                <Progress value={workbenchView.progress} className="h-2 mt-4 bg-blue-100" />
               )}
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <Card className="border-slate-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">本月状态修正</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-slate-500">
+            系统先给出预设状态，用户可以按本月实际情况修正。例如“本月没有发票”“本月无需计提折旧”“本月已完成”等。
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1040px] text-sm">
+              <thead>
+                <tr className="border-b text-slate-500">
+                  <th className="text-left py-3 pr-3 font-medium">任务</th>
+                  <th className="text-left py-3 pr-3 font-medium">系统预设</th>
+                  <th className="text-left py-3 pr-3 font-medium">用户状态</th>
+                  <th className="text-left py-3 pr-3 font-medium">备注</th>
+                  <th className="text-right py-3 font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workbenchView.tasks.map((item) => {
+                  const selectedStatus = item.overrideStatus || item.systemStatus;
+
+                  return (
+                    <tr key={item.code} className="border-b last:border-0 align-top">
+                      <td className="py-3 pr-3">
+                        <div className="font-medium text-slate-900">{item.name}</div>
+                        <div className="mt-1 text-xs text-slate-500">{item.stage} / {item.actionLabel}</div>
+                      </td>
+                      <td className="py-3 pr-3">
+                        <Badge variant="outline" className={statusClassNames[item.systemStatus]}>
+                          {statusLabels[item.systemStatus]}
+                        </Badge>
+                      </td>
+                      <td className="py-3 pr-3">
+                        <div className="flex flex-col gap-2">
+                          <SimpleSelect
+                            value={selectedStatus}
+                            onChange={(value) => updateTaskStatus(item.code, value as SmartWorkbenchEditableStatus, item.note)}
+                            options={editableStatusOptions.map((option) => ({
+                              value: option.value,
+                              label: option.label,
+                            }))}
+                            placeholder="请选择状态"
+                          />
+                          {item.isUserEdited ? (
+                            <Badge variant="outline" className={editableStatusClassNames[item.status]}>
+                              已人工调整
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-3">
+                        <Input
+                          value={item.note || ''}
+                          onChange={(event) => updateTaskNote(item.code, event.target.value)}
+                          placeholder="例如：本月没有发票"
+                        />
+                      </td>
+                      <td className="py-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => clearTaskOverride(currentAccountSet?.id || '', periodInfo.period, item.code)}
+                          disabled={!currentAccountSet?.id || !item.isUserEdited}
+                        >
+                          恢复系统值
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-slate-200">
         <CardHeader className="pb-3">
@@ -285,7 +457,7 @@ export default function SmartAccountingWorkbench() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {workbenchSummary.nextActions.length === 0 ? (
+          {workbenchView.nextActions.length === 0 ? (
             <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
               <div>
                 <p className="font-medium text-emerald-800">本期关键检查暂未发现阻塞项</p>
@@ -294,7 +466,7 @@ export default function SmartAccountingWorkbench() {
               <Button variant="outline" onClick={() => router.push('/reports')}>生成报表</Button>
             </div>
           ) : (
-            workbenchSummary.nextActions.slice(0, 4).map((item, index) => (
+            workbenchView.nextActions.slice(0, 4).map((item, index) => (
               <div key={item.code} className="flex flex-col gap-3 rounded-md border border-slate-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -332,7 +504,7 @@ export default function SmartAccountingWorkbench() {
                 </tr>
               </thead>
               <tbody>
-                {workbenchSummary.tasks.map((item) => (
+                {workbenchView.tasks.map((item) => (
                   <tr key={item.code} className="border-b last:border-0">
                     <td className="py-3 text-slate-500">{item.stage}</td>
                     <td className="py-3 font-medium text-slate-900">{item.name}</td>
@@ -363,11 +535,11 @@ export default function SmartAccountingWorkbench() {
           <CardContent className="space-y-4">
             <div className="rounded-md border border-slate-200 p-4">
               <p className="text-sm text-slate-500">当前状态</p>
-              <p className={`text-xl font-bold mt-1 ${workbenchSummary.canClose ? 'text-emerald-700' : 'text-red-700'}`}>
-                {workbenchSummary.canClose ? '可进入月结检查' : '当前不可月结'}
+              <p className={`text-xl font-bold mt-1 ${workbenchView.canClose ? 'text-emerald-700' : 'text-red-700'}`}>
+                {workbenchView.canClose ? '可进入月结检查' : '当前不可月结'}
               </p>
               <p className="text-sm text-slate-500 mt-2">
-                阻塞项：{workbenchSummary.blockerCount} / 提醒项：{workbenchSummary.warningCount}
+                阻塞项：{workbenchView.blockerCount} / 提醒项：{workbenchView.warningCount}
               </p>
             </div>
 
@@ -378,15 +550,15 @@ export default function SmartAccountingWorkbench() {
               <Button className="w-full" variant="outline" onClick={() => router.push('/reports')}>
                 查看报表
               </Button>
-              <Button className="w-full" variant="outline" disabled={!workbenchSummary.canClose}>
+              <Button className="w-full" variant="outline" disabled={!workbenchView.canClose}>
                 进入月结
               </Button>
             </div>
 
             <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600">
-              <p>固定资产原值：{formatMoney(workbenchSummary.metrics.fixedAssetOriginalBalance)}</p>
-              <p>累计折旧余额：{formatMoney(workbenchSummary.metrics.accumulatedDepreciationBalance)}</p>
-              <p>待摊费用余额：{formatMoney(workbenchSummary.metrics.prepaidBalance)}</p>
+              <p>固定资产原值：{formatMoney(workbenchView.metrics.fixedAssetOriginalBalance)}</p>
+              <p>累计折旧余额：{formatMoney(workbenchView.metrics.accumulatedDepreciationBalance)}</p>
+              <p>待摊费用余额：{formatMoney(workbenchView.metrics.prepaidBalance)}</p>
             </div>
           </CardContent>
         </Card>
@@ -400,13 +572,13 @@ export default function SmartAccountingWorkbench() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {workbenchSummary.risks.length === 0 ? (
+          {workbenchView.risks.length === 0 ? (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-emerald-800">
               暂未发现需要优先处理的风险事项。
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {workbenchSummary.risks.map((item) => (
+              {workbenchView.risks.map((item) => (
                 <div key={item.code} className="rounded-md border border-slate-200 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <Badge variant="outline" className={severityClassNames[item.severity]}>
