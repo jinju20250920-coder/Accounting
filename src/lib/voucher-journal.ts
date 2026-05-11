@@ -91,7 +91,7 @@ export function buildVoucherJournalRows(
   let lineNo = 1;
 
   return vouchers
-    .filter((voucher) => voucher.status === 'posted')
+    .filter((voucher) => voucher.status === 'posted' || voucher.status === 'reversed')
     .filter((voucher) => matchesMonthRange(voucher, filters))
     .sort((a, b) => {
       const dateCompare = a.date.localeCompare(b.date);

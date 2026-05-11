@@ -64,7 +64,7 @@ export default function VoucherJournalPage() {
 
   const debitTotal = rows.reduce((sum, row) => sum + row.debit, 0);
   const creditTotal = rows.reduce((sum, row) => sum + row.credit, 0);
-  const postedVoucherCount = new Set(rows.map((row) => row.voucherId)).size;
+  const journalVoucherCount = new Set(rows.map((row) => row.voucherId)).size;
 
   const handleStartMonthChange = (value: string) => {
     setStartMonth(value);
@@ -120,7 +120,7 @@ export default function VoucherJournalPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">凭证序时账</h1>
           <p className="text-slate-500 mt-1">
-            按 Excel 表格展示已记账凭证流水，每条凭证分录单独成行。
+            按 Excel 表格展示已记账和已冲销凭证流水，每条凭证分录单独成行。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -138,8 +138,8 @@ export default function VoucherJournalPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="border-slate-200">
           <CardContent className="p-4">
-            <p className="text-sm text-slate-500">已记账凭证</p>
-            <p className="text-2xl font-semibold text-slate-900 mt-1">{postedVoucherCount}</p>
+            <p className="text-sm text-slate-500">序时账凭证</p>
+            <p className="text-2xl font-semibold text-slate-900 mt-1">{journalVoucherCount}</p>
           </CardContent>
         </Card>
         <Card className="border-slate-200">
@@ -184,7 +184,7 @@ export default function VoucherJournalPage() {
             <div>
               <label className="text-sm font-medium text-slate-600">状态</label>
               <div className="mt-2">
-                <Badge className="bg-green-100 text-green-700 hover:bg-green-100">仅已记账</Badge>
+                <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">已记账/已冲销</Badge>
               </div>
             </div>
           </div>
@@ -196,7 +196,7 @@ export default function VoucherJournalPage() {
           {rows.length === 0 ? (
             <div className="text-center py-16 text-slate-500">
               <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-              <p className="text-lg font-medium text-slate-700">暂无已记账凭证流水</p>
+              <p className="text-lg font-medium text-slate-700">暂无凭证序时账流水</p>
               <p className="text-sm mt-1">请确认筛选期间，或先完成凭证记账。</p>
             </div>
           ) : (
@@ -257,7 +257,7 @@ export default function VoucherJournalPage() {
                     <tr key={`${row.voucherId}_${row.entryId}`} className="border-b border-slate-100 hover:bg-blue-50/40">
                       <td className="py-2 px-2 text-center text-xs text-slate-500 border-r border-slate-100">{row.lineNo}</td>
                       <td className="py-2 px-2 border-r border-slate-100">
-                        <Link href="/voucher-list?status=posted" className="font-mono text-xs font-semibold text-blue-600 hover:underline">
+                        <Link href="/voucher-list?status=posted_reversed" className="font-mono text-xs font-semibold text-blue-600 hover:underline">
                           {row.voucherNo}
                         </Link>
                       </td>

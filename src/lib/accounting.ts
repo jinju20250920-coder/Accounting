@@ -424,12 +424,16 @@ export function createReverseVoucher(
 ): Voucher & {
   originalVoucher: string;
 } {
+  const reverseVoucherId = generateId();
   const reverseNumber = `冲${originalVoucher.voucherNo}`;
   const reverseDate = reverseDateParam || new Date().toISOString().split('T')[0];
 
   // 创建冲销凭证，所有分录借贷方向相反
   const reversedEntries = originalVoucher.entries.map((entry: VoucherEntry) => ({
     ...entry,
+    id: generateId(),
+    voucherId: reverseVoucherId,
+    date: reverseDate,
     debit: entry.credit,
     credit: entry.debit,
     summary: `冲销: ${entry.summary}`,
@@ -437,7 +441,7 @@ export function createReverseVoucher(
   }));
 
   return {
-    id: generateId(),
+    id: reverseVoucherId,
     voucherNo: reverseNumber,
     date: reverseDate,
     summary: `冲销凭证 ${originalVoucher.voucherNo}`,
