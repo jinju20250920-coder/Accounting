@@ -11,7 +11,7 @@
 - [x] 发票不是必导入项；本期没有发票时不提醒导入。
 - [x] 固定资产相关科目有余额且本期无折旧发生额时提醒。
 - [x] 待摊费用相关科目有余额且本期无摊销发生额时提醒。
-- [ ] 重点科目有余额但本期无变化时提示用户确认是否正常。
+- [x] 重点科目有余额但本期无变化时提示用户确认是否正常。
 
 ## Implementation Tasks
 
@@ -19,12 +19,12 @@
 - [x] Create `src/lib/smart-accounting-workbench.ts`.
 - [x] Update `src/app/page.tsx` to use the workbench summary.
 - [x] Update sidebar label from “首页” to “智能做账”.
-- [ ] Run TypeScript/build verification.
+- [x] Run TypeScript/build verification.
 
 ## Deferred
 
 - [ ] Persist “本月无需处理” confirmations.
-- [ ] Block `closePeriod` when blocker checks fail.
+- [x] Block `closePeriod` when blocker checks fail.
 - [ ] Add configurable rule switches.
 - [ ] Add dedicated check report page.
 

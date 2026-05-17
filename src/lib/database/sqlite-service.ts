@@ -41,7 +41,7 @@ export type PurchaseInvoiceRuleConfig = _PurchaseInvoiceRuleConfig;
 export interface AuditLog {
   id: string;
   type: 'create' | 'update' | 'delete' | 'post' | 'reverse';
-  entityType: 'voucher' | 'entry' | 'subject' | 'department' | 'project' | 'partner' | 'currency' | 'template';
+  entityType: 'voucher' | 'entry' | 'subject' | 'department' | 'project' | 'partner' | 'currency' | 'template' | 'period';
   entityId: string;
   details: string;
   userId: string;
@@ -1610,6 +1610,35 @@ class SQLiteService {
     }
   }
 
+  async updateVoucherStatus(id: string, status: string): Promise<void> {
+    try {
+      await this.ensureInitialized();
+
+      if (!this.dbInstance) {
+        throw new Error('Database instance is null after initialization');
+      }
+
+      const stmt = this.dbInstance.prepare(`
+        UPDATE vouchers
+        SET status = ?,
+            updateTime = ?
+        WHERE id = ? AND accountSetId = ?
+      `);
+      stmt.run([
+        status,
+        new Date().toISOString(),
+        id,
+        this.accountSetId
+      ]);
+      stmt.free();
+
+      await this.persist();
+    } catch (error) {
+      console.error('Update voucher status failed:', error);
+      throw error;
+    }
+  }
+
   async getVoucher(id: string): Promise<Voucher | undefined> {
     await this.ensureInitialized();
     const voucher = await this.querySingleAsync<any>(
@@ -2746,6 +2775,7 @@ class SQLiteService {
         logWithAccountSet.accountSetId
       ]);
       stmt.free();
+      await this.persist();
     } catch (error) {
       console.error('Add audit log failed:', error);
       throw error;

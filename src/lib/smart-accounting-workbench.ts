@@ -82,6 +82,7 @@ export interface SmartAccountingSummary {
 const FIXED_ASSET_ORIGINAL_CODES = ['1501', '1601', '1604'];
 const ACCUMULATED_DEPRECIATION_CODES = ['1502'];
 const PREPAID_CODES = ['1801', '1811'];
+const KEY_SUBJECT_REVIEW_CODES = ['1002', '1122', '1221', '1405', '2202', '2203', '2211', '2221'];
 
 function isInPeriod(date: string | undefined, period: string): boolean {
   return Boolean(date?.startsWith(period));
@@ -214,6 +215,34 @@ export function buildSmartAccountingSummary(input: SmartAccountingInput): SmartA
       `待摊费用余额 ${prepaidBalance.toFixed(2)}，本期待摊科目贷方发生额 0.00。`,
       '/assets/prepaid',
       '计提摊销',
+    ));
+  }
+
+  const inactiveKeySubjects = KEY_SUBJECT_REVIEW_CODES.filter((code) => {
+    const debitBalance = Math.abs(sumEntries(input.vouchers, [code], 'balanceDebit'));
+    const creditBalance = Math.abs(sumEntries(input.vouchers, [code], 'balanceCredit'));
+    const currentDebit = sumEntries(input.vouchers, [code], 'debit', input.period);
+    const currentCredit = sumEntries(input.vouchers, [code], 'credit', input.period);
+    return Math.max(debitBalance, creditBalance) > 0 && currentDebit <= 0 && currentCredit <= 0;
+  });
+
+  if (inactiveKeySubjects.length > 0) {
+    tasks.push(task(
+      'key_subject_no_activity_check',
+      '财务检查',
+      '重点科目余额确认',
+      'warning',
+      inactiveKeySubjects.length,
+      '/balance',
+      '确认余额',
+    ));
+    risks.push(risk(
+      'key_subject_no_activity_review',
+      'warning',
+      `重点科目 ${inactiveKeySubjects.join('、')} 有余额但本期无发生额`,
+      '请确认银行存款、往来、存货、税费、工资等重点科目余额长期未变化是否正常。',
+      '/balance',
+      '去确认',
     ));
   }
 

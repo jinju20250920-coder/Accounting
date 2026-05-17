@@ -60,4 +60,40 @@ assert.equal(
 
 assert.equal(summary.nextActions[0].targetRoute, '/import');
 
+const keySubjectSummary = buildSmartAccountingSummary({
+  period: '2026-03',
+  vouchers: [
+    {
+      id: 'voucher-prev',
+      voucherNo: 'J-202602-001',
+      date: '2026-02-20',
+      status: 'posted',
+      entries: [
+        { id: 'e-prev', subjectCode: '1122', subjectName: '应收账款', debit: 10000, credit: 0 },
+      ],
+    },
+  ],
+  bankTransactions: [
+    {
+      id: 'bank-ok',
+      date: '2026-03-01',
+      status: 'voucher_generated',
+      voucherId: 'voucher-bank',
+    },
+  ],
+  invoices: [],
+});
+
+assert.equal(
+  keySubjectSummary.risks.some((risk) => risk.code === 'key_subject_no_activity_review'),
+  true,
+  '重点科目有余额但本期无变化时，首页工作台应提醒用户确认是否正常',
+);
+
+assert.equal(
+  keySubjectSummary.tasks.some((task) => task.code === 'key_subject_no_activity_check'),
+  true,
+  '重点科目确认应作为首页工作台任务展示',
+);
+
 console.log('smart accounting workbench tests passed');

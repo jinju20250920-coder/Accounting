@@ -50,6 +50,7 @@ const TASK_RISK_CODE_MAP: Record<string, string[]> = {
   invoice_voucher_check: ['invoice_voucher_missing'],
   fixed_asset_depreciation_check: ['fixed_asset_depreciation_review'],
   prepaid_amortization_check: ['prepaid_amortization_review'],
+  key_subject_no_activity_check: ['key_subject_no_activity_review'],
   voucher_balance_check: ['voucher_unbalanced'],
   voucher_posting_check: ['voucher_unposted'],
 };

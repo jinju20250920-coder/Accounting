@@ -4,6 +4,19 @@ import { create } from 'zustand';
 import { useAccountSetStore } from './useAccountSetStore';
 import type { AccountingPeriod } from './useAccountSetStore';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
+import { useVoucherStore } from './useVoucherStore';
+import { useInvoiceStore } from './useInvoiceStore';
+import {
+  type MonthlyClosingBankTransaction,
+  type MonthlyClosingInvoice,
+  type MonthlyClosingVoucher,
+} from '@/lib/monthly-closing-checks';
+import { sqliteService } from '@/lib/database/sqlite-service';
+import {
+  assertPeriodCanCloseWithData,
+  createPeriodClosingAuditLog,
+  type PeriodClosingData,
+} from '@/lib/period-closing';
 
 // 期间模板接口
 export interface PeriodTemplate {
@@ -29,7 +42,7 @@ interface PeriodManagementStore {
   createPeriod: (periodData: Omit<AccountingPeriod, 'id' | 'createdDate' | 'lastModifiedDate'>) => void;
   updatePeriod: (id: string, updates: Partial<AccountingPeriod>) => void;
   deletePeriod: (id: string) => void;
-  closePeriod: (id: string) => void;
+  closePeriod: (id: string) => Promise<void>;
   reopenPeriod: (id: string) => void;
   setCurrentPeriod: (id: string) => void;
 
@@ -44,7 +57,7 @@ interface PeriodManagementStore {
   setActiveTab: (tab: 'periods' | 'templates' | 'settings') => void;
 
   // Actions - 期间操作
-  closeCurrentPeriod: () => void;
+  closeCurrentPeriod: () => Promise<void>;
   createNextPeriod: () => void;
 }
 
@@ -109,6 +122,46 @@ const defaultTemplates: PeriodTemplate[] = [
     description: '按季度划分，每年4个会计期间'
   }
 ];
+
+async function loadPeriodClosingData(period: AccountingPeriod): Promise<PeriodClosingData> {
+  const vouchers = useVoucherStore.getState().vouchers;
+  const invoices = useInvoiceStore.getState().invoices;
+  const periodBankTransactions = await sqliteService.getBankTransactionsByDateRange(period.startDate, period.endDate);
+
+  return {
+    vouchers: vouchers.map((voucher) => ({
+      id: voucher.id,
+      voucherNo: voucher.voucherNo,
+      date: voucher.date,
+      status: voucher.status,
+      entries: voucher.entries.map((entry) => ({
+        id: entry.id,
+        subjectCode: entry.subjectCode,
+        subjectName: entry.subjectName,
+        debit: entry.debit,
+        credit: entry.credit,
+      })),
+    })),
+    invoices: invoices.map((invoice) => ({
+      id: invoice.id,
+      invoiceDate: invoice.invoiceDate,
+      invoiceType: invoice.invoiceType,
+      voucherId: invoice.voucherId,
+      paymentStatus: invoice.paymentStatus,
+    })),
+    bankTransactions: periodBankTransactions.map((tx) => ({
+      id: tx.id,
+      date: tx.date,
+      status: tx.status,
+      voucherId: tx.voucherId,
+    })),
+  };
+}
+
+async function assertPeriodCanClose(period: AccountingPeriod) {
+  const data = await loadPeriodClosingData(period);
+  return assertPeriodCanCloseWithData(period, data);
+}
 
 // 创建期间管理 store
 export const usePeriodManagementStore = create<PeriodManagementStore>()((set, get) => ({
@@ -185,9 +238,15 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
   },
 
   // 关闭期间
-  closePeriod: (id) => {
+  closePeriod: async (id) => {
     const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
     if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      const targetPeriod = currentAccountSet.accountingPeriods.find(period => period.id === id);
+      let summary: ReturnType<typeof assertPeriodCanCloseWithData> | undefined;
+      if (targetPeriod) {
+        summary = await assertPeriodCanClose(targetPeriod);
+      }
+
       useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
         accountingPeriods: currentAccountSet.accountingPeriods.map(period =>
           period.id === id ? {
@@ -200,6 +259,14 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
           } : period
         )
       });
+
+      if (targetPeriod) {
+        await sqliteService.addAuditLog(createPeriodClosingAuditLog(targetPeriod, 'close', {
+          accountSetId: currentAccountSet.id,
+          blockerCount: summary?.blockerCount,
+          warningCount: summary?.warningCount,
+        }));
+      }
     }
   },
 
@@ -207,6 +274,7 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
   reopenPeriod: (id) => {
     const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
     if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      const targetPeriod = currentAccountSet.accountingPeriods.find(period => period.id === id);
       useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
         accountingPeriods: currentAccountSet.accountingPeriods.map(period =>
           period.id === id ? {
@@ -219,6 +287,11 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
           } : period
         )
       });
+      if (targetPeriod) {
+        void sqliteService.addAuditLog(createPeriodClosingAuditLog(targetPeriod, 'reopen', {
+          accountSetId: currentAccountSet.id,
+        }));
+      }
     }
   },
 
@@ -285,10 +358,10 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   // 关闭当前期间
-  closeCurrentPeriod: () => {
+  closeCurrentPeriod: async () => {
     const currentPeriod = get().getCurrentPeriod();
     if (currentPeriod) {
-      get().closePeriod(currentPeriod.id);
+      await get().closePeriod(currentPeriod.id);
     }
   },
 

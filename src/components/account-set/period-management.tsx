@@ -260,9 +260,14 @@ export function PeriodManagement() {
                         </Button>
                       )}
                       {period.canClose && (
-                        <Button variant="ghost" size="sm" onClick={(e) => {
+                        <Button variant="ghost" size="sm" onClick={async (e) => {
                           e.stopPropagation();
-                          closePeriod(period.id);
+                          try {
+                            await closePeriod(period.id);
+                            showToast('success', `已关闭 ${period.name}`);
+                          } catch (error) {
+                            showToast('error', error instanceof Error ? error.message : '当前期间存在阻塞项，暂不能月结');
+                          }
                         }}>
                           <Pause className="h-4 w-4" />
                         </Button>
@@ -403,7 +408,11 @@ export function PeriodManagement() {
 
       {/* 快速操作 */}
       <div className="flex gap-2">
-        <Button variant="outline" onClick={closeCurrentPeriod}>
+        <Button variant="outline" onClick={() => {
+          void closeCurrentPeriod().catch((error) => {
+            showToast('error', error instanceof Error ? error.message : '当前期间存在阻塞项，暂不能月结');
+          });
+        }}>
           <Calendar className="h-4 w-4 mr-2" />
           期间结转
         </Button>
@@ -431,7 +440,11 @@ export function PeriodManagement() {
                   可以正常录入凭证。本期已录入 {getCurrentPeriod()?.voucherCount} 张凭证。
                 </p>
                 <div className="flex gap-2 mt-2">
-                  <Button variant="outline" size="sm" onClick={closeCurrentPeriod}>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    void closeCurrentPeriod().catch((error) => {
+                      showToast('error', error instanceof Error ? error.message : '当前期间存在阻塞项，暂不能月结');
+                    });
+                  }}>
                     结转本期
                   </Button>
                   <Button variant="ghost" size="sm">
