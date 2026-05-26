@@ -39,6 +39,7 @@ import { formatMoney, calculateVoucherStatus, createReverseVoucher, VoucherStatu
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { DatabaseManager } from '@/components/DatabaseManager';
 import { getCurrentService } from '@/lib/database';
+import { assertAccountingDateEditable } from '@/lib/period-closing';
 
 
 // 状态配置
@@ -519,6 +520,12 @@ export default function VoucherListPage() {
       }
 
       // 执行具体操作
+      assertAccountingDateEditable(
+        currentAccountSet?.accountingPeriods,
+        voucher.date,
+        action === 'post' ? '过账凭证' : '冲销凭证',
+      );
+
       await callback();
 
       // 更新本地store
@@ -587,7 +594,7 @@ export default function VoucherListPage() {
 
   const handleExport = () => {
     if (viewMode === 'gl') {
-      // GL 序列视图导出：每行一条分录，全字段
+      // 序时账视图导出：每行一条分录，全字段
       const headers = ['序号', '凭证号', '日期', '凭证类型', '状态', '摘要', '科目代码', '科目名称', '借方金额', '贷方金额', '币别', '往来单位', '部门', '项目', '现金流量', '业务单据号', '核销单号', '创建人'];
       const glRows = filteredVouchers.flatMap(voucher =>
         voucher.entries
@@ -628,7 +635,7 @@ export default function VoucherListPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `GL凭证序列_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `凭证序时账_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -718,7 +725,7 @@ export default function VoucherListPage() {
               onClick={() => handleViewModeChange('gl')}
             >
               <Table2 className="w-4 h-4 mr-1" />
-              GL序列
+              序时账
             </Button>
           </div>
           {selectedDraftVouchers.length > 0 && (
@@ -837,7 +844,7 @@ export default function VoucherListPage() {
         </CardContent>
       </Card>
 
-      {/* 凭证列表 / GL序列视图 */}
+      {/* 凭证列表 / 序时账视图 */}
       {viewMode === 'list' ? (
       <Card className="border-slate-200">
         <CardContent className="p-0">
@@ -1062,7 +1069,7 @@ export default function VoucherListPage() {
         </CardContent>
       </Card>
       ) : (
-      /* GL 序列视图 */
+      /* 序时账视图 */
       <Card className="border-slate-200">
         <CardContent className="p-0">
           {glRows.length === 0 ? (

@@ -17,6 +17,11 @@ import type {
   AssetCategoryMapping as _AssetCategoryMapping,
   PurchaseInvoiceRuleConfig as _PurchaseInvoiceRuleConfig,
 } from '@/types';
+import type {
+  PayrollBatch,
+  PayrollCalculationConfigRecord,
+  PayrollItem,
+} from '../payroll';
 
 // Re-export types for stores to import
 export type Voucher = _Voucher;
@@ -145,8 +150,64 @@ class SQLiteService {
     await this.migrateAddInvoiceGroupName();
     await this.migrateFixedAssetLifecycle();
     await this.migrateBankTransactionsSourceColumn();
+    // 迁移：创建工资导入和计算相关表
+    await this.migrateCreatePayrollTables();
     // 迁移：创建用户/角色/权限相关表
     await this.migrateCreateUserTables();
+  }
+
+  private async migrateCreatePayrollTables(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    this.dbInstance.exec(`
+      CREATE TABLE IF NOT EXISTS payroll_batches (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        payrollPeriod TEXT NOT NULL,
+        batchName TEXT NOT NULL,
+        status TEXT NOT NULL,
+        sourceFileName TEXT,
+        employeeCount INTEGER NOT NULL DEFAULT 0,
+        grossTotal REAL NOT NULL DEFAULT 0,
+        employerCostTotal REAL NOT NULL DEFAULT 0,
+        taxTotal REAL NOT NULL DEFAULT 0,
+        netTotal REAL NOT NULL DEFAULT 0,
+        calculationConfigSnapshot TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        confirmedAt TEXT
+      );
+      CREATE TABLE IF NOT EXISTS payroll_items (
+        id TEXT PRIMARY KEY,
+        batchId TEXT NOT NULL,
+        accountSetId TEXT NOT NULL,
+        payrollPeriod TEXT NOT NULL,
+        employeeCode TEXT NOT NULL,
+        employeeName TEXT NOT NULL,
+        departmentName TEXT,
+        inputData TEXT NOT NULL,
+        calculationResult TEXT NOT NULL,
+        validationStatus TEXT NOT NULL,
+        validationMessages TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS payroll_calculation_configs (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        effectivePeriod TEXT NOT NULL,
+        socialInsuranceConfig TEXT NOT NULL,
+        housingFundConfig TEXT NOT NULL,
+        individualTaxConfig TEXT NOT NULL,
+        policyLabel TEXT NOT NULL,
+        policyEffectiveDate TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_payroll_batches_period ON payroll_batches(accountSetId, payrollPeriod);
+      CREATE INDEX IF NOT EXISTS idx_payroll_items_batch ON payroll_items(accountSetId, batchId);
+      CREATE INDEX IF NOT EXISTS idx_payroll_config_period ON payroll_calculation_configs(accountSetId, effectivePeriod);
+    `);
   }
 
   /**
@@ -3745,6 +3806,162 @@ class SQLiteService {
     await this.runAsync(
       `UPDATE invoices SET category = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
       [category, now, id, this.accountSetId]
+    );
+    await this.persist();
+  }
+
+  // --- Payroll import and calculation ---
+  async getPayrollBatches(period?: string): Promise<PayrollBatch[]> {
+    const params = period ? [this.accountSetId, period] : [this.accountSetId];
+    const sql = period
+      ? `SELECT * FROM payroll_batches WHERE accountSetId = ? AND payrollPeriod = ? ORDER BY updatedAt DESC`
+      : `SELECT * FROM payroll_batches WHERE accountSetId = ? ORDER BY payrollPeriod DESC, updatedAt DESC`;
+    const results = await this.queryAllAsync<any>(sql, params);
+    return results.map((row) => ({
+      ...row,
+      calculationConfigSnapshot: JSON.parse(row.calculationConfigSnapshot),
+    })) as PayrollBatch[];
+  }
+
+  async getPayrollItems(batchId: string): Promise<PayrollItem[]> {
+    const results = await this.queryAllAsync<any>(
+      `SELECT * FROM payroll_items WHERE accountSetId = ? AND batchId = ? ORDER BY employeeCode`,
+      [this.accountSetId, batchId],
+    );
+    return results.map((row) => ({
+      ...row,
+      inputData: JSON.parse(row.inputData),
+      calculationResult: JSON.parse(row.calculationResult),
+      validationMessages: JSON.parse(row.validationMessages),
+    })) as PayrollItem[];
+  }
+
+  async savePayrollCalculationConfig(record: PayrollCalculationConfigRecord): Promise<void> {
+    await this.runAsync(
+      `INSERT OR REPLACE INTO payroll_calculation_configs
+       (id, accountSetId, effectivePeriod, socialInsuranceConfig, housingFundConfig,
+        individualTaxConfig, policyLabel, policyEffectiveDate, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.id,
+        this.accountSetId,
+        record.effectivePeriod,
+        JSON.stringify(record.config.socialInsurance),
+        JSON.stringify(record.config.housingFund),
+        JSON.stringify(record.config.individualTax),
+        record.policyLabel,
+        record.policyEffectiveDate,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+    await this.persist();
+  }
+
+  async getPayrollCalculationConfig(period: string): Promise<PayrollCalculationConfigRecord | null> {
+    const row = await this.querySingleAsync<any>(
+      `SELECT * FROM payroll_calculation_configs
+       WHERE accountSetId = ? AND effectivePeriod <= ?
+       ORDER BY effectivePeriod DESC LIMIT 1`,
+      [this.accountSetId, period],
+    );
+    if (!row) return null;
+    return {
+      id: row.id,
+      accountSetId: row.accountSetId,
+      effectivePeriod: row.effectivePeriod,
+      config: {
+        socialInsurance: JSON.parse(row.socialInsuranceConfig),
+        housingFund: JSON.parse(row.housingFundConfig),
+        individualTax: JSON.parse(row.individualTaxConfig),
+      },
+      policyLabel: row.policyLabel,
+      policyEffectiveDate: row.policyEffectiveDate,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async savePayrollBatch(batch: PayrollBatch, items: PayrollItem[]): Promise<void> {
+    await this.runAsync(
+      `INSERT OR REPLACE INTO payroll_batches
+       (id, accountSetId, payrollPeriod, batchName, status, sourceFileName, employeeCount,
+        grossTotal, employerCostTotal, taxTotal, netTotal, calculationConfigSnapshot,
+        createdAt, updatedAt, confirmedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        batch.id,
+        this.accountSetId,
+        batch.payrollPeriod,
+        batch.batchName,
+        batch.status,
+        batch.sourceFileName || null,
+        batch.employeeCount,
+        batch.grossTotal,
+        batch.employerCostTotal,
+        batch.taxTotal,
+        batch.netTotal,
+        JSON.stringify(batch.calculationConfigSnapshot),
+        batch.createdAt,
+        batch.updatedAt,
+        batch.confirmedAt || null,
+      ],
+    );
+    await this.runAsync(
+      `DELETE FROM payroll_items WHERE batchId = ? AND accountSetId = ?`,
+      [batch.id, this.accountSetId],
+    );
+    for (const item of items) {
+      await this.runAsync(
+        `INSERT INTO payroll_items
+         (id, batchId, accountSetId, payrollPeriod, employeeCode, employeeName, departmentName,
+          inputData, calculationResult, validationStatus, validationMessages, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.id,
+          batch.id,
+          this.accountSetId,
+          batch.payrollPeriod,
+          item.employeeCode,
+          item.employeeName,
+          item.departmentName || null,
+          JSON.stringify(item.inputData),
+          JSON.stringify(item.calculationResult),
+          item.validationStatus,
+          JSON.stringify(item.validationMessages),
+          item.createdAt,
+          item.updatedAt,
+        ],
+      );
+    }
+    await this.persist();
+  }
+
+  async updatePayrollBatchStatus(batchId: string, status: PayrollBatch['status']): Promise<void> {
+    const confirmedAt = status === 'confirmed' ? new Date().toISOString() : null;
+    await this.runAsync(
+      `UPDATE payroll_batches SET status = ?, confirmedAt = ?, updatedAt = ?
+       WHERE id = ? AND accountSetId = ?`,
+      [status, confirmedAt, new Date().toISOString(), batchId, this.accountSetId],
+    );
+    await this.persist();
+  }
+
+  async deletePayrollBatch(batchId: string): Promise<void> {
+    const batch = await this.querySingleAsync<{ status: PayrollBatch['status'] }>(
+      `SELECT status FROM payroll_batches WHERE id = ? AND accountSetId = ?`,
+      [batchId, this.accountSetId],
+    );
+    if (batch?.status === 'confirmed') {
+      throw new Error('已确认工资批次不能删除');
+    }
+    await this.runAsync(
+      `DELETE FROM payroll_items WHERE batchId = ? AND accountSetId = ?`,
+      [batchId, this.accountSetId],
+    );
+    await this.runAsync(
+      `DELETE FROM payroll_batches WHERE id = ? AND accountSetId = ? AND status <> 'confirmed'`,
+      [batchId, this.accountSetId],
     );
     await this.persist();
   }

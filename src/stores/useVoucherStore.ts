@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { Voucher } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
+import { assertAccountingDateEditable } from '@/lib/period-closing';
 
 // 凭证状态
 type VoucherStatus = 'draft' | 'review' | 'posted' | 'reversed';
@@ -193,6 +194,11 @@ const generateVoucherNo = async (date: string): Promise<string> => {
   return `记-${yearMonth}-${seqStr}`;
 };
 
+const assertVoucherDateEditable = (date: string, actionName: string) => {
+  const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+  assertAccountingDateEditable(currentAccountSet?.accountingPeriods, date, actionName);
+};
+
 // 创建store
 export const useVoucherStore = create<VoucherStore>((set, get) => ({
   // 初始状态
@@ -296,6 +302,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const voucher = state.currentVoucher;
 
     if (!voucher) return;
+    assertVoucherDateEditable(voucher.date, '保存凭证');
 
     // 验证借贷平衡
     const isBalanced = Math.abs(state.totalDebit - state.totalCredit) < 0.01;
@@ -343,6 +350,11 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   },
 
   deleteVoucher: async (id: string) => {
+    const voucher = get().vouchers.find(v => v.id === id) || await getCurrentService().getVoucher(id);
+    if (voucher) {
+      assertVoucherDateEditable(voucher.date, '删除凭证');
+    }
+
     await getCurrentService().deleteVoucher(id);
     set((state) => ({
       vouchers: state.vouchers.filter(v => v.id !== id)
@@ -548,6 +560,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
 
     // 为每个银行交易生成一个凭证
     for (const transaction of bankTransactions) {
+      assertVoucherDateEditable(transaction.date, '生成凭证');
       try {
         const voucherId = `voucher_${Date.now()}_${transaction.id}`;
 
@@ -637,6 +650,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const voucherNo = await generateVoucherNo(transactionData.date);
 
     // 创建凭证分录
+    assertVoucherDateEditable(transactionData.date, '生成凭证');
+
     const entries: any[] = transactionData.entries.map((entry: any, index: number) => ({
       id: `entry_${Date.now()}_${index}`,
       voucherId: transactionData.id,
@@ -694,6 +709,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const state = get();
     const now = new Date().toISOString();
     const newId = Date.now().toString();
+    assertVoucherDateEditable(state.voucherDate, '新增凭证');
 
     // Generate voucher number
     const voucherNo = await generateVoucherNo(state.voucherDate);
@@ -731,6 +747,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const voucher = state.vouchers.find(v => v.id === voucherId);
 
     if (!voucher) return;
+    assertVoucherDateEditable(voucher.date, '复制凭证');
 
     const now = new Date().toISOString();
     const newId = Date.now().toString();
@@ -774,6 +791,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   saveVoucherAndCreateNext: async () => {
     const state = get();
     if (!state.currentVoucher) return;
+    assertVoucherDateEditable(state.currentVoucher.date, '保存凭证');
+    assertVoucherDateEditable(state.voucherDate, '新增凭证');
 
     // Save current voucher
     try {
@@ -885,6 +904,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const state = get();
     const now = new Date().toISOString();
     const newId = Date.now().toString();
+    assertVoucherDateEditable(state.voucherDate, '套用模板生成凭证');
 
     // Generate voucher number
     const voucherNo = await generateVoucherNo(state.voucherDate);

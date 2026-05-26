@@ -30,6 +30,7 @@ import {
   LogOut,
   KeyRound,
   User,
+  WalletCards,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
@@ -51,7 +52,6 @@ import { useToast } from '@/components/ui/toast';
 import { ChangePasswordDialog } from '@/components/shared/change-password-dialog';
 
 const menuItems = [
-  { icon: FileSpreadsheet, label: '凭证序时账', path: '/voucher-journal', permission: 'voucher:view' },
   { icon: Home, label: '智能做账', path: '/', permission: '' },
   { icon: FolderKanban, label: '凭证', path: '/voucher-entry-page', permission: 'voucher:view', children: [
     { label: '新增凭证', path: '/voucher-entry-page', permission: 'voucher:create' },
@@ -77,6 +77,7 @@ const menuItems = [
     { label: '销项发票', path: '/invoices/output', permission: 'invoice:view' },
     { label: '发票资金一览表', path: '/invoices/summary', permission: 'invoice:view' },
   ]},
+  { icon: WalletCards, label: '薪酬管理', path: '/payroll', permission: 'voucher:view' },
   { icon: Package, label: '资产管理', path: '/assets', permission: 'asset:view', children: [
     { label: '固定资产', path: '/assets/fixed', permission: 'asset:view' },
     { label: '固定资产汇总表', path: '/assets/summary', permission: 'asset:view' },

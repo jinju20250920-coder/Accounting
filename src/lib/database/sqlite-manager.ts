@@ -805,6 +805,56 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
+      -- 工资批次表
+      CREATE TABLE IF NOT EXISTS payroll_batches (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        payrollPeriod TEXT NOT NULL,
+        batchName TEXT NOT NULL,
+        status TEXT NOT NULL,
+        sourceFileName TEXT,
+        employeeCount INTEGER NOT NULL DEFAULT 0,
+        grossTotal REAL NOT NULL DEFAULT 0,
+        employerCostTotal REAL NOT NULL DEFAULT 0,
+        taxTotal REAL NOT NULL DEFAULT 0,
+        netTotal REAL NOT NULL DEFAULT 0,
+        calculationConfigSnapshot TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        confirmedAt TEXT
+      );
+
+      -- 工资明细表
+      CREATE TABLE IF NOT EXISTS payroll_items (
+        id TEXT PRIMARY KEY,
+        batchId TEXT NOT NULL,
+        accountSetId TEXT NOT NULL,
+        payrollPeriod TEXT NOT NULL,
+        employeeCode TEXT NOT NULL,
+        employeeName TEXT NOT NULL,
+        departmentName TEXT,
+        inputData TEXT NOT NULL,
+        calculationResult TEXT NOT NULL,
+        validationStatus TEXT NOT NULL,
+        validationMessages TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      -- 工资计算配置表
+      CREATE TABLE IF NOT EXISTS payroll_calculation_configs (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        effectivePeriod TEXT NOT NULL,
+        socialInsuranceConfig TEXT NOT NULL,
+        housingFundConfig TEXT NOT NULL,
+        individualTaxConfig TEXT NOT NULL,
+        policyLabel TEXT NOT NULL,
+        policyEffectiveDate TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
       -- 发票表
       CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY,
@@ -926,6 +976,11 @@ class SQLiteManager {
       CREATE INDEX IF NOT EXISTS idx_amortizationRecords_entityType ON amortizationRecords(entityType);
       CREATE INDEX IF NOT EXISTS idx_amortizationRecords_period ON amortizationRecords(period);
       CREATE INDEX IF NOT EXISTS idx_amortizationRecords_voucherId ON amortizationRecords(voucherId);
+
+      -- Payroll indexes
+      CREATE INDEX IF NOT EXISTS idx_payroll_batches_period ON payroll_batches(accountSetId, payrollPeriod);
+      CREATE INDEX IF NOT EXISTS idx_payroll_items_batch ON payroll_items(accountSetId, batchId);
+      CREATE INDEX IF NOT EXISTS idx_payroll_config_period ON payroll_calculation_configs(accountSetId, effectivePeriod);
 
       -- Invoice indexes
       CREATE INDEX IF NOT EXISTS idx_invoices_accountSetId ON invoices(accountSetId);

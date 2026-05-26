@@ -28,6 +28,16 @@ export interface MonthlyCheckTemplate {
   owner?: string;
 }
 
+export interface MonthlyCheckRuleConfig {
+  enabled?: boolean;
+  severity?: MonthlyCheckSeverity;
+  blockClosing?: boolean;
+  allowManualConfirmation?: boolean;
+  owner?: string;
+}
+
+export type MonthlyCheckRuleConfigs = Record<string, MonthlyCheckRuleConfig>;
+
 export interface MonthlyCheckInstance extends MonthlyCheckTemplate {
   period: string;
   manualStatus: MonthlyCheckManualStatus;
@@ -66,13 +76,21 @@ export interface MonthlyClosingInvoice {
   paymentStatus?: string;
 }
 
+export interface MonthlyClosingPayrollBatch {
+  status: 'draft' | 'calculated' | 'confirmed';
+  taxTotal: number;
+  includesSocialFundCalculation: boolean;
+}
+
 export interface MonthlyClosingInput {
   period: string;
   vouchers: MonthlyClosingVoucher[];
   bankTransactions?: MonthlyClosingBankTransaction[];
   invoices?: MonthlyClosingInvoice[];
+  payrollBatches?: MonthlyClosingPayrollBatch[];
   templates?: MonthlyCheckTemplate[];
   instances?: MonthlyCheckInstance[];
+  ruleConfigs?: MonthlyCheckRuleConfigs;
 }
 
 export interface MonthlyClosingCheckResult extends MonthlyCheckInstance {
@@ -95,6 +113,12 @@ export interface MonthlyClosingSummary {
   items: MonthlyClosingCheckResult[];
 }
 
+export interface MonthlyClosingReportInput {
+  accountSetName: string;
+  generatedAt: string;
+  summary: MonthlyClosingSummary;
+}
+
 export const MONTHLY_CHECK_MODULE_LABELS: Record<MonthlyCheckModule, string> = {
   bank: '银行流水',
   invoice: '发票',
@@ -114,8 +138,8 @@ export const DEFAULT_MONTHLY_CLOSING_TEMPLATES: MonthlyCheckTemplate[] = [
   template('input_invoice_certification', 'invoice', '进项发票是否全部导入、分类并完成认证勾选', '发票平台', 'input_invoice_status', 'warning', false, true, '/invoices/input', 'high'),
   template('output_invoice_posting', 'invoice', '销项发票是否全部开具、作废/红冲是否处理并入账', '开票系统', 'output_invoice_voucher_status', 'blocker', true, false, '/invoices/output', 'high'),
   template('expense_reimbursement_voucher', 'expense', '报销单是否全部审核并生成凭证', '报销系统/Excel', 'expense_voucher_status', 'blocker', true, false, '/voucher-entry-page', 'medium'),
-  template('payroll_salary_tax', 'payroll', '工资是否计提、发放并完成个税处理', '工资表/个税系统', 'payroll_accrual_status', 'warning', false, true, '/voucher-entry-page', 'medium'),
-  template('payroll_social_fund', 'payroll', '社保、公积金是否计提并与账单核对', '社保账单/公积金账单', 'social_fund_accrual_status', 'warning', false, true, '/voucher-entry-page', 'medium'),
+  template('payroll_salary_tax', 'payroll', '工资是否计提、发放并完成个税处理', '工资表/个税系统', 'payroll_accrual_status', 'warning', false, true, '/payroll', 'medium'),
+  template('payroll_social_fund', 'payroll', '社保、公积金是否计提并与账单核对', '社保账单/公积金账单', 'social_fund_accrual_status', 'warning', false, true, '/payroll', 'medium'),
   template('fixed_asset_change_posting', 'asset', '固定资产新增、减少、报废是否完成入账', '固定资产台账', 'fixed_asset_change_status', 'blocker', true, false, '/assets/fixed', 'high'),
   template('fixed_asset_depreciation', 'asset', '本月折旧是否计提完成并生成凭证', '固定资产模块', 'fixed_asset_depreciation_status', 'blocker', true, true, '/assets/depreciation', 'high'),
   template('prepaid_amortization', 'prepaid', '房租、保险、服务费等是否完成摊销', '待摊费用表', 'prepaid_amortization_status', 'warning', false, true, '/assets/prepaid', 'medium'),
@@ -183,8 +207,28 @@ export function createMonthlyCheckInstances(
   });
 }
 
+export function applyMonthlyCheckRuleConfigs(
+  templates: MonthlyCheckTemplate[],
+  ruleConfigs: MonthlyCheckRuleConfigs = {},
+): MonthlyCheckTemplate[] {
+  return templates
+    .filter((template) => ruleConfigs[template.code]?.enabled !== false)
+    .map((template) => {
+      const config = ruleConfigs[template.code];
+      if (!config) return template;
+
+      return {
+        ...template,
+        severity: config.severity || template.severity,
+        blockClosing: config.blockClosing ?? template.blockClosing,
+        allowManualConfirmation: config.allowManualConfirmation ?? template.allowManualConfirmation,
+        owner: config.owner ?? template.owner,
+      };
+    });
+}
+
 export function buildMonthlyClosingSummary(input: MonthlyClosingInput): MonthlyClosingSummary {
-  const templates = input.templates || DEFAULT_MONTHLY_CLOSING_TEMPLATES;
+  const templates = applyMonthlyCheckRuleConfigs(input.templates || DEFAULT_MONTHLY_CLOSING_TEMPLATES, input.ruleConfigs);
   const instances = input.instances || createMonthlyCheckInstances(input.period, templates);
   const results = instances.map((instance) => evaluateCheck(instance, input));
 
@@ -206,11 +250,57 @@ export function buildMonthlyClosingSummary(input: MonthlyClosingInput): MonthlyC
   };
 }
 
+export function buildMonthlyClosingReport(input: MonthlyClosingReportInput): string {
+  const { summary } = input;
+  const status = summary.canClose ? '可月结' : '不可月结';
+  const lines = [
+    '# 月结检查报告',
+    '',
+    `账套：${input.accountSetName}`,
+    `期间：${summary.period}`,
+    `生成时间：${input.generatedAt}`,
+    `月结状态：${status}`,
+    '',
+    '## 汇总',
+    '',
+    `- 总检查项：${summary.totalCount}`,
+    `- 已完成：${summary.completedCount}`,
+    `- 未完成：${summary.pendingCount}`,
+    `- 阻塞项：${summary.blockerCount}`,
+    `- 提醒项：${summary.warningCount}`,
+    `- 完成率：${summary.progress}%`,
+    '',
+    '## 检查明细',
+    '',
+    '| 模块 | 检查项 | 系统判断 | 等级 | 人工状态 | 负责人 | 备注 |',
+    '|---|---|---|---|---|---|---|',
+  ];
+
+  summary.items.forEach((item) => {
+    lines.push([
+      MONTHLY_CHECK_MODULE_LABELS[item.module],
+      item.title,
+      item.systemMessage,
+      item.systemSeverity,
+      item.manualStatus,
+      item.owner || '',
+      item.note || '',
+    ].map(escapeMarkdownCell).join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
+  });
+
+  return `${lines.join('\n')}\n`;
+}
+
+function escapeMarkdownCell(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
 function evaluateCheck(instance: MonthlyCheckInstance, input: MonthlyClosingInput): MonthlyClosingCheckResult {
   const period = input.period;
   const vouchers = input.vouchers || [];
   const bankTransactions = (input.bankTransactions || []).filter((item) => isInPeriod(item.date, period));
   const invoices = (input.invoices || []).filter((item) => isInPeriod(item.invoiceDate, period));
+  const confirmedPayrollBatches = (input.payrollBatches || []).filter((item) => item.status === 'confirmed');
 
   switch (instance.code) {
     case 'bank_import_and_voucher': {
@@ -238,6 +328,19 @@ function evaluateCheck(instance: MonthlyCheckInstance, input: MonthlyClosingInpu
       const withoutVoucher = outputInvoices.filter((item) => !item.voucherId).length;
       if (withoutVoucher > 0) return result(instance, 'blocked', 'blocker', `存在 ${withoutVoucher} 张销项发票未入账。`, withoutVoucher);
       return result(instance, 'passed', 'info', '本月销项发票已入账。', 0);
+    }
+    case 'payroll_salary_tax': {
+      if (confirmedPayrollBatches.length === 0) {
+        return result(instance, 'warning', 'warning', '本月尚无已确认工资计算批次，请完成工资导入、个税计算并核对后确认。', 1);
+      }
+      return result(instance, 'warning', 'warning', '已确认工资计算批次并包含个税计算结果；工资计提、发放及个税申报仍需核对确认。', 1);
+    }
+    case 'payroll_social_fund': {
+      const hasSocialFundCalculation = confirmedPayrollBatches.some((item) => item.includesSocialFundCalculation);
+      if (!hasSocialFundCalculation) {
+        return result(instance, 'warning', 'warning', '本月尚无已确认的社保、公积金计算结果，请完成配置和核对。', 1);
+      }
+      return result(instance, 'warning', 'warning', '已找到已确认工资批次中的社保、公积金计算结果；实际计提与缴纳仍需核对确认。', 1);
     }
     case 'fixed_asset_depreciation': {
       const originalBalance = Math.max(0, sumEntries(vouchers, FIXED_ASSET_ORIGINAL_CODES, 'balanceDebit'));

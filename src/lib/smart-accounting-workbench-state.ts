@@ -45,6 +45,10 @@ export interface SmartAccountingSummaryView extends Omit<
   canClose: boolean;
 }
 
+export interface ApplySmartAccountingOverridesOptions {
+  suppressCompletedTaskRisks?: boolean;
+}
+
 const TASK_RISK_CODE_MAP: Record<string, string[]> = {
   bank_import_check: ['bank_import_missing', 'bank_voucher_missing'],
   invoice_voucher_check: ['invoice_voucher_missing'],
@@ -88,7 +92,9 @@ function buildSuppressedRiskCodes(tasks: SmartAccountingTaskView[]): Set<string>
 export function applySmartAccountingOverrides(
   summary: SmartAccountingSummary,
   overrides: SmartWorkbenchTaskOverrides = {},
+  options: ApplySmartAccountingOverridesOptions = {},
 ): SmartAccountingSummaryView {
+  const suppressCompletedTaskRisks = options.suppressCompletedTaskRisks ?? true;
   const tasks: SmartAccountingTaskView[] = summary.tasks.map((task) => {
     const override = overrides[task.code];
     const status = override?.status || task.status;
@@ -104,7 +110,7 @@ export function applySmartAccountingOverrides(
     };
   });
 
-  const suppressedRiskCodes = buildSuppressedRiskCodes(tasks);
+  const suppressedRiskCodes = suppressCompletedTaskRisks ? buildSuppressedRiskCodes(tasks) : new Set<string>();
   const risks = summary.risks.filter((risk) => !suppressedRiskCodes.has(risk.code));
   const nextActions = [...risks].sort((a, b) => {
     return severityScore(a.severity) - severityScore(b.severity) || routePriority(a.code) - routePriority(b.code);

@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, RefreshCw, ShieldAlert } from 'lucide-react';
+import { RefreshCw, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
 import { SimpleSelect } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useAccountSetStore, type AccountSet } from '@/stores/useAccountSetStore';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { useVoucherStore } from '@/stores/useVoucherStore';
@@ -19,11 +19,9 @@ import {
   DEFAULT_MONTHLY_CLOSING_TEMPLATES,
   MONTHLY_CHECK_MODULE_LABELS,
   type MonthlyCheckManualStatus,
-  type MonthlyCheckModule,
   type MonthlyCheckSeverity,
   type MonthlyCheckSystemStatus,
   type MonthlyClosingBankTransaction,
-  type MonthlyClosingCheckResult,
 } from '@/lib/monthly-closing-checks';
 import { useMonthlyClosingCheckStore } from '@/lib/monthly-closing-check-state';
 
@@ -80,18 +78,11 @@ function getCurrentPeriodText(accountSet: AccountSet | undefined) {
   };
 }
 
-function groupByModule(items: MonthlyClosingCheckResult[]) {
-  return items.reduce<Record<MonthlyCheckModule, MonthlyClosingCheckResult[]>>((groups, item) => {
-    groups[item.module] = [...(groups[item.module] || []), item];
-    return groups;
-  }, {} as Record<MonthlyCheckModule, MonthlyClosingCheckResult[]>);
-}
-
 export default function MonthlyClosingChecksPage() {
   const { vouchers, initialize: initializeVouchers } = useVoucherStore();
   const { invoices, initialize: initializeInvoices } = useInvoiceStore();
   const { getCurrentAccountSet } = useAccountSetStore();
-  const { overridesByAccountSet, setCheckOverride, clearCheckOverride } = useMonthlyClosingCheckStore();
+  const { overridesByAccountSet, ruleConfigsByAccountSet, setCheckOverride, clearCheckOverride, setRuleConfig } = useMonthlyClosingCheckStore();
   const currentAccountSet = getCurrentAccountSet();
   const periodInfo = useMemo(() => getCurrentPeriodText(currentAccountSet), [currentAccountSet]);
   const [bankTransactions, setBankTransactions] = useState<MonthlyClosingBankTransaction[]>([]);
@@ -130,14 +121,32 @@ export default function MonthlyClosingChecksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodInfo.period, currentAccountSet?.id]);
 
-  const periodOverrides = currentAccountSet?.id
-    ? overridesByAccountSet[currentAccountSet.id]?.[periodInfo.period] || {}
-    : {};
+  const periodOverrides = useMemo(
+    () => (currentAccountSet?.id ? overridesByAccountSet[currentAccountSet.id]?.[periodInfo.period] || {} : {}),
+    [currentAccountSet?.id, overridesByAccountSet, periodInfo.period],
+  );
+  const ruleConfigs = useMemo(
+    () => (currentAccountSet?.id ? ruleConfigsByAccountSet[currentAccountSet.id] || {} : {}),
+    [currentAccountSet?.id, ruleConfigsByAccountSet],
+  );
 
-  const instances = useMemo(() => createMonthlyCheckInstances(periodInfo.period, DEFAULT_MONTHLY_CLOSING_TEMPLATES).map((instance) => {
+  const enabledTemplates = useMemo(
+    () => DEFAULT_MONTHLY_CLOSING_TEMPLATES.filter((template) => ruleConfigs[template.code]?.enabled !== false),
+    [ruleConfigs],
+  );
+
+  const instances = useMemo(() => createMonthlyCheckInstances(periodInfo.period, enabledTemplates).map((instance) => {
     const override = periodOverrides[instance.code];
-    return override ? { ...instance, ...override } : instance;
-  }), [periodInfo.period, periodOverrides]);
+    const ruleConfig = ruleConfigs[instance.code];
+    const configured = ruleConfig ? {
+      ...instance,
+      severity: ruleConfig.severity || instance.severity,
+      blockClosing: ruleConfig.blockClosing ?? instance.blockClosing,
+      allowManualConfirmation: ruleConfig.allowManualConfirmation ?? instance.allowManualConfirmation,
+      owner: ruleConfig.owner ?? instance.owner,
+    } : instance;
+    return override ? { ...configured, ...override } : configured;
+  }), [enabledTemplates, periodInfo.period, periodOverrides, ruleConfigs]);
 
   const summary = useMemo(() => buildMonthlyClosingSummary({
     period: periodInfo.period,
@@ -165,8 +174,6 @@ export default function MonthlyClosingChecksPage() {
     })),
   }), [bankTransactions, instances, invoices, periodInfo.period, vouchers]);
 
-  const groupedItems = useMemo(() => groupByModule(summary.items), [summary.items]);
-
   const setOverride = (code: string, patch: Partial<{ manualStatus: MonthlyCheckManualStatus; owner: string; note: string }>) => {
     if (!currentAccountSet?.id) return;
     const item = summary.items.find((check) => check.code === code);
@@ -180,6 +187,16 @@ export default function MonthlyClosingChecksPage() {
   };
 
   const manualOptions = Object.entries(manualStatusLabels).map(([value, label]) => ({ value, label }));
+  const severityOptions = [
+    { value: 'blocker', label: '阻塞' },
+    { value: 'warning', label: '提醒' },
+    { value: 'info', label: '信息' },
+  ];
+
+  const updateRuleConfig = (code: string, patch: Partial<{ enabled: boolean; severity: MonthlyCheckSeverity; blockClosing: boolean }>) => {
+    if (!currentAccountSet?.id) return;
+    setRuleConfig(currentAccountSet.id, code, patch);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
@@ -191,101 +208,58 @@ export default function MonthlyClosingChecksPage() {
             {lastCheckedAt ? ` / 最近检查：${lastCheckedAt}` : ''}
           </p>
         </div>
-        <Button onClick={refreshChecks} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          执行月结检查
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={refreshChecks} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            执行月结检查
+          </Button>
+        </div>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="border-blue-200 bg-blue-50/60">
-          <CardContent className="p-4">
-            <p className="text-sm text-slate-500">总检查项</p>
-            <p className="text-2xl font-bold text-slate-950 mt-1">{summary.totalCount}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-emerald-200 bg-emerald-50/60">
-          <CardContent className="p-4">
-            <p className="text-sm text-slate-500">已完成</p>
-            <p className="text-2xl font-bold text-slate-950 mt-1">{summary.completedCount}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200">
-          <CardContent className="p-4">
-            <p className="text-sm text-slate-500">未完成</p>
-            <p className="text-2xl font-bold text-slate-950 mt-1">{summary.pendingCount}</p>
-          </CardContent>
-        </Card>
-        <Card className={summary.blockerCount > 0 ? 'border-red-200 bg-red-50/60' : 'border-emerald-200 bg-emerald-50/60'}>
-          <CardContent className="p-4">
-            <p className="text-sm text-slate-500">阻塞项</p>
-            <p className="text-2xl font-bold text-slate-950 mt-1">{summary.blockerCount}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-green-200 bg-green-50/60">
-          <CardContent className="p-4">
-            <p className="text-sm text-slate-500">完成率</p>
-            <p className="text-2xl font-bold text-slate-950 mt-1">{summary.progress}%</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-slate-200">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-[160px_1fr_80px] items-center gap-4">
-            <div className="flex items-center gap-2 font-medium text-slate-700">
-              <ClipboardCheck className="w-5 h-5 text-slate-600" />
-              整体进度
-            </div>
-            <Progress value={summary.progress} className="h-3" />
-            <div className="text-right font-semibold text-slate-900">{summary.progress}%</div>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card className="border-slate-200">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">模块进度总览</CardTitle>
+          <CardTitle className="text-lg">检查规则配置</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead>
               <tr className="border-b text-slate-500">
-                <th className="text-left py-3 font-medium">模块</th>
-                <th className="text-right py-3 font-medium">检查项数</th>
-                <th className="text-right py-3 font-medium">已完成</th>
-                <th className="text-right py-3 font-medium">完成率</th>
-                <th className="text-right py-3 font-medium">阻塞</th>
-                <th className="text-right py-3 font-medium">提醒</th>
-                <th className="text-left py-3 pl-6 font-medium">状态</th>
+                <th className="text-left py-3 pr-3 font-medium">启用</th>
+                <th className="text-left py-3 pr-3 font-medium">检查项</th>
+                <th className="text-left py-3 pr-3 font-medium">模块</th>
+                <th className="text-left py-3 pr-3 font-medium">等级</th>
+                <th className="text-left py-3 pr-3 font-medium">阻塞月结</th>
               </tr>
             </thead>
             <tbody>
-              {Object.entries(MONTHLY_CHECK_MODULE_LABELS).map(([module, label]) => {
-                const items = groupedItems[module as MonthlyCheckModule] || [];
-                const completed = items.filter((item) => item.completed).length;
-                const blockers = items.filter((item) => item.systemStatus === 'blocked' && !item.completed).length;
-                const warnings = items.filter((item) => item.systemStatus === 'warning' && !item.completed).length;
-                const progress = items.length === 0 ? 0 : Math.round((completed / items.length) * 100);
-                const status = blockers > 0 ? '有阻塞' : warnings > 0 ? '待确认' : progress === 100 ? '完成' : '进行中';
+              {DEFAULT_MONTHLY_CLOSING_TEMPLATES.map((template) => {
+                const config = ruleConfigs[template.code] || {};
+                const enabled = config.enabled !== false;
+                const severity = config.severity || template.severity;
+                const blockClosing = config.blockClosing ?? template.blockClosing;
 
                 return (
-                  <tr key={module} className="border-b last:border-0">
-                    <td className="py-3 font-medium text-slate-900">{label}</td>
-                    <td className="py-3 text-right">{items.length}</td>
-                    <td className="py-3 text-right">{completed}</td>
-                    <td className="py-3 text-right">
-                      <div className="inline-flex w-32 items-center gap-2">
-                        <Progress value={progress} className="h-2" />
-                        <span className="w-10 text-right">{progress}%</span>
-                      </div>
+                  <tr key={template.code} className="border-b last:border-0">
+                    <td className="py-3 pr-3">
+                      <Switch
+                        checked={enabled}
+                        onCheckedChange={(checked) => updateRuleConfig(template.code, { enabled: checked })}
+                      />
                     </td>
-                    <td className="py-3 text-right text-red-700">{blockers}</td>
-                    <td className="py-3 text-right text-amber-700">{warnings}</td>
-                    <td className="py-3 pl-6">
-                      <Badge variant="outline" className={blockers > 0 ? severityClassNames.blocker : warnings > 0 ? severityClassNames.warning : severityClassNames.info}>
-                        {status}
-                      </Badge>
+                    <td className="py-3 pr-3 font-medium text-slate-900">{template.title}</td>
+                    <td className="py-3 pr-3 text-slate-600">{MONTHLY_CHECK_MODULE_LABELS[template.module]}</td>
+                    <td className="py-3 pr-3">
+                      <SimpleSelect
+                        value={severity}
+                        onChange={(value) => updateRuleConfig(template.code, { severity: value as MonthlyCheckSeverity })}
+                        options={severityOptions}
+                      />
+                    </td>
+                    <td className="py-3 pr-3">
+                      <Switch
+                        checked={blockClosing}
+                        onCheckedChange={(checked) => updateRuleConfig(template.code, { blockClosing: checked })}
+                      />
                     </td>
                   </tr>
                 );
@@ -373,25 +347,6 @@ export default function MonthlyClosingChecksPage() {
               ))}
             </tbody>
           </table>
-        </CardContent>
-      </Card>
-
-      <Card className={summary.canClose ? 'border-emerald-200 bg-emerald-50/60' : 'border-red-200 bg-red-50/60'}>
-        <CardContent className="p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-start gap-3">
-            {summary.canClose ? <CheckCircle2 className="w-6 h-6 text-emerald-700 mt-0.5" /> : <AlertTriangle className="w-6 h-6 text-red-700 mt-0.5" />}
-            <div>
-              <p className={`font-semibold ${summary.canClose ? 'text-emerald-800' : 'text-red-800'}`}>
-                {summary.canClose ? '当前没有阻塞项，可进入月结' : '当前存在阻塞项，暂不可月结'}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">
-                阻塞项必须处理后才能关闭期间；提醒项可以填写说明或确认无须处理。
-              </p>
-            </div>
-          </div>
-          <Badge variant="outline" className={summary.canClose ? severityClassNames.info : severityClassNames.blocker}>
-            阻塞 {summary.blockerCount} / 提醒 {summary.warningCount}
-          </Badge>
         </CardContent>
       </Card>
     </div>

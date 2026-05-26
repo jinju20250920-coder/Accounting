@@ -1,3 +1,9 @@
+import {
+  MONTHLY_CHECK_MODULE_LABELS,
+  type MonthlyClosingCheckResult,
+  type MonthlyClosingSummary,
+} from './monthly-closing-checks';
+
 export type SmartTaskStatus = 'completed' | 'in_progress' | 'warning' | 'blocked' | 'not_started';
 export type SmartRiskSeverity = 'info' | 'warning' | 'blocker';
 
@@ -303,5 +309,71 @@ export function buildSmartAccountingSummary(input: SmartAccountingInput): SmartA
       prepaidBalance,
       currentPrepaidCredit,
     },
+  };
+}
+
+function smartStatusFromMonthlyCheck(item: MonthlyClosingCheckResult): SmartTaskStatus {
+  if (item.completed) return 'completed';
+  if (item.systemStatus === 'blocked') return 'blocked';
+  if (item.systemStatus === 'warning') return 'warning';
+  if (item.systemStatus === 'passed' || item.systemStatus === 'no_data') return 'completed';
+  return 'not_started';
+}
+
+function smartActionLabelFromMonthlyCheck(item: MonthlyClosingCheckResult): string {
+  if (item.completed) return '查看';
+  if (item.systemStatus === 'blocked') return '处理阻塞';
+  if (item.systemStatus === 'warning') return item.allowManualConfirmation ? '确认处理' : '去处理';
+  return '查看';
+}
+
+function shouldCreateMonthlyRisk(item: MonthlyClosingCheckResult): boolean {
+  return !item.completed && (item.systemStatus === 'blocked' || item.systemStatus === 'warning');
+}
+
+function sortSmartRisks(a: SmartAccountingRisk, b: SmartAccountingRisk): number {
+  const severityScore: Record<SmartRiskSeverity, number> = { blocker: 0, warning: 1, info: 2 };
+  return severityScore[a.severity] - severityScore[b.severity];
+}
+
+export function buildSmartAccountingSummaryFromMonthlyClosing(
+  input: SmartAccountingInput,
+  monthlySummary: MonthlyClosingSummary,
+): SmartAccountingSummary {
+  const baseSummary = buildSmartAccountingSummary(input);
+  const tasks: SmartAccountingTask[] = monthlySummary.items.map((item) => ({
+    code: item.code,
+    stage: MONTHLY_CHECK_MODULE_LABELS[item.module],
+    name: item.title,
+    status: smartStatusFromMonthlyCheck(item),
+    exceptionCount: item.exceptionCount,
+    targetRoute: item.route,
+    actionLabel: smartActionLabelFromMonthlyCheck(item),
+  }));
+  const risks: SmartAccountingRisk[] = monthlySummary.items
+    .filter(shouldCreateMonthlyRisk)
+    .map((item) => ({
+      code: item.code,
+      severity: item.systemSeverity,
+      title: item.title,
+      description: item.systemMessage,
+      targetRoute: item.route,
+      actionLabel: smartActionLabelFromMonthlyCheck(item),
+    }));
+  const nextActions = [...risks].sort(sortSmartRisks);
+
+  return {
+    ...baseSummary,
+    period: monthlySummary.period,
+    progress: monthlySummary.progress,
+    completedCount: monthlySummary.completedCount,
+    totalCount: monthlySummary.totalCount,
+    pendingCount: monthlySummary.pendingCount,
+    warningCount: monthlySummary.warningCount,
+    blockerCount: monthlySummary.blockerCount,
+    canClose: monthlySummary.canClose,
+    tasks,
+    risks,
+    nextActions,
   };
 }

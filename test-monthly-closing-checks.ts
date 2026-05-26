@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  buildMonthlyClosingReport,
   buildMonthlyClosingSummary,
   createMonthlyCheckInstances,
   DEFAULT_MONTHLY_CLOSING_TEMPLATES,
@@ -31,6 +32,30 @@ assert.equal(bankVoucherCheck?.systemStatus, 'blocked');
 assert.equal(bankVoucherCheck?.blockClosing, true);
 assert.equal(bankUnpostedSummary.blockerCount, 1);
 assert.equal(bankUnpostedSummary.canClose, false);
+
+const disabledBankSummary = buildMonthlyClosingSummary({
+  ...bankUnpostedInput,
+  ruleConfigs: {
+    bank_import_and_voucher: { enabled: false },
+  },
+});
+assert.equal(
+  disabledBankSummary.items.some((item) => item.code === 'bank_import_and_voucher'),
+  false,
+  'disabled rule should be excluded from monthly closing checks',
+);
+assert.equal(disabledBankSummary.blockerCount, 0, 'disabled blocker rule should not block closing');
+
+const downgradedBankSummary = buildMonthlyClosingSummary({
+  ...bankUnpostedInput,
+  ruleConfigs: {
+    bank_import_and_voucher: { severity: 'warning', blockClosing: false },
+  },
+});
+const downgradedBankCheck = downgradedBankSummary.items.find((item) => item.code === 'bank_import_and_voucher');
+assert.equal(downgradedBankCheck?.systemStatus, 'warning');
+assert.equal(downgradedBankCheck?.systemSeverity, 'warning');
+assert.equal(downgradedBankSummary.canClose, true, 'rule config should allow warning-only bank checks');
 
 const noBankSummary = buildMonthlyClosingSummary({
   period: '2026-03',
@@ -108,6 +133,41 @@ assert.throws(
   '关账前检查必须使用真实银行流水阻断未生成凭证的流水',
 );
 
+assert.doesNotThrow(
+  () => assertPeriodCanCloseWithData(
+    closablePeriod,
+    {
+      vouchers: [],
+      invoices: [],
+      bankTransactions: [
+        { id: 'bank-warning-only', date: '2026-03-08', status: 'imported' },
+      ],
+    },
+    {
+      bank_import_and_voucher: { severity: 'warning', blockClosing: false },
+    },
+  ),
+  'closing guard should honor monthly check rule configs',
+);
+
+assert.doesNotThrow(
+  () => assertPeriodCanCloseWithData(
+    closablePeriod,
+    {
+      vouchers: [],
+      invoices: [],
+      bankTransactions: [
+        { id: 'bank-manual-confirmed', date: '2026-03-08', status: 'imported' },
+      ],
+    },
+    undefined,
+    {
+      bank_import_and_voucher: { manualStatus: 'completed' },
+    },
+  ),
+  'closing guard should honor monthly check manual confirmations',
+);
+
 const closingLog = createPeriodClosingAuditLog(closablePeriod, 'close', {
   accountSetId: 'account-set-1',
   userId: 'user-admin',
@@ -120,5 +180,25 @@ assert.equal(closingLog.entityType, 'period');
 assert.equal(closingLog.entityId, '202603');
 assert.match(closingLog.details, /close/);
 assert.equal(closingLog.accountSetId, 'account-set-1');
+
+const reportText = buildMonthlyClosingReport({
+  accountSetName: '上海金桔',
+  generatedAt: '2026-05-17 10:00:00',
+  summary: buildMonthlyClosingSummary({
+    period: '2026-03',
+    vouchers: [],
+    bankTransactions: [{ id: 'bank-1', date: '2026-03-05', status: 'imported' }],
+    invoices: [],
+    instances: createMonthlyCheckInstances('2026-03').map((item) =>
+      item.code === 'bank_import_and_voucher'
+        ? { ...item, manualStatus: 'explained', owner: '王会计', note: '银行流水已安排补生成凭证' }
+        : item,
+    ),
+  }),
+});
+assert.match(reportText, /上海金桔/);
+assert.match(reportText, /2026-03/);
+assert.match(reportText, /银行流水已安排补生成凭证/);
+assert.match(reportText, /阻塞项/);
 
 console.log('monthly closing checks tests passed');

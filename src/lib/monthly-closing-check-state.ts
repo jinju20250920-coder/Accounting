@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { MonthlyCheckManualStatus } from './monthly-closing-checks';
+import type { MonthlyCheckManualStatus, MonthlyCheckRuleConfig } from './monthly-closing-checks';
 
 export interface MonthlyClosingCheckOverride {
   manualStatus: MonthlyCheckManualStatus;
@@ -14,9 +14,12 @@ export interface MonthlyClosingCheckOverride {
 export type MonthlyClosingCheckOverrides = Record<string, MonthlyClosingCheckOverride>;
 export type MonthlyClosingPeriodOverrides = Record<string, MonthlyClosingCheckOverrides>;
 export type MonthlyClosingAccountOverrides = Record<string, MonthlyClosingPeriodOverrides>;
+export type MonthlyClosingRuleConfigs = Record<string, MonthlyCheckRuleConfig>;
+export type MonthlyClosingAccountRuleConfigs = Record<string, MonthlyClosingRuleConfigs>;
 
 interface MonthlyClosingCheckStore {
   overridesByAccountSet: MonthlyClosingAccountOverrides;
+  ruleConfigsByAccountSet: MonthlyClosingAccountRuleConfigs;
   setCheckOverride: (
     accountSetId: string,
     period: string,
@@ -25,6 +28,8 @@ interface MonthlyClosingCheckStore {
   ) => void;
   clearCheckOverride: (accountSetId: string, period: string, checkCode: string) => void;
   getPeriodOverrides: (accountSetId: string, period: string) => MonthlyClosingCheckOverrides;
+  setRuleConfig: (accountSetId: string, checkCode: string, config: MonthlyCheckRuleConfig) => void;
+  getRuleConfigs: (accountSetId: string) => MonthlyClosingRuleConfigs;
 }
 
 function cloneOverrides(state: MonthlyClosingAccountOverrides): MonthlyClosingAccountOverrides {
@@ -45,6 +50,7 @@ export const useMonthlyClosingCheckStore = create<MonthlyClosingCheckStore>()(
   persist(
     (set, get) => ({
       overridesByAccountSet: {},
+      ruleConfigsByAccountSet: {},
       setCheckOverride: (accountSetId, period, checkCode, override) => {
         set((state) => {
           const overridesByAccountSet = cloneOverrides(state.overridesByAccountSet);
@@ -88,6 +94,23 @@ export const useMonthlyClosingCheckStore = create<MonthlyClosingCheckStore>()(
       getPeriodOverrides: (accountSetId, period) => {
         return get().overridesByAccountSet[accountSetId]?.[period] || {};
       },
+      setRuleConfig: (accountSetId, checkCode, config) => {
+        set((state) => ({
+          ruleConfigsByAccountSet: {
+            ...state.ruleConfigsByAccountSet,
+            [accountSetId]: {
+              ...(state.ruleConfigsByAccountSet[accountSetId] || {}),
+              [checkCode]: {
+                ...(state.ruleConfigsByAccountSet[accountSetId]?.[checkCode] || {}),
+                ...config,
+              },
+            },
+          },
+        }));
+      },
+      getRuleConfigs: (accountSetId) => {
+        return get().ruleConfigsByAccountSet[accountSetId] || {};
+      },
     }),
     {
       name: 'monthly-closing-check-overrides',
@@ -102,7 +125,10 @@ export const useMonthlyClosingCheckStore = create<MonthlyClosingCheckStore>()(
 
         return localStorage;
       }),
-      partialize: (state) => ({ overridesByAccountSet: state.overridesByAccountSet }),
+      partialize: (state) => ({
+        overridesByAccountSet: state.overridesByAccountSet,
+        ruleConfigsByAccountSet: state.ruleConfigsByAccountSet,
+      }),
     },
   ),
 );

@@ -6,17 +6,13 @@ import type { AccountingPeriod } from './useAccountSetStore';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 import { useVoucherStore } from './useVoucherStore';
 import { useInvoiceStore } from './useInvoiceStore';
-import {
-  type MonthlyClosingBankTransaction,
-  type MonthlyClosingInvoice,
-  type MonthlyClosingVoucher,
-} from '@/lib/monthly-closing-checks';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import {
   assertPeriodCanCloseWithData,
   createPeriodClosingAuditLog,
   type PeriodClosingData,
 } from '@/lib/period-closing';
+import { useMonthlyClosingCheckStore } from '@/lib/monthly-closing-check-state';
 
 // 期间模板接口
 export interface PeriodTemplate {
@@ -158,9 +154,16 @@ async function loadPeriodClosingData(period: AccountingPeriod): Promise<PeriodCl
   };
 }
 
-async function assertPeriodCanClose(period: AccountingPeriod) {
+async function assertPeriodCanClose(period: AccountingPeriod, accountSetId?: string) {
   const data = await loadPeriodClosingData(period);
-  return assertPeriodCanCloseWithData(period, data);
+  const ruleConfigs = accountSetId
+    ? useMonthlyClosingCheckStore.getState().getRuleConfigs(accountSetId)
+    : undefined;
+  const periodText = `${period.year}-${String(period.month).padStart(2, '0')}`;
+  const checkOverrides = accountSetId
+    ? useMonthlyClosingCheckStore.getState().getPeriodOverrides(accountSetId, periodText)
+    : undefined;
+  return assertPeriodCanCloseWithData(period, data, ruleConfigs, checkOverrides);
 }
 
 // 创建期间管理 store
@@ -197,6 +200,7 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
 
   // 选择期间
   selectPeriod: (periodId) => {
+    void periodId;
     // 这里可以添加期间选择逻辑
   },
 
@@ -244,7 +248,7 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
       const targetPeriod = currentAccountSet.accountingPeriods.find(period => period.id === id);
       let summary: ReturnType<typeof assertPeriodCanCloseWithData> | undefined;
       if (targetPeriod) {
-        summary = await assertPeriodCanClose(targetPeriod);
+        summary = await assertPeriodCanClose(targetPeriod, currentAccountSet.id);
       }
 
       useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {

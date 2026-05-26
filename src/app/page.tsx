@@ -20,28 +20,28 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Input } from '@/components/ui/input';
-import { SimpleSelect } from '@/components/ui/select';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
+import { usePayrollStore } from '@/stores/usePayrollStore';
 import type { AccountSet } from '@/stores/useAccountSetStore';
 import type { BankTransaction } from '@/types';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { formatMoney } from '@/lib/accounting';
 import {
-  buildSmartAccountingSummary,
+  buildSmartAccountingSummaryFromMonthlyClosing,
   type SmartAccountingBankTransaction,
   type SmartTaskStatus,
   type SmartRiskSeverity,
 } from '@/lib/smart-accounting-workbench';
 import {
-  applySmartAccountingOverrides,
-  useSmartAccountingWorkbenchStore,
-  type SmartAccountingSummaryView,
-  type SmartWorkbenchEditableStatus,
-} from '@/lib/smart-accounting-workbench-state';
+  buildMonthlyClosingSummary,
+  createMonthlyCheckInstances,
+  DEFAULT_MONTHLY_CLOSING_TEMPLATES,
+  type MonthlyClosingBankTransaction,
+} from '@/lib/monthly-closing-checks';
+import { useMonthlyClosingCheckStore } from '@/lib/monthly-closing-check-state';
 
 const statusLabels: Record<SmartTaskStatus, string> = {
   completed: '已完成',
@@ -51,30 +51,12 @@ const statusLabels: Record<SmartTaskStatus, string> = {
   not_started: '未开始',
 };
 
-const editableStatusLabels: Record<SmartWorkbenchEditableStatus, string> = {
-  completed: '已完成',
-  in_progress: '进行中',
-  warning: '提醒',
-  blocked: '阻塞',
-  not_started: '未开始',
-  confirmed_not_needed: '本月无须处理',
-};
-
 const statusClassNames: Record<SmartTaskStatus, string> = {
   completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
   warning: 'bg-amber-50 text-amber-700 border-amber-200',
   blocked: 'bg-red-50 text-red-700 border-red-200',
   not_started: 'bg-slate-50 text-slate-600 border-slate-200',
-};
-
-const editableStatusClassNames: Record<SmartWorkbenchEditableStatus, string> = {
-  completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
-  warning: 'bg-amber-50 text-amber-700 border-amber-200',
-  blocked: 'bg-red-50 text-red-700 border-red-200',
-  not_started: 'bg-slate-50 text-slate-600 border-slate-200',
-  confirmed_not_needed: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
 const severityLabels: Record<SmartRiskSeverity, string> = {
@@ -113,10 +95,11 @@ export default function SmartAccountingWorkbench() {
   const { vouchers, initialize: initializeVouchers } = useVoucherStore();
   const { subjects, initializeSubjects } = useSubjectStore();
   const { invoices, initialize: initializeInvoices } = useInvoiceStore();
+  const payrollBatches = usePayrollStore((state) => state.batches);
+  const loadPayrollPeriod = usePayrollStore((state) => state.loadPeriod);
   const { getCurrentAccountSet } = useAccountSetStore();
-  const overridesByAccountSet = useSmartAccountingWorkbenchStore((state) => state.overridesByAccountSet);
-  const setTaskOverride = useSmartAccountingWorkbenchStore((state) => state.setTaskOverride);
-  const clearTaskOverride = useSmartAccountingWorkbenchStore((state) => state.clearTaskOverride);
+  const monthlyOverridesByAccountSet = useMonthlyClosingCheckStore((state) => state.overridesByAccountSet);
+  const monthlyRuleConfigsByAccountSet = useMonthlyClosingCheckStore((state) => state.ruleConfigsByAccountSet);
   const currentAccountSet = getCurrentAccountSet();
   const [bankTransactions, setBankTransactions] = useState<SmartAccountingBankTransaction[]>([]);
   const [lastCheckedAt, setLastCheckedAt] = useState<string>('');
@@ -131,6 +114,7 @@ export default function SmartAccountingWorkbench() {
         initializeVouchers(),
         initializeSubjects(),
         initializeInvoices(),
+        loadPayrollPeriod(periodInfo.period),
       ]);
 
       try {
@@ -157,7 +141,7 @@ export default function SmartAccountingWorkbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodInfo.period, currentAccountSet?.id]);
 
-  const workbenchSummary = useMemo(() => buildSmartAccountingSummary({
+  const smartAccountingInput = useMemo(() => ({
     period: periodInfo.period,
     vouchers: vouchers.map((voucher) => ({
       id: voucher.id,
@@ -182,63 +166,54 @@ export default function SmartAccountingWorkbench() {
     })),
   }), [bankTransactions, invoices, periodInfo.period, vouchers]);
 
-  const periodOverrides = useMemo(
-    () => (currentAccountSet?.id ? overridesByAccountSet[currentAccountSet.id]?.[periodInfo.period] || {} : {}),
-    [currentAccountSet?.id, overridesByAccountSet, periodInfo.period],
+  const monthlyPeriodOverrides = useMemo(
+    () => (currentAccountSet?.id ? monthlyOverridesByAccountSet[currentAccountSet.id]?.[periodInfo.period] || {} : {}),
+    [currentAccountSet?.id, monthlyOverridesByAccountSet, periodInfo.period],
   );
 
-  const workbenchView = useMemo<SmartAccountingSummaryView>(
-    () => applySmartAccountingOverrides(workbenchSummary, periodOverrides),
-    [periodOverrides, workbenchSummary],
+  const monthlyRuleConfigs = useMemo(
+    () => (currentAccountSet?.id ? monthlyRuleConfigsByAccountSet[currentAccountSet.id] || {} : {}),
+    [currentAccountSet?.id, monthlyRuleConfigsByAccountSet],
   );
 
-  const editedTaskCount = workbenchView.tasks.filter((item) => item.isUserEdited).length;
+  const monthlyEnabledTemplates = useMemo(
+    () => DEFAULT_MONTHLY_CLOSING_TEMPLATES.filter((template) => monthlyRuleConfigs[template.code]?.enabled !== false),
+    [monthlyRuleConfigs],
+  );
 
-  const editableStatusOptions = [
-    { value: 'completed', label: editableStatusLabels.completed },
-    { value: 'in_progress', label: editableStatusLabels.in_progress },
-    { value: 'warning', label: editableStatusLabels.warning },
-    { value: 'blocked', label: editableStatusLabels.blocked },
-    { value: 'not_started', label: editableStatusLabels.not_started },
-    { value: 'confirmed_not_needed', label: editableStatusLabels.confirmed_not_needed },
-  ] as const;
+  const monthlyInstances = useMemo(() => createMonthlyCheckInstances(periodInfo.period, monthlyEnabledTemplates).map((instance) => {
+    const override = monthlyPeriodOverrides[instance.code];
+    const ruleConfig = monthlyRuleConfigs[instance.code];
+    const configured = ruleConfig ? {
+      ...instance,
+      severity: ruleConfig.severity || instance.severity,
+      blockClosing: ruleConfig.blockClosing ?? instance.blockClosing,
+      allowManualConfirmation: ruleConfig.allowManualConfirmation ?? instance.allowManualConfirmation,
+      owner: ruleConfig.owner ?? instance.owner,
+    } : instance;
+    return override ? { ...configured, ...override } : configured;
+  }), [monthlyEnabledTemplates, monthlyPeriodOverrides, monthlyRuleConfigs, periodInfo.period]);
 
-  const updateTaskStatus = (taskCode: string, nextStatus: SmartWorkbenchEditableStatus, note?: string) => {
-    if (!currentAccountSet?.id) return;
+  const monthlySummary = useMemo(() => buildMonthlyClosingSummary({
+    period: periodInfo.period,
+    instances: monthlyInstances,
+    vouchers: smartAccountingInput.vouchers,
+    bankTransactions: smartAccountingInput.bankTransactions as MonthlyClosingBankTransaction[],
+    invoices: smartAccountingInput.invoices,
+    payrollBatches: payrollBatches.map((batch) => ({
+      status: batch.status,
+      taxTotal: batch.taxTotal,
+      includesSocialFundCalculation: batch.employeeCount > 0,
+    })),
+    ruleConfigs: monthlyRuleConfigs,
+  }), [monthlyInstances, monthlyRuleConfigs, payrollBatches, periodInfo.period, smartAccountingInput]);
 
-    const currentTask = workbenchView.tasks.find((task) => task.code === taskCode);
-    if (!currentTask) return;
+  const workbenchSummary = useMemo(
+    () => buildSmartAccountingSummaryFromMonthlyClosing(smartAccountingInput, monthlySummary),
+    [monthlySummary, smartAccountingInput],
+  );
 
-    const cleanNote = note?.trim() || '';
-    if (nextStatus === currentTask.systemStatus && !cleanNote) {
-      clearTaskOverride(currentAccountSet.id, periodInfo.period, taskCode);
-      return;
-    }
-
-    setTaskOverride(currentAccountSet.id, periodInfo.period, taskCode, nextStatus, cleanNote || undefined);
-  };
-
-  const updateTaskNote = (taskCode: string, note: string) => {
-    if (!currentAccountSet?.id) return;
-
-    const currentTask = workbenchView.tasks.find((task) => task.code === taskCode);
-    if (!currentTask) return;
-
-    const nextStatus = currentTask.overrideStatus || currentTask.systemStatus;
-    const cleanNote = note.trim();
-
-    if (nextStatus === currentTask.systemStatus && !cleanNote) {
-      clearTaskOverride(currentAccountSet.id, periodInfo.period, taskCode);
-      return;
-    }
-
-    setTaskOverride(currentAccountSet.id, periodInfo.period, taskCode, nextStatus, cleanNote || undefined);
-  };
-
-  const resetPeriodOverrides = () => {
-    if (!currentAccountSet?.id) return;
-    useSmartAccountingWorkbenchStore.getState().resetPeriodOverrides(currentAccountSet.id, periodInfo.period);
-  };
+  const workbenchView = workbenchSummary;
 
   const coreMetrics = useMemo(() => {
     const postedVouchers = vouchers.filter((voucher) => voucher.status === 'posted');
@@ -331,16 +306,13 @@ export default function SmartAccountingWorkbench() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
-            人工调整 {editedTaskCount} 项
-          </Badge>
           <Button variant="outline" onClick={refreshWorkbench} disabled={loading}>
             <RefreshCw className="w-4 h-4 mr-2" />
             {loading ? '刷新中' : '刷新状态'}
           </Button>
-          <Button variant="outline" onClick={resetPeriodOverrides} disabled={editedTaskCount === 0}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            恢复系统预设
+          <Button variant="outline" onClick={() => router.push('/monthly-closing-checks')}>
+            <ListChecks className="w-4 h-4 mr-2" />
+            检查设置
           </Button>
           <Button onClick={refreshWorkbench} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
             <ClipboardCheck className="w-4 h-4 mr-2" />
@@ -370,122 +342,6 @@ export default function SmartAccountingWorkbench() {
           </Card>
         ))}
       </div>
-
-      <Card className="border-slate-200">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">本月状态修正</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-slate-500">
-            系统先给出预设状态，用户可以按本月实际情况修正。例如“本月没有发票”“本月无需计提折旧”“本月已完成”等。
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-sm">
-              <thead>
-                <tr className="border-b text-slate-500">
-                  <th className="text-left py-3 pr-3 font-medium">任务</th>
-                  <th className="text-left py-3 pr-3 font-medium">系统预设</th>
-                  <th className="text-left py-3 pr-3 font-medium">用户状态</th>
-                  <th className="text-left py-3 pr-3 font-medium">备注</th>
-                  <th className="text-right py-3 font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workbenchView.tasks.map((item) => {
-                  const selectedStatus = item.overrideStatus || item.systemStatus;
-
-                  return (
-                    <tr key={item.code} className="border-b last:border-0 align-top">
-                      <td className="py-3 pr-3">
-                        <div className="font-medium text-slate-900">{item.name}</div>
-                        <div className="mt-1 text-xs text-slate-500">{item.stage} / {item.actionLabel}</div>
-                      </td>
-                      <td className="py-3 pr-3">
-                        <Badge variant="outline" className={statusClassNames[item.systemStatus]}>
-                          {statusLabels[item.systemStatus]}
-                        </Badge>
-                      </td>
-                      <td className="py-3 pr-3">
-                        <div className="flex flex-col gap-2">
-                          <SimpleSelect
-                            value={selectedStatus}
-                            onChange={(value) => updateTaskStatus(item.code, value as SmartWorkbenchEditableStatus, item.note)}
-                            options={editableStatusOptions.map((option) => ({
-                              value: option.value,
-                              label: option.label,
-                            }))}
-                            placeholder="请选择状态"
-                          />
-                          {item.isUserEdited ? (
-                            <Badge variant="outline" className={editableStatusClassNames[item.status]}>
-                              已人工调整
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="py-3 pr-3">
-                        <Input
-                          value={item.note || ''}
-                          onChange={(event) => updateTaskNote(item.code, event.target.value)}
-                          placeholder="例如：本月没有发票"
-                        />
-                      </td>
-                      <td className="py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => clearTaskOverride(currentAccountSet?.id || '', periodInfo.period, item.code)}
-                          disabled={!currentAccountSet?.id || !item.isUserEdited}
-                        >
-                          恢复系统值
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-slate-200">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            下一步建议
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {workbenchView.nextActions.length === 0 ? (
-            <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <div>
-                <p className="font-medium text-emerald-800">本期关键检查暂未发现阻塞项</p>
-                <p className="text-sm text-emerald-700 mt-1">可以继续生成报表或进入月结检查。</p>
-              </div>
-              <Button variant="outline" onClick={() => router.push('/reports')}>生成报表</Button>
-            </div>
-          ) : (
-            workbenchView.nextActions.slice(0, 4).map((item, index) => (
-              <div key={item.code} className="flex flex-col gap-3 rounded-md border border-slate-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                      {index + 1}
-                    </span>
-                    <p className="font-medium text-slate-950">{item.title}</p>
-                  </div>
-                  <p className="text-sm text-slate-500 mt-1 ml-8">{item.description}</p>
-                </div>
-                <Button variant="outline" className="shrink-0" onClick={() => router.push(item.targetRoute)}>
-                  {item.actionLabel}
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <Card className="xl:col-span-2 border-slate-200">
@@ -550,8 +406,8 @@ export default function SmartAccountingWorkbench() {
               <Button className="w-full" variant="outline" onClick={() => router.push('/reports')}>
                 查看报表
               </Button>
-              <Button className="w-full" variant="outline" disabled={!workbenchView.canClose}>
-                进入月结
+              <Button className="w-full" variant="outline" onClick={() => router.push('/monthly-closing-checks')}>
+                检查设置
               </Button>
             </div>
 
@@ -563,6 +419,44 @@ export default function SmartAccountingWorkbench() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-slate-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            下一步建议
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {workbenchView.nextActions.length === 0 ? (
+            <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <div>
+                <p className="font-medium text-emerald-800">本期关键检查暂未发现阻塞项</p>
+                <p className="text-sm text-emerald-700 mt-1">可以继续生成报表或维护检查设置。</p>
+              </div>
+              <Button variant="outline" onClick={() => router.push('/reports')}>生成报表</Button>
+            </div>
+          ) : (
+            workbenchView.nextActions.slice(0, 4).map((item, index) => (
+              <div key={item.code} className="flex flex-col gap-3 rounded-md border border-slate-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+                      {index + 1}
+                    </span>
+                    <p className="font-medium text-slate-950">{item.title}</p>
+                  </div>
+                  <p className="text-sm text-slate-500 mt-1 ml-8">{item.description}</p>
+                </div>
+                <Button variant="outline" className="shrink-0" onClick={() => router.push(item.targetRoute)}>
+                  {item.actionLabel}
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="border-slate-200">
         <CardHeader className="pb-3">
