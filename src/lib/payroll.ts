@@ -68,6 +68,68 @@ export interface PayrollInput {
   otherPostTaxDeduction?: number;
 }
 
+const PAYROLL_INPUT_AMOUNT_FIELDS = [
+  ['basicSalary', '基本工资'],
+  ['bonus', '奖金'],
+  ['allowance', '津贴补贴'],
+  ['otherEarnings', '其他应发'],
+  ['leaveDeduction', '请假扣款'],
+  ['otherPreTaxDeduction', '其他税前扣减'],
+  ['socialInsuranceBase', '社保缴费基数'],
+  ['housingFundBase', '公积金缴费基数'],
+  ['specialAdditionalDeduction', '专项附加扣除'],
+  ['otherLegalDeduction', '其他依法扣除'],
+  ['priorCumulativeIncome', '前期累计收入'],
+  ['priorCumulativeEmployeeContributions', '前期累计个人社保公积金'],
+  ['priorCumulativeSpecialAdditionalDeduction', '前期累计专项附加扣除'],
+  ['priorCumulativeOtherLegalDeduction', '前期累计其他依法扣除'],
+  ['priorCumulativeTaxWithheld', '前期累计已预扣税额'],
+  ['otherPostTaxDeduction', '其他税后扣减'],
+] as const satisfies readonly (readonly [keyof PayrollInput, string])[];
+
+export function createBlankPayrollInput(): PayrollInput {
+  return {
+    employeeCode: '',
+    employeeName: '',
+    departmentName: '',
+    basicSalary: 0,
+    bonus: 0,
+    allowance: 0,
+    otherEarnings: 0,
+    leaveDeduction: 0,
+    otherPreTaxDeduction: 0,
+    specialAdditionalDeduction: 0,
+    otherLegalDeduction: 0,
+    priorCumulativeIncome: 0,
+    priorCumulativeEmployeeContributions: 0,
+    priorCumulativeSpecialAdditionalDeduction: 0,
+    priorCumulativeOtherLegalDeduction: 0,
+    priorCumulativeTaxWithheld: 0,
+    otherPostTaxDeduction: 0,
+  };
+}
+
+export function validatePayrollInput(input: PayrollInput, existingEmployeeCodes: string[]): string[] {
+  const errors: string[] = [];
+  const employeeCode = input.employeeCode.trim();
+
+  if (!employeeCode) errors.push('工号不能为空');
+  if (!input.employeeName.trim()) errors.push('姓名不能为空');
+  if (employeeCode && existingEmployeeCodes.some((code) => code.trim() === employeeCode)) errors.push('重复工号');
+
+  PAYROLL_INPUT_AMOUNT_FIELDS.forEach(([field, label]) => {
+    const value = input[field];
+    if (value === undefined) return;
+    if (!Number.isFinite(value)) {
+      errors.push(`${label}必须为有限数字`);
+    } else if (value < 0) {
+      errors.push(`${label}不得为负数`);
+    }
+  });
+
+  return errors;
+}
+
 export interface PayrollCalculationResult {
   employeeCode: string;
   employeeName: string;
