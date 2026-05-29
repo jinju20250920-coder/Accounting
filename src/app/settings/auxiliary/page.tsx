@@ -146,6 +146,16 @@ export default function AuxiliaryDataPage() {
     bankName: '',
     defaultSubjectCode: '',
     defaultSubjectName: '',
+    payrollSalaryExpenseSubjectCode: '',
+    payrollSalaryExpenseSubjectName: '',
+    payrollContributionExpenseSubjectCode: '',
+    payrollContributionExpenseSubjectName: '',
+    payrollSalaryPayableSubjectCode: '',
+    payrollSalaryPayableSubjectName: '',
+    payrollTaxPayableSubjectCode: '',
+    payrollTaxPayableSubjectName: '',
+    payrollEmployeeContributionPayableSubjectCode: '',
+    payrollEmployeeContributionPayableSubjectName: '',
     paymentTermDays: 30,
     frozen: false
   });
@@ -237,6 +247,16 @@ export default function AuxiliaryDataPage() {
       bankName: partner.bankName || '',
       defaultSubjectCode: partner.defaultSubjectCode || '',
       defaultSubjectName: partner.defaultSubjectName || '',
+      payrollSalaryExpenseSubjectCode: partner.payrollSalaryExpenseSubjectCode || '',
+      payrollSalaryExpenseSubjectName: partner.payrollSalaryExpenseSubjectName || '',
+      payrollContributionExpenseSubjectCode: partner.payrollContributionExpenseSubjectCode || '',
+      payrollContributionExpenseSubjectName: partner.payrollContributionExpenseSubjectName || '',
+      payrollSalaryPayableSubjectCode: partner.payrollSalaryPayableSubjectCode || '',
+      payrollSalaryPayableSubjectName: partner.payrollSalaryPayableSubjectName || '',
+      payrollTaxPayableSubjectCode: partner.payrollTaxPayableSubjectCode || '',
+      payrollTaxPayableSubjectName: partner.payrollTaxPayableSubjectName || '',
+      payrollEmployeeContributionPayableSubjectCode: partner.payrollEmployeeContributionPayableSubjectCode || '',
+      payrollEmployeeContributionPayableSubjectName: partner.payrollEmployeeContributionPayableSubjectName || '',
       paymentTermDays: partner.paymentTermDays ?? 30,
       frozen: partner.frozen
     });
@@ -407,6 +427,16 @@ export default function AuxiliaryDataPage() {
       bankName: '',
       defaultSubjectCode: '',
       defaultSubjectName: '',
+      payrollSalaryExpenseSubjectCode: '',
+      payrollSalaryExpenseSubjectName: '',
+      payrollContributionExpenseSubjectCode: '',
+      payrollContributionExpenseSubjectName: '',
+      payrollSalaryPayableSubjectCode: '',
+      payrollSalaryPayableSubjectName: '',
+      payrollTaxPayableSubjectCode: '',
+      payrollTaxPayableSubjectName: '',
+      payrollEmployeeContributionPayableSubjectCode: '',
+      payrollEmployeeContributionPayableSubjectName: '',
       paymentTermDays: 30,
       frozen: false
     });
@@ -791,6 +821,77 @@ export default function AuxiliaryDataPage() {
                   />
                 )}
               </div>
+
+              {formData.isEmployee && (
+                <div className="space-y-3 border-t border-slate-100 pt-4">
+                  <h3 className="text-sm font-semibold text-slate-700">工资核算设置</h3>
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-sm">工资费用科目</Label>
+                    {formData.payrollSalaryExpenseSubjectCode ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
+                          {formData.payrollSalaryExpenseSubjectCode} {formData.payrollSalaryExpenseSubjectName}
+                        </Badge>
+                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollSalaryExpenseSubjectCode: '', payrollSalaryExpenseSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
+                      </div>
+                    ) : (
+                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollSalaryExpenseSubjectCode: code, payrollSalaryExpenseSubjectName: name }))} placeholder="选择工资费用科目" />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-sm">社保公积金费用科目</Label>
+                    {formData.payrollContributionExpenseSubjectCode ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
+                          {formData.payrollContributionExpenseSubjectCode} {formData.payrollContributionExpenseSubjectName}
+                        </Badge>
+                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollContributionExpenseSubjectCode: '', payrollContributionExpenseSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
+                      </div>
+                    ) : (
+                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollContributionExpenseSubjectCode: code, payrollContributionExpenseSubjectName: name }))} placeholder="选择社保公积金费用科目" />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-sm">应付工资科目</Label>
+                    {formData.payrollSalaryPayableSubjectCode ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
+                          {formData.payrollSalaryPayableSubjectCode} {formData.payrollSalaryPayableSubjectName}
+                        </Badge>
+                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollSalaryPayableSubjectCode: '', payrollSalaryPayableSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
+                      </div>
+                    ) : (
+                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollSalaryPayableSubjectCode: code, payrollSalaryPayableSubjectName: name }))} placeholder="选择应付工资科目" />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-sm">个税应交科目</Label>
+                    {formData.payrollTaxPayableSubjectCode ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
+                          {formData.payrollTaxPayableSubjectCode} {formData.payrollTaxPayableSubjectName}
+                        </Badge>
+                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollTaxPayableSubjectCode: '', payrollTaxPayableSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
+                      </div>
+                    ) : (
+                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollTaxPayableSubjectCode: code, payrollTaxPayableSubjectName: name }))} placeholder="选择个税应交科目" />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-sm">个人社保公积金代扣科目</Label>
+                    {formData.payrollEmployeeContributionPayableSubjectCode ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
+                          {formData.payrollEmployeeContributionPayableSubjectCode} {formData.payrollEmployeeContributionPayableSubjectName}
+                        </Badge>
+                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollEmployeeContributionPayableSubjectCode: '', payrollEmployeeContributionPayableSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
+                      </div>
+                    ) : (
+                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollEmployeeContributionPayableSubjectCode: code, payrollEmployeeContributionPayableSubjectName: name }))} placeholder="选择个人社保公积金代扣科目" />
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* 账期天数 */}
               <div className="space-y-1">

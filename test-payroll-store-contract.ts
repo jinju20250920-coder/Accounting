@@ -9,6 +9,9 @@ assert.equal(blankConfig.individualTax.standardDeductionPerMonth, 5000);
 
 const storeSource = readFileSync('./src/stores/usePayrollStore.ts', 'utf8');
 const payrollPageSource = readFileSync('./src/app/payroll/page.tsx', 'utf8');
+const typesSource = readFileSync('./src/types/index.ts', 'utf8');
+const partnerStoreSource = readFileSync('./src/stores/usePartnerStore.ts', 'utf8');
+const auxiliaryPageSource = readFileSync('./src/app/settings/auxiliary/page.tsx', 'utf8');
 for (const action of [
   'loadPeriod',
   'loadBatch',
@@ -38,5 +41,12 @@ assert.match(payrollPageSource, /Settings/);
 assert.match(payrollPageSource, /incomeType/);
 assert.match(payrollPageSource, /annualBonusTaxMethod/);
 assert.match(payrollPageSource, /BUILT_IN_PAYROLL_TAX_RULES/);
+assert.match(typesSource, /payrollSalaryExpenseSubjectCode/);
+assert.match(typesSource, /payrollContributionExpenseSubjectCode/);
+assert.match(typesSource, /payrollSalaryPayableSubjectCode/);
+assert.match(typesSource, /payrollTaxPayableSubjectCode/);
+assert.match(typesSource, /payrollEmployeeContributionPayableSubjectCode/);
+assert.match(partnerStoreSource, /payrollSalaryExpenseSubjectCode/);
+assert.match(auxiliaryPageSource, /工资核算设置/);
 
 console.log('payroll store contract tests passed');

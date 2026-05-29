@@ -65,6 +65,16 @@ const defaultPartners: Omit<Partner, 'id' | 'createTime' | 'updateTime' | 'accou
     taxNumber: '',
     bankAccount: '622848XXXXXXXXXXX',
     bankName: '中国银行',
+    payrollSalaryExpenseSubjectCode: '660201',
+    payrollSalaryExpenseSubjectName: '管理费用-工资',
+    payrollContributionExpenseSubjectCode: '660203',
+    payrollContributionExpenseSubjectName: '管理费用-社保公积金',
+    payrollSalaryPayableSubjectCode: '2211',
+    payrollSalaryPayableSubjectName: '应付职工薪酬',
+    payrollTaxPayableSubjectCode: '2221',
+    payrollTaxPayableSubjectName: '应交税费-个人所得税',
+    payrollEmployeeContributionPayableSubjectCode: '2241',
+    payrollEmployeeContributionPayableSubjectName: '其他应付款-个人社保公积金',
     frozen: false
   }
 ];

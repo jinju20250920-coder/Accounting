@@ -539,6 +539,19 @@ export interface Partner {
   defaultSubjectCode?: string; // 默认对方科目代码（供应商→应付账款，客户→应收账款）
   defaultSubjectName?: string; // 默认对方科目名称
   paymentTermDays?: number; // 账期天数（入账日期+账期=到期日）
+  payrollSalaryExpenseSubjectCode?: string;
+  payrollSalaryExpenseSubjectName?: string;
+  payrollContributionExpenseSubjectCode?: string;
+  payrollContributionExpenseSubjectName?: string;
+  payrollSalaryPayableSubjectCode?: string;
+  payrollSalaryPayableSubjectName?: string;
+  payrollTaxPayableSubjectCode?: string;
+  payrollTaxPayableSubjectName?: string;
+  payrollEmployeeContributionPayableSubjectCode?: string;
+  payrollEmployeeContributionPayableSubjectName?: string;
+  payrollDepartmentName?: string;
+  payrollProjectName?: string;
+  payrollCostCenterName?: string;
   frozen: boolean;
   createTime: string;
   updateTime: string;
