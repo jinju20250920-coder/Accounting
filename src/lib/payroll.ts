@@ -1,3 +1,5 @@
+import { findPayrollTaxBracket } from './payroll-tax-rules';
+
 export interface ContributionItemConfig {
   enabled: boolean;
   employeeRate: number;
@@ -46,10 +48,16 @@ export interface PayrollCalculationConfig {
   individualTax: CumulativeTaxConfig;
 }
 
+export type PayrollIncomeType = 'salary' | 'annual_bonus' | 'business_income';
+export type PayrollAnnualBonusTaxMethod = 'separate' | 'consolidated';
+export type PayrollTaxCalculationType = 'salary_cumulative' | 'annual_bonus_separate' | 'annual_bonus_consolidated';
+
 export interface PayrollInput {
   employeeCode: string;
   employeeName: string;
   departmentName?: string;
+  incomeType?: PayrollIncomeType;
+  annualBonusTaxMethod?: PayrollAnnualBonusTaxMethod;
   basicSalary: number;
   bonus: number;
   allowance: number;
@@ -92,6 +100,8 @@ export function createBlankPayrollInput(): PayrollInput {
     employeeCode: '',
     employeeName: '',
     departmentName: '',
+    incomeType: 'salary',
+    annualBonusTaxMethod: 'separate',
     basicSalary: 0,
     bonus: 0,
     allowance: 0,
@@ -145,6 +155,9 @@ export interface PayrollCalculationResult {
   individualIncomeTax: number;
   netSalary: number;
   employerTotalCost: number;
+  taxCalculationType: PayrollTaxCalculationType;
+  annualBonusTaxMethod?: PayrollAnnualBonusTaxMethod;
+  annualBonusTaxableAverage?: number;
 }
 
 export interface PayrollSummary {
@@ -312,11 +325,62 @@ function findTaxBracket(taxableIncome: number, config: CumulativeTaxConfig): Cum
     || config.brackets[config.brackets.length - 1];
 }
 
+export function calculateAnnualBonusTax(annualBonusAmount: number): {
+  tax: number;
+  taxableAverage: number;
+  rate: number;
+  quickDeduction: number;
+} {
+  const taxableAverage = roundMoney(annualBonusAmount / 12);
+  const bracket = findPayrollTaxBracket('annual_bonus', taxableAverage);
+  return {
+    tax: roundMoney(Math.max(0, annualBonusAmount * bracket.rate - bracket.quickDeduction)),
+    taxableAverage,
+    rate: bracket.rate,
+    quickDeduction: bracket.quickDeduction,
+  };
+}
+
 export function calculatePayrollItem(
   input: PayrollInput,
   config: PayrollCalculationConfig,
   calculationMonth: number,
 ): PayrollCalculationResult {
+  const incomeType = input.incomeType || 'salary';
+  const annualBonusTaxMethod = input.annualBonusTaxMethod || 'separate';
+
+  if (incomeType === 'annual_bonus' && annualBonusTaxMethod === 'separate') {
+    const grossSalary = roundMoney(
+      input.bonus
+      + input.otherEarnings
+      + input.allowance
+      - input.leaveDeduction
+      - input.otherPreTaxDeduction,
+    );
+    const annualBonusTax = calculateAnnualBonusTax(grossSalary);
+    const netSalary = roundMoney(grossSalary - annualBonusTax.tax - (input.otherPostTaxDeduction ?? 0));
+
+    return {
+      employeeCode: input.employeeCode,
+      employeeName: input.employeeName,
+      departmentName: input.departmentName,
+      grossSalary,
+      socialInsuranceBase: 0,
+      housingFundBase: 0,
+      employeeSocialInsurance: 0,
+      employerSocialInsurance: 0,
+      employeeHousingFund: 0,
+      employerHousingFund: 0,
+      taxableIncomeCumulative: grossSalary,
+      individualIncomeTax: annualBonusTax.tax,
+      netSalary,
+      employerTotalCost: grossSalary,
+      taxCalculationType: 'annual_bonus_separate',
+      annualBonusTaxMethod,
+      annualBonusTaxableAverage: annualBonusTax.taxableAverage,
+    };
+  }
+
   const grossSalary = roundMoney(
     input.basicSalary
     + input.bonus
@@ -366,6 +430,8 @@ export function calculatePayrollItem(
     individualIncomeTax,
     netSalary,
     employerTotalCost: roundMoney(grossSalary + socialInsurance.employer + housingFund.employer),
+    taxCalculationType: incomeType === 'annual_bonus' ? 'annual_bonus_consolidated' : 'salary_cumulative',
+    annualBonusTaxMethod: incomeType === 'annual_bonus' ? annualBonusTaxMethod : undefined,
   };
 }
 
