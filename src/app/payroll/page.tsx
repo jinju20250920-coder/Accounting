@@ -638,7 +638,11 @@ export default function PayrollPage() {
 
   function openVoucherPreview() {
     if (!selectedBatch) return;
-    setVoucherPreviewEntries(buildPayrollAccrualVoucherPreview(items, selectedBatch.payrollPeriod));
+    setVoucherPreviewEntries(buildPayrollAccrualVoucherPreview(
+      items,
+      selectedBatch.payrollPeriod,
+      partners.filter((partner) => partner.isEmployee),
+    ));
     setVoucherDialogOpen(true);
   }
 

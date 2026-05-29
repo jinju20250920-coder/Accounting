@@ -9,6 +9,7 @@ import {
   createBlankPayrollCalculationConfig,
   createBlankPayrollInput,
 } from './src/lib/payroll';
+import { buildPayrollAccrualVoucherPreview } from './src/lib/payroll-voucher';
 
 const salaryCheck = DEFAULT_MONTHLY_CLOSING_TEMPLATES.find((item) => item.code === 'payroll_salary_tax');
 const socialCheck = DEFAULT_MONTHLY_CLOSING_TEMPLATES.find((item) => item.code === 'payroll_social_fund');
@@ -128,5 +129,48 @@ const payrollVoucherSource = readFileSync('./src/lib/payroll-voucher.ts', 'utf8'
 assert.match(payrollVoucherSource, /buildPayrollAccrualVoucherPreview/);
 assert.match(payrollVoucherSource, /previewToVoucherEntries/);
 assert.match(payrollVoucherSource, /660201/);
+assert.match(payrollVoucherSource, /resolvePayrollVoucherSubjects/);
+assert.match(payrollVoucherSource, /employeeByCode/);
+assert.match(payrollVoucherSource, /payrollSalaryExpenseSubjectCode/);
+
+const voucherPreview = buildPayrollAccrualVoucherPreview([{
+  id: 'item-voucher-1',
+  batchId: 'batch-voucher-1',
+  accountSetId: 'as-1',
+  payrollPeriod: '2026-05',
+  employeeCode: 'EMP-RD',
+  employeeName: 'R&D Employee',
+  departmentName: 'R&D',
+  inputData: {
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-RD',
+    employeeName: 'R&D Employee',
+    basicSalary: 10000,
+  },
+  calculationResult: calculatePayrollItem({
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-RD',
+    employeeName: 'R&D Employee',
+    basicSalary: 10000,
+  }, createBlankPayrollCalculationConfig(), 5),
+  validationStatus: 'valid',
+  validationMessages: [],
+  createdAt: '2026-05-29T00:00:00.000Z',
+  updatedAt: '2026-05-29T00:00:00.000Z',
+}], '2026-05', [{
+  id: 'partner-rd',
+  code: 'EMP-RD',
+  name: 'R&D Employee',
+  isCustomer: false,
+  isSupplier: false,
+  isEmployee: true,
+  payrollSalaryExpenseSubjectCode: '660401',
+  payrollSalaryExpenseSubjectName: '研发费用-工资',
+  frozen: false,
+  createTime: '2026-05-29T00:00:00.000Z',
+  updateTime: '2026-05-29T00:00:00.000Z',
+}]);
+
+assert(voucherPreview.some((entry) => entry.subjectCode === '660401'));
 
 console.log('payroll monthly integration tests passed');
