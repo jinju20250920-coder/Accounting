@@ -1,5 +1,5 @@
 import { roundMoney, type PayrollItem } from './payroll';
-import type { Partner, VoucherEntry } from '../types';
+import type { Department, Partner, VoucherEntry } from '../types';
 
 export interface PayrollVoucherEntryPreview {
   summary: string;
@@ -61,36 +61,78 @@ export function resolvePayrollVoucherSubjects(
   item: PayrollItem,
   employeeByCode: Map<string, Partner>,
   defaultSubjects: PayrollVoucherDefaultSubjects = {},
+  departmentByName: Map<string, Department> = new Map(),
 ): PayrollVoucherSubjects {
   const employee = employeeByCode.get(item.employeeCode);
+  const department = departmentByName.get(item.departmentName?.trim() || '');
   return {
     salaryExpense: subjectOrFallback(
-      employee?.payrollSalaryExpenseSubjectCode,
-      employee?.payrollSalaryExpenseSubjectName,
-      subjectOrFallback(defaultSubjects.payrollSalaryExpenseSubjectCode, defaultSubjects.payrollSalaryExpenseSubjectName, SUBJECTS.salaryExpense),
+      item.inputData.payrollSalaryExpenseSubjectCode,
+      item.inputData.payrollSalaryExpenseSubjectName,
+      subjectOrFallback(
+        employee?.payrollSalaryExpenseSubjectCode,
+        employee?.payrollSalaryExpenseSubjectName,
+        subjectOrFallback(
+          department?.payrollSalaryExpenseSubjectCode,
+          department?.payrollSalaryExpenseSubjectName,
+          subjectOrFallback(defaultSubjects.payrollSalaryExpenseSubjectCode, defaultSubjects.payrollSalaryExpenseSubjectName, SUBJECTS.salaryExpense),
+        ),
+      ),
     ),
     contributionExpense: subjectOrFallback(
-      employee?.payrollContributionExpenseSubjectCode,
-      employee?.payrollContributionExpenseSubjectName,
-      subjectOrFallback(defaultSubjects.payrollContributionExpenseSubjectCode, defaultSubjects.payrollContributionExpenseSubjectName, SUBJECTS.contributionExpense),
+      item.inputData.payrollContributionExpenseSubjectCode,
+      item.inputData.payrollContributionExpenseSubjectName,
+      subjectOrFallback(
+        employee?.payrollContributionExpenseSubjectCode,
+        employee?.payrollContributionExpenseSubjectName,
+        subjectOrFallback(
+          department?.payrollContributionExpenseSubjectCode,
+          department?.payrollContributionExpenseSubjectName,
+          subjectOrFallback(defaultSubjects.payrollContributionExpenseSubjectCode, defaultSubjects.payrollContributionExpenseSubjectName, SUBJECTS.contributionExpense),
+        ),
+      ),
     ),
     salaryPayable: subjectOrFallback(
-      employee?.payrollSalaryPayableSubjectCode,
-      employee?.payrollSalaryPayableSubjectName,
-      subjectOrFallback(defaultSubjects.payrollSalaryPayableSubjectCode, defaultSubjects.payrollSalaryPayableSubjectName, SUBJECTS.salaryPayable),
+      item.inputData.payrollSalaryPayableSubjectCode,
+      item.inputData.payrollSalaryPayableSubjectName,
+      subjectOrFallback(
+        employee?.payrollSalaryPayableSubjectCode,
+        employee?.payrollSalaryPayableSubjectName,
+        subjectOrFallback(
+          department?.payrollSalaryPayableSubjectCode,
+          department?.payrollSalaryPayableSubjectName,
+          subjectOrFallback(defaultSubjects.payrollSalaryPayableSubjectCode, defaultSubjects.payrollSalaryPayableSubjectName, SUBJECTS.salaryPayable),
+        ),
+      ),
     ),
     taxPayable: subjectOrFallback(
-      employee?.payrollTaxPayableSubjectCode,
-      employee?.payrollTaxPayableSubjectName,
-      subjectOrFallback(defaultSubjects.payrollTaxPayableSubjectCode, defaultSubjects.payrollTaxPayableSubjectName, SUBJECTS.taxPayable),
+      item.inputData.payrollTaxPayableSubjectCode,
+      item.inputData.payrollTaxPayableSubjectName,
+      subjectOrFallback(
+        employee?.payrollTaxPayableSubjectCode,
+        employee?.payrollTaxPayableSubjectName,
+        subjectOrFallback(
+          department?.payrollTaxPayableSubjectCode,
+          department?.payrollTaxPayableSubjectName,
+          subjectOrFallback(defaultSubjects.payrollTaxPayableSubjectCode, defaultSubjects.payrollTaxPayableSubjectName, SUBJECTS.taxPayable),
+        ),
+      ),
     ),
     employeeContributionPayable: subjectOrFallback(
-      employee?.payrollEmployeeContributionPayableSubjectCode,
-      employee?.payrollEmployeeContributionPayableSubjectName,
+      item.inputData.payrollEmployeeContributionPayableSubjectCode,
+      item.inputData.payrollEmployeeContributionPayableSubjectName,
       subjectOrFallback(
-        defaultSubjects.payrollEmployeeContributionPayableSubjectCode,
-        defaultSubjects.payrollEmployeeContributionPayableSubjectName,
-        SUBJECTS.employeeContributionPayable,
+        employee?.payrollEmployeeContributionPayableSubjectCode,
+        employee?.payrollEmployeeContributionPayableSubjectName,
+        subjectOrFallback(
+          department?.payrollEmployeeContributionPayableSubjectCode,
+          department?.payrollEmployeeContributionPayableSubjectName,
+          subjectOrFallback(
+            defaultSubjects.payrollEmployeeContributionPayableSubjectCode,
+            defaultSubjects.payrollEmployeeContributionPayableSubjectName,
+            SUBJECTS.employeeContributionPayable,
+          ),
+        ),
       ),
     ),
   };
@@ -109,6 +151,7 @@ export function buildPayrollAccrualVoucherPreview(
   period: string,
   employees: Partner[] = [],
   defaultSubjects: PayrollVoucherDefaultSubjects = {},
+  departments: Department[] = [],
 ): PayrollVoucherEntryPreview[] {
   const salaryDebitMap = new Map<string, number>();
   const contributionDebitMap = new Map<string, number>();
@@ -120,11 +163,16 @@ export function buildPayrollAccrualVoucherPreview(
       .filter((employee) => employee.isEmployee)
       .map((employee) => [employee.code, employee] as const),
   );
+  const departmentByName = new Map(
+    departments
+      .map((department) => [department.name.trim(), department] as const)
+      .filter(([name]) => Boolean(name)),
+  );
 
   items.forEach((item) => {
     const result = item.calculationResult;
     const departmentName = departmentKey(result.departmentName);
-    const subjects = resolvePayrollVoucherSubjects(item, employeeByCode, defaultSubjects);
+    const subjects = resolvePayrollVoucherSubjects(item, employeeByCode, defaultSubjects, departmentByName);
     const employerContribution = roundMoney(result.employerSocialInsurance + result.employerHousingFund);
     const employeeContribution = roundMoney(
       result.employeeSocialInsurance + result.employeeHousingFund + (item.inputData.otherPostTaxDeduction || 0),

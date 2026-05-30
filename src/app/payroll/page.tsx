@@ -817,6 +817,7 @@ export default function PayrollPage() {
       selectedBatch.payrollPeriod,
       partners.filter((partner) => partner.isEmployee),
       currentAccountSet || undefined,
+      departments,
     ));
     setVoucherDialogOpen(true);
   }

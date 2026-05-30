@@ -204,4 +204,102 @@ const accountSetFallbackPreview = buildPayrollAccrualVoucherPreview([{
 
 assert(accountSetFallbackPreview.some((entry) => entry.subjectCode === '660299'));
 
+const departmentFallbackPreview = buildPayrollAccrualVoucherPreview([{
+  id: 'item-voucher-3',
+  batchId: 'batch-voucher-3',
+  accountSetId: 'as-1',
+  payrollPeriod: '2026-05',
+  employeeCode: 'EMP-DEPT',
+  employeeName: 'Department Subject Employee',
+  departmentName: 'Sales',
+  inputData: {
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-DEPT',
+    employeeName: 'Department Subject Employee',
+    departmentName: 'Sales',
+    basicSalary: 9000,
+  },
+  calculationResult: calculatePayrollItem({
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-DEPT',
+    employeeName: 'Department Subject Employee',
+    departmentName: 'Sales',
+    basicSalary: 9000,
+  }, createBlankPayrollCalculationConfig(), 5),
+  validationStatus: 'valid',
+  validationMessages: [],
+  createdAt: '2026-05-29T00:00:00.000Z',
+  updatedAt: '2026-05-29T00:00:00.000Z',
+}], '2026-05', [], {
+  payrollSalaryExpenseSubjectCode: '660299',
+  payrollSalaryExpenseSubjectName: '管理费用-工资默认',
+}, [{
+  id: 'dept-sales',
+  code: 'DEPT-SALES',
+  name: 'Sales',
+  parentId: null,
+  level: 1,
+  payrollSalaryExpenseSubjectCode: '660101',
+  payrollSalaryExpenseSubjectName: '销售费用-工资',
+  frozen: false,
+}]);
+
+assert(departmentFallbackPreview.some((entry) => entry.subjectCode === '660101'));
+
+const rowOverridePreview = buildPayrollAccrualVoucherPreview([{
+  id: 'item-voucher-4',
+  batchId: 'batch-voucher-4',
+  accountSetId: 'as-1',
+  payrollPeriod: '2026-05',
+  employeeCode: 'EMP-ROW',
+  employeeName: 'Row Override Employee',
+  departmentName: 'R&D',
+  inputData: {
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-ROW',
+    employeeName: 'Row Override Employee',
+    departmentName: 'R&D',
+    basicSalary: 11000,
+    payrollSalaryExpenseSubjectCode: '660901',
+    payrollSalaryExpenseSubjectName: '项目成本-工资',
+  } as typeof createBlankPayrollInput extends () => infer T ? T : never,
+  calculationResult: calculatePayrollItem({
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-ROW',
+    employeeName: 'Row Override Employee',
+    departmentName: 'R&D',
+    basicSalary: 11000,
+  }, createBlankPayrollCalculationConfig(), 5),
+  validationStatus: 'valid',
+  validationMessages: [],
+  createdAt: '2026-05-29T00:00:00.000Z',
+  updatedAt: '2026-05-29T00:00:00.000Z',
+}], '2026-05', [{
+  id: 'partner-row',
+  code: 'EMP-ROW',
+  name: 'Row Override Employee',
+  isCustomer: false,
+  isSupplier: false,
+  isEmployee: true,
+  payrollSalaryExpenseSubjectCode: '660401',
+  payrollSalaryExpenseSubjectName: '研发费用-工资',
+  frozen: false,
+  createTime: '2026-05-29T00:00:00.000Z',
+  updateTime: '2026-05-29T00:00:00.000Z',
+}], {
+  payrollSalaryExpenseSubjectCode: '660299',
+  payrollSalaryExpenseSubjectName: '管理费用-工资默认',
+}, [{
+  id: 'dept-rd',
+  code: 'DEPT-RD',
+  name: 'R&D',
+  parentId: null,
+  level: 1,
+  payrollSalaryExpenseSubjectCode: '660501',
+  payrollSalaryExpenseSubjectName: '技术部门工资',
+  frozen: false,
+}]);
+
+assert(rowOverridePreview.some((entry) => entry.subjectCode === '660901'));
+
 console.log('payroll monthly integration tests passed');

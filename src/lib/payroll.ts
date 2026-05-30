@@ -61,6 +61,16 @@ export interface PayrollInput {
   employeeCode: string;
   employeeName: string;
   departmentName?: string;
+  payrollSalaryExpenseSubjectCode?: string;
+  payrollSalaryExpenseSubjectName?: string;
+  payrollContributionExpenseSubjectCode?: string;
+  payrollContributionExpenseSubjectName?: string;
+  payrollSalaryPayableSubjectCode?: string;
+  payrollSalaryPayableSubjectName?: string;
+  payrollTaxPayableSubjectCode?: string;
+  payrollTaxPayableSubjectName?: string;
+  payrollEmployeeContributionPayableSubjectCode?: string;
+  payrollEmployeeContributionPayableSubjectName?: string;
   incomeType?: PayrollIncomeType;
   annualBonusTaxMethod?: PayrollAnnualBonusTaxMethod;
   basicSalary: number;
