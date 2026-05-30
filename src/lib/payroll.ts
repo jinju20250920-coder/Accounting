@@ -1,4 +1,8 @@
-import { findPayrollTaxBracket } from './payroll-tax-rules';
+import {
+  buildDefaultPayrollTaxRuleSet,
+  findPayrollTaxBracket,
+  type PayrollTaxRuleSet,
+} from './payroll-tax-rules';
 
 export interface ContributionItemConfig {
   enabled: boolean;
@@ -46,6 +50,7 @@ export interface PayrollCalculationConfig {
   socialInsurance: SocialInsuranceConfig;
   housingFund: HousingFundConfig;
   individualTax: CumulativeTaxConfig;
+  taxRules: PayrollTaxRuleSet;
 }
 
 export type PayrollIncomeType = 'salary' | 'annual_bonus' | 'business_income';
@@ -265,6 +270,7 @@ export function createBlankPayrollCalculationConfig(): PayrollCalculationConfig 
       defaultBaseMode: 'gross',
     },
     individualTax: DEFAULT_CUMULATIVE_TAX_CONFIG,
+    taxRules: buildDefaultPayrollTaxRuleSet(),
   };
 }
 
@@ -325,14 +331,17 @@ function findTaxBracket(taxableIncome: number, config: CumulativeTaxConfig): Cum
     || config.brackets[config.brackets.length - 1];
 }
 
-export function calculateAnnualBonusTax(annualBonusAmount: number): {
+export function calculateAnnualBonusTax(
+  annualBonusAmount: number,
+  taxRules?: PayrollTaxRuleSet,
+): {
   tax: number;
   taxableAverage: number;
   rate: number;
   quickDeduction: number;
 } {
   const taxableAverage = roundMoney(annualBonusAmount / 12);
-  const bracket = findPayrollTaxBracket('annual_bonus', taxableAverage);
+  const bracket = findPayrollTaxBracket('annual_bonus', taxableAverage, taxRules);
   return {
     tax: roundMoney(Math.max(0, annualBonusAmount * bracket.rate - bracket.quickDeduction)),
     taxableAverage,
@@ -357,7 +366,7 @@ export function calculatePayrollItem(
       - input.leaveDeduction
       - input.otherPreTaxDeduction,
     );
-    const annualBonusTax = calculateAnnualBonusTax(grossSalary);
+    const annualBonusTax = calculateAnnualBonusTax(grossSalary, config.taxRules);
     const netSalary = roundMoney(grossSalary - annualBonusTax.tax - (input.otherPostTaxDeduction ?? 0));
 
     return {
@@ -405,7 +414,17 @@ export function calculatePayrollItem(
     - input.priorCumulativeOtherLegalDeduction
     - input.otherLegalDeduction,
   ));
-  const bracket = findTaxBracket(taxableIncomeCumulative, config.individualTax);
+  const salaryTaxConfig = {
+    ...config.individualTax,
+    brackets: (config.taxRules?.salary?.length
+      ? config.taxRules.salary.map((rule) => ({
+          upperLimit: rule.upperLimit,
+          rate: rule.rate,
+          quickDeduction: rule.quickDeduction,
+        }))
+      : config.individualTax.brackets),
+  };
+  const bracket = findTaxBracket(taxableIncomeCumulative, salaryTaxConfig);
   const cumulativeTax = roundMoney(taxableIncomeCumulative * bracket.rate - bracket.quickDeduction);
   const individualIncomeTax = roundMoney(Math.max(0, cumulativeTax - input.priorCumulativeTaxWithheld));
   const netSalary = roundMoney(

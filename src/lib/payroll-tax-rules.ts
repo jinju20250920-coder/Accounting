@@ -13,6 +13,12 @@ export interface PayrollTaxBracketRule {
   enabled: boolean;
 }
 
+export interface PayrollTaxRuleSet {
+  salary: PayrollTaxBracketRule[];
+  annual_bonus: PayrollTaxBracketRule[];
+  business_income: PayrollTaxBracketRule[];
+}
+
 export const BUILT_IN_PAYROLL_TAX_RULES: PayrollTaxBracketRule[] = [
   { id: 'salary-2019-001', ruleType: 'salary', effectiveDate: '2019-01-01', lowerLimit: 0, upperLimit: 36000, rate: 0.03, quickDeduction: 0, isSystemPreset: true, isAccountSetCustom: false, enabled: true },
   { id: 'salary-2019-002', ruleType: 'salary', effectiveDate: '2019-01-01', lowerLimit: 36000, upperLimit: 144000, rate: 0.1, quickDeduction: 2520, isSystemPreset: true, isAccountSetCustom: false, enabled: true },
@@ -35,14 +41,40 @@ export const BUILT_IN_PAYROLL_TAX_RULES: PayrollTaxBracketRule[] = [
   { id: 'business-income-2019-005', ruleType: 'business_income', effectiveDate: '2019-01-01', lowerLimit: 500000, upperLimit: null, rate: 0.35, quickDeduction: 65500, isSystemPreset: true, isAccountSetCustom: false, enabled: true },
 ];
 
+export function buildDefaultPayrollTaxRuleSet(): PayrollTaxRuleSet {
+  return {
+    salary: BUILT_IN_PAYROLL_TAX_RULES.filter((rule) => rule.ruleType === 'salary').map((rule) => ({ ...rule })),
+    annual_bonus: BUILT_IN_PAYROLL_TAX_RULES.filter((rule) => rule.ruleType === 'annual_bonus').map((rule) => ({ ...rule })),
+    business_income: BUILT_IN_PAYROLL_TAX_RULES.filter((rule) => rule.ruleType === 'business_income').map((rule) => ({ ...rule })),
+  };
+}
+
+export function clonePayrollTaxRuleSet(
+  taxRules?: Partial<PayrollTaxRuleSet> | null,
+): PayrollTaxRuleSet {
+  const defaults = buildDefaultPayrollTaxRuleSet();
+  return {
+    salary: (taxRules?.salary?.length ? taxRules.salary : defaults.salary).map((rule) => ({ ...rule })),
+    annual_bonus: (taxRules?.annual_bonus?.length ? taxRules.annual_bonus : defaults.annual_bonus).map((rule) => ({ ...rule })),
+    business_income: (taxRules?.business_income?.length ? taxRules.business_income : defaults.business_income).map((rule) => ({ ...rule })),
+  };
+}
+
 export function getPayrollTaxRules(ruleType: PayrollTaxRuleType): PayrollTaxBracketRule[] {
   return BUILT_IN_PAYROLL_TAX_RULES
     .filter((rule) => rule.ruleType === ruleType && rule.enabled)
     .sort((a, b) => a.lowerLimit - b.lowerLimit);
 }
 
-export function findPayrollTaxBracket(ruleType: PayrollTaxRuleType, amount: number): PayrollTaxBracketRule {
-  const rules = getPayrollTaxRules(ruleType);
+export function findPayrollTaxBracket(
+  ruleType: PayrollTaxRuleType,
+  amount: number,
+  customRules?: Partial<PayrollTaxRuleSet> | null,
+): PayrollTaxBracketRule {
+  const normalizedRules = customRules ? clonePayrollTaxRuleSet(customRules) : null;
+  const rules = (normalizedRules?.[ruleType] || getPayrollTaxRules(ruleType))
+    .filter((rule) => rule.enabled)
+    .sort((a, b) => a.lowerLimit - b.lowerLimit);
   return rules.find((rule) => amount > rule.lowerLimit && (rule.upperLimit === null || amount <= rule.upperLimit))
     || rules[rules.length - 1];
 }

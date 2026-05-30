@@ -173,4 +173,35 @@ const voucherPreview = buildPayrollAccrualVoucherPreview([{
 
 assert(voucherPreview.some((entry) => entry.subjectCode === '660401'));
 
+const accountSetFallbackPreview = buildPayrollAccrualVoucherPreview([{
+  id: 'item-voucher-2',
+  batchId: 'batch-voucher-2',
+  accountSetId: 'as-1',
+  payrollPeriod: '2026-05',
+  employeeCode: 'EMP-DEFAULT',
+  employeeName: 'Default Subject Employee',
+  departmentName: 'Admin',
+  inputData: {
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-DEFAULT',
+    employeeName: 'Default Subject Employee',
+    basicSalary: 8000,
+  },
+  calculationResult: calculatePayrollItem({
+    ...createBlankPayrollInput(),
+    employeeCode: 'EMP-DEFAULT',
+    employeeName: 'Default Subject Employee',
+    basicSalary: 8000,
+  }, createBlankPayrollCalculationConfig(), 5),
+  validationStatus: 'valid',
+  validationMessages: [],
+  createdAt: '2026-05-29T00:00:00.000Z',
+  updatedAt: '2026-05-29T00:00:00.000Z',
+}], '2026-05', [], {
+  payrollSalaryExpenseSubjectCode: '660299',
+  payrollSalaryExpenseSubjectName: '管理费用-工资默认',
+});
+
+assert(accountSetFallbackPreview.some((entry) => entry.subjectCode === '660299'));
+
 console.log('payroll monthly integration tests passed');

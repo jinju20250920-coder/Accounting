@@ -23,10 +23,11 @@
 
 ## Deferred
 
-- [ ] Persist “本月无需处理” confirmations.
+- [x] Persist “本月无需处理” confirmations.
 - [x] Block `closePeriod` when blocker checks fail.
-- [ ] Add configurable rule switches.
-- [ ] Add dedicated check report page.
+- [x] Add configurable rule switches.
+- [x] Add dedicated check report page.
+- [x] Block voucher writes for closed or locked accounting periods.
 
 ## 已完成的新增项
 

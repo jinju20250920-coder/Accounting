@@ -22,6 +22,7 @@ import type {
   PayrollCalculationConfigRecord,
   PayrollItem,
 } from '../payroll';
+import { clonePayrollTaxRuleSet } from '../payroll-tax-rules';
 
 // Re-export types for stores to import
 export type Voucher = _Voucher;
@@ -3837,6 +3838,10 @@ class SQLiteService {
   }
 
   async savePayrollCalculationConfig(record: PayrollCalculationConfigRecord): Promise<void> {
+    const individualTaxConfig = {
+      ...record.config.individualTax,
+      __taxRules: record.config.taxRules,
+    };
     await this.runAsync(
       `INSERT OR REPLACE INTO payroll_calculation_configs
        (id, accountSetId, effectivePeriod, socialInsuranceConfig, housingFundConfig,
@@ -3848,7 +3853,7 @@ class SQLiteService {
         record.effectivePeriod,
         JSON.stringify(record.config.socialInsurance),
         JSON.stringify(record.config.housingFund),
-        JSON.stringify(record.config.individualTax),
+        JSON.stringify(individualTaxConfig),
         record.policyLabel,
         record.policyEffectiveDate,
         record.createdAt,
@@ -3866,6 +3871,8 @@ class SQLiteService {
       [this.accountSetId, period],
     );
     if (!row) return null;
+    const parsedIndividualTaxConfig = JSON.parse(row.individualTaxConfig) as Record<string, unknown>;
+    const { __taxRules, ...individualTax } = parsedIndividualTaxConfig;
     return {
       id: row.id,
       accountSetId: row.accountSetId,
@@ -3873,7 +3880,8 @@ class SQLiteService {
       config: {
         socialInsurance: JSON.parse(row.socialInsuranceConfig),
         housingFund: JSON.parse(row.housingFundConfig),
-        individualTax: JSON.parse(row.individualTaxConfig),
+        individualTax: individualTax as unknown as PayrollCalculationConfigRecord['config']['individualTax'],
+        taxRules: clonePayrollTaxRuleSet(__taxRules as Parameters<typeof clonePayrollTaxRuleSet>[0]),
       },
       policyLabel: row.policyLabel,
       policyEffectiveDate: row.policyEffectiveDate,

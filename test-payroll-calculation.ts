@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   calculatePayrollItem,
   clampContributionBase,
+  createBlankPayrollCalculationConfig,
   DEFAULT_CUMULATIVE_TAX_CONFIG,
   roundMoney,
   summarizePayrollResults,
@@ -29,6 +30,7 @@ const config: PayrollCalculationConfig = {
     defaultBaseMode: 'gross',
   },
   individualTax: DEFAULT_CUMULATIVE_TAX_CONFIG,
+  taxRules: createBlankPayrollCalculationConfig().taxRules,
 };
 
 assert.equal(clampContributionBase(3000, 5000, 20000), 5000);

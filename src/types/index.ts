@@ -137,6 +137,16 @@ export interface Department {
   name: string;
   parentId: string | null;
   level: number;
+  payrollSalaryExpenseSubjectCode?: string;
+  payrollSalaryExpenseSubjectName?: string;
+  payrollContributionExpenseSubjectCode?: string;
+  payrollContributionExpenseSubjectName?: string;
+  payrollSalaryPayableSubjectCode?: string;
+  payrollSalaryPayableSubjectName?: string;
+  payrollTaxPayableSubjectCode?: string;
+  payrollTaxPayableSubjectName?: string;
+  payrollEmployeeContributionPayableSubjectCode?: string;
+  payrollEmployeeContributionPayableSubjectName?: string;
   frozen: boolean; // 冻结状态
   accountSetId?: string; // 新增字段：所属账套ID
 }

@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
+import type { PayrollTaxRuleSet } from '@/lib/payroll-tax-rules';
 
 // 会计期间接口
 export interface AccountingPeriod {
@@ -72,6 +73,19 @@ export interface AccountSet {
   accounting?: {
     partnerTrackingMethod?: 'subject' | 'card'; // 往来核算方式：科目方式 or 往来卡片方式
   };
+
+  payrollRegionId?: string;
+  payrollTaxRules?: PayrollTaxRuleSet;
+  payrollSalaryExpenseSubjectCode?: string;
+  payrollSalaryExpenseSubjectName?: string;
+  payrollContributionExpenseSubjectCode?: string;
+  payrollContributionExpenseSubjectName?: string;
+  payrollSalaryPayableSubjectCode?: string;
+  payrollSalaryPayableSubjectName?: string;
+  payrollTaxPayableSubjectCode?: string;
+  payrollTaxPayableSubjectName?: string;
+  payrollEmployeeContributionPayableSubjectCode?: string;
+  payrollEmployeeContributionPayableSubjectName?: string;
 
   // 会计期间相关字段
   accountingPeriods?: AccountingPeriod[];

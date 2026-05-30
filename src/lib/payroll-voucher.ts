@@ -10,6 +10,19 @@ export interface PayrollVoucherEntryPreview {
   departmentName?: string;
 }
 
+export interface PayrollVoucherDefaultSubjects {
+  payrollSalaryExpenseSubjectCode?: string;
+  payrollSalaryExpenseSubjectName?: string;
+  payrollContributionExpenseSubjectCode?: string;
+  payrollContributionExpenseSubjectName?: string;
+  payrollSalaryPayableSubjectCode?: string;
+  payrollSalaryPayableSubjectName?: string;
+  payrollTaxPayableSubjectCode?: string;
+  payrollTaxPayableSubjectName?: string;
+  payrollEmployeeContributionPayableSubjectCode?: string;
+  payrollEmployeeContributionPayableSubjectName?: string;
+}
+
 interface PayrollVoucherSubjects {
   salaryExpense: { code: string; name: string };
   contributionExpense: { code: string; name: string };
@@ -44,17 +57,41 @@ function subjectOrFallback(
     : fallback;
 }
 
-export function resolvePayrollVoucherSubjects(item: PayrollItem, employeeByCode: Map<string, Partner>): PayrollVoucherSubjects {
+export function resolvePayrollVoucherSubjects(
+  item: PayrollItem,
+  employeeByCode: Map<string, Partner>,
+  defaultSubjects: PayrollVoucherDefaultSubjects = {},
+): PayrollVoucherSubjects {
   const employee = employeeByCode.get(item.employeeCode);
   return {
-    salaryExpense: subjectOrFallback(employee?.payrollSalaryExpenseSubjectCode, employee?.payrollSalaryExpenseSubjectName, SUBJECTS.salaryExpense),
-    contributionExpense: subjectOrFallback(employee?.payrollContributionExpenseSubjectCode, employee?.payrollContributionExpenseSubjectName, SUBJECTS.contributionExpense),
-    salaryPayable: subjectOrFallback(employee?.payrollSalaryPayableSubjectCode, employee?.payrollSalaryPayableSubjectName, SUBJECTS.salaryPayable),
-    taxPayable: subjectOrFallback(employee?.payrollTaxPayableSubjectCode, employee?.payrollTaxPayableSubjectName, SUBJECTS.taxPayable),
+    salaryExpense: subjectOrFallback(
+      employee?.payrollSalaryExpenseSubjectCode,
+      employee?.payrollSalaryExpenseSubjectName,
+      subjectOrFallback(defaultSubjects.payrollSalaryExpenseSubjectCode, defaultSubjects.payrollSalaryExpenseSubjectName, SUBJECTS.salaryExpense),
+    ),
+    contributionExpense: subjectOrFallback(
+      employee?.payrollContributionExpenseSubjectCode,
+      employee?.payrollContributionExpenseSubjectName,
+      subjectOrFallback(defaultSubjects.payrollContributionExpenseSubjectCode, defaultSubjects.payrollContributionExpenseSubjectName, SUBJECTS.contributionExpense),
+    ),
+    salaryPayable: subjectOrFallback(
+      employee?.payrollSalaryPayableSubjectCode,
+      employee?.payrollSalaryPayableSubjectName,
+      subjectOrFallback(defaultSubjects.payrollSalaryPayableSubjectCode, defaultSubjects.payrollSalaryPayableSubjectName, SUBJECTS.salaryPayable),
+    ),
+    taxPayable: subjectOrFallback(
+      employee?.payrollTaxPayableSubjectCode,
+      employee?.payrollTaxPayableSubjectName,
+      subjectOrFallback(defaultSubjects.payrollTaxPayableSubjectCode, defaultSubjects.payrollTaxPayableSubjectName, SUBJECTS.taxPayable),
+    ),
     employeeContributionPayable: subjectOrFallback(
       employee?.payrollEmployeeContributionPayableSubjectCode,
       employee?.payrollEmployeeContributionPayableSubjectName,
-      SUBJECTS.employeeContributionPayable,
+      subjectOrFallback(
+        defaultSubjects.payrollEmployeeContributionPayableSubjectCode,
+        defaultSubjects.payrollEmployeeContributionPayableSubjectName,
+        SUBJECTS.employeeContributionPayable,
+      ),
     ),
   };
 }
@@ -71,6 +108,7 @@ export function buildPayrollAccrualVoucherPreview(
   items: PayrollItem[],
   period: string,
   employees: Partner[] = [],
+  defaultSubjects: PayrollVoucherDefaultSubjects = {},
 ): PayrollVoucherEntryPreview[] {
   const salaryDebitMap = new Map<string, number>();
   const contributionDebitMap = new Map<string, number>();
@@ -86,7 +124,7 @@ export function buildPayrollAccrualVoucherPreview(
   items.forEach((item) => {
     const result = item.calculationResult;
     const departmentName = departmentKey(result.departmentName);
-    const subjects = resolvePayrollVoucherSubjects(item, employeeByCode);
+    const subjects = resolvePayrollVoucherSubjects(item, employeeByCode, defaultSubjects);
     const employerContribution = roundMoney(result.employerSocialInsurance + result.employerHousingFund);
     const employeeContribution = roundMoney(
       result.employeeSocialInsurance + result.employeeHousingFund + (item.inputData.otherPostTaxDeduction || 0),

@@ -27,7 +27,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { useToast } from '@/components/ui/toast';
-import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useAccountSetStore, type AccountSet } from '@/stores/useAccountSetStore';
 import { useDepartmentStore } from '@/stores/useDepartmentStore';
 import { usePartnerStore } from '@/stores/usePartnerStore';
 import { usePayrollStore } from '@/stores/usePayrollStore';
@@ -54,12 +54,71 @@ import {
   PAYROLL_TAX_SCENARIO_NOTES,
   type PayrollRegionId,
 } from '@/lib/payroll-defaults';
-import { BUILT_IN_PAYROLL_TAX_RULES } from '@/lib/payroll-tax-rules';
+import {
+  BUILT_IN_PAYROLL_TAX_RULES,
+  clonePayrollTaxRuleSet,
+  type PayrollTaxRuleType,
+} from '@/lib/payroll-tax-rules';
 import {
   buildPayrollAccrualVoucherPreview,
   type PayrollVoucherEntryPreview,
 } from '@/lib/payroll-voucher';
 import type { Partner } from '@/types';
+
+interface PayrollVoucherDefaultSubjectDraft {
+  payrollSalaryExpenseSubjectCode: string;
+  payrollSalaryExpenseSubjectName: string;
+  payrollContributionExpenseSubjectCode: string;
+  payrollContributionExpenseSubjectName: string;
+  payrollSalaryPayableSubjectCode: string;
+  payrollSalaryPayableSubjectName: string;
+  payrollTaxPayableSubjectCode: string;
+  payrollTaxPayableSubjectName: string;
+  payrollEmployeeContributionPayableSubjectCode: string;
+  payrollEmployeeContributionPayableSubjectName: string;
+}
+
+const PAYROLL_TAX_RULE_SECTIONS: {
+  ruleType: PayrollTaxRuleType;
+  label: string;
+  description: string;
+}[] = [
+  { ruleType: 'salary', label: '工资薪金', description: '按累计预扣预缴规则计算月度工资与月奖。' },
+  { ruleType: 'annual_bonus', label: '全年一次性奖金', description: '用于单独计税场景的奖金税率和速算扣除数。' },
+  { ruleType: 'business_income', label: '经营所得', description: '作为后续扩展经营所得流程的参考税率表。' },
+];
+
+const PAYROLL_VOUCHER_SUBJECT_FIELDS: {
+  codeField: keyof PayrollVoucherDefaultSubjectDraft;
+  nameField: keyof PayrollVoucherDefaultSubjectDraft;
+  label: string;
+}[] = [
+  {
+    codeField: 'payrollSalaryExpenseSubjectCode',
+    nameField: 'payrollSalaryExpenseSubjectName',
+    label: '工资费用科目',
+  },
+  {
+    codeField: 'payrollContributionExpenseSubjectCode',
+    nameField: 'payrollContributionExpenseSubjectName',
+    label: '社保公积金费用科目',
+  },
+  {
+    codeField: 'payrollSalaryPayableSubjectCode',
+    nameField: 'payrollSalaryPayableSubjectName',
+    label: '应付工资科目',
+  },
+  {
+    codeField: 'payrollTaxPayableSubjectCode',
+    nameField: 'payrollTaxPayableSubjectName',
+    label: '个税应交科目',
+  },
+  {
+    codeField: 'payrollEmployeeContributionPayableSubjectCode',
+    nameField: 'payrollEmployeeContributionPayableSubjectName',
+    label: '个人社保公积金代扣科目',
+  },
+];
 
 type InsuranceKey = keyof Pick<SocialInsuranceConfig, 'pension' | 'medical' | 'unemployment' | 'injury' | 'maternity' | 'supplementaryMedical'>;
 
@@ -136,6 +195,23 @@ function getAnnualBonusTaxMethodLabel(input: PayrollInput): string {
   return input.annualBonusTaxMethod === 'consolidated' ? '并入综合所得' : '单独计税';
 }
 
+function createPayrollVoucherDefaultSubjectDraft(
+  accountSet: AccountSet | null,
+): PayrollVoucherDefaultSubjectDraft {
+  return {
+    payrollSalaryExpenseSubjectCode: accountSet?.payrollSalaryExpenseSubjectCode || '',
+    payrollSalaryExpenseSubjectName: accountSet?.payrollSalaryExpenseSubjectName || '',
+    payrollContributionExpenseSubjectCode: accountSet?.payrollContributionExpenseSubjectCode || '',
+    payrollContributionExpenseSubjectName: accountSet?.payrollContributionExpenseSubjectName || '',
+    payrollSalaryPayableSubjectCode: accountSet?.payrollSalaryPayableSubjectCode || '',
+    payrollSalaryPayableSubjectName: accountSet?.payrollSalaryPayableSubjectName || '',
+    payrollTaxPayableSubjectCode: accountSet?.payrollTaxPayableSubjectCode || '',
+    payrollTaxPayableSubjectName: accountSet?.payrollTaxPayableSubjectName || '',
+    payrollEmployeeContributionPayableSubjectCode: accountSet?.payrollEmployeeContributionPayableSubjectCode || '',
+    payrollEmployeeContributionPayableSubjectName: accountSet?.payrollEmployeeContributionPayableSubjectName || '',
+  };
+}
+
 function completeEmployeeFields(
   input: PayrollInput,
   field: 'employeeCode' | 'employeeName',
@@ -187,6 +263,9 @@ export default function PayrollPage() {
   const [period, setPeriod] = useState(defaultPeriod);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<PayrollCalculationConfig>(createBlankPayrollCalculationConfig());
+  const [accountSetSubjectDraft, setAccountSetSubjectDraft] = useState<PayrollVoucherDefaultSubjectDraft>(
+    createPayrollVoucherDefaultSubjectDraft(currentAccountSet),
+  );
   const [previewRows, setPreviewRows] = useState<PayrollInput[]>([]);
   const [previewErrors, setPreviewErrors] = useState<PayrollImportError[]>([]);
   const [previewFileName, setPreviewFileName] = useState('');
@@ -239,7 +318,21 @@ export default function PayrollPage() {
   useEffect(() => {
     const regionId = getDefaultPayrollRegionId(currentAccountSet);
     setSettingsRegionId(regionId);
-    setSettingsDraft(config?.config || applyPayrollRegionPreset(createBlankPayrollCalculationConfig(), regionId));
+    const baseConfig = config?.config || applyPayrollRegionPreset(createBlankPayrollCalculationConfig(), regionId);
+    const mergedTaxRules = clonePayrollTaxRuleSet(currentAccountSet?.payrollTaxRules || baseConfig.taxRules);
+    setSettingsDraft({
+      ...baseConfig,
+      taxRules: mergedTaxRules,
+      individualTax: {
+        ...baseConfig.individualTax,
+        brackets: mergedTaxRules.salary.map((rule) => ({
+          upperLimit: rule.upperLimit,
+          rate: rule.rate,
+          quickDeduction: rule.quickDeduction,
+        })),
+      },
+    });
+    setAccountSetSubjectDraft(createPayrollVoucherDefaultSubjectDraft(currentAccountSet));
   }, [config, currentAccountSet]);
 
   useEffect(() => {
@@ -288,7 +381,26 @@ export default function PayrollPage() {
 
   async function saveSettings() {
     try {
-      await saveConfig(period, settingsDraft);
+      const taxRules = clonePayrollTaxRuleSet(settingsDraft.taxRules);
+      const nextConfig: PayrollCalculationConfig = {
+        ...settingsDraft,
+        taxRules,
+        individualTax: {
+          ...settingsDraft.individualTax,
+          brackets: taxRules.salary.map((rule) => ({
+            upperLimit: rule.upperLimit,
+            rate: rule.rate,
+            quickDeduction: rule.quickDeduction,
+          })),
+        },
+      };
+      await saveConfig(period, nextConfig);
+      if (currentAccountSet) {
+        updateAccountSet(currentAccountSet.id, {
+          payrollTaxRules: taxRules,
+          ...accountSetSubjectDraft,
+        } as Partial<AccountSet>);
+      }
       setSettingsOpen(false);
       showToast('success', '计算设置已保存');
     } catch (saveError) {
@@ -615,11 +727,73 @@ export default function PayrollPage() {
     }));
   }
 
+  function updateTaxRule(
+    ruleType: PayrollTaxRuleType,
+    index: number,
+    field: 'effectiveDate' | 'lowerLimit' | 'upperLimit' | 'rate' | 'quickDeduction',
+    value: string,
+  ) {
+    setSettingsDraft((draft) => {
+      const nextRules = clonePayrollTaxRuleSet(draft.taxRules);
+      const currentRule = nextRules[ruleType][index];
+      if (!currentRule) return draft;
+      nextRules[ruleType][index] = {
+        ...currentRule,
+        [field]: field === 'effectiveDate'
+          ? value
+          : field === 'upperLimit'
+            ? (value === '' ? null : Number(value))
+            : field === 'rate'
+              ? (Number(value) || 0) / 100
+              : Number(value) || 0,
+      };
+      return {
+        ...draft,
+        taxRules: nextRules,
+        individualTax: {
+          ...draft.individualTax,
+          brackets: nextRules.salary.map((rule) => ({
+            upperLimit: rule.upperLimit,
+            rate: rule.rate,
+            quickDeduction: rule.quickDeduction,
+          })),
+        },
+      };
+    });
+  }
+
+  function restoreTaxRules(ruleType: PayrollTaxRuleType) {
+    setSettingsDraft((draft) => {
+      const defaultRules = clonePayrollTaxRuleSet();
+      const nextRules = clonePayrollTaxRuleSet(draft.taxRules);
+      nextRules[ruleType] = defaultRules[ruleType];
+      return {
+        ...draft,
+        taxRules: nextRules,
+        individualTax: {
+          ...draft.individualTax,
+          brackets: nextRules.salary.map((rule) => ({
+            upperLimit: rule.upperLimit,
+            rate: rule.rate,
+            quickDeduction: rule.quickDeduction,
+          })),
+        },
+      };
+    });
+  }
+
+  function updateAccountSetSubjectDraft(
+    field: keyof PayrollVoucherDefaultSubjectDraft,
+    value: string,
+  ) {
+    setAccountSetSubjectDraft((draft) => ({ ...draft, [field]: value }));
+  }
+
   function applyRegionPreset(regionId: PayrollRegionId) {
     setSettingsRegionId(regionId);
     setSettingsDraft((draft) => applyPayrollRegionPreset(draft, regionId));
     if (currentAccountSet) {
-      updateAccountSet(currentAccountSet.id, { payrollRegionId: regionId } as Partial<typeof currentAccountSet>);
+      updateAccountSet(currentAccountSet.id, { payrollRegionId: regionId } as Partial<AccountSet>);
     }
   }
 
@@ -642,6 +816,7 @@ export default function PayrollPage() {
       items,
       selectedBatch.payrollPeriod,
       partners.filter((partner) => partner.isEmployee),
+      currentAccountSet || undefined,
     ));
     setVoucherDialogOpen(true);
   }
@@ -931,6 +1106,63 @@ export default function PayrollPage() {
             <p>本月已有工资明细，请选择复制方式。</p>
             <p className="text-xs text-slate-500">覆盖会替换本月草稿明细；追加会跳过已存在工号，只补充本月没有的员工。</p>
           </div>
+          <div className="hidden">
+            {PAYROLL_TAX_RULE_SECTIONS.map((section) => (
+              <div key={section.ruleType} className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{section.label}</p>
+                    <p className="mt-1 text-xs text-slate-500">{section.description}</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => restoreTaxRules(section.ruleType)}>
+                    <RotateCcw className="h-4 w-4" />恢复默认
+                  </Button>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-4">
+                  <div>
+                    <Label className="text-xs text-slate-500">首档税率(%)</Label>
+                    <Input
+                      {...DISABLE_BROWSER_AUTOFILL}
+                      type="number"
+                      className="mt-1"
+                      value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType][0]?.rate || 0)}
+                      onChange={(event) => updateTaxRule(section.ruleType, 0, 'rate', event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-slate-500">首档速算扣除数</Label>
+                    <Input
+                      {...DISABLE_BROWSER_AUTOFILL}
+                      type="number"
+                      className="mt-1"
+                      value={settingsDraft.taxRules[section.ruleType][0]?.quickDeduction ?? 0}
+                      onChange={(event) => updateTaxRule(section.ruleType, 0, 'quickDeduction', event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-slate-500">末档税率(%)</Label>
+                    <Input
+                      {...DISABLE_BROWSER_AUTOFILL}
+                      type="number"
+                      className="mt-1"
+                      value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType].at(-1)?.rate || 0)}
+                      onChange={(event) => updateTaxRule(section.ruleType, settingsDraft.taxRules[section.ruleType].length - 1, 'rate', event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-slate-500">末档生效日期</Label>
+                    <Input
+                      {...DISABLE_BROWSER_AUTOFILL}
+                      type="date"
+                      className="mt-1"
+                      value={settingsDraft.taxRules[section.ruleType].at(-1)?.effectiveDate || ''}
+                      onChange={(event) => updateTaxRule(section.ruleType, settingsDraft.taxRules[section.ruleType].length - 1, 'effectiveDate', event.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>取消</Button>
             <Button variant="outline" onClick={() => void copyPreviousPayroll('append')}>追加</Button>
@@ -1128,6 +1360,76 @@ export default function PayrollPage() {
                 <div><Label>企业比例 (%)</Label><Input {...DISABLE_BROWSER_AUTOFILL} aria-label="housing-employer-rate-percent" value={formatContributionRatePercent(settingsDraft.housingFund.employerRate)} onChange={(event) => updateHousing('employerRate', event.target.value)} /></div>
                 <div><Label>基数下限</Label><Input {...DISABLE_BROWSER_AUTOFILL} value={settingsDraft.housingFund.minimumBase} onChange={(event) => updateHousing('minimumBase', event.target.value)} /></div>
                 <div><Label>基数上限</Label><Input {...DISABLE_BROWSER_AUTOFILL} value={settingsDraft.housingFund.maximumBase} onChange={(event) => updateHousing('maximumBase', event.target.value)} /></div>
+              </div>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-white px-4 py-3">
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-slate-900">税率快捷调整</h3>
+                <p className="mt-1 text-xs text-slate-500">常用场景可在这里直接调整首档/末档税率，完整税率表仍可在上方税率设置中查看。</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {PAYROLL_TAX_RULE_SECTIONS.map((section) => (
+                  <div key={section.ruleType} className="rounded-md border border-slate-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{section.label}</p>
+                        <p className="mt-1 text-xs text-slate-500">{section.description}</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => restoreTaxRules(section.ruleType)}>
+                        <RotateCcw className="h-4 w-4" />恢复默认
+                      </Button>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <Label className="text-xs text-slate-500">首档税率(%)</Label>
+                        <Input
+                          {...DISABLE_BROWSER_AUTOFILL}
+                          type="number"
+                          className="mt-1"
+                          value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType][0]?.rate || 0)}
+                          onChange={(event) => updateTaxRule(section.ruleType, 0, 'rate', event.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-500">末档税率(%)</Label>
+                        <Input
+                          {...DISABLE_BROWSER_AUTOFILL}
+                          type="number"
+                          className="mt-1"
+                          value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType].at(-1)?.rate || 0)}
+                          onChange={(event) => updateTaxRule(section.ruleType, settingsDraft.taxRules[section.ruleType].length - 1, 'rate', event.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-white px-4 py-3">
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-slate-900">计提凭证默认科目</h3>
+                <p className="mt-1 text-xs text-slate-500">员工卡片未配置工资科目时，将按这里的账套默认科目生成工资计提凭证。</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {PAYROLL_VOUCHER_SUBJECT_FIELDS.map((field) => (
+                  <div key={String(field.codeField)} className="rounded-md border border-slate-200 p-3">
+                    <Label className="text-sm font-medium text-slate-700">{field.label}</Label>
+                    <div className="mt-2 grid gap-2">
+                      <Input
+                        {...DISABLE_BROWSER_AUTOFILL}
+                        placeholder="科目编码"
+                        value={accountSetSubjectDraft[field.codeField]}
+                        onChange={(event) => updateAccountSetSubjectDraft(field.codeField, event.target.value)}
+                      />
+                      <Input
+                        {...DISABLE_BROWSER_AUTOFILL}
+                        placeholder="科目名称"
+                        value={accountSetSubjectDraft[field.nameField]}
+                        onChange={(event) => updateAccountSetSubjectDraft(field.nameField, event.target.value)}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

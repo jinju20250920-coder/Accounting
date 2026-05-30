@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ShieldAlert } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,6 +80,7 @@ function getCurrentPeriodText(accountSet: AccountSet | undefined) {
 }
 
 export default function MonthlyClosingChecksPage() {
+  const router = useRouter();
   const { vouchers, initialize: initializeVouchers } = useVoucherStore();
   const { invoices, initialize: initializeInvoices } = useInvoiceStore();
   const { getCurrentAccountSet } = useAccountSetStore();
@@ -209,6 +211,10 @@ export default function MonthlyClosingChecksPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/')}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            返回智能做账
+          </Button>
           <Button onClick={refreshChecks} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             执行月结检查
