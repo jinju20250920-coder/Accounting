@@ -915,7 +915,7 @@ export default function CurrenciesPage() {
                   </div>
                 }
               >
-                <Button variant="outline" className="w-full justify-between font-normal">
+                <Button variant="outline" className="w-full justify-between font-normal" onClick={() => setSubjectSearchOpen(true)}>
                   {currencyFormData.gainLossSubjectCode ? (
                     <span>
                       {currencyFormData.gainLossSubjectCode} - {currencyFormData.gainLossSubjectName}
