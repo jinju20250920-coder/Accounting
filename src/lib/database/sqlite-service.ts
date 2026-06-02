@@ -1485,6 +1485,54 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_fxRates_currencyCode ON fxRates(currencyCode);
         `);
       }
+
+      // fxRevaluationRuns + fxRevaluationRunLines
+      const fxRevTableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='fxRevaluationRuns'"
+      );
+      if (!fxRevTableCheck[0]?.values?.length) {
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS fxRevaluationRuns (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            period TEXT NOT NULL,
+            baseCurrency TEXT NOT NULL,
+            status TEXT NOT NULL,
+            previewData TEXT,
+            voucherId TEXT,
+            voucherNo TEXT,
+            createdAt TEXT NOT NULL,
+            confirmedAt TEXT,
+            createTime TEXT,
+            updateTime TEXT,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+          CREATE TABLE IF NOT EXISTS fxRevaluationRunLines (
+            id TEXT PRIMARY KEY,
+            runId TEXT NOT NULL,
+            accountSetId TEXT NOT NULL,
+            sourceType TEXT NOT NULL,
+            sourceId TEXT NOT NULL,
+            sourceName TEXT,
+            currencyCode TEXT NOT NULL,
+            originalAmount REAL NOT NULL,
+            originalRate REAL NOT NULL,
+            revaluationRate REAL NOT NULL,
+            bookValueBase REAL NOT NULL,
+            revaluedBase REAL NOT NULL,
+            gainLossAmount REAL NOT NULL,
+            gainLossDirection TEXT NOT NULL,
+            subjectCode TEXT,
+            subjectName TEXT,
+            createTime TEXT,
+            FOREIGN KEY (runId) REFERENCES fxRevaluationRuns(id),
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_fxRevRuns_accountSetId ON fxRevaluationRuns(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_fxRevRuns_period ON fxRevaluationRuns(period);
+          CREATE INDEX IF NOT EXISTS idx_fxRevLines_runId ON fxRevaluationRunLines(runId);
+        `);
+      }
     } catch (error) {
       if (!String(error).includes('duplicate column name')) {
         console.warn('Multicurrency foundation migration warning:', error);
