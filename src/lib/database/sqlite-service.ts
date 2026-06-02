@@ -16,6 +16,8 @@ import type {
   AuxiliaryStrategyConfig as _AuxiliaryStrategyConfig,
   AssetCategoryMapping as _AssetCategoryMapping,
   FxRate as _FxRate,
+  FxRevaluationRun as _FxRevaluationRun,
+  FxRevaluationRunLine as _FxRevaluationRunLine,
   PurchaseInvoiceRuleConfig as _PurchaseInvoiceRuleConfig,
 } from '@/types';
 import type {
@@ -50,6 +52,8 @@ export type ExpenseKeywordCategory = _ExpenseKeywordCategory;
 export type AuxiliaryStrategyConfig = _AuxiliaryStrategyConfig;
 export type AssetCategoryMapping = _AssetCategoryMapping;
 export type FxRate = _FxRate;
+export type FxRevaluationRun = _FxRevaluationRun;
+export type FxRevaluationRunLine = _FxRevaluationRunLine;
 export type PurchaseInvoiceRuleConfig = _PurchaseInvoiceRuleConfig;
 
 // AuditLog interface
@@ -2755,6 +2759,88 @@ class SQLiteService {
       createTime: row.createTime,
       updateTime: row.updateTime,
     }));
+  }
+
+  // ========== FX 重估运行操作 ==========
+
+  async saveFxRevaluationRun(run: FxRevaluationRun): Promise<void> {
+    await this.ensureInitialized();
+    const stmt = this.dbInstance.prepare(`
+      INSERT OR REPLACE INTO fxRevaluationRuns
+        (id, accountSetId, period, baseCurrency, status, previewData, voucherId, voucherNo, createdAt, confirmedAt, createTime, updateTime)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run([
+      run.id,
+      run.accountSetId || this.accountSetId,
+      run.period,
+      run.baseCurrency,
+      run.status,
+      run.previewData || null,
+      run.voucherId || null,
+      run.voucherNo || null,
+      run.createdAt,
+      run.confirmedAt || null,
+      run.createTime || new Date().toISOString(),
+      run.updateTime || new Date().toISOString(),
+    ]);
+    stmt.free();
+    await this.persist();
+  }
+
+  async getFxRevaluationRuns(period?: string): Promise<FxRevaluationRun[]> {
+    await this.ensureInitialized();
+    const sql = period
+      ? `SELECT * FROM fxRevaluationRuns WHERE accountSetId = ? AND period = ? ORDER BY createdAt DESC`
+      : `SELECT * FROM fxRevaluationRuns WHERE accountSetId = ? ORDER BY createdAt DESC`;
+    const params = period ? [this.accountSetId, period] : [this.accountSetId];
+    return this.queryAllAsync<FxRevaluationRun>(sql, params);
+  }
+
+  async getFxRevaluationRun(id: string): Promise<FxRevaluationRun | null> {
+    await this.ensureInitialized();
+    return this.querySingleAsync<FxRevaluationRun>(
+      `SELECT * FROM fxRevaluationRuns WHERE id = ? AND accountSetId = ?`,
+      [id, this.accountSetId]
+    );
+  }
+
+  async deleteFxRevaluationRun(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.dbInstance.prepare(`DELETE FROM fxRevaluationRunLines WHERE runId = ?`).run([id]).free();
+    this.dbInstance.prepare(`DELETE FROM fxRevaluationRuns WHERE id = ? AND accountSetId = ?`).run([id, this.accountSetId]).free();
+    await this.persist();
+  }
+
+  async saveFxRevaluationRunLines(lines: FxRevaluationRunLine[]): Promise<void> {
+    await this.ensureInitialized();
+    for (const line of lines) {
+      const stmt = this.dbInstance.prepare(`
+        INSERT OR REPLACE INTO fxRevaluationRunLines
+          (id, runId, accountSetId, sourceType, sourceId, sourceName, currencyCode,
+           originalAmount, originalRate, revaluationRate, bookValueBase, revaluedBase,
+           gainLossAmount, gainLossDirection, subjectCode, subjectName, createTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run([
+        line.id, line.runId, line.accountSetId || this.accountSetId,
+        line.sourceType, line.sourceId, line.sourceName || null, line.currencyCode,
+        line.originalAmount, line.originalRate, line.revaluationRate,
+        line.bookValueBase, line.revaluedBase, line.gainLossAmount,
+        line.gainLossDirection, line.subjectCode || null, line.subjectName || null,
+        line.createTime || new Date().toISOString(),
+      ]);
+      stmt.free();
+    }
+    await this.persist();
+  }
+
+  async getFxRevaluationRunLines(runId: string): Promise<FxRevaluationRunLine[]> {
+    await this.ensureInitialized();
+    return this.queryAllAsync<FxRevaluationRunLine>(
+      `SELECT * FROM fxRevaluationRunLines WHERE runId = ? AND accountSetId = ?`,
+      [runId, this.accountSetId]
+    );
   }
 
   async savePartners(partners: Partner[]): Promise<void> {

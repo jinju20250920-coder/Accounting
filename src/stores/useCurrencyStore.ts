@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
-import type { Currency, FxRate } from '@/types';
+import type { Currency, FxRate, FxRevaluationRun, FxRevaluationRunLine } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
 interface CurrencyStore {
@@ -40,6 +40,15 @@ interface CurrencyStore {
   resetToDefault: () => Promise<void>;
   upsertFxRate: (rate: Omit<FxRate, 'id' | 'createTime' | 'updateTime'> & { id?: string }) => Promise<void>;
   deleteFxRate: (id: string) => Promise<void>;
+
+  // FX 重估
+  revaluationRuns: FxRevaluationRun[];
+  revaluationLoading: boolean;
+  revaluationError: string | null;
+  initializeRevaluationRuns: () => Promise<void>;
+  saveRevaluationRun: (run: FxRevaluationRun, lines?: FxRevaluationRunLine[]) => Promise<void>;
+  deleteRevaluationRun: (id: string) => Promise<void>;
+  getRevaluationRunLines: (runId: string) => Promise<FxRevaluationRunLine[]>;
 }
 
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
@@ -544,5 +553,72 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       console.error('Failed to delete FX rate:', error);
       set({ fxError: '删除汇率失败' });
     }
-  }
+  },
+
+  // ========== FX 重估 ==========
+
+  revaluationRuns: [],
+  revaluationLoading: false,
+  revaluationError: null,
+
+  initializeRevaluationRuns: async () => {
+    try {
+      set({ revaluationLoading: true, revaluationError: null });
+      const service = getCurrentService() as any;
+      if (service.getFxRevaluationRuns) {
+        const runs = await service.getFxRevaluationRuns();
+        set({ revaluationRuns: runs, revaluationLoading: false });
+      } else {
+        set({ revaluationLoading: false });
+      }
+    } catch (error) {
+      console.error('Failed to load FX revaluation runs:', error);
+      set({ revaluationLoading: false, revaluationError: '加载重估记录失败' });
+    }
+  },
+
+  saveRevaluationRun: async (run, lines) => {
+    try {
+      set({ revaluationError: null });
+      const service = getCurrentService() as any;
+      if (service.saveFxRevaluationRun) {
+        await service.saveFxRevaluationRun(run);
+        if (lines && lines.length > 0 && service.saveFxRevaluationRunLines) {
+          await service.saveFxRevaluationRunLines(lines);
+        }
+        const runs = await service.getFxRevaluationRuns();
+        set({ revaluationRuns: runs });
+      }
+    } catch (error) {
+      console.error('Failed to save FX revaluation run:', error);
+      set({ revaluationError: '保存重估记录失败' });
+    }
+  },
+
+  deleteRevaluationRun: async (id) => {
+    try {
+      set({ revaluationError: null });
+      const service = getCurrentService() as any;
+      if (service.deleteFxRevaluationRun) {
+        await service.deleteFxRevaluationRun(id);
+        set({ revaluationRuns: get().revaluationRuns.filter(r => r.id !== id) });
+      }
+    } catch (error) {
+      console.error('Failed to delete FX revaluation run:', error);
+      set({ revaluationError: '删除重估记录失败' });
+    }
+  },
+
+  getRevaluationRunLines: async (runId) => {
+    try {
+      const service = getCurrentService() as any;
+      if (service.getFxRevaluationRunLines) {
+        return await service.getFxRevaluationRunLines(runId);
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to get FX revaluation run lines:', error);
+      return [];
+    }
+  },
 }));
