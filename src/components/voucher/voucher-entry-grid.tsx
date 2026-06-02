@@ -22,6 +22,8 @@ import { SmartSubjectSelector, AmountInputWithPreview } from './smart-subject-se
 import { ClearingManager } from './clearing-manager';
 import { SummaryPicker } from './summary-picker';
 import { useAccountStore } from '@/stores/useAccountStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSummaryStore } from '@/stores';
 import { TemplateSelector } from './TemplateSelector';
 import { useVoucherTemplateStore } from '@/stores';
@@ -51,6 +53,9 @@ interface VoucherEntry {
   projectCode?: string;
   debit: number;
   credit: number;
+  currencyCode?: string;
+  exchangeRate?: number;
+  originalAmount?: number;
   auxiliary?: {
     department?: string;
     project?: string;
@@ -116,6 +121,13 @@ export function VoucherEntryGrid() {
   const { departments, searchDepartments } = useDepartmentStore();
   const { projects, searchProjects } = useFinancialProjectStore();
   const { getBalance } = useAccountStore();
+  const currencies = useCurrencyStore((s) => s.currencies);
+  const baseCurrency = useAccountSetStore((s) => s.getCurrentAccountSet()?.baseCurrency) || 'CNY';
+  const enabledCurrencies = currencies.filter((c: any) => !c.disabled);
+  const currencyOptions: SelectOption[] = enabledCurrencies.map((c: any) => ({
+    value: c.code,
+    label: `${c.code} ${c.name}`,
+  }));
 
   // 焦点单元格跟踪
   const [focusedCell, setFocusedCell] = useState<{ entryId: string; field: string } | null>(null);
@@ -309,6 +321,7 @@ export function VoucherEntryGrid() {
     { id: 'recRefNo', label: '核销单号' },
     { id: 'debit', label: '借方' },
     { id: 'credit', label: '贷方' },
+    { id: 'currency', label: '币种' },
     { id: 'deptCode', label: '部门' },
     { id: 'projectCode', label: '项目' },
     { id: 'customerSupplier', label: '往来' },
@@ -1236,6 +1249,49 @@ export function VoucherEntryGrid() {
                             />
                           </td>
                         );
+                      case 'currency':
+                        const subjectMetaCurrency = selectedSubjectMetadata[entry.id];
+                        const showCurrency = subjectMetaCurrency?.enableForeign;
+                        return (
+                          <td key={colId} className="p-0 border-r border-slate-300 last:border-r-0" style={{ padding: 0 }}>
+                            {showCurrency ? (
+                              <div className="flex items-center gap-0 h-full">
+                                <SimpleSelect
+                                  variant="excel"
+                                  data-entry-id={entry.id}
+                                  data-field="currencyCode"
+                                  options={currencyOptions}
+                                  placeholder="币种"
+                                  value={entry.currencyCode || null}
+                                  onChange={(value) => updateEntry(entry.id, 'currencyCode', value)}
+                                  onKeyDown={(e) => handleKeyDown(entry.id, 'currencyCode', index, e)}
+                                  onFocus={() => handleFocus(entry.id, 'currencyCode')}
+                                  onBlur={handleBlur}
+                                  className="text-xs"
+                                />
+                                {entry.currencyCode && entry.currencyCode !== baseCurrency && (
+                                  <input
+                                    type="number"
+                                    step="0.0001"
+                                    value={entry.exchangeRate || ''}
+                                    placeholder="汇率"
+                                    className="w-16 h-full border-0 border-l border-slate-200 bg-amber-50/50 px-1 py-0 text-xs text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                    onChange={(e) => {
+                                      const rate = parseFloat(e.target.value) || 0;
+                                      updateEntry(entry.id, 'exchangeRate', rate);
+                                    }}
+                                    onFocus={() => handleFocus(entry.id, 'exchangeRate')}
+                                    onBlur={handleBlur}
+                                  />
+                                )}
+                              </div>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-xs text-slate-300">
+                                {entry.currencyCode && entry.currencyCode !== baseCurrency ? entry.currencyCode : '—'}
+                              </div>
+                            )}
+                          </td>
+                        );
                       case 'deptCode':
                         const subjectMetadataDept = selectedSubjectMetadata[entry.id];
                         const isDeptDisabled = !subjectMetadataDept?.enableDept;
@@ -1382,6 +1438,7 @@ export function VoucherEntryGrid() {
                             {totalCredit.toFixed(2)}
                           </td>
                         );
+                      case 'currency':
                       case 'deptCode':
                       case 'projectCode':
                       case 'customerSupplier':

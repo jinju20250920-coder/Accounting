@@ -525,7 +525,7 @@ export default function BankAccountsPage() {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">银行名称 <span className="text-red-500">*</span></Label>
                 {editingId ? (
@@ -565,6 +565,20 @@ export default function BankAccountsPage() {
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">别名</Label>
                 <Input placeholder="可选，如：基本户" value={formData.aliasName} onChange={(e) => setFormData(prev => ({ ...prev, aliasName: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">币种</Label>
+                <select
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  value={formData.currency || defaultCurrencyCode}
+                  onChange={(e) => setFormData(prev => ({ ...prev, currency: e.target.value }))}
+                >
+                  {currencyOptions.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.code} - {c.name}{c.code === defaultCurrencyCode ? '（本位币）' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -676,6 +690,7 @@ export default function BankAccountsPage() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">银行名称</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">账号</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">科目代码</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-slate-700">币种</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">解析格式</th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-slate-700">操作</th>
                   </tr>
@@ -698,6 +713,11 @@ export default function BankAccountsPage() {
                         <td className="px-4 py-3">
                           <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-mono">
                             {binding.subSubjectCode}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge className={`text-xs ${binding.currency && binding.currency !== 'CNY' ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-600'}`}>
+                            {binding.currency || 'CNY'}
                           </Badge>
                         </td>
                         <td className="px-4 py-3">

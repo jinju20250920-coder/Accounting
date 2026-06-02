@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { sqliteService } from '@/lib/database';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
 import { Popover } from '@/components/ui/popover';
 import { Search, X } from 'lucide-react';
@@ -110,13 +112,21 @@ export function ManualEntryDialog({
   onSaved,
 }: ManualEntryDialogProps) {
   const { showToast } = useToast();
+  const currencies = useCurrencyStore((s) => s.currencies);
+  const baseCurrency = useAccountSetStore((s) => s.getCurrentAccountSet()?.baseCurrency) || 'CNY';
+  const enabledCurrencies = useMemo(() => currencies.filter((c) => !c.disabled), [currencies]);
+
   const [date, setDate] = useState('');
   const [summary, setSummary] = useState('');
   const [amount, setAmount] = useState('');
   const [direction, setDirection] = useState<'credit' | 'debit'>('credit');
   const [subjectCode, setSubjectCode] = useState<string | undefined>();
   const [subjectName, setSubjectName] = useState<string | undefined>();
+  const [currency, setCurrency] = useState(baseCurrency);
+  const [exchangeRate, setExchangeRate] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const isForeignCurrency = currency && currency !== baseCurrency;
 
   const resetForm = () => {
     setDate('');
@@ -125,11 +135,18 @@ export function ManualEntryDialog({
     setDirection('credit');
     setSubjectCode(undefined);
     setSubjectName(undefined);
+    setCurrency(baseCurrency);
+    setExchangeRate('');
   };
 
   const handleSave = async () => {
     if (!date || !summary || !amount) {
       showToast('error', '请填写日期、摘要和金额');
+      return;
+    }
+
+    if (isForeignCurrency && (!exchangeRate || parseFloat(exchangeRate) <= 0)) {
+      showToast('error', '外币交易请输入有效汇率');
       return;
     }
 
@@ -143,14 +160,17 @@ export function ManualEntryDialog({
     try {
       const credit = direction === 'credit' ? numAmount : 0;
       const debit = direction === 'debit' ? numAmount : 0;
+      const rate = isForeignCurrency ? parseFloat(exchangeRate) : undefined;
+      const localAmount = rate ? Math.round(numAmount * rate * 100) / 100 : numAmount;
+      const summaryWithCurrency = isForeignCurrency ? `${summary} (${currency}@${rate?.toFixed(4)})` : summary;
 
       await sqliteService.saveBankTransaction({
         id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         date,
-        summary,
-        credit,
-        debit,
-        amount: direction === 'credit' ? numAmount : -numAmount,
+        summary: summaryWithCurrency,
+        credit: isForeignCurrency ? (direction === 'credit' ? localAmount : 0) : credit,
+        debit: isForeignCurrency ? (direction === 'debit' ? localAmount : 0) : debit,
+        amount: isForeignCurrency ? (direction === 'credit' ? localAmount : -localAmount) : (direction === 'credit' ? numAmount : -numAmount),
         ourAccount: accountNumber,
         status: subjectCode ? 'matched' : 'pending',
         matchedSubject: subjectCode || '',
@@ -220,6 +240,36 @@ export function ManualEntryDialog({
                 <option value="debit">支出</option>
               </select>
             </div>
+          </div>
+
+          <div className={isForeignCurrency ? 'grid grid-cols-2 gap-4' : ''}>
+            <div className="space-y-2">
+              <Label>币种</Label>
+              <select
+                value={currency}
+                onChange={e => { setCurrency(e.target.value); if (e.target.value === baseCurrency) setExchangeRate(''); }}
+                className="w-full px-3 py-2 border rounded-md text-sm"
+              >
+                {enabledCurrencies.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} - {c.name}{c.code === baseCurrency ? '（本位币）' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {isForeignCurrency && (
+              <div className="space-y-2">
+                <Label required>汇率</Label>
+                <Input
+                  type="number"
+                  step="0.0001"
+                  value={exchangeRate}
+                  onChange={e => setExchangeRate(e.target.value)}
+                  placeholder="输入汇率，如 7.12"
+                  autoComplete="off"
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
