@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -124,9 +124,63 @@ export function ManualEntryDialog({
   const [subjectName, setSubjectName] = useState<string | undefined>();
   const [currency, setCurrency] = useState(baseCurrency);
   const [exchangeRate, setExchangeRate] = useState('');
+  const [rateSource, setRateSource] = useState<'auto' | 'manual'>('auto');
   const [saving, setSaving] = useState(false);
 
   const isForeignCurrency = currency && currency !== baseCurrency;
+
+  // Auto-lookup rate from fxRates table when currency or date changes
+  const lookupRate = useCallback(async (cur: string, d: string) => {
+    if (!cur || cur === baseCurrency || !d) {
+      setExchangeRate('');
+      setRateSource('auto');
+      return;
+    }
+    try {
+      // First try exact date match
+      const rates = await sqliteService.getFxRates(d);
+      const match = rates.find((r: any) => r.currencyCode === cur);
+      if (match) {
+        setExchangeRate(String(match.middleRate));
+        setRateSource('auto');
+        return;
+      }
+      // Fallback: find the most recent rate before this date
+      const allRates = await sqliteService.getFxRates();
+      const before = allRates
+        .filter((r: any) => r.currencyCode === cur && r.rateDate <= d)
+        .sort((a: any, b: any) => b.rateDate.localeCompare(a.rateDate));
+      if (before.length > 0) {
+        setExchangeRate(String(before[0].middleRate));
+        setRateSource('auto');
+      } else {
+        setExchangeRate('');
+        setRateSource('auto');
+      }
+    } catch {
+      setExchangeRate('');
+      setRateSource('auto');
+    }
+  }, [baseCurrency]);
+
+  const handleCurrencyChange = useCallback(async (newCurrency: string) => {
+    setCurrency(newCurrency);
+    if (newCurrency !== baseCurrency) {
+      await lookupRate(newCurrency, date);
+    } else {
+      setExchangeRate('');
+      setRateSource('auto');
+    }
+  }, [baseCurrency, date, lookupRate]);
+
+  const handleDateChange = useCallback(async (newDate: string) => {
+    setDate(newDate);
+    if (isForeignCurrency || (currency && currency !== baseCurrency)) {
+      if (rateSource === 'auto') {
+        await lookupRate(currency, newDate);
+      }
+    }
+  }, [currency, isForeignCurrency, rateSource, lookupRate]);
 
   const resetForm = () => {
     setDate('');
@@ -137,6 +191,7 @@ export function ManualEntryDialog({
     setSubjectName(undefined);
     setCurrency(baseCurrency);
     setExchangeRate('');
+    setRateSource('auto');
   };
 
   const handleSave = async () => {
@@ -207,7 +262,7 @@ export function ManualEntryDialog({
         <div className="space-y-4 py-2">
           <div className="space-y-2">
             <Label required>日期</Label>
-            <ChineseDatePicker value={date} onChange={setDate} />
+            <ChineseDatePicker value={date} onChange={handleDateChange} />
           </div>
 
           <div className="space-y-2">
@@ -249,7 +304,7 @@ export function ManualEntryDialog({
               <Label>币种</Label>
               <select
                 value={currency}
-                onChange={e => { setCurrency(e.target.value); if (e.target.value === baseCurrency) setExchangeRate(''); }}
+                onChange={e => handleCurrencyChange(e.target.value)}
                 className="w-full px-3 py-2 border rounded-md text-sm"
               >
                 {enabledCurrencies.map((c) => (
@@ -261,18 +316,28 @@ export function ManualEntryDialog({
             </div>
             {isForeignCurrency && (
               <div className="space-y-2">
-                <Label required>汇率</Label>
+                <Label required>汇率 {rateSource === 'auto' && exchangeRate && <span className="text-xs font-normal text-slate-400">(自动填充)</span>}</Label>
                 <Input
                   type="number"
                   step="0.0001"
                   value={exchangeRate}
-                  onChange={e => setExchangeRate(e.target.value)}
+                  onChange={e => { setExchangeRate(e.target.value); setRateSource('manual'); }}
                   placeholder="输入汇率，如 7.12"
                   autoComplete="off"
                 />
               </div>
             )}
           </div>
+
+          {isForeignCurrency && exchangeRate && amount && parseFloat(amount) > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md text-xs text-slate-600">
+              <span>原币: {parseFloat(amount).toFixed(2)} {currency}</span>
+              <span className="text-slate-300">|</span>
+              <span>汇率: {parseFloat(exchangeRate).toFixed(4)}</span>
+              <span className="text-slate-300">|</span>
+              <span className="font-medium">本币: {(parseFloat(amount) * parseFloat(exchangeRate)).toFixed(2)} {baseCurrency}</span>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>对应科目</Label>
