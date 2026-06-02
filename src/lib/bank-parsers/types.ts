@@ -80,6 +80,20 @@ export interface BankAccountBinding {
   createdAt: string;
 }
 
+/** Input payload used when creating or updating a bank account binding */
+export interface BankAccountBindingInput {
+  accountSetId: string;
+  accountNumber: string;
+  bankId: string;
+  bankName: string;
+  aliasName?: string;
+  subSubjectCode: string;
+  subSubjectName: string;
+  branch?: string;
+  currency?: string;
+  isDefault?: boolean;
+}
+
 /** Custom bank config saved by users via the Coach UI */
 export interface CustomBankConfig {
   id: string;

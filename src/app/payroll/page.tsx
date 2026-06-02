@@ -1,11 +1,13 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Calculator,
   CheckCircle2,
   Copy,
   Download,
+  BarChart3,
   FileDown,
   Eraser,
   ReceiptText,
@@ -34,6 +36,7 @@ import { usePayrollStore } from '@/stores/usePayrollStore';
 import {
   createBlankPayrollInput,
   createBlankPayrollCalculationConfig,
+  roundMoney,
   validatePayrollInput,
   type PayrollCalculationConfig,
   type PayrollCalculationResult,
@@ -63,7 +66,9 @@ import {
   buildPayrollAccrualVoucherPreview,
   type PayrollVoucherEntryPreview,
 } from '@/lib/payroll-voucher';
+import type { Department } from '@/lib/database/service';
 import type { Partner } from '@/types';
+import { SubjectPopover } from '@/components/shared/subject-popover';
 
 interface PayrollVoucherDefaultSubjectDraft {
   payrollSalaryExpenseSubjectCode: string;
@@ -76,6 +81,8 @@ interface PayrollVoucherDefaultSubjectDraft {
   payrollTaxPayableSubjectName: string;
   payrollEmployeeContributionPayableSubjectCode: string;
   payrollEmployeeContributionPayableSubjectName: string;
+  payrollEmployerContributionPayableSubjectCode: string;
+  payrollEmployerContributionPayableSubjectName: string;
 }
 
 const PAYROLL_TAX_RULE_SECTIONS: {
@@ -83,9 +90,9 @@ const PAYROLL_TAX_RULE_SECTIONS: {
   label: string;
   description: string;
 }[] = [
-  { ruleType: 'salary', label: '工资薪金', description: '按累计预扣预缴规则计算月度工资与月奖。' },
-  { ruleType: 'annual_bonus', label: '全年一次性奖金', description: '用于单独计税场景的奖金税率和速算扣除数。' },
-  { ruleType: 'business_income', label: '经营所得', description: '作为后续扩展经营所得流程的参考税率表。' },
+  { ruleType: 'salary', label: '工资薪金', description: '工资薪金及奖金的累计预扣预缴规则' },
+  { ruleType: 'annual_bonus', label: '全年一次性奖金', description: '全年一次性奖金税率表及速算扣除数' },
+  { ruleType: 'business_income', label: '经营所得', description: '经营所得参考税率表' },
 ];
 
 const PAYROLL_VOUCHER_SUBJECT_FIELDS: {
@@ -118,6 +125,11 @@ const PAYROLL_VOUCHER_SUBJECT_FIELDS: {
     nameField: 'payrollEmployeeContributionPayableSubjectName',
     label: '个人社保公积金代扣科目',
   },
+  {
+    codeField: 'payrollEmployerContributionPayableSubjectCode',
+    nameField: 'payrollEmployerContributionPayableSubjectName',
+    label: '企业社保公积金代付科目',
+  },
 ];
 
 type InsuranceKey = keyof Pick<SocialInsuranceConfig, 'pension' | 'medical' | 'unemployment' | 'injury' | 'maternity' | 'supplementaryMedical'>;
@@ -138,8 +150,6 @@ const PAYROLL_AMOUNT_FIELDS: { key: keyof PayrollInput; label: string }[] = [
   { key: 'otherEarnings', label: '其他应发' },
   { key: 'leaveDeduction', label: '请假扣款' },
   { key: 'otherPreTaxDeduction', label: '其他税前扣减' },
-  { key: 'socialInsuranceBase', label: '社保缴费基数' },
-  { key: 'housingFundBase', label: '公积金缴费基数' },
   { key: 'specialAdditionalDeduction', label: '专项附加扣除' },
   { key: 'otherLegalDeduction', label: '其他依法扣除' },
   { key: 'priorCumulativeIncome', label: '前期累计收入' },
@@ -150,20 +160,28 @@ const PAYROLL_AMOUNT_FIELDS: { key: keyof PayrollInput; label: string }[] = [
   { key: 'otherPostTaxDeduction', label: '其他税后扣减' },
 ];
 
-const PAYROLL_RESULT_FIELDS: { key: keyof PayrollCalculationResult; label: string }[] = [
-  { key: 'grossSalary', label: '应发工资' },
-  { key: 'individualIncomeTax', label: '个税' },
-  { key: 'netSalary', label: '实发工资' },
-  { key: 'employerTotalCost', label: '企业成本' },
-];
-
 const EMPTY_ENTRY_ROW_COUNT = 10;
-const DISABLE_BROWSER_AUTOFILL = { autoComplete: 'off' as const };
-const EXCEL_TEXT_INPUT_CLASS = 'h-7 rounded-none border-0 bg-transparent px-2 py-0 text-xs shadow-none focus-visible:border-blue-500 focus-visible:ring-1 focus-visible:ring-blue-500';
+const EXCEL_TEXT_INPUT_CLASS = 'h-7 rounded-none border-0 bg-transparent px-1.5 py-0 text-xs shadow-none focus-visible:border-blue-500 focus-visible:ring-1 focus-visible:ring-blue-500';
 const EXCEL_NUMBER_INPUT_CLASS = `${EXCEL_TEXT_INPUT_CLASS} text-right tabular-nums`;
-const EXCEL_CELL_CLASS = 'border border-slate-300 bg-white p-0 align-middle';
-const EXCEL_READONLY_CELL_CLASS = 'border border-slate-300 bg-slate-50 px-2 py-1 text-right tabular-nums text-slate-700';
+const EXCEL_CELL_CLASS = 'border border-slate-300 bg-white px-1 py-0.5 align-middle';
+const EXCEL_READONLY_CELL_CLASS = 'border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-right tabular-nums text-slate-700';
 const EXCEL_HEADER_CELL_CLASS = 'border border-slate-300 bg-slate-100 px-2 py-1 text-left font-medium text-slate-700';
+const EXCEL_SELECT_CLASS = 'h-7 w-full border-0 bg-transparent px-1.5 text-xs outline-none';
+const OPTIONAL_AMOUNT_FIELD_KEYS = new Set<keyof PayrollInput>([
+  'bonus',
+  'allowance',
+  'otherEarnings',
+  'leaveDeduction',
+  'otherPreTaxDeduction',
+  'specialAdditionalDeduction',
+  'otherLegalDeduction',
+  'priorCumulativeIncome',
+  'priorCumulativeEmployeeContributions',
+  'priorCumulativeSpecialAdditionalDeduction',
+  'priorCumulativeOtherLegalDeduction',
+  'priorCumulativeTaxWithheld',
+  'otherPostTaxDeduction',
+]);
 
 function createBlankPayrollRows(): PayrollInput[] {
   return Array.from({ length: EMPTY_ENTRY_ROW_COUNT }, () => createBlankPayrollInput());
@@ -182,17 +200,68 @@ function formatMoney(value: number): string {
   return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function formatChineseDate(value: string): string {
+  if (!value) return '--';
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+  return `${year}年${String(Number(month))}月${String(Number(day))}日`;
+}
+
+function formatChineseDateInput(value: string): string {
+  if (!value) return '';
+  return formatChineseDate(value);
+}
+
+function parseChineseDateInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  const chineseMatch = trimmed.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+  if (chineseMatch) {
+    const [, year, month, day] = chineseMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  return value;
+}
+
 function formatContributionRatePercent(rate: number): number {
   return Number((rate * 100).toFixed(6));
 }
 
 function getIncomeTypeLabel(input: PayrollInput): string {
-  return input.incomeType === 'annual_bonus' ? '全年一次性奖金' : '工资薪金';
+  if (input.incomeType === 'annual_bonus') return '全年一次性奖金';
+  if (input.incomeType === 'salary') return '工资薪金';
+  return '';
 }
 
 function getAnnualBonusTaxMethodLabel(input: PayrollInput): string {
-  if (input.incomeType !== 'annual_bonus') return '--';
+  if (input.incomeType !== 'annual_bonus' || !input.annualBonusTaxMethod) return '--';
   return input.annualBonusTaxMethod === 'consolidated' ? '并入综合所得' : '单独计税';
+}
+
+function resolveEmployeeDepartmentName(
+  employee: Partner,
+  departments: Department[],
+  fallback = '',
+): string {
+  const employeeRecord = employee as Partner & {
+    departmentCode?: string;
+    departmentName?: string;
+    department?: string;
+    payrollDepartmentName?: string;
+  };
+  const directName = employeeRecord.departmentName?.trim()
+    || employeeRecord.department?.trim()
+    || employeeRecord.payrollDepartmentName?.trim();
+  if (directName) return directName;
+
+  const code = employeeRecord.departmentCode?.trim();
+  if (!code) return fallback;
+  return departments.find((item) => item.code === code)?.name || fallback;
 }
 
 function createPayrollVoucherDefaultSubjectDraft(
@@ -209,6 +278,8 @@ function createPayrollVoucherDefaultSubjectDraft(
     payrollTaxPayableSubjectName: accountSet?.payrollTaxPayableSubjectName || '',
     payrollEmployeeContributionPayableSubjectCode: accountSet?.payrollEmployeeContributionPayableSubjectCode || '',
     payrollEmployeeContributionPayableSubjectName: accountSet?.payrollEmployeeContributionPayableSubjectName || '',
+    payrollEmployerContributionPayableSubjectCode: accountSet?.payrollEmployerContributionPayableSubjectCode || '',
+    payrollEmployerContributionPayableSubjectName: accountSet?.payrollEmployerContributionPayableSubjectName || '',
   };
 }
 
@@ -217,6 +288,7 @@ function completeEmployeeFields(
   field: 'employeeCode' | 'employeeName',
   value: string,
   employees: Partner[],
+  departments: Department[],
 ): PayrollInput {
   const normalizedValue = value.trim().toLowerCase();
   if (!normalizedValue) {
@@ -229,12 +301,7 @@ function completeEmployeeFields(
   const employee = employees.find((item) => (item[employeeField] || '').trim().toLowerCase() === normalizedValue);
   if (!employee) return { ...input, [field]: value };
 
-  const employeeDepartmentName = (
-    (employee as Partner & { departmentName?: string; department?: string }).departmentName
-    || (employee as Partner & { departmentName?: string; department?: string }).department
-    || input.departmentName
-    || ''
-  );
+  const employeeDepartmentName = resolveEmployeeDepartmentName(employee, departments, input.departmentName || '');
   return {
     ...input,
     employeeCode: employee.code,
@@ -250,7 +317,9 @@ function statusBadge(status?: string) {
 }
 
 export default function PayrollPage() {
+  const router = useRouter();
   const { showToast } = useToast();
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { departments, initializeDepartments } = useDepartmentStore();
   const initializePartners = usePartnerStore((state) => state.initializePartners);
@@ -278,6 +347,7 @@ export default function PayrollPage() {
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
   const [taxSettingsOpen, setTaxSettingsOpen] = useState(false);
+  const [showOptionalFields, setShowOptionalFields] = useState(false);
   const [voucherPreviewEntries, setVoucherPreviewEntries] = useState<PayrollVoucherEntryPreview[]>([]);
   const [settingsRegionId, setSettingsRegionId] = useState<PayrollRegionId>('generic');
   const {
@@ -305,6 +375,13 @@ export default function PayrollPage() {
   useEffect(() => {
     setPeriod(defaultPeriod);
   }, [defaultPeriod]);
+
+  useEffect(() => {
+    const periodParam = searchParams.get('period');
+    if (periodParam && /^\d{4}-\d{2}$/.test(periodParam) && periodParam !== period) {
+      setPeriod(periodParam);
+    }
+  }, [searchParams, period]);
 
   useEffect(() => {
     void loadPeriod(period);
@@ -348,17 +425,76 @@ export default function PayrollPage() {
     () => partners.filter((item) => item.isEmployee && !item.frozen && item.code && item.name),
     [partners],
   );
+  const visibleAmountFields = useMemo(
+    () => showOptionalFields
+      ? PAYROLL_AMOUNT_FIELDS
+      : PAYROLL_AMOUNT_FIELDS.filter((field) => !OPTIONAL_AMOUNT_FIELD_KEYS.has(field.key)),
+    [showOptionalFields],
+  );
+  const hasAccrualVoucher = Boolean(selectedBatch?.accrualVoucherId || selectedBatch?.accrualVoucherNo);
+  const displayConfig = selectedBatch?.calculationConfigSnapshot || settingsDraft;
+  const employeeContributionColumns = useMemo(() => [
+    {
+      id: 'pension',
+      label: `养老(${formatContributionRatePercent(displayConfig.socialInsurance.pension.employeeRate)}%)`,
+      value: (calculation: PayrollCalculationResult) => displayConfig.socialInsurance.pension.enabled
+        ? roundMoney(calculation.socialInsuranceBase * displayConfig.socialInsurance.pension.employeeRate)
+        : 0,
+    },
+    {
+      id: 'medical',
+      label: `医疗(${formatContributionRatePercent(displayConfig.socialInsurance.medical.employeeRate)}%)`,
+      value: (calculation: PayrollCalculationResult) => displayConfig.socialInsurance.medical.enabled
+        ? roundMoney(calculation.socialInsuranceBase * displayConfig.socialInsurance.medical.employeeRate)
+        : 0,
+    },
+    {
+      id: 'unemployment',
+      label: `失业(${formatContributionRatePercent(displayConfig.socialInsurance.unemployment.employeeRate)}%)`,
+      value: (calculation: PayrollCalculationResult) => displayConfig.socialInsurance.unemployment.enabled
+        ? roundMoney(calculation.socialInsuranceBase * displayConfig.socialInsurance.unemployment.employeeRate)
+        : 0,
+    },
+    {
+      id: 'employeeHousingFund',
+      label: `公积金(${formatContributionRatePercent(displayConfig.housingFund.employeeRate)}%)`,
+      value: (calculation: PayrollCalculationResult) => calculation.employeeHousingFund,
+    },
+  ], [displayConfig]);
+  const resultColumns = useMemo(() => [
+    {
+      id: 'grossSalary',
+      label: '应发工资',
+      value: (calculation: PayrollCalculationResult) => calculation.grossSalary,
+    },
+    ...employeeContributionColumns,
+    {
+      id: 'individualIncomeTax',
+      label: '个税',
+      value: (calculation: PayrollCalculationResult) => calculation.individualIncomeTax,
+    },
+    {
+      id: 'netSalary',
+      label: '实发工资',
+      value: (calculation: PayrollCalculationResult) => calculation.netSalary,
+    },
+    {
+      id: 'employerTotalCost',
+      label: '企业成本',
+      value: (calculation: PayrollCalculationResult) => calculation.employerTotalCost,
+    },
+  ], [employeeContributionColumns]);
   const editable = selectedBatch?.status !== 'confirmed';
 
   useEffect(() => {
     if (employeeOptions.length === 0) return;
     setDraftRows((rows) => rows.map((row) => row.employeeCode
-      ? completeEmployeeFields(row, 'employeeCode', row.employeeCode, employeeOptions)
+      ? completeEmployeeFields(row, 'employeeCode', row.employeeCode, employeeOptions, departmentOptions)
       : row));
     setEditingInput((input) => editingItemId && input.employeeCode
-      ? completeEmployeeFields(input, 'employeeCode', input.employeeCode, employeeOptions)
+      ? completeEmployeeFields(input, 'employeeCode', input.employeeCode, employeeOptions, departmentOptions)
       : input);
-  }, [editingItemId, employeeOptions]);
+  }, [departmentOptions, editingItemId, employeeOptions]);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -379,7 +515,8 @@ export default function PayrollPage() {
     }
   }
 
-  async function saveSettings() {
+  async function persistSettings(options?: { closeDialog?: boolean; showToast?: boolean }) {
+    const { closeDialog = false, showToast: shouldShowToast = true } = options || {};
     try {
       const taxRules = clonePayrollTaxRuleSet(settingsDraft.taxRules);
       const nextConfig: PayrollCalculationConfig = {
@@ -395,17 +532,27 @@ export default function PayrollPage() {
         },
       };
       await saveConfig(period, nextConfig);
+      if (selectedBatch) {
+        await recalculateBatch(selectedBatch.id);
+      }
       if (currentAccountSet) {
         updateAccountSet(currentAccountSet.id, {
+          payrollRegionId: settingsRegionId,
           payrollTaxRules: taxRules,
           ...accountSetSubjectDraft,
         } as Partial<AccountSet>);
       }
-      setSettingsOpen(false);
-      showToast('success', '计算设置已保存');
+      if (closeDialog) setSettingsOpen(false);
+      if (shouldShowToast) showToast('success', '计算设置已保存');
+      return nextConfig;
     } catch (saveError) {
       showToast('error', saveError instanceof Error ? saveError.message : '保存设置失败');
+      throw saveError;
     }
+  }
+
+  async function saveSettings() {
+    await persistSettings({ closeDialog: true, showToast: true });
   }
 
   async function confirmImport() {
@@ -463,13 +610,13 @@ export default function PayrollPage() {
         return {
           ...input,
           incomeType: value as PayrollInput['incomeType'],
-          annualBonusTaxMethod: value === 'annual_bonus' ? (input.annualBonusTaxMethod || 'separate') : 'separate',
+          annualBonusTaxMethod: value === 'annual_bonus' ? input.annualBonusTaxMethod : undefined,
         };
       }
       if (field === 'annualBonusTaxMethod') {
-        return { ...input, annualBonusTaxMethod: value as PayrollInput['annualBonusTaxMethod'] };
+        return { ...input, annualBonusTaxMethod: (value || undefined) as PayrollInput['annualBonusTaxMethod'] };
       }
-      return completeEmployeeFields(input, field, value, employeeOptions);
+      return completeEmployeeFields(input, field, value, employeeOptions, departmentOptions);
     });
   }
 
@@ -505,15 +652,15 @@ export default function PayrollPage() {
         return {
           ...row,
           incomeType: value as PayrollInput['incomeType'],
-          annualBonusTaxMethod: value === 'annual_bonus' ? (row.annualBonusTaxMethod || 'separate') : 'separate',
+          annualBonusTaxMethod: value === 'annual_bonus' ? row.annualBonusTaxMethod : undefined,
         };
       }
       if (field === 'annualBonusTaxMethod') {
-        return { ...row, annualBonusTaxMethod: value as PayrollInput['annualBonusTaxMethod'] };
+        return { ...row, annualBonusTaxMethod: (value || undefined) as PayrollInput['annualBonusTaxMethod'] };
       }
       return field === 'departmentName'
         ? { ...row, departmentName: value }
-        : completeEmployeeFields(row, field, value, employeeOptions);
+        : completeEmployeeFields(row, field, value, employeeOptions, departmentOptions);
     }));
   }
 
@@ -545,7 +692,7 @@ export default function PayrollPage() {
   async function saveDraftRows() {
     const populatedRows = draftRows.filter(hasDraftInput);
     if (populatedRows.length === 0) {
-      setDraftErrors(['请至少填写一行工资明细。']);
+      setDraftErrors(['请至少填写一行工资明细']);
       return;
     }
 
@@ -553,7 +700,7 @@ export default function PayrollPage() {
     const validationErrors: string[] = [];
     populatedRows.forEach((row, index) => {
       const rowErrors = validatePayrollInput(row, employeeCodes);
-      if (rowErrors.length > 0) validationErrors.push(`第 ${index + 1} 行：${rowErrors.join('；')}`);
+      if (rowErrors.length > 0) validationErrors.push(`第 ${index + 1} 行：${rowErrors.join('，')}`);
       employeeCodes.push(row.employeeCode);
     });
     if (validationErrors.length > 0) {
@@ -561,9 +708,7 @@ export default function PayrollPage() {
       return;
     }
     if (!config) {
-      setDraftErrors(['请先完成计算设置，已录入内容将保留。保存设置后再次点击“保存并计算”。']);
-      setSettingsOpen(true);
-      return;
+      await persistSettings({ closeDialog: false, showToast: false });
     }
 
     try {
@@ -587,22 +732,23 @@ export default function PayrollPage() {
     return (
       <>
         <td className={EXCEL_CELL_CLASS}>
-          <Input {...DISABLE_BROWSER_AUTOFILL} variant="excel" list="employee-code-options" aria-label={`${rowLabel}工号`} className={`${EXCEL_TEXT_INPUT_CLASS} font-mono`} value={input.employeeCode} onChange={(event) => onTextChange('employeeCode', event.target.value)} onKeyDown={onKeyDown} />
+          <Input variant="excel" list="employee-code-options" aria-label={`${rowLabel}工号`} className={`${EXCEL_TEXT_INPUT_CLASS} font-mono`} value={input.employeeCode} onChange={(event) => onTextChange('employeeCode', event.target.value)} onKeyDown={onKeyDown} />
         </td>
         <td className={EXCEL_CELL_CLASS}>
-          <Input {...DISABLE_BROWSER_AUTOFILL} variant="excel" list="employee-name-options" aria-label={`${rowLabel}姓名`} className={EXCEL_TEXT_INPUT_CLASS} value={input.employeeName} onChange={(event) => onTextChange('employeeName', event.target.value)} onKeyDown={onKeyDown} />
+          <Input variant="excel" list="employee-name-options" aria-label={`${rowLabel}姓名`} className={EXCEL_TEXT_INPUT_CLASS} value={input.employeeName} onChange={(event) => onTextChange('employeeName', event.target.value)} onKeyDown={onKeyDown} />
         </td>
         <td className={EXCEL_CELL_CLASS}>
-          <Input {...DISABLE_BROWSER_AUTOFILL} variant="excel" list="department-options" aria-label={`${rowLabel}部门`} className={EXCEL_TEXT_INPUT_CLASS} value={input.departmentName || ''} onChange={(event) => onTextChange('departmentName', event.target.value)} onKeyDown={onKeyDown} />
+          <Input variant="excel" list="department-options" aria-label={`${rowLabel}部门`} className={EXCEL_TEXT_INPUT_CLASS} value={input.departmentName || ''} onChange={(event) => onTextChange('departmentName', event.target.value)} onKeyDown={onKeyDown} />
         </td>
         <td className={EXCEL_CELL_CLASS}>
           <select
             aria-label={`${rowLabel}收入类型`}
-            className="h-7 w-full border-0 bg-transparent px-2 text-xs outline-none"
-            value={input.incomeType || 'salary'}
+            className={EXCEL_SELECT_CLASS}
+            value={input.incomeType || ''}
             onChange={(event) => onTextChange('incomeType', event.target.value)}
             onKeyDown={onKeyDown}
           >
+            <option value="">--</option>
             <option value="salary">工资薪金</option>
             <option value="annual_bonus">全年一次性奖金</option>
           </select>
@@ -610,20 +756,20 @@ export default function PayrollPage() {
         <td className={EXCEL_CELL_CLASS}>
           <select
             aria-label={`${rowLabel}年终奖计税方式`}
-            className="h-7 w-full border-0 bg-transparent px-2 text-xs outline-none"
-            value={input.annualBonusTaxMethod || 'separate'}
+            className={EXCEL_SELECT_CLASS}
+            value={input.incomeType === 'annual_bonus' ? (input.annualBonusTaxMethod || '') : ''}
             onChange={(event) => onTextChange('annualBonusTaxMethod', event.target.value)}
             onKeyDown={onKeyDown}
             disabled={input.incomeType !== 'annual_bonus'}
           >
+            <option value="">--</option>
             <option value="separate">单独计税</option>
             <option value="consolidated">并入综合所得</option>
           </select>
         </td>
-        {PAYROLL_AMOUNT_FIELDS.map((field) => (
+        {visibleAmountFields.map((field) => (
           <td key={String(field.key)} className={EXCEL_CELL_CLASS}>
             <Input
-              {...DISABLE_BROWSER_AUTOFILL}
               variant="excel"
               aria-label={`${rowLabel}${field.label}`}
               className={EXCEL_NUMBER_INPUT_CLASS}
@@ -640,9 +786,9 @@ export default function PayrollPage() {
   }
 
   function renderCalculatedCells(calculation?: PayrollCalculationResult) {
-    return PAYROLL_RESULT_FIELDS.map((field) => (
-      <td key={String(field.key)} className={EXCEL_READONLY_CELL_CLASS}>
-        {calculation ? formatMoney(calculation[field.key] as number) : '--'}
+    return resultColumns.map((field) => (
+      <td key={field.id} className={EXCEL_READONLY_CELL_CLASS}>
+        {calculation ? formatMoney(field.value(calculation)) : '--'}
       </td>
     ));
   }
@@ -651,23 +797,23 @@ export default function PayrollPage() {
     const isEditing = editingItemId === item.id;
     return (
       <tr key={item.id} className={isEditing ? 'bg-blue-50/40' : ''}>
-        <td className="sticky left-0 z-[1] border border-slate-300 bg-white px-2 py-1 text-center text-slate-400">-</td>
+        <td className="sticky left-0 z-[1] border border-slate-300 bg-white px-1 py-0.5 text-center text-slate-400">-</td>
         {isEditing ? renderEditableCells(editingInput, '编辑行', updateEditingText, updateEditingAmount) : (
           <>
-            <td className="border border-slate-300 bg-white px-2 py-1 font-mono text-xs">{item.employeeCode}</td>
-            <td className="border border-slate-300 bg-white px-2 py-1">{item.employeeName}</td>
-            <td className="border border-slate-300 bg-white px-2 py-1 text-slate-500">{item.departmentName || '-'}</td>
-            <td className="border border-slate-300 bg-white px-2 py-1 text-slate-500">{getIncomeTypeLabel(item.inputData)}</td>
-            <td className="border border-slate-300 bg-white px-2 py-1 text-slate-500">{getAnnualBonusTaxMethodLabel(item.inputData)}</td>
-            {PAYROLL_AMOUNT_FIELDS.map((field) => (
-              <td key={String(field.key)} className="border border-slate-300 bg-white px-2 py-1 text-right tabular-nums">
+            <td className="border border-slate-300 bg-white px-1 py-0.5 font-mono text-xs">{item.employeeCode}</td>
+            <td className="border border-slate-300 bg-white px-1 py-0.5">{item.employeeName}</td>
+            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.departmentName || ''}</td>
+            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{getIncomeTypeLabel(item.inputData)}</td>
+            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{getAnnualBonusTaxMethodLabel(item.inputData)}</td>
+            {visibleAmountFields.map((field) => (
+              <td key={String(field.key)} className="border border-slate-300 bg-white px-1 py-0.5 text-right tabular-nums">
                 {formatMoney(Number(item.inputData[field.key] || 0))}
               </td>
             ))}
           </>
         )}
         {renderCalculatedCells(item.calculationResult)}
-        <td className="border border-slate-300 bg-white px-2 py-1">{statusBadge(selectedBatch?.status)}</td>
+        <td className="border border-slate-300 bg-white px-1 py-0.5">{statusBadge(selectedBatch?.status)}</td>
         <td className="border border-slate-300 bg-white px-1 py-0.5">
           {isEditing ? (
             <div className="flex items-center gap-1">
@@ -677,7 +823,7 @@ export default function PayrollPage() {
             </div>
           ) : editable && editingItemId === null ? (
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" title="编辑" onClick={() => startEditRow(item.id)}><Pencil /></Button>
+              <Button variant="ghost" size="icon" title="缂栬緫" onClick={() => startEditRow(item.id)}><Pencil /></Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -727,6 +873,16 @@ export default function PayrollPage() {
     }));
   }
 
+  function updateStandardDeduction(value: string) {
+    setSettingsDraft((draft) => ({
+      ...draft,
+      individualTax: {
+        ...draft.individualTax,
+        standardDeductionPerMonth: Number(value) || 0,
+      },
+    }));
+  }
+
   function updateTaxRule(
     ruleType: PayrollTaxRuleType,
     index: number,
@@ -740,7 +896,7 @@ export default function PayrollPage() {
       nextRules[ruleType][index] = {
         ...currentRule,
         [field]: field === 'effectiveDate'
-          ? value
+          ? parseChineseDateInput(value)
           : field === 'upperLimit'
             ? (value === '' ? null : Number(value))
             : field === 'rate'
@@ -792,9 +948,6 @@ export default function PayrollPage() {
   function applyRegionPreset(regionId: PayrollRegionId) {
     setSettingsRegionId(regionId);
     setSettingsDraft((draft) => applyPayrollRegionPreset(draft, regionId));
-    if (currentAccountSet) {
-      updateAccountSet(currentAccountSet.id, { payrollRegionId: regionId } as Partial<AccountSet>);
-    }
   }
 
   async function copyPreviousPayroll(mode: 'replace' | 'append') {
@@ -812,12 +965,15 @@ export default function PayrollPage() {
 
   function openVoucherPreview() {
     if (!selectedBatch) return;
+    if (selectedBatch.accrualVoucherId || selectedBatch.accrualVoucherNo) {
+      showToast('warning', '该批次已生成工资计提凭证，如需查看请到凭证列表。');
+      return;
+    }
     setVoucherPreviewEntries(buildPayrollAccrualVoucherPreview(
       items,
       selectedBatch.payrollPeriod,
       partners.filter((partner) => partner.isEmployee),
-      currentAccountSet || undefined,
-      departments,
+      accountSetSubjectDraft,
     ));
     setVoucherDialogOpen(true);
   }
@@ -829,12 +985,17 @@ export default function PayrollPage() {
       setVoucherDialogOpen(false);
       showToast('success', `工资计提凭证已生成：${voucher.voucherNo}`);
     } catch (voucherError) {
-      showToast('error', voucherError instanceof Error ? voucherError.message : '生成工资计提凭证失败');
+      const message = voucherError instanceof Error ? voucherError.message : '生成工资计提凭证失败';
+      if (typeof window !== 'undefined' && /关账|锁定|关闭/.test(message)) {
+        window.alert(message);
+        return;
+      }
+      showToast('error', message);
     }
   }
 
   if (!currentAccountSet) {
-    return <div className="p-8 text-sm text-slate-500">请先选择账套后使用薪酬管理。</div>;
+    return <div className="p-8 text-sm text-slate-500">请先选择账套后使用工资管理。</div>;
   }
 
   return (
@@ -843,11 +1004,16 @@ export default function PayrollPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-5">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">薪酬管理</h1>
+              <h1 className="text-xl font-semibold text-slate-900">工资管理</h1>
               <p className="mt-1 text-xs text-slate-500">{currentAccountSet.name} / 工资计算与月结依据</p>
             </div>
             <ChineseMonthPicker value={period} onChange={setPeriod} className="w-36" />
-            {selectedBatch ? statusBadge(selectedBatch.status) : <Badge variant="outline">尚无批次</Badge>}
+            {selectedBatch ? statusBadge(selectedBatch.status) : <Badge variant="outline">暂无批次</Badge>}
+            {hasAccrualVoucher && (
+              <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">
+                已入账：{selectedBatch?.accrualVoucherNo}
+              </Badge>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={generatePayrollImportTemplate}>
@@ -862,7 +1028,15 @@ export default function PayrollPage() {
             <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
               <Settings2 />计算设置
             </Button>
-            <Button variant="outline" size="sm" disabled={!selectedBatch || items.length === 0} onClick={openVoucherPreview}>
+            <Button variant="outline" size="sm" onClick={() => router.push('/payroll/report')}>
+              <BarChart3 />工资报表
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!selectedBatch || items.length === 0 || hasAccrualVoucher}
+              onClick={openVoucherPreview}
+            >
               <ReceiptText />生成计提凭证
             </Button>
             <Button
@@ -880,12 +1054,43 @@ export default function PayrollPage() {
               onChange={handleFileChange}
             />
           </div>
+          <p className="w-full text-xs text-slate-500">
+            模板中“基本工资、奖金、津贴补贴、其他应发、请假扣款、其他税前/税后扣减、专项附加扣除、其他依法扣除”填当月金额；
+            “前期累计收入、前期累计个人社保公积金、前期累计专项附加扣除、前期累计其他依法扣除、前期累计已预扣税额”填本纳税年度截至上月的累计金额。
+          </p>
         </div>
       </header>
 
       <main className="space-y-5 p-6">
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        {hasAccrualVoucher && (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <div>
+              <p className="font-medium">本批次已入账</p>
+              <p className="text-xs text-emerald-700">工资计提凭证号：{selectedBatch?.accrualVoucherNo || '未回写'}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                onClick={() => router.push('/voucher-list?status=posted_reversed')}
+              >
+                去凭证列表
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                onClick={() => router.push('/payroll/report')}
+              >
+                查看工资报表
+              </Button>
+            </div>
+          </section>
         )}
 
         <section className="grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
@@ -907,12 +1112,12 @@ export default function PayrollPage() {
           <section className="rounded-md border border-blue-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div>
-                <h2 className="text-sm font-medium text-slate-900">导入预览</h2>
+              <h2 className="text-sm font-medium text-slate-900">导入预览</h2>
                 <p className="text-xs text-slate-500">{previewFileName} / 有效 {previewRows.length} 行 / 错误 {previewErrors.length} 行</p>
               </div>
-              <Button size="sm" disabled={previewRows.length === 0 || previewErrors.length > 0} onClick={confirmImport}>
+                <Button size="sm" disabled={previewRows.length === 0 || previewErrors.length > 0} onClick={confirmImport}>
                 <Calculator />计算并保存批次
-              </Button>
+                </Button>
             </div>
             {previewErrors.length > 0 && (
               <div className="border-b border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
@@ -951,45 +1156,51 @@ export default function PayrollPage() {
               <h2 className="text-sm font-medium text-slate-900">工资计算明细</h2>
               <p className="text-xs text-slate-500">计算完成不等同于工资已发放或社保、个税已缴纳。</p>
             </div>
-            <div className="flex items-center gap-2">
-              {editable && !showDraftRows && editingItemId === null && (
-                <Button variant="outline" size="sm" onClick={startAddRows}>
-                  <Plus />新增行
+              <div className="flex items-center gap-1.5">
+                <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => setShowOptionalFields((value) => !value)}>
+                  {showOptionalFields ? '隐藏扩展字段' : '显示扩展字段'}
                 </Button>
-              )}
-              {selectedBatch?.status === 'confirmed' && (
-                <span className="text-xs text-slate-500">退回草稿后可修改明细</span>
-              )}
-              {selectedBatch && (
-                <>
-                <Button variant="outline" size="sm" onClick={() => runAction(() => recalculateBatch(selectedBatch.id), '工资数据已重新计算')}>
-                  <RotateCcw />重新计算
-                </Button>
-                {selectedBatch.status === 'confirmed' ? (
-                  <Button variant="outline" size="sm" onClick={() => runAction(() => revertBatchToDraft(selectedBatch.id), '批次已退回草稿')}>
-                    <RotateCcw />退回草稿
+                <span className="text-xs text-slate-500">
+                  扩展字段包含社保公积金基数、前期累计值和税后扣减等高级录入项
+                </span>
+                {editable && !showDraftRows && editingItemId === null && (
+                  <Button variant="outline" size="sm" className="h-8 px-3" onClick={startAddRows}>
+                    <Plus />新增行
                   </Button>
-                ) : (
-                  <>
-                    <Button size="sm" onClick={() => runAction(() => confirmBatch(selectedBatch.id), '本月工资批次已确认')}>
-                      <CheckCircle2 />确认本月工资
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => runAction(() => deleteDraftBatch(selectedBatch.id), '草稿批次已删除')} title="删除草稿">
-                      <Trash2 />
-                    </Button>
-                  </>
                 )}
+                {selectedBatch?.status === 'confirmed' && (
+                  <span className="text-xs text-slate-500">退回草稿后可修改明细</span>
+                )}
+                {selectedBatch && (
+                  <>
+                    <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => runAction(() => recalculateBatch(selectedBatch.id), '工资数据已重新计算')}>
+                      <RotateCcw />重新计算
+                    </Button>
+                    {selectedBatch.status === 'confirmed' ? (
+                      <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => runAction(() => revertBatchToDraft(selectedBatch.id), '批次已退回草稿')}>
+                        <RotateCcw />退回草稿
+                      </Button>
+                    ) : (
+                      <>
+                        <Button size="sm" className="h-8 px-3" onClick={() => runAction(() => confirmBatch(selectedBatch.id), '本月工资批次已确认')}>
+                          <CheckCircle2 />确认本月工资
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runAction(() => deleteDraftBatch(selectedBatch.id), '草稿批次已删除')} title="删除草稿">
+                          <Trash2 />
+                        </Button>
+                      </>
+                  )}
                 </>
               )}
             </div>
           </div>
           {batches.length > 1 && (
-            <div className="flex gap-2 border-b border-slate-100 px-4 py-2">
+            <div className="flex gap-1.5 border-b border-slate-100 px-4 py-2">
               {batches.map((batch) => (
                 <button
                   key={batch.id}
                   type="button"
-                  className={`rounded px-3 py-1.5 text-xs ${selectedBatch?.id === batch.id ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                  className={`rounded px-2.5 py-1 text-xs ${selectedBatch?.id === batch.id ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}
                   onClick={() => void loadBatch(batch.id)}
                 >
                   {batch.batchName}
@@ -1007,20 +1218,20 @@ export default function PayrollPage() {
             {departmentOptions.map((department) => <option key={department.id} value={department.name}>{department.code}</option>)}
           </datalist>
           <div className="overflow-x-auto border-t border-slate-300 bg-white">
-            <table className="min-w-[3500px] border-collapse text-xs">
+            <table className="min-w-[3200px] border-collapse text-xs">
               <thead>
                 <tr>
                   <th className="sticky left-0 z-10 w-12 border border-slate-300 bg-slate-100 px-2 py-1 text-center font-medium text-slate-700">序号</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-28`}>工号</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-28`}>姓名</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-32`}>部门</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-28 whitespace-nowrap`}>收入类型</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>工号</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>姓名</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-28`}>部门</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-32 whitespace-nowrap`}>收入类型</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-32 whitespace-nowrap`}>年终奖计税方式</th>
-                  {PAYROLL_AMOUNT_FIELDS.map((field) => (
-                    <th key={String(field.key)} className={`${EXCEL_HEADER_CELL_CLASS} w-36 whitespace-nowrap`}>{field.label}</th>
+                  {visibleAmountFields.map((field) => (
+                    <th key={String(field.key)} className={`${EXCEL_HEADER_CELL_CLASS} w-36 whitespace-nowrap text-right`}>{field.label}</th>
                   ))}
-                  {PAYROLL_RESULT_FIELDS.map((field) => (
-                    <th key={String(field.key)} className="w-32 whitespace-nowrap border border-slate-300 bg-slate-200 px-2 py-1 text-right font-medium text-slate-700">{field.label}</th>
+                  {resultColumns.map((field) => (
+                    <th key={field.id} className="w-32 whitespace-nowrap border border-slate-300 bg-slate-200 px-2 py-1 text-right font-medium text-slate-700">{field.label}</th>
                   ))}
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-20`}>状态</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-20`}>操作</th>
@@ -1028,13 +1239,13 @@ export default function PayrollPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={PAYROLL_AMOUNT_FIELDS.length + PAYROLL_RESULT_FIELDS.length + 8} className="border border-slate-300 px-4 py-14 text-center text-sm text-slate-400">加载中...</td></tr>
+                  <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 8} className="border border-slate-300 px-4 py-14 text-center text-sm text-slate-400">加载中...</td></tr>
                 ) : (
                   <>
                     {items.map(renderSavedRow)}
                     {editable && showDraftRows && draftRows.map((row, index) => (
-                      <tr key={`draft-${index}`}>
-                        <td className="sticky left-0 z-[1] border border-slate-300 bg-white px-2 py-1 text-center text-slate-400">{index + 1}</td>
+                      <tr key={`draft-${index}`} className="bg-slate-50/70">
+                        <td className="sticky left-0 z-[1] border border-slate-300 bg-white px-1 py-0.5 text-center text-slate-400">{index + 1}</td>
                         {renderEditableCells(
                           row,
                           `第 ${index + 1} 行`,
@@ -1043,8 +1254,8 @@ export default function PayrollPage() {
                           handleDraftGridKeyDown,
                         )}
                         {renderCalculatedCells()}
-                        <td className="border border-slate-300 bg-white px-2 py-1 text-slate-400">待保存</td>
-                        <td className="border border-slate-300 bg-white px-1 py-0.5">
+                        <td className="border border-slate-300 bg-slate-50/70 px-1 py-0.5 text-slate-400">待保存</td>
+                        <td className="border border-slate-300 bg-slate-50/70 px-1 py-0.5">
                           {hasDraftInput(row) && (
                             <Button variant="ghost" size="icon" title="清空本行" aria-label={`清空第 ${index + 1} 行`} onClick={() => clearDraftRow(index)}>
                               <Eraser />
@@ -1054,7 +1265,7 @@ export default function PayrollPage() {
                       </tr>
                     ))}
                     {items.length === 0 && (!editable || !showDraftRows) && (
-                      <tr><td colSpan={PAYROLL_AMOUNT_FIELDS.length + PAYROLL_RESULT_FIELDS.length + 8} className="border border-slate-300 px-4 py-8 text-center text-sm text-slate-400">暂无工资明细。</td></tr>
+                      <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 8} className="border border-slate-300 px-4 py-8 text-center text-sm text-slate-400">暂无工资明细。</td></tr>
                     )}
                   </>
                 )}
@@ -1074,7 +1285,7 @@ export default function PayrollPage() {
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <Button variant="outline" size="sm" onClick={addDraftRow}>
+                  <Button variant="outline" size="sm" onClick={addDraftRow}>
                   <Plus />新增一行
                 </Button>
                 <div className="flex items-center gap-2">
@@ -1106,63 +1317,6 @@ export default function PayrollPage() {
           <div className="space-y-3 text-sm text-slate-600">
             <p>本月已有工资明细，请选择复制方式。</p>
             <p className="text-xs text-slate-500">覆盖会替换本月草稿明细；追加会跳过已存在工号，只补充本月没有的员工。</p>
-          </div>
-          <div className="hidden">
-            {PAYROLL_TAX_RULE_SECTIONS.map((section) => (
-              <div key={section.ruleType} className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{section.label}</p>
-                    <p className="mt-1 text-xs text-slate-500">{section.description}</p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => restoreTaxRules(section.ruleType)}>
-                    <RotateCcw className="h-4 w-4" />恢复默认
-                  </Button>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-4">
-                  <div>
-                    <Label className="text-xs text-slate-500">首档税率(%)</Label>
-                    <Input
-                      {...DISABLE_BROWSER_AUTOFILL}
-                      type="number"
-                      className="mt-1"
-                      value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType][0]?.rate || 0)}
-                      onChange={(event) => updateTaxRule(section.ruleType, 0, 'rate', event.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-500">首档速算扣除数</Label>
-                    <Input
-                      {...DISABLE_BROWSER_AUTOFILL}
-                      type="number"
-                      className="mt-1"
-                      value={settingsDraft.taxRules[section.ruleType][0]?.quickDeduction ?? 0}
-                      onChange={(event) => updateTaxRule(section.ruleType, 0, 'quickDeduction', event.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-500">末档税率(%)</Label>
-                    <Input
-                      {...DISABLE_BROWSER_AUTOFILL}
-                      type="number"
-                      className="mt-1"
-                      value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType].at(-1)?.rate || 0)}
-                      onChange={(event) => updateTaxRule(section.ruleType, settingsDraft.taxRules[section.ruleType].length - 1, 'rate', event.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-500">末档生效日期</Label>
-                    <Input
-                      {...DISABLE_BROWSER_AUTOFILL}
-                      type="date"
-                      className="mt-1"
-                      value={settingsDraft.taxRules[section.ruleType].at(-1)?.effectiveDate || ''}
-                      onChange={(event) => updateTaxRule(section.ruleType, settingsDraft.taxRules[section.ruleType].length - 1, 'effectiveDate', event.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
           </div>
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>取消</Button>
@@ -1204,47 +1358,8 @@ export default function PayrollPage() {
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setVoucherDialogOpen(false)}>取消</Button>
             <Button disabled={voucherPreviewEntries.length === 0} onClick={() => void savePayrollVoucher()}>
-              <Save />确认生成草稿凭证
+              <Save />确认生成凭证
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={taxSettingsOpen} onOpenChange={setTaxSettingsOpen}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>税率设置</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-200">
-            <table className="w-full min-w-[760px] border-collapse text-xs">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="border border-slate-200 px-2 py-2 text-left font-medium">规则</th>
-                  <th className="border border-slate-200 px-2 py-2 text-left font-medium">生效日期</th>
-                  <th className="border border-slate-200 px-2 py-2 text-right font-medium">起点</th>
-                  <th className="border border-slate-200 px-2 py-2 text-right font-medium">终点</th>
-                  <th className="border border-slate-200 px-2 py-2 text-right font-medium">税率(%)</th>
-                  <th className="border border-slate-200 px-2 py-2 text-right font-medium">速算扣除数</th>
-                </tr>
-              </thead>
-              <tbody>
-                {BUILT_IN_PAYROLL_TAX_RULES.map((rule) => (
-                  <tr key={rule.id} className="border-t border-slate-100">
-                    <td className="border border-slate-200 px-2 py-2">
-                      {rule.ruleType === 'salary' ? '工资薪金' : rule.ruleType === 'annual_bonus' ? '全年一次性奖金' : '经营所得'}
-                    </td>
-                    <td className="border border-slate-200 px-2 py-2">{rule.effectiveDate}</td>
-                    <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{rule.lowerLimit}</td>
-                    <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{rule.upperLimit ?? '以上'}</td>
-                    <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{formatContributionRatePercent(rule.rate)}</td>
-                    <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{rule.quickDeduction}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setTaxSettingsOpen(false)}>关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1256,7 +1371,7 @@ export default function PayrollPage() {
           </DialogHeader>
           <div className="space-y-5">
             <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-              社保和公积金比例按本账套适用地区及政策填写。个税依据：{settingsDraft.individualTax.policyLabel}，生效日期 {settingsDraft.individualTax.policyEffectiveDate}。
+              社保和公积金比例按本账套适用地区及政策填写。个税依据：{settingsDraft.individualTax.policyLabel}，生效日期：{formatChineseDate(settingsDraft.individualTax.policyEffectiveDate)}。
             </div>
             <div className="rounded-md border border-slate-200 bg-white">
               <div className="border-b border-slate-100 px-4 py-3">
@@ -1276,8 +1391,13 @@ export default function PayrollPage() {
                   <p className="mt-1 font-medium text-slate-900">累计预扣预缴</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">每月基本减除费用</p>
-                  <p className="mt-1 font-medium tabular-nums text-slate-900">{formatMoney(settingsDraft.individualTax.standardDeductionPerMonth)}</p>
+                  <Label className="text-xs text-slate-500">每月基本减除费用</Label>
+                  <Input
+                    type="number"
+                    className="mt-1"
+                    value={settingsDraft.individualTax.standardDeductionPerMonth}
+                    onChange={(event) => updateStandardDeduction(event.target.value)}
+                  />
                 </div>
                 <div>
                   <p className="text-xs text-slate-500">税率档数</p>
@@ -1335,14 +1455,14 @@ export default function PayrollPage() {
                         socialInsurance: { ...draft.socialInsurance, [key]: { ...draft.socialInsurance[key], enabled } },
                       }))}
                     />
-                    <Input {...DISABLE_BROWSER_AUTOFILL} aria-label={`social-${key}-employee-rate-percent`} value={formatContributionRatePercent(settingsDraft.socialInsurance[key].employeeRate)} onChange={(event) => updateSocialRate(key, 'employeeRate', event.target.value)} />
-                    <Input {...DISABLE_BROWSER_AUTOFILL} aria-label={`social-${key}-employer-rate-percent`} value={formatContributionRatePercent(settingsDraft.socialInsurance[key].employerRate)} onChange={(event) => updateSocialRate(key, 'employerRate', event.target.value)} />
+                    <Input aria-label={`social-${key}-employee-rate-percent`} value={formatContributionRatePercent(settingsDraft.socialInsurance[key].employeeRate)} onChange={(event) => updateSocialRate(key, 'employeeRate', event.target.value)} />
+                    <Input aria-label={`social-${key}-employer-rate-percent`} value={formatContributionRatePercent(settingsDraft.socialInsurance[key].employerRate)} onChange={(event) => updateSocialRate(key, 'employerRate', event.target.value)} />
                   </div>
                 ))}
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3">
-                <div><Label>社保基数下限</Label><Input {...DISABLE_BROWSER_AUTOFILL} value={settingsDraft.socialInsurance.minimumBase} onChange={(event) => updateSocialBase('minimumBase', event.target.value)} /></div>
-                <div><Label>社保基数上限</Label><Input {...DISABLE_BROWSER_AUTOFILL} value={settingsDraft.socialInsurance.maximumBase} onChange={(event) => updateSocialBase('maximumBase', event.target.value)} /></div>
+                <div><Label>社保基数下限</Label><Input value={settingsDraft.socialInsurance.minimumBase} onChange={(event) => updateSocialBase('minimumBase', event.target.value)} /></div>
+                <div><Label>社保基数上限</Label><Input value={settingsDraft.socialInsurance.maximumBase} onChange={(event) => updateSocialBase('maximumBase', event.target.value)} /></div>
               </div>
             </div>
             <div>
@@ -1357,53 +1477,10 @@ export default function PayrollPage() {
                 />
               </div>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <div><Label>个人比例 (%)</Label><Input {...DISABLE_BROWSER_AUTOFILL} aria-label="housing-employee-rate-percent" value={formatContributionRatePercent(settingsDraft.housingFund.employeeRate)} onChange={(event) => updateHousing('employeeRate', event.target.value)} /></div>
-                <div><Label>企业比例 (%)</Label><Input {...DISABLE_BROWSER_AUTOFILL} aria-label="housing-employer-rate-percent" value={formatContributionRatePercent(settingsDraft.housingFund.employerRate)} onChange={(event) => updateHousing('employerRate', event.target.value)} /></div>
-                <div><Label>基数下限</Label><Input {...DISABLE_BROWSER_AUTOFILL} value={settingsDraft.housingFund.minimumBase} onChange={(event) => updateHousing('minimumBase', event.target.value)} /></div>
-                <div><Label>基数上限</Label><Input {...DISABLE_BROWSER_AUTOFILL} value={settingsDraft.housingFund.maximumBase} onChange={(event) => updateHousing('maximumBase', event.target.value)} /></div>
-              </div>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-white px-4 py-3">
-              <div className="mb-3">
-                <h3 className="text-sm font-medium text-slate-900">税率快捷调整</h3>
-                <p className="mt-1 text-xs text-slate-500">常用场景可在这里直接调整首档/末档税率，完整税率表仍可在上方税率设置中查看。</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {PAYROLL_TAX_RULE_SECTIONS.map((section) => (
-                  <div key={section.ruleType} className="rounded-md border border-slate-200 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{section.label}</p>
-                        <p className="mt-1 text-xs text-slate-500">{section.description}</p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => restoreTaxRules(section.ruleType)}>
-                        <RotateCcw className="h-4 w-4" />恢复默认
-                      </Button>
-                    </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <Label className="text-xs text-slate-500">首档税率(%)</Label>
-                        <Input
-                          {...DISABLE_BROWSER_AUTOFILL}
-                          type="number"
-                          className="mt-1"
-                          value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType][0]?.rate || 0)}
-                          onChange={(event) => updateTaxRule(section.ruleType, 0, 'rate', event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-slate-500">末档税率(%)</Label>
-                        <Input
-                          {...DISABLE_BROWSER_AUTOFILL}
-                          type="number"
-                          className="mt-1"
-                          value={formatContributionRatePercent(settingsDraft.taxRules[section.ruleType].at(-1)?.rate || 0)}
-                          onChange={(event) => updateTaxRule(section.ruleType, settingsDraft.taxRules[section.ruleType].length - 1, 'rate', event.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                <div><Label>个人比例 (%)</Label><Input aria-label="housing-employee-rate-percent" value={formatContributionRatePercent(settingsDraft.housingFund.employeeRate)} onChange={(event) => updateHousing('employeeRate', event.target.value)} /></div>
+                <div><Label>企业比例 (%)</Label><Input aria-label="housing-employer-rate-percent" value={formatContributionRatePercent(settingsDraft.housingFund.employerRate)} onChange={(event) => updateHousing('employerRate', event.target.value)} /></div>
+                <div><Label>基数下限</Label><Input value={settingsDraft.housingFund.minimumBase} onChange={(event) => updateHousing('minimumBase', event.target.value)} /></div>
+                <div><Label>基数上限</Label><Input value={settingsDraft.housingFund.maximumBase} onChange={(event) => updateHousing('maximumBase', event.target.value)} /></div>
               </div>
             </div>
             <div className="rounded-md border border-slate-200 bg-white px-4 py-3">
@@ -1412,21 +1489,17 @@ export default function PayrollPage() {
                 <p className="mt-1 text-xs text-slate-500">员工卡片未配置工资科目时，将按这里的账套默认科目生成工资计提凭证。</p>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {PAYROLL_VOUCHER_SUBJECT_FIELDS.map((field) => (
+                                {PAYROLL_VOUCHER_SUBJECT_FIELDS.map((field) => (
                   <div key={String(field.codeField)} className="rounded-md border border-slate-200 p-3">
                     <Label className="text-sm font-medium text-slate-700">{field.label}</Label>
-                    <div className="mt-2 grid gap-2">
-                      <Input
-                        {...DISABLE_BROWSER_AUTOFILL}
-                        placeholder="科目编码"
+                    <div className="mt-2">
+                      <SubjectPopover
                         value={accountSetSubjectDraft[field.codeField]}
-                        onChange={(event) => updateAccountSetSubjectDraft(field.codeField, event.target.value)}
-                      />
-                      <Input
-                        {...DISABLE_BROWSER_AUTOFILL}
-                        placeholder="科目名称"
-                        value={accountSetSubjectDraft[field.nameField]}
-                        onChange={(event) => updateAccountSetSubjectDraft(field.nameField, event.target.value)}
+                        onSelect={(code, name) => {
+                          updateAccountSetSubjectDraft(field.codeField, code);
+                          updateAccountSetSubjectDraft(field.nameField, name);
+                        }}
+                        placeholder={`选择${field.label}`}
                       />
                     </div>
                   </div>
@@ -1440,6 +1513,129 @@ export default function PayrollPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={taxSettingsOpen} onOpenChange={setTaxSettingsOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>税率设置</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+              这里调整当前工资批次使用的税率草稿。修改会保留在“计算设置”草稿中，最终以“保存设置”为准。
+            </div>
+            <div className="space-y-4">
+              {PAYROLL_TAX_RULE_SECTIONS.map((section) => (
+                <div key={section.ruleType} className="rounded-md border border-slate-200 bg-white px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{section.label}</p>
+                      <p className="mt-1 text-xs text-slate-500">{section.description}</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => restoreTaxRules(section.ruleType)}>
+                      <RotateCcw className="h-4 w-4" />恢复默认
+                    </Button>
+                  </div>
+                  <div className="mt-3 overflow-auto rounded-md border border-slate-200">
+                    <table className="w-full min-w-[860px] border-collapse text-xs">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="border border-slate-200 px-2 py-2 text-left font-medium">档次</th>
+                          <th className="border border-slate-200 px-2 py-2 text-left font-medium">生效日期</th>
+                          <th className="border border-slate-200 px-2 py-2 text-right font-medium">起点</th>
+                          <th className="border border-slate-200 px-2 py-2 text-right font-medium">终点</th>
+                          <th className="border border-slate-200 px-2 py-2 text-right font-medium">税率(%)</th>
+                          <th className="border border-slate-200 px-2 py-2 text-right font-medium">速算扣除数</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {settingsDraft.taxRules[section.ruleType].map((rule, index) => (
+                          <tr key={rule.id} className="border-t border-slate-100">
+                            <td className="border border-slate-200 px-2 py-2 text-slate-600">{index + 1}</td>
+                            <td className="border border-slate-200 px-2 py-1">
+                              <Input
+                                type="text"
+                                className="h-8 border-0 px-1 text-xs shadow-none focus-visible:ring-1"
+                                value={formatChineseDateInput(rule.effectiveDate)}
+                                placeholder="2019年1月1日"
+                                onChange={(event) => updateTaxRule(section.ruleType, index, 'effectiveDate', event.target.value)}
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-2 py-1">
+                              <Input
+                                type="number"
+                                className="h-8 border-0 px-1 text-right text-xs shadow-none focus-visible:ring-1"
+                                value={rule.lowerLimit}
+                                onChange={(event) => updateTaxRule(section.ruleType, index, 'lowerLimit', event.target.value)}
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-2 py-1">
+                              <Input
+                                type="number"
+                                className="h-8 border-0 px-1 text-right text-xs shadow-none focus-visible:ring-1"
+                                value={rule.upperLimit ?? ''}
+                                placeholder="以上"
+                                onChange={(event) => updateTaxRule(section.ruleType, index, 'upperLimit', event.target.value)}
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-2 py-1">
+                              <Input
+                                type="number"
+                                className="h-8 border-0 px-1 text-right text-xs shadow-none focus-visible:ring-1"
+                                value={formatContributionRatePercent(rule.rate)}
+                                onChange={(event) => updateTaxRule(section.ruleType, index, 'rate', event.target.value)}
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-2 py-1">
+                              <Input
+                                type="number"
+                                className="h-8 border-0 px-1 text-right text-xs shadow-none focus-visible:ring-1"
+                                value={rule.quickDeduction}
+                                onChange={(event) => updateTaxRule(section.ruleType, index, 'quickDeduction', event.target.value)}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="max-h-[36vh] overflow-auto rounded-md border border-slate-200">
+              <table className="w-full min-w-[760px] border-collapse text-xs">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="border border-slate-200 px-2 py-2 text-left font-medium">规则</th>
+                    <th className="border border-slate-200 px-2 py-2 text-left font-medium">生效日期</th>
+                    <th className="border border-slate-200 px-2 py-2 text-right font-medium">起点</th>
+                    <th className="border border-slate-200 px-2 py-2 text-right font-medium">终点</th>
+                    <th className="border border-slate-200 px-2 py-2 text-right font-medium">税率(%)</th>
+                    <th className="border border-slate-200 px-2 py-2 text-right font-medium">速算扣除数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {BUILT_IN_PAYROLL_TAX_RULES.map((rule) => (
+                    <tr key={rule.id} className="border-t border-slate-100">
+                      <td className="border border-slate-200 px-2 py-2">
+                        {rule.ruleType === 'salary' ? '工资薪金' : rule.ruleType === 'annual_bonus' ? '全年一次性奖金' : '经营所得'}
+                      </td>
+                      <td className="border border-slate-200 px-2 py-2">{formatChineseDate(rule.effectiveDate)}</td>
+                      <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{rule.lowerLimit}</td>
+                      <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{rule.upperLimit ?? '以上'}</td>
+                      <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{formatContributionRatePercent(rule.rate)}</td>
+                      <td className="border border-slate-200 px-2 py-2 text-right tabular-nums">{rule.quickDeduction}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setTaxSettingsOpen(false)}>关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

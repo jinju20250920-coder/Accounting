@@ -74,6 +74,40 @@ export interface FinanceDB extends DBSchema {
       'by-code': string;
     };
   };
+  fxRates: {
+    key: string;
+    value: any;
+    indexes: {
+      'by-accountSet': string;
+      'by-rateDate': string;
+      'by-currencyCode': string;
+    };
+  };
+  bank_account_bindings: {
+    key: string;
+    value: any;
+    indexes: {
+      'by-accountSet': string;
+      'by-accountNumber': string;
+    };
+  };
+  fxRevaluationRuns: {
+    key: string;
+    value: any;
+    indexes: {
+      'by-accountSet': string;
+      'by-period': string;
+    };
+  };
+  fxRevaluationRunLines: {
+    key: string;
+    value: any;
+    indexes: {
+      'by-accountSet': string;
+      'by-runId': string;
+      'by-sourceType': string;
+    };
+  };
   partners: {
     key: string;
     value: any;
@@ -134,7 +168,7 @@ class DatabaseManager {
   }
 
   private async _init(): Promise<void> {
-    this.db = await openDB<FinanceDB>('finance-assistant-db', 4, {
+    this.db = await openDB<FinanceDB>('finance-assistant-db', 6, {
       upgrade(db, oldVersion, newVersion, transaction) {
         console.log(`数据库升级: 版本 ${oldVersion} -> ${newVersion}`);
 
@@ -189,6 +223,32 @@ class DatabaseManager {
           const currencyStore = db.createObjectStore('currencies', { keyPath: 'id' });
           currencyStore.createIndex('by-accountSet', 'accountSetId');
           currencyStore.createIndex('by-code', 'code');
+        }
+
+        if (!db.objectStoreNames.contains('fxRates')) {
+          const fxRatesStore = db.createObjectStore('fxRates', { keyPath: 'id' });
+          fxRatesStore.createIndex('by-accountSet', 'accountSetId');
+          fxRatesStore.createIndex('by-rateDate', 'rateDate');
+          fxRatesStore.createIndex('by-currencyCode', 'currencyCode');
+        }
+
+        if (!db.objectStoreNames.contains('bank_account_bindings')) {
+          const bankBindingsStore = db.createObjectStore('bank_account_bindings', { keyPath: 'id' });
+          bankBindingsStore.createIndex('by-accountSet', 'accountSetId');
+          bankBindingsStore.createIndex('by-accountNumber', 'accountNumber');
+        }
+
+        if (!db.objectStoreNames.contains('fxRevaluationRuns')) {
+          const fxRevaluationRunsStore = db.createObjectStore('fxRevaluationRuns', { keyPath: 'id' });
+          fxRevaluationRunsStore.createIndex('by-accountSet', 'accountSetId');
+          fxRevaluationRunsStore.createIndex('by-period', 'period');
+        }
+
+        if (!db.objectStoreNames.contains('fxRevaluationRunLines')) {
+          const fxRevaluationRunLinesStore = db.createObjectStore('fxRevaluationRunLines', { keyPath: 'id' });
+          fxRevaluationRunLinesStore.createIndex('by-accountSet', 'accountSetId');
+          fxRevaluationRunLinesStore.createIndex('by-runId', 'runId');
+          fxRevaluationRunLinesStore.createIndex('by-sourceType', 'sourceType');
         }
 
         // 创建往来单位表

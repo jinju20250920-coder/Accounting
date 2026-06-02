@@ -1,10 +1,11 @@
-'use client';
+﻿'use client';
 
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import {
   calculatePayrollItem,
+  applyPriorCumulativeValues,
   summarizePayrollResults,
   validatePayrollInput,
   type PayrollBatch,
@@ -13,6 +14,7 @@ import {
   type PayrollInput,
   type PayrollItem,
 } from '@/lib/payroll';
+import { validateAccountingPeriod } from '@/lib/accounting';
 import {
   buildPayrollAccrualVoucherPreview,
   previewToVoucherEntries,
@@ -49,7 +51,7 @@ const generateId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${M
 
 function requireAccountSetId(): string {
   const accountSetId = useAccountSetStore.getState().currentAccountSetId;
-  if (!accountSetId) throw new Error('请先选择账套');
+  if (!accountSetId) throw new Error('璇峰厛閫夋嫨璐﹀');
   sqliteService.setAccountSetId(accountSetId);
   return accountSetId;
 }
@@ -57,6 +59,10 @@ function requireAccountSetId(): string {
 function monthFromPeriod(period: string): number {
   const month = Number(period.split('-')[1]);
   return Number.isInteger(month) && month >= 1 && month <= 12 ? month : new Date().getMonth() + 1;
+}
+
+function normalizeEmployeeCode(code: string): string {
+  return code.trim().toLowerCase();
 }
 
 function previousPeriod(period: string): string {
@@ -77,6 +83,18 @@ function payrollVoucherDate(period: string): string {
   return `${yearText}-${monthText}-${String(lastDay).padStart(2, '0')}`;
 }
 
+async function loadPreviousPeriodItemMap(period: string): Promise<Map<string, PayrollItem>> {
+  const month = Number(period.split('-')[1]);
+  if (month <= 1) return new Map();
+  const sourcePeriod = previousPeriod(period);
+  if (sourcePeriod.slice(0, 4) !== period.slice(0, 4)) return new Map();
+  const previousBatches = await sqliteService.getPayrollBatches(sourcePeriod);
+  const sourceBatch = previousBatches[0];
+  if (!sourceBatch) return new Map();
+  const sourceItems = await sqliteService.getPayrollItems(sourceBatch.id);
+  return new Map(sourceItems.map((item) => [normalizeEmployeeCode(item.employeeCode), item]));
+}
+
 async function generatePayrollVoucherNo(date: string): Promise<string> {
   const yearMonth = date.substring(0, 7).replace('-', '');
   const vouchers = await getCurrentService().getAllVouchers();
@@ -87,34 +105,39 @@ async function generatePayrollVoucherNo(date: string): Promise<string> {
   return `记-${yearMonth}-${String(maxSeq + 1).padStart(3, '0')}`;
 }
 
-function createItems(
+async function createItems(
   accountSetId: string,
   batchId: string,
   period: string,
   inputs: PayrollInput[],
   config: PayrollCalculationConfig,
-): PayrollItem[] {
+): Promise<PayrollItem[]> {
+  const previousItemMap = await loadPreviousPeriodItemMap(period);
   const now = new Date().toISOString();
-  return inputs.map((input) => ({
-    id: generateId('payitem'),
-    batchId,
-    accountSetId,
-    payrollPeriod: period,
-    employeeCode: input.employeeCode,
-    employeeName: input.employeeName,
-    departmentName: input.departmentName,
-    inputData: input,
-    calculationResult: calculatePayrollItem(input, config, monthFromPeriod(period)),
-    validationStatus: 'valid',
-    validationMessages: [],
-    createdAt: now,
-    updatedAt: now,
-  }));
+  return inputs.map((input) => {
+    const previousItem = previousItemMap.get(normalizeEmployeeCode(input.employeeCode));
+    const hydratedInput = applyPriorCumulativeValues(input, previousItem);
+    return {
+      id: generateId('payitem'),
+      batchId,
+      accountSetId,
+      payrollPeriod: period,
+      employeeCode: hydratedInput.employeeCode,
+      employeeName: hydratedInput.employeeName,
+      departmentName: hydratedInput.departmentName,
+      inputData: hydratedInput,
+      calculationResult: calculatePayrollItem(hydratedInput, config, monthFromPeriod(period)),
+      validationStatus: 'valid',
+      validationMessages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
 }
 
 function assertEditableBatch(batch: PayrollBatch | null): asserts batch is PayrollBatch {
   if (!batch) throw new Error('未找到工资批次');
-  if (batch.status === 'confirmed') throw new Error('已确认批次，请先退回草稿后修改');
+  if (batch.status === 'confirmed') throw new Error('宸茬‘璁ゆ壒娆★紝璇峰厛閫€鍥炶崏绋垮悗淇敼');
 }
 
 function buildCalculatedBatch(
@@ -145,22 +168,27 @@ async function persistCalculatedItems(
   config: PayrollCalculationConfig,
 ): Promise<{ batch: PayrollBatch; items: PayrollItem[] }> {
   const accountSetId = requireAccountSetId();
+  const previousItemMap = await loadPreviousPeriodItemMap(batch.payrollPeriod);
   const now = new Date().toISOString();
-  const items = rows.map<PayrollItem>((row) => ({
-    id: row.id || generateId('payitem'),
-    batchId: batch.id,
-    accountSetId,
-    payrollPeriod: batch.payrollPeriod,
-    employeeCode: row.input.employeeCode,
-    employeeName: row.input.employeeName,
-    departmentName: row.input.departmentName,
-    inputData: row.input,
-    calculationResult: calculatePayrollItem(row.input, config, monthFromPeriod(batch.payrollPeriod)),
-    validationStatus: 'valid',
-    validationMessages: [],
-    createdAt: row.createdAt || now,
-    updatedAt: now,
-  }));
+  const items = rows.map<PayrollItem>((row) => {
+    const previousItem = previousItemMap.get(normalizeEmployeeCode(row.input.employeeCode));
+    const hydratedInput = applyPriorCumulativeValues(row.input, previousItem);
+    return {
+      id: row.id || generateId('payitem'),
+      batchId: batch.id,
+      accountSetId,
+      payrollPeriod: batch.payrollPeriod,
+      employeeCode: hydratedInput.employeeCode,
+      employeeName: hydratedInput.employeeName,
+      departmentName: hydratedInput.departmentName,
+      inputData: hydratedInput,
+      calculationResult: calculatePayrollItem(hydratedInput, config, monthFromPeriod(batch.payrollPeriod)),
+      validationStatus: 'valid',
+      validationMessages: [],
+      createdAt: row.createdAt || now,
+      updatedAt: now,
+    };
+  });
   const updated = buildCalculatedBatch(batch, items, config);
   await sqliteService.savePayrollBatch(updated, items);
   return { batch: updated, items };
@@ -186,7 +214,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
       const items = selectedBatch ? await sqliteService.getPayrollItems(selectedBatch.id) : [];
       set({ batches, config, selectedBatch, items, loading: false });
     } catch (error) {
-      set({ loading: false, error: error instanceof Error ? error.message : '加载工资数据失败' });
+      set({ loading: false, error: error instanceof Error ? error.message : '鍔犺浇宸ヨ祫鏁版嵁澶辫触' });
     }
   },
 
@@ -196,7 +224,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
       const items = await sqliteService.getPayrollItems(batchId);
       set({ selectedBatch: batch, items, error: null });
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : '加载工资明细失败' });
+      set({ error: error instanceof Error ? error.message : '鍔犺浇宸ヨ祫鏄庣粏澶辫触' });
     }
   },
 
@@ -226,7 +254,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
 
     const now = new Date().toISOString();
     const batchId = generateId('paybatch');
-    const items = createItems(accountSetId, batchId, period, rows, configRecord.config);
+    const items = await createItems(accountSetId, batchId, period, rows, configRecord.config);
     const summary = summarizePayrollResults(items.map((item) => item.calculationResult));
     const batch: PayrollBatch = {
       id: batchId,
@@ -260,7 +288,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
     const configRecord = get().config;
     if (!batch || !configRecord) throw new Error('请先选择工资批次并保存计算设置');
     const existingItems = await sqliteService.getPayrollItems(batchId);
-    const items = createItems(accountSetId, batchId, batch.payrollPeriod, existingItems.map((item) => item.inputData), configRecord.config);
+    const items = await createItems(accountSetId, batchId, batch.payrollPeriod, existingItems.map((item) => item.inputData), configRecord.config);
     const summary = summarizePayrollResults(items.map((item) => item.calculationResult));
     const updated: PayrollBatch = {
       ...batch,
@@ -332,7 +360,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
     const employeeCodes = get().items.map((item) => item.employeeCode);
     inputs.forEach((input, index) => {
       const validationErrors = validatePayrollInput(input, employeeCodes);
-      if (validationErrors.length) throw new Error(`第 ${index + 1} 行：${validationErrors.join('；')}`);
+      if (validationErrors.length) throw new Error(`第 ${index + 1} 行：${validationErrors.join('，')}`);
       employeeCodes.push(input.employeeCode);
     });
 
@@ -383,7 +411,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
       input,
       get().items.filter((item) => item.id !== itemId).map((item) => item.employeeCode),
     );
-    if (validationErrors.length) throw new Error(validationErrors.join('；'));
+    if (validationErrors.length) throw new Error(validationErrors.join('，'));
 
     const rows = get().items.map((item) => ({
       id: item.id,
@@ -475,11 +503,35 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
     const accountSetId = requireAccountSetId();
     const batch = get().batches.find((item) => item.id === batchId);
     if (!batch) throw new Error('未找到工资批次');
+    if (batch.accrualVoucherId || batch.accrualVoucherNo) {
+      throw new Error('该工资批次已生成工资计提凭证，不能重复生成');
+    }
     const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    const periodValidation = validateAccountingPeriod(payrollVoucherDate(batch.payrollPeriod), currentAccountSet);
+    if (!periodValidation.valid) {
+      throw new Error(periodValidation.error || '当前期间不可生成凭证');
+    }
     const previewEntries = entries.length > 0
       ? entries
       : buildPayrollAccrualVoucherPreview(get().items, batch.payrollPeriod, [], currentAccountSet || undefined);
     if (previewEntries.length === 0) throw new Error('没有可生成凭证的工资分录');
+
+    const subjects = await getCurrentService().getAllSubjects();
+    const subjectCodeSet = new Set(
+      subjects
+        .map((subject) => subject.code.trim())
+        .filter((code) => Boolean(code)),
+    );
+    const missingSubjectCodes = Array.from(
+      new Set(
+        previewEntries
+          .map((entry) => entry.subjectCode.trim())
+          .filter((code) => code && !subjectCodeSet.has(code)),
+      ),
+    );
+    if (missingSubjectCodes.length > 0) {
+      throw new Error(`工资计提凭证缺少科目配置：${missingSubjectCodes.join(', ')}`);
+    }
 
     const totalDebit = previewEntries.reduce((sum, entry) => sum + entry.debit, 0);
     const totalCredit = previewEntries.reduce((sum, entry) => sum + entry.credit, 0);
@@ -495,7 +547,7 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
       date,
       summary: `${batch.payrollPeriod} 工资计提`,
       entries: previewToVoucherEntries(previewEntries, voucherId, date),
-      status: 'draft',
+      status: 'posted',
       voucherType: 'general',
       createdBy: 'system',
       createTime: now,
@@ -503,8 +555,21 @@ export const usePayrollStore = create<PayrollStore>((set, get) => ({
       accountSetId,
     };
     await getCurrentService().saveVoucher(voucher);
+    await sqliteService.updatePayrollBatchVoucher(batchId, voucher.id, voucher.voucherNo);
+    set((state) => ({
+      batches: state.batches.map((item) => item.id === batchId
+        ? { ...item, accrualVoucherId: voucher.id, accrualVoucherNo: voucher.voucherNo, updatedAt: now }
+        : item),
+      selectedBatch: state.selectedBatch?.id === batchId
+        ? { ...state.selectedBatch, accrualVoucherId: voucher.id, accrualVoucherNo: voucher.voucherNo, updatedAt: now }
+        : state.selectedBatch,
+    }));
     return voucher;
   },
 
   clearError: () => set({ error: null }),
 }));
+
+
+
+

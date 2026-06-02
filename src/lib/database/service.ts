@@ -9,6 +9,10 @@ import type {
   Project as _Project,
   Currency as _Currency,
   Partner as _Partner,
+  FxRate as _FxRate,
+  BankAccountBinding as _BankAccountBinding,
+  FxRevaluationRun as _FxRevaluationRun,
+  FxRevaluationRunLine as _FxRevaluationRunLine,
   VoucherFullTemplate as _VoucherTemplate,
   CommonSummary as _CommonSummary,
   UserPreference as _UserPreference
@@ -22,6 +26,10 @@ export type Department = _Department;
 export type Project = _Project;
 export type Currency = _Currency;
 export type Partner = _Partner;
+export type FxRate = _FxRate;
+export type BankAccountBinding = _BankAccountBinding;
+export type FxRevaluationRun = _FxRevaluationRun;
+export type FxRevaluationRunLine = _FxRevaluationRunLine;
 export type VoucherTemplate = _VoucherTemplate;
 export type CommonSummary = _CommonSummary;
 export type UserPreference = _UserPreference;
@@ -273,8 +281,11 @@ class DatabaseService {
     const tx = this.db.transaction('currencies', 'readwrite');
 
     for (const currency of currencies) {
+      const enabled = currency.enabled ?? !currency.disabled;
       const currencyWithAccountSet = {
         ...currency,
+        enabled,
+        disabled: currency.disabled ?? !enabled,
         accountSetId: this.accountSetId
       };
       await tx.objectStore('currencies').put(currencyWithAccountSet);
@@ -284,15 +295,92 @@ class DatabaseService {
   }
 
   async getAllCurrencies(): Promise<Currency[]> {
-    return await this.getAllFromIndexSafe('currencies', 'by-accountSet', this.accountSetId);
+    const allCurrencies = await this.getAllFromIndexSafe('currencies', 'by-accountSet', this.accountSetId);
+    return allCurrencies.map((currency: any) => {
+      const enabled = currency.enabled ?? !currency.disabled;
+      return {
+        ...currency,
+        enabled,
+        disabled: currency.disabled ?? !enabled
+      } as Currency;
+    });
   }
 
   async getCurrencyByCode(code: string): Promise<Currency | undefined> {
     const allCurrencies = await this.getAllFromIndexSafe('currencies', 'by-accountSet', this.accountSetId);
-    return allCurrencies.find(c => c.code === code);
+    const currency = allCurrencies.find(c => c.code === code);
+    if (!currency) return undefined;
+    const enabled = currency.enabled ?? !currency.disabled;
+    return {
+      ...currency,
+      enabled,
+      disabled: currency.disabled ?? !enabled
+    } as Currency;
   }
 
   // ========== 往来单位操作 ==========
+
+  async getAccountSetBaseCurrency(accountSetId: string = this.accountSetId): Promise<{ baseCurrency: string; baseCurrencyName: string } | undefined> {
+    const accountSet = await this.db.get('accountSets', accountSetId);
+    if (!accountSet) return undefined;
+    return {
+      baseCurrency: accountSet.baseCurrency || 'CNY',
+      baseCurrencyName: accountSet.baseCurrencyName || '人民币'
+    };
+  }
+
+  async saveAccountSetBaseCurrency(baseCurrency: string, baseCurrencyName?: string, accountSetId: string = this.accountSetId): Promise<void> {
+    const accountSet = await this.db.get('accountSets', accountSetId);
+    if (!accountSet) {
+      return;
+    }
+
+    await this.db.put('accountSets', {
+      ...accountSet,
+      baseCurrency: baseCurrency || 'CNY',
+      baseCurrencyName: baseCurrencyName || accountSet.baseCurrencyName || '人民币'
+    });
+  }
+
+  async saveFxRates(rates: FxRate[]): Promise<void> {
+    const tx = this.db.transaction('fxRates', 'readwrite');
+    for (const rate of rates) {
+      await tx.objectStore('fxRates').put({
+        ...rate,
+        accountSetId: rate.accountSetId || this.accountSetId
+      });
+    }
+    await tx.done;
+  }
+
+  async getFxRates(rateDate?: string): Promise<FxRate[]> {
+    const allRates = await this.getAllFromIndexSafe('fxRates', 'by-accountSet', this.accountSetId);
+    return (rateDate ? allRates.filter((rate: any) => rate.rateDate === rateDate) : allRates) as FxRate[];
+  }
+
+  async getBankAccountBindings(): Promise<BankAccountBinding[]> {
+    return await this.getAllFromIndexSafe('bank_account_bindings', 'by-accountSet', this.accountSetId);
+  }
+
+  async saveBankAccountBinding(binding: BankAccountBinding): Promise<void> {
+    const tx = this.db.transaction('bank_account_bindings', 'readwrite');
+    await tx.objectStore('bank_account_bindings').put({
+      ...binding,
+      accountSetId: binding.accountSetId || this.accountSetId,
+    });
+    await tx.done;
+  }
+
+  async deleteBankAccountBinding(id: string): Promise<void> {
+    const tx = this.db.transaction('bank_account_bindings', 'readwrite');
+    await tx.objectStore('bank_account_bindings').delete(id);
+    await tx.done;
+  }
+
+  async findBankAccountBinding(accountNumber: string): Promise<BankAccountBinding | null> {
+    const allBindings = await this.getAllFromIndexSafe('bank_account_bindings', 'by-accountSet', this.accountSetId);
+    return (allBindings.find((binding: any) => binding.accountNumber === accountNumber) || null) as BankAccountBinding | null;
+  }
 
   async savePartners(partners: Partner[]): Promise<void> {
     const tx = this.db.transaction('partners', 'readwrite');
@@ -405,6 +493,8 @@ class DatabaseService {
       departments: await this.getAllDepartments(),
       projects: await this.getAllProjects(),
       currencies: await this.getAllCurrencies(),
+      fxRates: await this.getFxRates(),
+      bankAccountBindings: await this.getBankAccountBindings(),
       partners: await this.getAllPartners(),
       voucherTemplates: await this.getAllVoucherTemplates(),
       commonSummaries: await this.getAllCommonSummaries(),
@@ -412,7 +502,7 @@ class DatabaseService {
       auditLogs: await this.getAuditLogs(1000),
       recRelations: await this.getAllFromIndexSafe('recRelations', 'by-accountSet', this.accountSetId),
       exportDate: new Date().toISOString(),
-      version: '3.0'
+      version: '4.0'
     };
   }
 
@@ -424,6 +514,8 @@ class DatabaseService {
       'departments',
       'projects',
       'currencies',
+      'fxRates',
+      'bank_account_bindings',
       'partners',
       'voucherTemplates',
       'commonSummaries',
@@ -492,6 +584,26 @@ class DatabaseService {
           accountSetId: this.accountSetId
         };
         await tx.objectStore('currencies').put(currencyWithAccountSet);
+      }
+    }
+
+    if (data.fxRates) {
+      for (const rate of data.fxRates) {
+        const rateWithAccountSet = {
+          ...rate,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('fxRates').put(rateWithAccountSet);
+      }
+    }
+
+    if (data.bankAccountBindings) {
+      for (const binding of data.bankAccountBindings) {
+        const bindingWithAccountSet = {
+          ...binding,
+          accountSetId: this.accountSetId
+        };
+        await tx.objectStore('bank_account_bindings').put(bindingWithAccountSet);
       }
     }
 

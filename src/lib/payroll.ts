@@ -88,6 +88,9 @@ export interface PayrollInput {
   priorCumulativeSpecialAdditionalDeduction: number;
   priorCumulativeOtherLegalDeduction: number;
   priorCumulativeTaxWithheld: number;
+  priorCumulativeMonths?: number;
+  payrollEmployerContributionPayableSubjectCode?: string;
+  payrollEmployerContributionPayableSubjectName?: string;
   otherPostTaxDeduction?: number;
 }
 
@@ -115,8 +118,6 @@ export function createBlankPayrollInput(): PayrollInput {
     employeeCode: '',
     employeeName: '',
     departmentName: '',
-    incomeType: 'salary',
-    annualBonusTaxMethod: 'separate',
     basicSalary: 0,
     bonus: 0,
     allowance: 0,
@@ -130,6 +131,7 @@ export function createBlankPayrollInput(): PayrollInput {
     priorCumulativeSpecialAdditionalDeduction: 0,
     priorCumulativeOtherLegalDeduction: 0,
     priorCumulativeTaxWithheld: 0,
+    priorCumulativeMonths: 1,
     otherPostTaxDeduction: 0,
   };
 }
@@ -203,6 +205,8 @@ export interface PayrollBatch {
   createdAt: string;
   updatedAt: string;
   confirmedAt?: string;
+  accrualVoucherId?: string;
+  accrualVoucherNo?: string;
 }
 
 export interface PayrollItem {
@@ -219,6 +223,75 @@ export interface PayrollItem {
   validationMessages: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+const PRIOR_CUMULATIVE_FIELDS: (keyof Pick<
+  PayrollInput,
+  | 'priorCumulativeIncome'
+  | 'priorCumulativeEmployeeContributions'
+  | 'priorCumulativeSpecialAdditionalDeduction'
+  | 'priorCumulativeOtherLegalDeduction'
+  | 'priorCumulativeTaxWithheld'
+>)[] = [
+  'priorCumulativeIncome',
+  'priorCumulativeEmployeeContributions',
+  'priorCumulativeSpecialAdditionalDeduction',
+  'priorCumulativeOtherLegalDeduction',
+  'priorCumulativeTaxWithheld',
+];
+
+function hasManualPriorCumulativeValues(input: PayrollInput): boolean {
+  return PRIOR_CUMULATIVE_FIELDS.some((field) => Number(input[field] || 0) !== 0);
+}
+
+export function derivePriorCumulativeValues(previousItem: PayrollItem): Pick<
+  PayrollInput,
+  | 'priorCumulativeIncome'
+  | 'priorCumulativeEmployeeContributions'
+  | 'priorCumulativeSpecialAdditionalDeduction'
+  | 'priorCumulativeOtherLegalDeduction'
+  | 'priorCumulativeTaxWithheld'
+  | 'priorCumulativeMonths'
+> {
+  const { inputData, calculationResult } = previousItem;
+  const priorCumulativeIncome = roundMoney((inputData.priorCumulativeIncome || 0) + calculationResult.grossSalary);
+  const priorCumulativeEmployeeContributions = roundMoney(
+    (inputData.priorCumulativeEmployeeContributions || 0)
+    + calculationResult.employeeSocialInsurance
+    + calculationResult.employeeHousingFund,
+  );
+  const priorCumulativeSpecialAdditionalDeduction = roundMoney(
+    (inputData.priorCumulativeSpecialAdditionalDeduction || 0)
+    + (inputData.specialAdditionalDeduction || 0),
+  );
+  const priorCumulativeOtherLegalDeduction = roundMoney(
+    (inputData.priorCumulativeOtherLegalDeduction || 0)
+    + (inputData.otherLegalDeduction || 0),
+  );
+  const priorCumulativeTaxWithheld = roundMoney(
+    (inputData.priorCumulativeTaxWithheld || 0)
+    + calculationResult.individualIncomeTax,
+  );
+  const priorCumulativeMonths = Math.max(1, Math.trunc(inputData.priorCumulativeMonths || 0) + 1);
+
+  return {
+    priorCumulativeIncome,
+    priorCumulativeEmployeeContributions,
+    priorCumulativeSpecialAdditionalDeduction,
+    priorCumulativeOtherLegalDeduction,
+    priorCumulativeTaxWithheld,
+    priorCumulativeMonths,
+  };
+}
+
+export function applyPriorCumulativeValues(input: PayrollInput, previousItem?: PayrollItem): PayrollInput {
+  if (!previousItem) return input;
+  if (previousItem.calculationResult.taxCalculationType === 'annual_bonus_separate') return input;
+  if (hasManualPriorCumulativeValues(input)) return input;
+  return {
+    ...input,
+    ...derivePriorCumulativeValues(previousItem),
+  };
 }
 
 export interface PayrollCalculationConfigRecord {
@@ -297,10 +370,14 @@ function resolveContributionBase(
   grossSalary: number,
   config: { minimumBase: number; maximumBase: number; defaultBaseMode: ContributionBaseMode; configuredDefaultBase?: number },
 ): number {
-  const fallback = config.defaultBaseMode === 'configured' && config.configuredDefaultBase !== undefined
-    ? config.configuredDefaultBase
-    : grossSalary;
-  return roundMoney(clampContributionBase(providedBase ?? fallback, config.minimumBase, config.maximumBase));
+  if (providedBase === 0) return 0;
+  const requestedBase = providedBase ?? (
+    config.defaultBaseMode === 'configured' && config.configuredDefaultBase !== undefined
+      ? config.configuredDefaultBase
+      : grossSalary
+  );
+  const effectiveBase = Math.min(grossSalary, requestedBase, config.maximumBase);
+  return roundMoney(Math.max(0, effectiveBase));
 }
 
 function calculateSocialContribution(
@@ -413,10 +490,11 @@ export function calculatePayrollItem(
   const socialInsurance = calculateSocialContribution(socialInsuranceBase, config.socialInsurance);
   const housingFund = calculateHousingFundContribution(housingFundBase, config.housingFund);
   const currentEmployeeContributions = roundMoney(socialInsurance.employee + housingFund.employee);
+  const cumulativeMonths = Math.max(1, Math.trunc(input.priorCumulativeMonths || 0));
   const taxableIncomeCumulative = Math.max(0, roundMoney(
     input.priorCumulativeIncome
     + grossSalary
-    - config.individualTax.standardDeductionPerMonth * calculationMonth
+    - config.individualTax.standardDeductionPerMonth * cumulativeMonths
     - input.priorCumulativeEmployeeContributions
     - currentEmployeeContributions
     - input.priorCumulativeSpecialAdditionalDeduction

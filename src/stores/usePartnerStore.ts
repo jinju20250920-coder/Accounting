@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
@@ -65,19 +65,49 @@ const defaultPartners: Omit<Partner, 'id' | 'createTime' | 'updateTime' | 'accou
     taxNumber: '',
     bankAccount: '622848XXXXXXXXXXX',
     bankName: '中国银行',
-    payrollSalaryExpenseSubjectCode: '660201',
-    payrollSalaryExpenseSubjectName: '管理费用-工资',
-    payrollContributionExpenseSubjectCode: '660203',
-    payrollContributionExpenseSubjectName: '管理费用-社保公积金',
-    payrollSalaryPayableSubjectCode: '2211',
-    payrollSalaryPayableSubjectName: '应付职工薪酬',
-    payrollTaxPayableSubjectCode: '2221',
-    payrollTaxPayableSubjectName: '应交税费-个人所得税',
-    payrollEmployeeContributionPayableSubjectCode: '2241',
-    payrollEmployeeContributionPayableSubjectName: '其他应付款-个人社保公积金',
     frozen: false
   }
 ];
+
+const legacyEmployeePayrollSubjects = {
+  payrollSalaryExpenseSubjectCode: '660201',
+  payrollSalaryExpenseSubjectName: '管理费用-工资',
+  payrollContributionExpenseSubjectCode: '660203',
+  payrollContributionExpenseSubjectName: '管理费用-社保公积金',
+  payrollSalaryPayableSubjectCode: '2211',
+  payrollSalaryPayableSubjectName: '应付职工薪酬',
+  payrollTaxPayableSubjectCode: '2221',
+  payrollTaxPayableSubjectName: '应交税费-个人所得税',
+  payrollEmployeeContributionPayableSubjectCode: '2241',
+  payrollEmployeeContributionPayableSubjectName: '其他应付款-个人社保公积金',
+} as const;
+
+function stripLegacyEmployeePayrollSubjects(partner: Partner): Partner {
+  if (
+    !partner.isEmployee
+    || partner.payrollSalaryExpenseSubjectCode !== legacyEmployeePayrollSubjects.payrollSalaryExpenseSubjectCode
+    || partner.payrollContributionExpenseSubjectCode !== legacyEmployeePayrollSubjects.payrollContributionExpenseSubjectCode
+    || partner.payrollSalaryPayableSubjectCode !== legacyEmployeePayrollSubjects.payrollSalaryPayableSubjectCode
+    || partner.payrollTaxPayableSubjectCode !== legacyEmployeePayrollSubjects.payrollTaxPayableSubjectCode
+    || partner.payrollEmployeeContributionPayableSubjectCode !== legacyEmployeePayrollSubjects.payrollEmployeeContributionPayableSubjectCode
+  ) {
+    return partner;
+  }
+
+  return {
+    ...partner,
+    payrollSalaryExpenseSubjectCode: undefined,
+    payrollSalaryExpenseSubjectName: undefined,
+    payrollContributionExpenseSubjectCode: undefined,
+    payrollContributionExpenseSubjectName: undefined,
+    payrollSalaryPayableSubjectCode: undefined,
+    payrollSalaryPayableSubjectName: undefined,
+    payrollTaxPayableSubjectCode: undefined,
+    payrollTaxPayableSubjectName: undefined,
+    payrollEmployeeContributionPayableSubjectCode: undefined,
+    payrollEmployeeContributionPayableSubjectName: undefined,
+  };
+}
 
 // 状态接口
 interface PartnerStore {
@@ -117,15 +147,16 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
   addPartner: async (partnerData) => {
     try {
       const state = get();
+      const normalizedPartnerData = stripLegacyEmployeePayrollSubjects(partnerData as Partner);
 
       // 检查代码是否重复
-      const existing = state.partners.find(p => p.code === partnerData.code);
+      const existing = state.partners.find(p => p.code === normalizedPartnerData.code);
       if (existing) {
-        throw new Error(`往来单位代码 ${partnerData.code} 已存在，请使用其他代码`);
+        throw new Error(`往来单位代码 ${normalizedPartnerData.code} 已存在，请使用其他代码`);
       }
 
       // 检查必须至少选择一种身份
-      if (!partnerData.isCustomer && !partnerData.isSupplier && !partnerData.isEmployee) {
+      if (!normalizedPartnerData.isCustomer && !normalizedPartnerData.isSupplier && !normalizedPartnerData.isEmployee) {
         throw new Error('请至少勾选一种身份：客户、供应商或雇员');
       }
 
@@ -134,9 +165,9 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
       const newPartner: Partner = {
-        ...partnerData,
+        ...normalizedPartnerData,
         id: `partner_${Date.now()}`,
-        frozen: partnerData.frozen || false,
+        frozen: normalizedPartnerData.frozen || false,
         createTime: new Date().toISOString(),
         updateTime: new Date().toISOString(),
         accountSetId: currentAccountSet?.id
@@ -288,12 +319,13 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
       partnersData.forEach(partnerData => {
-        if (!existingCodes.has(partnerData.code)) {
-          existingCodes.add(partnerData.code);
+        const normalizedPartnerData = stripLegacyEmployeePayrollSubjects(partnerData as Partner);
+        if (!existingCodes.has(normalizedPartnerData.code)) {
+          existingCodes.add(normalizedPartnerData.code);
           validPartners.push({
-            ...partnerData,
+            ...normalizedPartnerData,
             id: `partner_${Date.now()}_${Math.random()}`,
-            frozen: partnerData.frozen || false,
+            frozen: normalizedPartnerData.frozen || false,
             createTime: new Date().toISOString(),
             updateTime: new Date().toISOString(),
             accountSetId: currentAccountSet?.id
@@ -338,10 +370,11 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
   // 初始化往来单位数据
   initializePartners: async () => {
     try {
-      const partners = await getCurrentService().getAllPartners();
+      const partners = (await getCurrentService().getAllPartners()).map(stripLegacyEmployeePayrollSubjects);
 
       if (partners.length > 0) {
         set({ partners });
+        await getCurrentService().savePartners(partners);
         return;
       }
 
@@ -356,7 +389,7 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         createTime: now,
         updateTime: now,
         accountSetId: currentAccountSet?.id
-      }));
+      })).map(stripLegacyEmployeePayrollSubjects);
 
       await getCurrentService().savePartners(initializedPartners);
       set({ partners: initializedPartners });

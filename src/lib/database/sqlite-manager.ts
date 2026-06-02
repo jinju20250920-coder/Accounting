@@ -1,4 +1,4 @@
-import initSqlJs from 'sql.js';
+﻿import initSqlJs from 'sql.js';
 
 // File System Access API types
 interface FileSystemHandleHelper {
@@ -14,6 +14,13 @@ interface HandleStorageData {
   lastModified: number;
 }
 
+const resolveSqlJsWasmPath = (file: string): string => {
+  if (typeof window === 'undefined' && typeof process !== 'undefined' && typeof process.cwd === 'function') {
+    return `${process.cwd().replace(/\\/g, '/')}/node_modules/sql.js/dist/${file}`;
+  }
+  return `/sqljs/${file}`;
+};
+
 class SQLiteManager {
   private static instance: SQLiteManager;
   private db: any = null;
@@ -26,10 +33,11 @@ class SQLiteManager {
   private dbPath: string | null = null;
   private opfsHandle: FileSystemHandleHelper | null = null;
   private useOPFS: boolean = false;
-  private useFileSystemAccess: boolean = false; // 使用 File System Access API
-  private HANDLE_STORAGE_KEY = 'sqlite-db-handle'; // IndexedDB 存储键
+  private useFileSystemAccess: boolean = false; // File System Access API support
+  private HANDLE_STORAGE_KEY = 'sqlite-db-handle'; // IndexedDB storage key
   private saveInProgress: boolean = false;
-  private dbHandle: FileSystemHandleHelper | null = null; // 持久化的文件句柄
+  private dbHandle: FileSystemHandleHelper | null = null; // Persistent file handle
+  private isBrowser: boolean = typeof window !== 'undefined';
 
   static getInstance(): SQLiteManager {
     if (!SQLiteManager.instance) {
@@ -39,18 +47,18 @@ class SQLiteManager {
   }
 
   constructor() {
-    // 检测是否是 Electron 环境
-    this.isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron?.();
+    // Detect whether we are running in Electron.
+    this.isElectron = this.isBrowser && window.electronAPI?.isElectron?.();
 
-    // 检测是否支持 File System Access API (Chrome 86+, Edge 86+, Opera 72+)
-    // Firefox 需要设置 about:config 中的 dom.fs.enabled = true
-    if (typeof window !== 'undefined' && !this.isElectron) {
+    // Detect File System Access API support (Chrome 86+, Edge 86+, Opera 72+)
+    // Firefox may require dom.fs.enabled = true in about:config.
+    if (this.isBrowser && !this.isElectron) {
       this.useFileSystemAccess = 'showSaveFilePicker' in window && 'showOpenFilePicker' in window;
 
       if (this.useFileSystemAccess) {
         console.log('File System Access API is supported, database can be stored on disk');
       } else {
-        // 后备方案：检测 OPFS
+        // Fallback: detect OPFS
         this.useOPFS = 'storage' in navigator && 'getDirectory' in (navigator.storage as any);
         if (this.useOPFS) {
           console.log('OPFS is supported, database will be stored in persistent file storage');
@@ -72,27 +80,34 @@ class SQLiteManager {
   private async _init(): Promise<void> {
     try {
       const SQL = await initSqlJs({
-        locateFile: (file: string) => `/sqljs/${file}`,
+        locateFile: resolveSqlJsWasmPath,
       });
 
       if (this.isElectron) {
-        // Electron 环境 - 尝试加载或创建磁盘文件数据库
+        // Electron environment - load or create the on-disk database.
         await this.initializeElectronDatabase(SQL);
       } else if (this.useOPFS) {
-        // 浏览器环境 - 使用 OPFS 文件存储
+        // Browser environment - use OPFS file storage
         await this.initializeOPFSDatabase(SQL);
+      } else if (!this.isBrowser) {
+        // Node / test environment - pure in-memory database
+        this.db = new SQL.Database();
+        this.createTables();
+        console.log('SQLite database initialized successfully (node in-memory database)');
       } else {
-        // 浏览器环境 - 使用 localStorage (后备方案)
+        // Browser environment - use localStorage as fallback
         this.initializeBrowserDatabase(SQL);
       }
 
       // Start auto-save timer
-      this.startAutoSave();
+      if (this.isBrowser || this.isElectron || this.useOPFS) {
+        this.startAutoSave();
+      }
     } catch (error) {
       console.error('SQLite initialization failed:', error);
       // Fallback to new database
       const SQL = await initSqlJs({
-        locateFile: (file: string) => `/sqljs/${file}`,
+        locateFile: resolveSqlJsWasmPath,
       });
       this.db = new SQL.Database();
       this.createTables();
@@ -101,11 +116,11 @@ class SQLiteManager {
   }
 
   private async initializeElectronDatabase(SQL: any): Promise<void> {
-    // 首先尝试获取已保存的数据库路径或使用默认路径
+    // First try the saved database path or fall back to the default path
     let dbPath = await window.electronAPI.getDbPath();
 
     if (!dbPath) {
-      // 检查是否有默认路径的文件
+      // Check whether a default database path exists.
       const defaultPath = await window.electronAPI.getDefaultDbPath();
       const fileExists = await window.electronAPI.fileExists(defaultPath);
 
@@ -114,18 +129,18 @@ class SQLiteManager {
         await window.electronAPI.setDbPath(defaultPath);
         console.log(`Using default database at: ${defaultPath}`);
       } else {
-        // 没有找到数据库，创建新的默认数据库
+        // No existing database, create a new default database.
         console.log(`Creating new database at: ${defaultPath}`);
         this.db = new SQL.Database();
         this.createTables();
         this.dbPath = defaultPath;
         await window.electronAPI.setDbPath(defaultPath);
-        await this.saveDatabase(); // 保存新数据库
+        await this.saveDatabase();
         return;
       }
     }
 
-    // 尝试加载数据库
+    // Try loading the database from disk.
     try {
       const loadedData = await window.electronAPI.loadDb();
       if (loadedData) {
@@ -133,16 +148,16 @@ class SQLiteManager {
         this.dbPath = dbPath;
         console.log('SQLite database loaded from disk successfully');
       } else {
-        // 没有找到数据库，创建新的
+        // No database found, create a new one.
         this.db = new SQL.Database();
         this.createTables();
         this.dbPath = dbPath;
         console.log('SQLite database initialized successfully (new database)');
-        await this.saveDatabase(); // 保存新数据库
+        await this.saveDatabase();
       }
     } catch (error) {
       console.error('Failed to load database from disk:', error);
-      // 加载失败，创建新数据库
+      // Failed to load, fall back to a new database.
       this.db = new SQL.Database();
       this.createTables();
       this.dbPath = dbPath;
@@ -152,13 +167,12 @@ class SQLiteManager {
 
   private async initializeOPFSDatabase(SQL: any): Promise<void> {
     try {
-      // 获取 OPFS 根目录
+      // Get the OPFS root directory.
       const opfsRoot = await (navigator.storage as any).getDirectory();
 
-      // 尝试打开现有数据库文件
+      // Check whether the database file exists.
       let dbExists = false;
       try {
-        // 检查文件是否存在
         await opfsRoot.getFileHandle(this.DB_FILE_NAME);
         dbExists = true;
         console.log('Existing OPFS database file found');
@@ -167,7 +181,7 @@ class SQLiteManager {
       }
 
       if (dbExists) {
-        // 打开现有文件并加载数据
+        // Open the existing file and load data.
         this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME);
         const file = await this.opfsHandle.getFile();
         const arrayBuffer = await file.arrayBuffer();
@@ -177,18 +191,17 @@ class SQLiteManager {
           this.db = new SQL.Database(uint8Array);
           console.log('SQLite database loaded from OPFS successfully');
         } else {
-          // 文件为空，创建新数据库
+          // Empty file, create a new database.
           this.db = new SQL.Database();
           this.createTables();
           console.log('SQLite database initialized (new OPFS database)');
         }
       } else {
-        // 创建新数据库文件
+        // Create a new database file.
         this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME, { create: true });
         this.db = new SQL.Database();
         this.createTables();
         console.log('SQLite database initialized successfully (new OPFS database)');
-        // 立即保存新创建的数据库
         await this.saveOPFSDatabase(this.db.export());
       }
     } catch (error) {
@@ -225,6 +238,9 @@ class SQLiteManager {
           await window.electronAPI.saveDb(Array.from(new Uint8Array(data)));
         } else if (this.useOPFS) {
           await this.saveOPFSDatabase(data);
+        } else if (!this.isBrowser) {
+          // Node / test environment uses in-memory db only.
+          return;
         } else {
           try {
             const uint8Data = new Uint8Array(data);
@@ -266,16 +282,18 @@ class SQLiteManager {
   }
 
   /**
-   * 清理损坏的数据库数据
+   * 娓呯悊鎹熷潖鐨勬暟鎹簱鏁版嵁
    */
   async clearCorruptedData(): Promise<void> {
     try {
       if (this.useOPFS) {
         const opfsRoot = await (navigator.storage as any).getDirectory();
-        // @ts-ignore - removeEntry 是 OPFS API
+        // @ts-ignore - removeEntry 鏄?OPFS API
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
         console.log('Corrupted OPFS database file cleared');
+      } else if (!this.isBrowser) {
+        return;
       } else {
         localStorage.removeItem(this.DB_STORAGE_KEY);
         console.log('Corrupted database data cleared from localStorage');
@@ -286,6 +304,9 @@ class SQLiteManager {
   }
 
   private loadDatabase(): Uint8Array | null {
+    if (!this.isBrowser) {
+      return null;
+    }
     try {
       const saved = localStorage.getItem(this.DB_STORAGE_KEY);
       if (saved) {
@@ -312,7 +333,7 @@ class SQLiteManager {
   }
 
   /**
-   * 估算 OPFS 存储空间使用情况
+   * Estimate OPFS storage usage.
    */
   async getOPFSUsage(): Promise<{ usage: number; quota: number } | null> {
     if (!this.useOPFS) {
@@ -332,22 +353,24 @@ class SQLiteManager {
   }
 
   private startAutoSave(): void {
+    if (!this.isBrowser && !this.isElectron && !this.useOPFS) {
+      return;
+    }
     // Auto-save every 5 seconds
     this.autoSaveInterval = setInterval(() => {
       this.saveDatabase().catch(err => console.error('Auto-save failed:', err));
     }, 5000);
 
-    // 所有环境都注册页面关闭事件，确保数据写入磁盘
+    // Register unload handlers to preserve pending writes.
     const handleBeforeUnload = () => {
       if (this.db) {
         try {
           const data = this.db.export();
           if (this.useOPFS && this.opfsHandle) {
-            // OPFS: 同步写入 (使用 write + close 的同步模式)
-            // 注意: beforeunload 中 async 操作可能来不及完成
-            // 所以 auto-save 是主要的持久化保障
+            // OPFS sync write path.
+            // beforeunload cannot await async work reliably, so auto-save is the main persistence path.
           } else if (!this.isElectron) {
-            // localStorage: 同步写入，beforeunload 中可靠
+            // localStorage sync write path.
             try {
               const uint8Data = new Uint8Array(data);
               let binaryString = '';
@@ -371,8 +394,10 @@ class SQLiteManager {
       this.saveDatabase().catch(() => {});
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('pagehide', handlePageHide);
+    if (this.isBrowser) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('pagehide', handlePageHide);
+    }
   }
 
   // Manually trigger save
@@ -398,7 +423,7 @@ class SQLiteManager {
   // Import database from file
   async importDatabase(data: Uint8Array): Promise<void> {
     const SQL = await initSqlJs({
-      locateFile: (file: string) => `/sqljs/${file}`,
+      locateFile: resolveSqlJsWasmPath,
     });
     this.db = new SQL.Database(data);
     this.saveDatabase();
@@ -408,124 +433,199 @@ class SQLiteManager {
   private createTables(): void {
     // Create tables with accountSetId for multi-tenancy
     const tables = `
-      -- 账套表
       CREATE TABLE IF NOT EXISTS accountSets (
         id TEXT PRIMARY KEY,
-        code TEXT UNIQUE,
+        code TEXT,
         name TEXT,
-        taxNo TEXT,
         description TEXT,
+        unifiedSocialCreditCode TEXT,
+        taxNo TEXT,
+        address TEXT,
+        baseCurrency TEXT,
+        baseCurrencyName TEXT,
+        currentPeriod TEXT,
+        startDate TEXT,
+        accountingStandard TEXT,
+        enableDate TEXT,
+        status TEXT,
+        createdDate TEXT,
+        lastModifiedDate TEXT,
+        isInitialized INTEGER DEFAULT 0,
+        trialEndDate TEXT,
+        licensedCount INTEGER,
+        lastVoucherNo INTEGER,
+        lastVoucherFullNo TEXT,
+        dbFileName TEXT,
+        dbFilePath TEXT,
+        dbFileSize INTEGER,
+        dbLastModified INTEGER,
+        dbStorageType TEXT,
+        dbHandleId TEXT,
         createTime TEXT,
-        updateTime TEXT
+        updateTime TEXT,
+        payrollRegionId TEXT,
+        payrollTaxRules TEXT,
+        payrollSalaryExpenseSubjectCode TEXT,
+        payrollSalaryExpenseSubjectName TEXT,
+        payrollContributionExpenseSubjectCode TEXT,
+        payrollContributionExpenseSubjectName TEXT,
+        payrollSalaryPayableSubjectCode TEXT,
+        payrollSalaryPayableSubjectName TEXT,
+        payrollTaxPayableSubjectCode TEXT,
+        payrollTaxPayableSubjectName TEXT,
+        payrollEmployeeContributionPayableSubjectCode TEXT,
+        payrollEmployeeContributionPayableSubjectName TEXT,
+        payrollEmployerContributionPayableSubjectCode TEXT,
+        payrollEmployerContributionPayableSubjectName TEXT,
+        accounting TEXT
       );
 
-      -- 凭证表
       CREATE TABLE IF NOT EXISTS vouchers (
         id TEXT PRIMARY KEY,
         voucherNo TEXT,
+        voucherType TEXT,
         date TEXT,
-        status TEXT,
         summary TEXT,
-        creator TEXT,
-        reviewer TEXT,
-        poster TEXT,
-        reverseVoucherId TEXT,
-        referenceNumber TEXT,
-        attachmentCount INTEGER DEFAULT 0,
+        status TEXT,
+        createdAt TEXT,
+        updatedAt TEXT,
         accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (accountSetId) REFERENCES accountSets(id),
-        FOREIGN KEY (reverseVoucherId) REFERENCES vouchers(id)
+        totalDebit REAL DEFAULT 0,
+        totalCredit REAL DEFAULT 0,
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 分录表
       CREATE TABLE IF NOT EXISTS entries (
         id TEXT PRIMARY KEY,
         voucherId TEXT,
+        accountSetId TEXT,
+        date TEXT,
+        summary TEXT,
         subjectCode TEXT,
         subjectName TEXT,
-        direction TEXT,
-        debit REAL,
-        credit REAL,
-        summary TEXT,
-        customerName TEXT,
-        supplierName TEXT,
-        auxiliary TEXT,
+        debit REAL DEFAULT 0,
+        credit REAL DEFAULT 0,
         recRefNo TEXT,
-        departmentCode TEXT,
-        departmentName TEXT,
-        projectCode TEXT,
-        projectName TEXT,
-        currencyCode TEXT,
-        exchangeRate REAL DEFAULT 1.0,
-        originalAmount REAL DEFAULT 0,
-        date TEXT,
-        accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT,
         FOREIGN KEY (voucherId) REFERENCES vouchers(id),
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 科目表
+      CREATE TABLE IF NOT EXISTS currencies (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE,
+        name TEXT,
+        symbol TEXT,
+        precision INTEGER,
+        exchangeRate REAL,
+        rateStartDate TEXT,
+        gainLossSubjectCode TEXT,
+        gainLossSubjectName TEXT,
+        isBase INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
+        disabled INTEGER DEFAULT 0,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT,
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS fxRates (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        rateDate TEXT NOT NULL,
+        currencyCode TEXT NOT NULL,
+        baseCurrency TEXT NOT NULL,
+        middleRate REAL NOT NULL,
+        source TEXT,
+        createTime TEXT NOT NULL,
+        updateTime TEXT NOT NULL,
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS bank_account_bindings (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        accountNumber TEXT NOT NULL,
+        bankId TEXT,
+        bankName TEXT,
+        aliasName TEXT,
+        subSubjectCode TEXT,
+        subSubjectName TEXT,
+        branch TEXT,
+        currency TEXT,
+        isDefault INTEGER DEFAULT 0,
+        createdAt TEXT,
+        updateTime TEXT,
+        bankAccountCode TEXT,
+        bankAccountName TEXT,
+        bankAccountNumber TEXT,
+        currencyCode TEXT,
+        subjectCode TEXT,
+        subjectName TEXT,
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS fxRevaluationRuns (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        period TEXT NOT NULL,
+        baseCurrency TEXT NOT NULL,
+        status TEXT NOT NULL,
+        previewData TEXT,
+        voucherId TEXT,
+        voucherNo TEXT,
+        createdAt TEXT NOT NULL,
+        confirmedAt TEXT,
+        createTime TEXT,
+        updateTime TEXT,
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS fxRevaluationRunLines (
+        id TEXT PRIMARY KEY,
+        runId TEXT NOT NULL,
+        accountSetId TEXT NOT NULL,
+        sourceType TEXT NOT NULL,
+        sourceId TEXT NOT NULL,
+        sourceName TEXT,
+        currencyCode TEXT NOT NULL,
+        originalAmount REAL NOT NULL,
+        originalRate REAL NOT NULL,
+        revaluationRate REAL NOT NULL,
+        bookValueBase REAL NOT NULL,
+        revaluedBase REAL NOT NULL,
+        gainLossAmount REAL NOT NULL,
+        gainLossDirection TEXT NOT NULL,
+        subjectCode TEXT,
+        subjectName TEXT,
+        createTime TEXT,
+        FOREIGN KEY (runId) REFERENCES fxRevaluationRuns(id),
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
+      );
+
       CREATE TABLE IF NOT EXISTS subjects (
         id TEXT PRIMARY KEY,
         code TEXT,
         name TEXT,
+        fullName TEXT,
         parentId TEXT,
-        level INTEGER DEFAULT 1,
-        type TEXT,
-        direction TEXT DEFAULT 'debit',
-        balance REAL DEFAULT 0,
-        enabled INTEGER DEFAULT 1,
-        frozen INTEGER DEFAULT 0,
-        description TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (parentId) REFERENCES subjects(id),
-        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
-      );
-
-      -- 部门表
-      CREATE TABLE IF NOT EXISTS departments (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        parentId TEXT,
-        level INTEGER DEFAULT 1,
-        enabled INTEGER DEFAULT 1,
-        description TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (parentId) REFERENCES departments(id),
-        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
-      );
-
-      -- 项目表
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        description TEXT,
+        level INTEGER,
+        direction TEXT,
+        isLeaf INTEGER DEFAULT 0,
+        subjectType TEXT,
         enabled INTEGER DEFAULT 1,
         accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT,
-        FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
-      );
-
-      -- 币别表
-      CREATE TABLE IF NOT EXISTS currencies (
-        id TEXT PRIMARY KEY,
-        code TEXT,
-        name TEXT,
-        symbol TEXT,
-        exchangeRate REAL DEFAULT 1.0,
-        enabled INTEGER DEFAULT 1,
-        accountSetId TEXT,
+        enableDept INTEGER DEFAULT 0,
+        enableProject INTEGER DEFAULT 0,
+        enableForeign INTEGER DEFAULT 0,
+        foreignCurrency TEXT,
+        isCustomer INTEGER DEFAULT 0,
+        isSupplier INTEGER DEFAULT 0,
+        isEmployee INTEGER DEFAULT 0,
+        enableCashFlow INTEGER DEFAULT 0,
+        bankAccountNumber TEXT,
         createTime TEXT,
         updateTime TEXT,
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
@@ -550,7 +650,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 凭证模板表
       CREATE TABLE IF NOT EXISTS voucherTemplates (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -566,7 +665,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 常用摘要表
       CREATE TABLE IF NOT EXISTS commonSummaries (
         id TEXT PRIMARY KEY,
         content TEXT,
@@ -577,7 +675,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 用户偏好表
       CREATE TABLE IF NOT EXISTS userPreferences (
         id TEXT PRIMARY KEY,
         userId TEXT,
@@ -590,7 +687,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 审计日志表
       CREATE TABLE IF NOT EXISTS auditLogs (
         id TEXT PRIMARY KEY,
         type TEXT,
@@ -603,7 +699,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 核销关系表
       CREATE TABLE IF NOT EXISTS recRelations (
         id TEXT PRIMARY KEY,
         recRefNo TEXT,
@@ -620,7 +715,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 资产分类表
       CREATE TABLE IF NOT EXISTS assetCategories (
         id TEXT PRIMARY KEY,
         code TEXT UNIQUE,
@@ -641,7 +735,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 固定资产卡片表
       CREATE TABLE IF NOT EXISTS fixedAssets (
         id TEXT PRIMARY KEY,
         assetCode TEXT UNIQUE,
@@ -685,7 +778,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 折旧记录表
       CREATE TABLE IF NOT EXISTS depreciationRecords (
         id TEXT PRIMARY KEY,
         assetId TEXT NOT NULL,
@@ -710,7 +802,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 无形资产表
       CREATE TABLE IF NOT EXISTS intangibleAssets (
         id TEXT PRIMARY KEY,
         assetCode TEXT UNIQUE,
@@ -747,7 +838,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 待摊费用表
       CREATE TABLE IF NOT EXISTS prepaidExpenses (
         id TEXT PRIMARY KEY,
         expenseCode TEXT UNIQUE,
@@ -805,7 +895,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 工资批次表
       CREATE TABLE IF NOT EXISTS payroll_batches (
         id TEXT PRIMARY KEY,
         accountSetId TEXT NOT NULL,
@@ -821,10 +910,11 @@ class SQLiteManager {
         calculationConfigSnapshot TEXT NOT NULL,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
-        confirmedAt TEXT
+        confirmedAt TEXT,
+        accrualVoucherId TEXT,
+        accrualVoucherNo TEXT
       );
 
-      -- 工资明细表
       CREATE TABLE IF NOT EXISTS payroll_items (
         id TEXT PRIMARY KEY,
         batchId TEXT NOT NULL,
@@ -841,7 +931,6 @@ class SQLiteManager {
         updatedAt TEXT NOT NULL
       );
 
-      -- 工资计算配置表
       CREATE TABLE IF NOT EXISTS payroll_calculation_configs (
         id TEXT PRIMARY KEY,
         accountSetId TEXT NOT NULL,
@@ -855,7 +944,6 @@ class SQLiteManager {
         updatedAt TEXT NOT NULL
       );
 
-      -- 发票表
       CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY,
         invoiceType TEXT NOT NULL,
@@ -890,7 +978,6 @@ class SQLiteManager {
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
 
-      -- 发票核销记录表
       CREATE TABLE IF NOT EXISTS invoiceReconciliations (
         id TEXT PRIMARY KEY,
         invoiceId TEXT NOT NULL,
@@ -957,6 +1044,11 @@ class SQLiteManager {
       CREATE INDEX IF NOT EXISTS idx_depreciationRecords_assetId ON depreciationRecords(assetId);
       CREATE INDEX IF NOT EXISTS idx_depreciationRecords_period ON depreciationRecords(period);
       CREATE INDEX IF NOT EXISTS idx_depreciationRecords_voucherId ON depreciationRecords(voucherId);
+
+      -- FX indexes
+      CREATE INDEX IF NOT EXISTS idx_fxRates_accountSetId ON fxRates(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_fxRates_rateDate ON fxRates(rateDate);
+      CREATE INDEX IF NOT EXISTS idx_fxRates_currencyCode ON fxRates(currencyCode);
 
       -- Intangible Assets indexes
       CREATE INDEX IF NOT EXISTS idx_intangibleAssets_accountSetId ON intangibleAssets(accountSetId);
@@ -1025,12 +1117,12 @@ class SQLiteManager {
     return this.db;
   }
 
-  // 同步版本 - 必须在调用前先调用 init()
+  // Synchronous accessor - call init() before use.
   getDatabase(): any {
     if (!this.db) {
       console.warn('SQLite database not initialized, attempting to initialize...');
-      // 不在这里做复杂的异步操作
-      // 只是记录警告，让调用者知道问题
+      // Do not perform complex async work here.
+      // Only log a warning so callers know initialization is pending.
     }
     return this.db;
   }
@@ -1046,7 +1138,7 @@ class SQLiteManager {
     return this.db !== null;
   }
 
-  // 同步获取数据库，如果未初始化则抛出错误
+  // Get the database synchronously; throw if init() has not completed.
   getDatabaseSync(): any {
     if (!this.db) {
       throw new Error('Database not initialized. Call init() first.');
@@ -1559,18 +1651,17 @@ class SQLiteManager {
     }
   }
 
-  // ========== OPFS 辅助方法 ==========
+  // ========== OPFS helper methods ==========
 
   /**
-   * 检查是否正在使用 OPFS 存储
+   * Check whether OPFS storage is active.
    */
   isUsingOPFS(): boolean {
     return this.useOPFS;
   }
 
   /**
-   * 获取数据库文件信息（仅 OPFS 环境）
-   */
+   * Get database file info in OPFS mode.
   async getDatabaseFileInfo(): Promise<{ name: string; size: number; lastModified: number } | null> {
     if (!this.useOPFS || !this.opfsHandle) {
       return null;
@@ -1590,8 +1681,7 @@ class SQLiteManager {
   }
 
   /**
-   * 下载数据库文件（用于手动备份）
-   */
+   * Download the database file for manual backup.
   async downloadDatabase(): Promise<void> {
     if (!this.db) return;
 
@@ -1616,12 +1706,12 @@ class SQLiteManager {
   }
 
   /**
-   * 从文件上传并导入数据库
+   * Upload a database file and import it.
    */
   async uploadDatabase(file: File): Promise<void> {
     try {
       const SQL = await initSqlJs({
-        locateFile: (file: string) => `/sqljs/${file}`,
+        locateFile: resolveSqlJsWasmPath,
       });
 
       const arrayBuffer = await file.arrayBuffer();
@@ -1638,21 +1728,21 @@ class SQLiteManager {
   }
 
   /**
-   * 删除 OPFS 数据库文件并重置
+   * Delete the OPFS database file and reset state.
    */
   async resetDatabase(): Promise<void> {
     try {
       if (this.useOPFS) {
         const opfsRoot = await (navigator.storage as any).getDirectory();
-        // 使用 removeEntry 删除文件
-        // @ts-ignore - removeEntry 是 OPFS API
+        // Use removeEntry to delete the database file.
+        // @ts-ignore - removeEntry is part of the OPFS API.
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
       } else {
         localStorage.removeItem(this.DB_STORAGE_KEY);
       }
 
-      // 重新初始化
+      // Re-initialize the in-memory database.
       this.db = null;
       this.initPromise = null;
       await this.init();
@@ -1666,3 +1756,5 @@ class SQLiteManager {
 }
 
 export const sqliteManager = SQLiteManager.getInstance();
+
+

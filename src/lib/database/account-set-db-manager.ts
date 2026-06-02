@@ -10,6 +10,8 @@ export interface AccountSetInfo {
   id: string;
   code: string;
   name: string;
+  baseCurrency: string;
+  baseCurrencyName: string;
   description: string;
   createTime: string;
   updateTime: string;
@@ -49,13 +51,20 @@ class AccountSetDbManager {
   /**
    * 创建账套（在全局数据库 accountSets 表插入记录）
    */
-  async createAccountSet(accountSetId: string, name: string, code?: string, description?: string): Promise<void> {
+  async createAccountSet(
+    accountSetId: string,
+    name: string,
+    code?: string,
+    description?: string,
+    baseCurrency = 'CNY',
+    baseCurrencyName = '人民币'
+  ): Promise<void> {
     const db = await sqliteService.getDatabase();
     const now = new Date().toISOString();
     const stmt = db.prepare(
-      `INSERT OR IGNORE INTO accountSets (id, code, name, description, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO accountSets (id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    stmt.run([accountSetId, code || accountSetId, name, description || '', now, now]);
+    stmt.run([accountSetId, code || accountSetId, name, baseCurrency, baseCurrencyName, description || '', now, now]);
     stmt.free();
   }
 
@@ -77,6 +86,9 @@ class AccountSetDbManager {
       'fixedAssets',
       'assetCategories',
       'recRelations',
+      'fxRates',
+      'fxRevaluationRuns',
+      'fxRevaluationRunLines',
       'auditLogs',
       'userPreferences',
       'commonSummaries',
@@ -137,21 +149,33 @@ class AccountSetDbManager {
     stmt.free();
   }
 
+  async updateAccountSetBaseCurrency(accountSetId: string, baseCurrency: string, baseCurrencyName?: string): Promise<void> {
+    const db = await sqliteService.getDatabase();
+    const now = new Date().toISOString();
+    const stmt = db.prepare(
+      `UPDATE accountSets SET baseCurrency = ?, baseCurrencyName = COALESCE(?, baseCurrencyName), updateTime = ? WHERE id = ?`
+    );
+    stmt.run([baseCurrency || 'CNY', baseCurrencyName || null, now, accountSetId]);
+    stmt.free();
+  }
+
   /**
    * 获取所有账套信息
    */
   async getAllAccountSets(): Promise<AccountSetInfo[]> {
     const db = await sqliteService.getDatabase();
-    const result = db.exec(`SELECT id, code, name, description, createTime, updateTime FROM accountSets ORDER BY createTime`);
+    const result = db.exec(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets ORDER BY createTime`);
     if (!result[0]?.values) return [];
 
     return result[0].values.map((row: any[]) => ({
       id: row[0],
       code: row[1],
       name: row[2],
-      description: row[3],
-      createTime: row[4],
-      updateTime: row[5],
+      baseCurrency: row[3] || 'CNY',
+      baseCurrencyName: row[4] || '人民币',
+      description: row[5],
+      createTime: row[6],
+      updateTime: row[7],
     }));
   }
 
@@ -160,7 +184,7 @@ class AccountSetDbManager {
    */
   async getAccountSetInfo(accountSetId: string): Promise<AccountSetInfo | null> {
     const db = await sqliteService.getDatabase();
-    const stmt = db.prepare(`SELECT id, code, name, description, createTime, updateTime FROM accountSets WHERE id = ?`);
+    const stmt = db.prepare(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets WHERE id = ?`);
     stmt.bind([accountSetId]);
     const hasRow = stmt.step();
     if (!hasRow) {
@@ -173,9 +197,11 @@ class AccountSetDbManager {
       id: row[0],
       code: row[1],
       name: row[2],
-      description: row[3],
-      createTime: row[4],
-      updateTime: row[5],
+      baseCurrency: row[3] || 'CNY',
+      baseCurrencyName: row[4] || '人民币',
+      description: row[5],
+      createTime: row[6],
+      updateTime: row[7],
     };
   }
 
@@ -213,6 +239,9 @@ class AccountSetDbManager {
     const userPreferences = queryTable('userPreferences');
     const auditLogs = queryTable('auditLogs');
     const recRelations = queryTable('recRelations');
+    const fxRates = queryTable('fxRates');
+    const fxRevaluationRuns = queryTable('fxRevaluationRuns');
+    const fxRevaluationRunLines = queryTable('fxRevaluationRunLines');
     const fixedAssets = queryTable('fixedAssets');
     const depreciationRecords = queryTable('depreciationRecords');
     const intangibleAssets = queryTable('intangibleAssets');
@@ -235,6 +264,9 @@ class AccountSetDbManager {
       userPreferences,
       auditLogs,
       recRelations,
+      fxRates,
+      fxRevaluationRuns,
+      fxRevaluationRunLines,
       fixedAssets,
       depreciationRecords,
       intangibleAssets,
@@ -292,7 +324,7 @@ class AccountSetDbManager {
             entry.direction, entry.debit, entry.credit, entry.summary,
             entry.customerName, entry.supplierName, entry.auxiliary, entry.recRefNo,
             entry.departmentCode, entry.departmentName, entry.projectCode, entry.projectName,
-            entry.currencyCode, entry.exchangeRate, entry.originalAmount, entry.date,
+            entry.currencyCode, entry.currencyName || null, entry.exchangeRate, entry.originalAmount, entry.date,
             accountSetId,
             entry.createTime, entry.updateTime
           ]);
@@ -350,6 +382,82 @@ class AccountSetDbManager {
           } catch {
             // Skip records that fail
           }
+        }
+      }
+
+      if (data.fxRates) {
+        for (const rate of data.fxRates) {
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO fxRates (
+              id, accountSetId, rateDate, currencyCode, baseCurrency, middleRate, source, createTime, updateTime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run([
+            rate.id,
+            rate.accountSetId || accountSetId,
+            rate.rateDate,
+            rate.currencyCode,
+            rate.baseCurrency || 'CNY',
+            rate.middleRate,
+            rate.source || null,
+            rate.createTime,
+            rate.updateTime
+          ]);
+          stmt.free();
+        }
+      }
+
+      if (data.fxRevaluationRuns) {
+        for (const run of data.fxRevaluationRuns) {
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO fxRevaluationRuns (
+              id, accountSetId, period, baseCurrency, status, scope, revaluationDate,
+              createdBy, notes, createTime, updateTime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run([
+            run.id,
+            run.accountSetId || accountSetId,
+            run.period,
+            run.baseCurrency || 'CNY',
+            run.status,
+            run.scope,
+            run.revaluationDate,
+            run.createdBy || null,
+            run.notes || null,
+            run.createTime,
+            run.updateTime
+          ]);
+          stmt.free();
+        }
+      }
+
+      if (data.fxRevaluationRunLines) {
+        for (const line of data.fxRevaluationRunLines) {
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO fxRevaluationRunLines (
+              id, runId, accountSetId, sourceType, sourceId, sourceNo, currencyCode,
+              baseCurrency, originalAmount, originalRate, revaluedAmount, gainLossAmount,
+              rateDate, createTime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run([
+            line.id,
+            line.runId,
+            line.accountSetId || accountSetId,
+            line.sourceType,
+            line.sourceId,
+            line.sourceNo || null,
+            line.currencyCode,
+            line.baseCurrency || 'CNY',
+            line.originalAmount,
+            line.originalRate ?? null,
+            line.revaluedAmount,
+            line.gainLossAmount,
+            line.rateDate || null,
+            line.createTime
+          ]);
+          stmt.free();
         }
       }
 

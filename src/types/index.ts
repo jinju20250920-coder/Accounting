@@ -1,4 +1,4 @@
-// 账套
+﻿// 账套
 export interface AccountingSet {
   id: string;
   code: string;
@@ -78,6 +78,9 @@ export interface VoucherEntry {
   credit: number;
   currencyCode?: string; // 币别代码
   currencyName?: string; // 币别名称
+  exchangeRate?: number;
+  originalAmount?: number;
+  localAmount?: number;
   cashFlowItem?: string; // 现金流量项目
   customerName?: string; // 客户名称
   supplierName?: string; // 供应商名称
@@ -137,16 +140,6 @@ export interface Department {
   name: string;
   parentId: string | null;
   level: number;
-  payrollSalaryExpenseSubjectCode?: string;
-  payrollSalaryExpenseSubjectName?: string;
-  payrollContributionExpenseSubjectCode?: string;
-  payrollContributionExpenseSubjectName?: string;
-  payrollSalaryPayableSubjectCode?: string;
-  payrollSalaryPayableSubjectName?: string;
-  payrollTaxPayableSubjectCode?: string;
-  payrollTaxPayableSubjectName?: string;
-  payrollEmployeeContributionPayableSubjectCode?: string;
-  payrollEmployeeContributionPayableSubjectName?: string;
   frozen: boolean; // 冻结状态
   accountSetId?: string; // 新增字段：所属账套ID
 }
@@ -184,12 +177,81 @@ export interface ExchangeRate {
   id: string;
   accountingSetId: string;
   period: string;
-  fromCurrency: string;
-  toCurrency: string;
-  rate: number;
+  currencyCode: string;
+  middleRate: number;
+  baseCurrency?: string;
+  source?: string;
   isManual: boolean;
   createTime: string;
   updateTime: string;
+}
+
+// 每日汇率
+export interface FxRate {
+  id: string;
+  accountSetId: string;
+  rateDate: string;
+  currencyCode: string;
+  baseCurrency: string;
+  middleRate: number;
+  source?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+// 银行账户币种绑定
+export interface BankAccountBinding {
+  id: string;
+  accountSetId: string;
+  accountNumber: string;
+  bankId?: string;
+  bankName?: string;
+  aliasName?: string;
+  subSubjectCode?: string;
+  subSubjectName?: string;
+  branch?: string;
+  currency?: string;
+  currencyCode?: string;
+  isDefault?: boolean;
+  createdAt: string;
+  updateTime?: string;
+}
+
+// 汇兑损益重估任务
+export interface FxRevaluationRun {
+  id: string;
+  accountSetId: string;
+  period: string;
+  baseCurrency: string;
+  status: 'draft' | 'previewed' | 'confirmed' | 'posted';
+  previewData?: string;
+  voucherId?: string;
+  voucherNo?: string;
+  createdAt: string;
+  confirmedAt?: string;
+  createTime?: string;
+  updateTime?: string;
+}
+
+// 汇兑损益重估明细
+export interface FxRevaluationRunLine {
+  id: string;
+  runId: string;
+  accountSetId: string;
+  sourceType: 'bank' | 'receivable' | 'payable' | 'ledger';
+  sourceId: string;
+  sourceName?: string;
+  currencyCode: string;
+  originalAmount: number;
+  originalRate: number;
+  revaluationRate: number;
+  bookValueBase: number;
+  revaluedBase: number;
+  gainLossAmount: number;
+  gainLossDirection: 'gain' | 'loss';
+  subjectCode?: string;
+  subjectName?: string;
+  createTime?: string;
 }
 
 // 汇兑损益
@@ -419,6 +481,10 @@ export interface LedgerEntry {
   subjectName: string;
   debit: number;
   credit: number;
+  currencyCode?: string;
+  currencyName?: string;
+  exchangeRate?: number;
+  originalAmount?: number;
   deptCode?: string;
   projectCode?: string;
   auxiliary?: {
@@ -479,7 +545,8 @@ export interface Currency {
   gainLossSubjectCode: string;
   gainLossSubjectName: string;
   isBase: boolean;
-  disabled: boolean;
+  enabled?: boolean;
+  disabled?: boolean;
   createTime: string;
   accountSetId?: string; // 新增字段：所属账套ID
   updateTime: string;
@@ -546,6 +613,8 @@ export interface Partner {
   taxNumber?: string; // 税号
   bankAccount?: string; // 银行账号
   bankName?: string; // 开户银行
+  departmentCode?: string; // 部门代码
+  departmentName?: string; // 部门名称
   defaultSubjectCode?: string; // 默认对方科目代码（供应商→应付账款，客户→应收账款）
   defaultSubjectName?: string; // 默认对方科目名称
   paymentTermDays?: number; // 账期天数（入账日期+账期=到期日）
@@ -559,6 +628,8 @@ export interface Partner {
   payrollTaxPayableSubjectName?: string;
   payrollEmployeeContributionPayableSubjectCode?: string;
   payrollEmployeeContributionPayableSubjectName?: string;
+  payrollEmployerContributionPayableSubjectCode?: string;
+  payrollEmployerContributionPayableSubjectName?: string;
   payrollDepartmentName?: string;
   payrollProjectName?: string;
   payrollCostCenterName?: string;

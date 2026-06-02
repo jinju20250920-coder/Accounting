@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -294,6 +294,10 @@ export default function VoucherListPage() {
     }
   }, [selectedStatus]);
 
+  useEffect(() => {
+    void useVoucherStore.getState().initialize();
+  }, []);
+
   const handleEndMonthChange = (value: string) => {
     setEndMonth(value);
     if (value && startMonth && value < startMonth) {
@@ -561,6 +565,16 @@ export default function VoucherListPage() {
         await getCurrentService().saveVoucher(reversedVoucher);
         // 更新原凭证状态为已冲销
         await getCurrentService().updateVoucherStatus(voucher.id, 'reversed');
+        // 如果是工资计提凭证，解除工资批次与凭证的绑定，便于回到工资管理重新生成
+        const { sqliteService } = await import('@/lib/database/sqlite-service');
+        const payrollBatch = await sqliteService.getPayrollBatchByVoucherId(voucher.id);
+        const cleared = await sqliteService.clearPayrollBatchVoucherByVoucherId(voucher.id);
+        if (cleared && payrollBatch) {
+          showToast('info', '工资计提凭证已冲销，系统将返回工资管理重新生成。');
+          router.push(`/payroll?period=${payrollBatch.payrollPeriod}`);
+        } else if (cleared) {
+          showToast('info', '工资计提凭证已冲销，已解除工资批次绑定，请返回工资管理重新生成。');
+        }
       }
     );
   };
@@ -964,11 +978,15 @@ export default function VoucherListPage() {
                                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(voucher)} title="复制">
                                   <Copy className="w-3.5 h-3.5" />
                                 </Button>
-                                {(voucher.status === 'draft' || voucher.status === 'review') && (
+                                {voucher.status === 'posted' ? (
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleReverse(voucher)} title="冲销">
+                                    <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
+                                  </Button>
+                                ) : (voucher.status === 'draft' || voucher.status === 'review') ? (
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(voucher)} title="删除">
                                     <Trash2 className="w-3.5 h-3.5 text-red-500" />
                                   </Button>
-                                )}
+                                ) : null}
                               </div>
                             </td>
                           </tr>

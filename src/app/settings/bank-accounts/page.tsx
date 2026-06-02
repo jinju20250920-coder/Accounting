@@ -7,8 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { useBankAccountStore } from '@/stores';
-import { useSubjectStore } from '@/stores';
+import { useBankAccountStore, useCurrencyStore, useSubjectStore } from '@/stores';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
 import { getBankList, getAllConfigs, BANK_BRANDS } from '@/lib/bank-parsers/bank-registry';
@@ -16,7 +15,7 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { FieldMappingCoach } from '@/components/field-mapping-coach';
 import { BankFormatTestDialog } from '@/components/bank-format-test-dialog';
-import type { BankAccountBinding, BankParserConfig, CustomBankConfig } from '@/lib/bank-parsers/types';
+import type { BankAccountBinding, BankAccountBindingInput, BankParserConfig, CustomBankConfig } from '@/lib/bank-parsers/types';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
 import {
   Plus, Trash2, Edit2, Building2, Search, X, Landmark, CheckCircle2,
@@ -36,9 +35,10 @@ interface FormData {
   bankName: string;
   accountNumber: string;
   aliasName: string;
+  currency: string;
 }
 
-const emptyForm: FormData = { bankId: '', bankName: '', accountNumber: '', aliasName: '' };
+const emptyForm: FormData = { bankId: '', bankName: '', accountNumber: '', aliasName: '', currency: '' };
 
 type WizardStep = 'info' | 'format' | null;
 
@@ -46,8 +46,31 @@ export default function BankAccountsPage() {
   const { showToast } = useToast();
   const { bindings, loading, loadBindings, addBinding, updateBinding, deleteBinding } = useBankAccountStore();
   const { subjects, addSubject, deleteSubject } = useSubjectStore();
+  const currencies = useCurrencyStore((state) => state.currencies);
+  const currentAccountSet = useAccountSetStore((state) => state.getCurrentAccountSet());
   const bankList = getBankList();
   const builtInConfigs = getAllConfigs();
+  const defaultCurrencyCode = currentAccountSet?.baseCurrency || 'CNY';
+  const defaultCurrencyName = currentAccountSet?.baseCurrencyName || '人民币';
+  const currencyOptions = (() => {
+    const seen = new Set<string>();
+    const options: Array<{ code: string; name: string; symbol: string }> = [];
+    const enabledCurrencies = currencies.filter((currency) => !currency.disabled);
+    const baseCurrency = enabledCurrencies.find((currency) => currency.code === defaultCurrencyCode);
+    if (baseCurrency) {
+      seen.add(baseCurrency.code);
+      options.push(baseCurrency);
+    } else {
+      seen.add(defaultCurrencyCode);
+      options.push({ code: defaultCurrencyCode, name: defaultCurrencyName, symbol: defaultCurrencyCode });
+    }
+    for (const currency of enabledCurrencies) {
+      if (seen.has(currency.code)) continue;
+      seen.add(currency.code);
+      options.push(currency);
+    }
+    return options;
+  })();
 
   // Form & wizard state
   const [wizardStep, setWizardStep] = useState<WizardStep>(null);
@@ -77,7 +100,7 @@ export default function BankAccountsPage() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [showImportPreview, setShowImportPreview] = useState(false);
-  const [importRows, setImportRows] = useState<Array<{ bankId: string; bankName: string; accountNumber: string; aliasName: string; _status: 'ok' | 'dup' | 'error' }>>([]);
+  const [importRows, setImportRows] = useState<Array<{ bankId: string; bankName: string; accountNumber: string; aliasName: string; currency: string; _status: 'ok' | 'dup' | 'error' }>>([]);
 
   useEffect(() => { loadBindings(); loadCustomConfigs(); }, [loadBindings]);
 
@@ -94,7 +117,8 @@ export default function BankAccountsPage() {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return b.bankName.toLowerCase().includes(q) || b.accountNumber.includes(q)
-      || b.subSubjectCode.includes(q) || (b.aliasName && b.aliasName.toLowerCase().includes(q));
+      || b.subSubjectCode.includes(q) || (b.aliasName && b.aliasName.toLowerCase().includes(q))
+      || (b.currency && b.currency.toLowerCase().includes(q));
   });
 
   const matchBankName = (raw: string) => {
@@ -124,19 +148,25 @@ export default function BankAccountsPage() {
   const startAddFromCard = (bankId: string) => {
     const bank = bankList.find(b => b.id === bankId);
     setEditingId(null);
-    setFormData({ ...emptyForm, bankId, bankName: bank?.name || '' });
+    setFormData({ ...emptyForm, bankId, bankName: bank?.name || '', currency: defaultCurrencyCode });
     setWizardStep('info');
   };
 
   const startAddManual = () => {
     setEditingId(null);
-    setFormData(emptyForm);
+    setFormData({ ...emptyForm, currency: defaultCurrencyCode });
     setWizardStep('info');
   };
 
   const startEdit = (binding: BankAccountBinding) => {
     setEditingId(binding.id);
-    setFormData({ bankId: binding.bankId, bankName: binding.bankName, accountNumber: binding.accountNumber, aliasName: binding.aliasName || '' });
+    setFormData({
+      bankId: binding.bankId,
+      bankName: binding.bankName,
+      accountNumber: binding.accountNumber,
+      aliasName: binding.aliasName || '',
+      currency: binding.currency || defaultCurrencyCode,
+    });
     setCustomBankName(binding.bankName || '');
     setWizardStep('info');
   };
@@ -188,19 +218,20 @@ export default function BankAccountsPage() {
     if (!bankName) { showToast('error', '银行名称缺失'); return; }
 
     const last4 = formData.accountNumber.slice(-4);
-    const accountSetStore = useAccountSetStore.getState();
-    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+    const currency = formData.currency.trim() || defaultCurrencyCode;
 
     if (editingId) {
       const existing = bindings.find(b => b.id === editingId);
       if (!existing) return;
       const subjectName = `银行存款 - ${bankName} (${last4})`;
-      await updateBinding(editingId, {
+      const updatePayload: Partial<BankAccountBindingInput> = {
         bankId, bankName,
         accountNumber: formData.accountNumber.trim(),
         aliasName: formData.aliasName.trim() || undefined,
         subSubjectName: subjectName,
-      });
+        currency,
+      };
+      await updateBinding(editingId, updatePayload);
       if (existing.subSubjectCode) {
         const subject = subjects.find(s => s.code === existing.subSubjectCode);
         if (subject) {
@@ -224,14 +255,16 @@ export default function BankAccountsPage() {
         } as any);
       } catch { showToast('error', '创建科目失败'); return; }
 
-      await addBinding({
+      const bindingPayload: BankAccountBindingInput = {
         accountSetId: currentAccountSet?.id || '',
         accountNumber: formData.accountNumber.trim(),
         bankId, bankName,
         aliasName: formData.aliasName.trim() || undefined,
         subSubjectCode: subjectCode, subSubjectName: subjectName,
-        currency: 'CNY', isDefault: bindings.length === 0,
-      });
+        currency,
+        isDefault: bindings.length === 0,
+      };
+      await addBinding(bindingPayload);
       showToast('success', '银行账户添加成功');
     }
     cancelWizard();
@@ -315,9 +348,11 @@ export default function BankAccountsPage() {
       const parsed = data.slice(1).filter(row => row.some((c: any) => String(c || '').trim())).map((row) => {
         const bank = matchBankName(String(row[0] || '').trim());
         const accountNumber = String(row[1] || '').trim();
-        if (!bank) return { bankId: '', bankName: String(row[0] || '').trim(), accountNumber, aliasName: String(row[2] || '').trim(), _status: 'error' as const };
-        if (!accountNumber) return { bankId: bank.id, bankName: bank.name, accountNumber: '', aliasName: String(row[2] || '').trim(), _status: 'error' as const };
-        return { bankId: bank.id, bankName: bank.name, accountNumber, aliasName: String(row[2] || '').trim(), _status: bindings.some(b => b.accountNumber === accountNumber) ? 'dup' as const : 'ok' as const };
+        const aliasName = String(row[2] || '').trim();
+        const currency = String(row[3] || '').trim().toUpperCase() || defaultCurrencyCode;
+        if (!bank) return { bankId: '', bankName: String(row[0] || '').trim(), accountNumber, aliasName, currency, _status: 'error' as const };
+        if (!accountNumber) return { bankId: bank.id, bankName: bank.name, accountNumber: '', aliasName, currency, _status: 'error' as const };
+        return { bankId: bank.id, bankName: bank.name, accountNumber, aliasName, currency, _status: bindings.some(b => b.accountNumber === accountNumber) ? 'dup' as const : 'ok' as const };
       });
       if (parsed.length === 0) { showToast('error', '无有效数据'); setImporting(false); return; }
       setImportRows(parsed);

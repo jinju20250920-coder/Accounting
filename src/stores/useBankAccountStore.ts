@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { BankAccountBinding } from '@/lib/bank-parsers/types';
+import type { BankAccountBinding, BankAccountBindingInput } from '@/lib/bank-parsers/types';
 import { getCurrentService } from '@/lib/database';
 import { sqliteService } from '@/lib/database/sqlite-service';
+import { useAccountSetStore } from './useAccountSetStore';
 
 type SqliteServiceType = typeof sqliteService;
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
@@ -10,7 +11,7 @@ interface BankAccountStore {
   bindings: BankAccountBinding[];
   loading: boolean;
   loadBindings: () => Promise<void>;
-  addBinding: (data: Omit<BankAccountBinding, 'id' | 'createdAt'>) => Promise<BankAccountBinding>;
+  addBinding: (data: BankAccountBindingInput) => Promise<BankAccountBinding>;
   updateBinding: (id: string, data: Partial<BankAccountBinding>) => Promise<void>;
   deleteBinding: (id: string) => Promise<void>;
   findByAccountNumber: (accountNumber: string) => BankAccountBinding | undefined;
@@ -30,8 +31,11 @@ export const useBankAccountStore = create<BankAccountStore>((set, get) => ({
   addBinding: async (data) => {
     await waitForDbInit();
     const service = getCurrentService() as SqliteServiceType;
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    const currency = data.currency?.trim() || currentAccountSet?.baseCurrency || 'CNY';
     const binding: BankAccountBinding = {
       ...data,
+      currency,
       id: `bab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAt: new Date().toISOString(),
     };

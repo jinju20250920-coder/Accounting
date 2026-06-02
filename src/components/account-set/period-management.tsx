@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { usePeriodManagementStore, PeriodTemplate } from '@/stores/usePeriodManagementStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
+import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useToast } from '@/components/ui/toast';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 
@@ -54,10 +55,12 @@ export function PeriodManagement() {
   const accountingPeriods = useAccountSetStore(
     useShallow((s) => s.accountSets.find(a => a.id === s.currentAccountSetId)?.accountingPeriods || [])
   );
+  const vouchers = useVoucherStore((s) => s.vouchers);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
 
   // 新建期间对话框状态
   const [showCreatePeriodDialog, setShowCreatePeriodDialog] = useState(false);
+  const [editingPeriod, setEditingPeriod] = useState<AccountingPeriod | null>(null);
   const [newPeriodMonth, setNewPeriodMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -69,13 +72,45 @@ export function PeriodManagement() {
     const month = parseInt(monthStr);
     const periodId = `${year}${String(month).padStart(2, '0')}`;
 
+    const startDate = getMonthStartDate(year, month);
+    const endDate = getMonthEndDate(year, month);
+
+    if (editingPeriod) {
+      if (accountingPeriods.some(p => p.id === periodId && p.id !== editingPeriod.id)) {
+        showToast('warning', `${year}年${month}月期间已存在`);
+        return;
+      }
+
+      const currentAccountSetId = useAccountSetStore.getState().currentAccountSetId;
+      const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      if (!currentAccountSetId || !currentAccountSet) return;
+
+      useAccountSetStore.getState().updateAccountSet(currentAccountSetId, {
+        accountingPeriods: accountingPeriods.map(period =>
+          period.id === editingPeriod.id
+            ? {
+                ...period,
+                id: periodId,
+                name: `${year}年${month}月`,
+                year,
+                month,
+                startDate,
+                endDate,
+              }
+            : period
+        )
+      });
+      setSelectedPeriod(periodId);
+      setEditingPeriod(null);
+      setShowCreatePeriodDialog(false);
+      showToast('success', `已更新 ${year}年${month}月期间`);
+      return;
+    }
+
     if (accountingPeriods.some(p => p.id === periodId)) {
       showToast('warning', `${year}年${month}月期间已存在`);
       return;
     }
-
-    const startDate = getMonthStartDate(year, month);
-    const endDate = getMonthEndDate(year, month);
 
     createPeriod({
       name: `${year}年${month}月`,
@@ -86,7 +121,7 @@ export function PeriodManagement() {
       status: 'open',
       statusColor: 'blue',
       voucherCount: 0,
-      lastVoucherNo: `记-${year}${String(month).padStart(2, '0')}-000`,
+      lastVoucherNo: '',
       isCurrent: !accountingPeriods.some(p => p.isCurrent),
       canEdit: true,
       canClose: true,
@@ -95,6 +130,19 @@ export function PeriodManagement() {
 
     setShowCreatePeriodDialog(false);
     showToast('success', `已创建 ${year}年${month}月期间`);
+  };
+
+  const openCreatePeriodDialog = () => {
+    setEditingPeriod(null);
+    const now = new Date();
+    setNewPeriodMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    setShowCreatePeriodDialog(true);
+  };
+
+  const openEditPeriodDialog = (period: AccountingPeriod) => {
+    setEditingPeriod(period);
+    setNewPeriodMonth(`${period.year}-${String(period.month).padStart(2, '0')}`);
+    setShowCreatePeriodDialog(true);
   };
 
   const getStatusBadge = (status: AccountingPeriod['status']) => {
@@ -119,15 +167,41 @@ export function PeriodManagement() {
     }
   };
 
+  const periodRows = useMemo(() => {
+    return accountingPeriods.map((period) => {
+      const periodMonth = `${period.year}-${String(period.month).padStart(2, '0')}`;
+      const periodVouchers = vouchers.filter(v => v.date?.substring(0, 7) === periodMonth);
+      const sorted = [...periodVouchers].sort((a, b) => {
+        if ((a.date || '') !== (b.date || '')) {
+          return (a.date || '').localeCompare(b.date || '');
+        }
+        return (a.voucherNo || '').localeCompare(b.voucherNo || '');
+      });
+
+      return {
+        ...period,
+        voucherCount: periodVouchers.length,
+        lastVoucherNo: sorted.length > 0 ? (sorted[sorted.length - 1]?.voucherNo || '') : '',
+        closingBalance: undefined,
+      };
+    });
+  }, [accountingPeriods, vouchers]);
+
+  const currentPeriodView = useMemo(() => {
+    const currentPeriod = getCurrentPeriod();
+    if (!currentPeriod) return null;
+    return periodRows.find((period) => period.id === currentPeriod.id) || currentPeriod;
+  }, [getCurrentPeriod, periodRows]);
+
   // 统计数据
   const stats = useMemo(() => {
     const totalPeriods = accountingPeriods.length;
     const openPeriods = accountingPeriods.filter(p => p.status === 'open').length;
     const closedPeriods = accountingPeriods.filter(p => p.status === 'closed').length;
-    const totalVouchers = accountingPeriods.reduce((sum, p) => sum + p.voucherCount, 0);
+    const totalVouchers = periodRows.reduce((sum, p) => sum + p.voucherCount, 0);
 
     return { totalPeriods, openPeriods, closedPeriods, totalVouchers };
-  }, [accountingPeriods]);
+  }, [accountingPeriods, periodRows]);
 
   return (
     <div className="space-y-6">
@@ -197,7 +271,7 @@ export function PeriodManagement() {
                 期间设置
               </Button>
             </div>
-            <Button onClick={() => setShowCreatePeriodDialog(true)}>
+            <Button onClick={openCreatePeriodDialog}>
               <Plus className="h-4 w-4 mr-2" />
               新建期间
             </Button>
@@ -213,11 +287,14 @@ export function PeriodManagement() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {accountingPeriods.map((period) => (
+              {periodRows.map((period) => (
                 <div
                   key={period.id}
                   className={`border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-all ${getStatusColor(period.statusColor)} ${selectedPeriod === period.id ? 'ring-2 ring-blue-500' : ''}`}
-                  onClick={() => selectPeriod(period.id)}
+                  onClick={() => {
+                    setSelectedPeriod(period.id);
+                    selectPeriod(period.id);
+                  }}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
@@ -240,9 +317,9 @@ export function PeriodManagement() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">最后凭证:</span>
-                          <span className="ml-2 font-mono text-xs">{period.lastVoucherNo}</span>
+                          <span className="ml-2 font-mono text-xs">{period.lastVoucherNo || '无'}</span>
                         </div>
-                        {period.closingBalance && (
+                        {period.closingBalance !== undefined && period.closingBalance !== null && (
                           <div>
                             <span className="text-muted-foreground">期末余额:</span>
                             <span className="ml-2 font-medium text-green-600">
@@ -255,7 +332,10 @@ export function PeriodManagement() {
 
                     <div className="flex items-center gap-2 ml-4">
                       {period.canEdit && (
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={(e) => {
+                          e.stopPropagation();
+                          openEditPeriodDialog(period);
+                        }}>
                           <Edit className="h-4 w-4" />
                         </Button>
                       )}
@@ -437,7 +517,7 @@ export function PeriodManagement() {
                   当前期间: {getCurrentPeriod()?.name}
                 </h4>
                 <p className="text-sm text-blue-700">
-                  可以正常录入凭证。本期已录入 {getCurrentPeriod()?.voucherCount} 张凭证。
+                  可以正常录入凭证。本期已录入 {currentPeriodView?.voucherCount ?? 0} 张凭证。
                 </p>
                 <div className="flex gap-2 mt-2">
                   <Button variant="outline" size="sm" onClick={() => {
@@ -461,8 +541,8 @@ export function PeriodManagement() {
       <Dialog open={showCreatePeriodDialog} onOpenChange={setShowCreatePeriodDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>新建会计期间</DialogTitle>
-            <DialogDescription>选择要创建的会计期间年月</DialogDescription>
+            <DialogTitle>{editingPeriod ? '编辑会计期间' : '新建会计期间'}</DialogTitle>
+            <DialogDescription>{editingPeriod ? '修改会计期间年月' : '选择要创建的会计期间年月'}</DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <ChineseMonthPicker
@@ -471,8 +551,11 @@ export function PeriodManagement() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreatePeriodDialog(false)}>取消</Button>
-            <Button onClick={handleCreatePeriod}>确认创建</Button>
+            <Button variant="outline" onClick={() => {
+              setShowCreatePeriodDialog(false);
+              setEditingPeriod(null);
+            }}>取消</Button>
+            <Button onClick={handleCreatePeriod}>{editingPeriod ? '保存修改' : '确认创建'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

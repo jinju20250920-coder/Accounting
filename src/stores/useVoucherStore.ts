@@ -1,4 +1,4 @@
-
+﻿
 
 
 
@@ -355,7 +355,19 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
 
   deleteVoucher: async (id: string) => {
     const voucher = get().vouchers.find(v => v.id === id) || await getCurrentService().getVoucher(id);
-    if (voucher) {
+    if (!voucher) {
+      await getCurrentService().deleteVoucher(id);
+      set((state) => ({
+        vouchers: state.vouchers.filter(v => v.id !== id)
+      }));
+      return;
+    }
+
+    if (voucher.status === 'posted' || voucher.status === 'reversed') {
+      throw new Error('已入账/已过账凭证不能删除，只能红冲处理');
+    }
+
+    if (voucher.status !== 'draft') {
       assertVoucherDateEditable(voucher.date, '删除凭证');
     }
 

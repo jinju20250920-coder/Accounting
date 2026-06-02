@@ -15,6 +15,7 @@ import type {
   ExpenseKeywordCategory as _ExpenseKeywordCategory,
   AuxiliaryStrategyConfig as _AuxiliaryStrategyConfig,
   AssetCategoryMapping as _AssetCategoryMapping,
+  FxRate as _FxRate,
   PurchaseInvoiceRuleConfig as _PurchaseInvoiceRuleConfig,
 } from '@/types';
 import type {
@@ -23,6 +24,13 @@ import type {
   PayrollItem,
 } from '../payroll';
 import { clonePayrollTaxRuleSet } from '../payroll-tax-rules';
+
+const resolveSqlJsWasmPath = (file: string): string => {
+  if (typeof window === 'undefined' && typeof process !== 'undefined' && typeof process.cwd === 'function') {
+    return `${process.cwd().replace(/\\/g, '/')}/node_modules/sql.js/dist/${file}`;
+  }
+  return `/sqljs/${file}`;
+};
 
 // Re-export types for stores to import
 export type Voucher = _Voucher;
@@ -41,6 +49,7 @@ export type ExpenseReimbursement = _ExpenseReimbursement;
 export type ExpenseKeywordCategory = _ExpenseKeywordCategory;
 export type AuxiliaryStrategyConfig = _AuxiliaryStrategyConfig;
 export type AssetCategoryMapping = _AssetCategoryMapping;
+export type FxRate = _FxRate;
 export type PurchaseInvoiceRuleConfig = _PurchaseInvoiceRuleConfig;
 
 // AuditLog interface
@@ -108,7 +117,7 @@ class SQLiteService {
     // 最后回退：创建内存数据库
     try {
       const SQL = await (await import('sql.js')).default({
-        locateFile: (file: string) => `/sqljs/${file}`,
+        locateFile: resolveSqlJsWasmPath,
       });
       const db = new SQL.Database();
       console.warn('Using in-memory database as last resort');
@@ -133,6 +142,7 @@ class SQLiteService {
 
     // 迁移：检查并添加 accountSetId 列（如果不存在）
     await this.migrateAddAccountSetIdColumns();
+    await this.migrateMulticurrencyFoundation();
     // 迁移：检查并添加 subjects 表的新列（如果不存在）
     await this.migrateAddSubjectColumns();
     // 迁移：检查并创建固定资产相关表（如果不存在）
@@ -176,7 +186,9 @@ class SQLiteService {
         calculationConfigSnapshot TEXT NOT NULL,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
-        confirmedAt TEXT
+        confirmedAt TEXT,
+        accrualVoucherId TEXT,
+        accrualVoucherNo TEXT
       );
       CREATE TABLE IF NOT EXISTS payroll_items (
         id TEXT PRIMARY KEY,
@@ -209,6 +221,28 @@ class SQLiteService {
       CREATE INDEX IF NOT EXISTS idx_payroll_items_batch ON payroll_items(accountSetId, batchId);
       CREATE INDEX IF NOT EXISTS idx_payroll_config_period ON payroll_calculation_configs(accountSetId, effectivePeriod);
     `);
+    await this.migrateAddPayrollBatchVoucherColumns();
+  }
+
+  private async migrateAddPayrollBatchVoucherColumns(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      const pragma = this.dbInstance.exec('PRAGMA table_info(payroll_batches)');
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+      const missingColumns = [
+        { name: 'accrualVoucherId', sql: 'ALTER TABLE payroll_batches ADD COLUMN accrualVoucherId TEXT' },
+        { name: 'accrualVoucherNo', sql: 'ALTER TABLE payroll_batches ADD COLUMN accrualVoucherNo TEXT' },
+      ].filter((item) => !columns.includes(item.name));
+
+      if (missingColumns.length > 0) {
+        this.dbInstance.exec(missingColumns.map((item) => item.sql).join(';\n'));
+      }
+    } catch (error) {
+      if (!String(error).includes('duplicate column name')) {
+        console.warn('payroll_batches voucher column migration warning:', error);
+      }
+    }
   }
 
   /**
@@ -923,6 +957,33 @@ class SQLiteService {
         `);
         console.log('Partners table: added defaultSubjectCode/defaultSubjectName columns');
       }
+
+      const extraPartnerColumns = [
+        'departmentCode',
+        'departmentName',
+        'paymentTermDays',
+        'payrollSalaryExpenseSubjectCode',
+        'payrollSalaryExpenseSubjectName',
+        'payrollContributionExpenseSubjectCode',
+        'payrollContributionExpenseSubjectName',
+        'payrollSalaryPayableSubjectCode',
+        'payrollSalaryPayableSubjectName',
+        'payrollTaxPayableSubjectCode',
+        'payrollTaxPayableSubjectName',
+        'payrollEmployeeContributionPayableSubjectCode',
+        'payrollEmployeeContributionPayableSubjectName',
+        'payrollEmployerContributionPayableSubjectCode',
+        'payrollEmployerContributionPayableSubjectName',
+        'payrollDepartmentName',
+        'payrollProjectName',
+        'payrollCostCenterName',
+      ];
+      for (const column of extraPartnerColumns) {
+        if (!columns.includes(column)) {
+          this.dbInstance.exec(`ALTER TABLE partners ADD COLUMN ${column} TEXT;`);
+          console.log(`Partners table: added ${column} column`);
+        }
+      }
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
         console.warn('Bank rules migration warning:', error);
@@ -1114,6 +1175,8 @@ class SQLiteService {
             mode TEXT NOT NULL DEFAULT 'auxiliary',
             autoCreatePartner INTEGER NOT NULL DEFAULT 0,
             autoDisableAuxiliaryOnSubAccount INTEGER NOT NULL DEFAULT 1,
+            enableSmartRouting INTEGER NOT NULL DEFAULT 1,
+            enableMultiAction INTEGER NOT NULL DEFAULT 1,
             updateTime TEXT NOT NULL
           );
 
@@ -1185,10 +1248,21 @@ class SQLiteService {
         }
 
         // Insert default auxiliary_strategy_config
+        const auxiliaryColumns = new Set(
+          (this.dbInstance.exec("PRAGMA table_info(auxiliary_strategy_config)")[0]?.values || []).map((row: any[]) => row[1])
+        );
+        const hasSmartRouting = auxiliaryColumns.has('enableSmartRouting');
+        const hasMultiAction = auxiliaryColumns.has('enableMultiAction');
+        const auxiliaryInsert = hasSmartRouting && hasMultiAction
+          ? `INSERT INTO auxiliary_strategy_config (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, enableSmartRouting, enableMultiAction, updateTime)
+             VALUES (?, ?, 'auxiliary', 0, 1, 1, 1, ?)`
+          : `INSERT INTO auxiliary_strategy_config (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
+             VALUES (?, ?, 'auxiliary', 0, 1, ?)`;
         this.dbInstance.exec(
-          `INSERT INTO auxiliary_strategy_config (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, enableSmartRouting, enableMultiAction, updateTime)
-           VALUES (?, ?, 'auxiliary', 0, 1, 1, 1, ?)`,
-          [`sys_asc_default`, this._accountSetId, now]
+          auxiliaryInsert,
+          hasSmartRouting && hasMultiAction
+            ? [`sys_asc_default`, this._accountSetId, now]
+            : [`sys_asc_default`, this._accountSetId, now]
         );
 
         console.log('Smart rule engine tables migration completed');
@@ -1336,6 +1410,84 @@ class SQLiteService {
    * 迁移：为 subjects 表添加缺失的列
    * 添加 isCustomer, isSupplier, isEmployee, enableDept, enableProject, enableForeign, foreignCurrency, enableCashFlow
    */
+  /**
+   * Multicurrency foundation migrations:
+   * - accountSets base currency columns
+   * - entries currencyName metadata
+   * - fxRates daily middle-rate table
+   */
+  private async migrateMulticurrencyFoundation(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      const accountSetColumnsResult = this.dbInstance.exec('PRAGMA table_info(accountSets)');
+      const accountSetColumns = accountSetColumnsResult[0]?.values?.map((row: any[]) => row[1]) || [];
+      if (accountSetColumns.length === 0) {
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS accountSets (
+            id TEXT PRIMARY KEY,
+            code TEXT UNIQUE,
+            name TEXT,
+            baseCurrency TEXT DEFAULT 'CNY',
+            baseCurrencyName TEXT DEFAULT '人民币',
+            taxNo TEXT,
+            description TEXT,
+            createTime TEXT,
+            updateTime TEXT
+          );
+        `);
+      } else {
+        const accountSetAlterations = [
+          !accountSetColumns.includes('baseCurrency') ? "ALTER TABLE accountSets ADD COLUMN baseCurrency TEXT DEFAULT 'CNY';" : '',
+          !accountSetColumns.includes('baseCurrencyName') ? "ALTER TABLE accountSets ADD COLUMN baseCurrencyName TEXT DEFAULT '人民币';" : '',
+        ].filter(Boolean);
+        if (accountSetAlterations.length > 0) {
+          this.dbInstance.exec(accountSetAlterations.join('\n'));
+        }
+        this.dbInstance.exec(`
+          UPDATE accountSets
+          SET baseCurrency = COALESCE(NULLIF(baseCurrency, ''), 'CNY'),
+              baseCurrencyName = COALESCE(NULLIF(baseCurrencyName, ''), '人民币')
+          WHERE baseCurrency IS NULL OR baseCurrency = '' OR baseCurrencyName IS NULL OR baseCurrencyName = '';
+        `);
+      }
+
+      const entryColumnsResult = this.dbInstance.exec('PRAGMA table_info(entries)');
+      const entryColumns = entryColumnsResult[0]?.values?.map((row: any[]) => row[1]) || [];
+      if (entryColumns.length > 0 && !entryColumns.includes('currencyName')) {
+        this.dbInstance.exec(`ALTER TABLE entries ADD COLUMN currencyName TEXT;`);
+      }
+
+      const fxRateTableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='fxRates'"
+      );
+      if (!fxRateTableCheck[0]?.values?.length) {
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS fxRates (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            rateDate TEXT NOT NULL,
+            currencyCode TEXT NOT NULL,
+            baseCurrency TEXT NOT NULL DEFAULT 'CNY',
+            middleRate REAL NOT NULL,
+            source TEXT,
+            createTime TEXT NOT NULL,
+            updateTime TEXT NOT NULL,
+            FOREIGN KEY (accountSetId) REFERENCES accountSets(id),
+            UNIQUE(accountSetId, rateDate, currencyCode)
+          );
+          CREATE INDEX IF NOT EXISTS idx_fxRates_accountSetId ON fxRates(accountSetId);
+          CREATE INDEX IF NOT EXISTS idx_fxRates_rateDate ON fxRates(rateDate);
+          CREATE INDEX IF NOT EXISTS idx_fxRates_currencyCode ON fxRates(currencyCode);
+        `);
+      }
+    } catch (error) {
+      if (!String(error).includes('duplicate column name')) {
+        console.warn('Multicurrency foundation migration warning:', error);
+      }
+    }
+  }
+
   private async migrateAddSubjectColumns(): Promise<void> {
     if (!this.dbInstance) return;
 
@@ -1634,9 +1786,9 @@ class SQLiteService {
             id, voucherId, subjectCode, subjectName, direction, debit, credit,
             summary, customerName, supplierName, auxiliary, recRefNo,
             departmentCode, departmentName, projectCode, projectName,
-            currencyCode, exchangeRate, originalAmount, date, accountSetId,
+            currencyCode, currencyName, exchangeRate, originalAmount, date, accountSetId,
             createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         entryStmt.run([
           entryWithAccountSet.id,
@@ -1656,6 +1808,7 @@ class SQLiteService {
           entryWithAccountSet.projectCode || '',
           entryWithAccountSet.projectName || '',
           entryWithAccountSet.currencyCode || '',
+          entryWithAccountSet.currencyName || '',
           entryWithAccountSet.exchangeRate || 0,
           entryWithAccountSet.originalAmount || 0,
           entryWithAccountSet.date || new Date().toISOString().split('T')[0],
@@ -2534,6 +2687,76 @@ class SQLiteService {
 
   // ========== 往来单位操作 ==========
 
+  async getAccountSetBaseCurrency(accountSetId: string = this.accountSetId): Promise<{ baseCurrency: string; baseCurrencyName: string } | null> {
+    await this.ensureInitialized();
+    const result = await this.querySingleAsync<any>(
+      `SELECT baseCurrency, baseCurrencyName FROM accountSets WHERE id = ? LIMIT 1`,
+      [accountSetId]
+    );
+    if (!result) return null;
+    return {
+      baseCurrency: result.baseCurrency || 'CNY',
+      baseCurrencyName: result.baseCurrencyName || '人民币',
+    };
+  }
+
+  async saveAccountSetBaseCurrency(baseCurrency: string, baseCurrencyName?: string, accountSetId: string = this.accountSetId): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    const stmt = this.dbInstance.prepare(`
+      UPDATE accountSets
+      SET baseCurrency = ?, baseCurrencyName = COALESCE(?, baseCurrencyName), updateTime = ?
+      WHERE id = ?
+    `);
+    stmt.run([baseCurrency || 'CNY', baseCurrencyName || null, now, accountSetId]);
+    stmt.free();
+    await this.persist();
+  }
+
+  async saveFxRates(rates: FxRate[]): Promise<void> {
+    await this.ensureInitialized();
+    for (const rate of rates) {
+      const stmt = this.dbInstance.prepare(`
+        INSERT OR REPLACE INTO fxRates
+          (id, accountSetId, rateDate, currencyCode, baseCurrency, middleRate, source, createTime, updateTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run([
+        rate.id,
+        rate.accountSetId || this.accountSetId,
+        rate.rateDate,
+        rate.currencyCode,
+        rate.baseCurrency || 'CNY',
+        rate.middleRate,
+        rate.source || null,
+        rate.createTime || new Date().toISOString(),
+        rate.updateTime || new Date().toISOString(),
+      ]);
+      stmt.free();
+    }
+    await this.persist();
+  }
+
+  async getFxRates(rateDate?: string): Promise<FxRate[]> {
+    await this.ensureInitialized();
+    const sql = rateDate
+      ? `SELECT * FROM fxRates WHERE accountSetId = ? AND rateDate = ? ORDER BY currencyCode`
+      : `SELECT * FROM fxRates WHERE accountSetId = ? ORDER BY rateDate DESC, currencyCode`;
+    const params = rateDate ? [this.accountSetId, rateDate] : [this.accountSetId];
+    const rows = await this.queryAllAsync<any>(sql, params);
+    return rows.map((row) => ({
+      id: row.id,
+      accountSetId: row.accountSetId,
+      rateDate: row.rateDate,
+      currencyCode: row.currencyCode,
+      baseCurrency: row.baseCurrency || 'CNY',
+      middleRate: row.middleRate,
+      source: row.source || undefined,
+      createTime: row.createTime,
+      updateTime: row.updateTime,
+    }));
+  }
+
   async savePartners(partners: Partner[]): Promise<void> {
     try {
       await this.ensureInitialized();
@@ -2556,8 +2779,16 @@ class SQLiteService {
         const stmt = this.dbInstance.prepare(`
           INSERT OR REPLACE INTO partners (
             id, code, name, type, contact, phone, email, address, taxNo,
-            bankAccount, enabled, defaultSubjectCode, defaultSubjectName, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            bankAccount, enabled, defaultSubjectCode, defaultSubjectName, departmentCode, departmentName,
+            paymentTermDays, payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
+            payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
+            payrollSalaryPayableSubjectCode, payrollSalaryPayableSubjectName,
+            payrollTaxPayableSubjectCode, payrollTaxPayableSubjectName,
+            payrollEmployeeContributionPayableSubjectCode, payrollEmployeeContributionPayableSubjectName,
+            payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
+            payrollDepartmentName, payrollProjectName, payrollCostCenterName,
+            accountSetId, createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run([
           partnerWithAccountSet.id,
@@ -2573,6 +2804,24 @@ class SQLiteService {
           partnerWithAccountSet.frozen !== undefined ? Number(!partnerWithAccountSet.frozen) : 1,
           partnerWithAccountSet.defaultSubjectCode || '',
           partnerWithAccountSet.defaultSubjectName || '',
+          partnerWithAccountSet.departmentCode || '',
+          partnerWithAccountSet.departmentName || '',
+          partnerWithAccountSet.paymentTermDays || null,
+          partnerWithAccountSet.payrollSalaryExpenseSubjectCode || '',
+          partnerWithAccountSet.payrollSalaryExpenseSubjectName || '',
+          partnerWithAccountSet.payrollContributionExpenseSubjectCode || '',
+          partnerWithAccountSet.payrollContributionExpenseSubjectName || '',
+          partnerWithAccountSet.payrollSalaryPayableSubjectCode || '',
+          partnerWithAccountSet.payrollSalaryPayableSubjectName || '',
+          partnerWithAccountSet.payrollTaxPayableSubjectCode || '',
+          partnerWithAccountSet.payrollTaxPayableSubjectName || '',
+          partnerWithAccountSet.payrollEmployeeContributionPayableSubjectCode || '',
+          partnerWithAccountSet.payrollEmployeeContributionPayableSubjectName || '',
+          partnerWithAccountSet.payrollEmployerContributionPayableSubjectCode || '',
+          partnerWithAccountSet.payrollEmployerContributionPayableSubjectName || '',
+          partnerWithAccountSet.payrollDepartmentName || '',
+          partnerWithAccountSet.payrollProjectName || '',
+          partnerWithAccountSet.payrollCostCenterName || '',
           partnerWithAccountSet.accountSetId,
           partnerWithAccountSet.createTime || now,
           partnerWithAccountSet.updateTime || now
@@ -2614,6 +2863,24 @@ class SQLiteService {
         bankAccount: result.bankAccount,
         defaultSubjectCode: result.defaultSubjectCode || undefined,
         defaultSubjectName: result.defaultSubjectName || undefined,
+        departmentCode: result.departmentCode || undefined,
+        departmentName: result.departmentName || undefined,
+        paymentTermDays: result.paymentTermDays !== null && result.paymentTermDays !== undefined ? Number(result.paymentTermDays) : undefined,
+        payrollSalaryExpenseSubjectCode: result.payrollSalaryExpenseSubjectCode || undefined,
+        payrollSalaryExpenseSubjectName: result.payrollSalaryExpenseSubjectName || undefined,
+        payrollContributionExpenseSubjectCode: result.payrollContributionExpenseSubjectCode || undefined,
+        payrollContributionExpenseSubjectName: result.payrollContributionExpenseSubjectName || undefined,
+        payrollSalaryPayableSubjectCode: result.payrollSalaryPayableSubjectCode || undefined,
+        payrollSalaryPayableSubjectName: result.payrollSalaryPayableSubjectName || undefined,
+        payrollTaxPayableSubjectCode: result.payrollTaxPayableSubjectCode || undefined,
+        payrollTaxPayableSubjectName: result.payrollTaxPayableSubjectName || undefined,
+        payrollEmployeeContributionPayableSubjectCode: result.payrollEmployeeContributionPayableSubjectCode || undefined,
+        payrollEmployeeContributionPayableSubjectName: result.payrollEmployeeContributionPayableSubjectName || undefined,
+        payrollEmployerContributionPayableSubjectCode: result.payrollEmployerContributionPayableSubjectCode || undefined,
+        payrollEmployerContributionPayableSubjectName: result.payrollEmployerContributionPayableSubjectName || undefined,
+        payrollDepartmentName: result.payrollDepartmentName || undefined,
+        payrollProjectName: result.payrollProjectName || undefined,
+        payrollCostCenterName: result.payrollCostCenterName || undefined,
         frozen: result.enabled === 0,
         createTime: result.createTime,
         updateTime: result.updateTime,
@@ -2638,7 +2905,7 @@ class SQLiteService {
     );
   }
 
-  async addPartner(partner: { id: string; name: string; code: string; type: string; isSupplier?: boolean; isCustomer?: boolean; contact?: string; phone?: string; email?: string; address?: string; taxNo?: string; bankAccount?: string; remark?: string; accountSetId?: string; createTime?: string; updateTime?: string }): Promise<void> {
+  async addPartner(partner: { id: string; name: string; code: string; type: string; isSupplier?: boolean; isCustomer?: boolean; contact?: string; phone?: string; email?: string; address?: string; taxNo?: string; bankAccount?: string; departmentCode?: string; departmentName?: string; paymentTermDays?: number; payrollSalaryExpenseSubjectCode?: string; payrollSalaryExpenseSubjectName?: string; payrollContributionExpenseSubjectCode?: string; payrollContributionExpenseSubjectName?: string; payrollSalaryPayableSubjectCode?: string; payrollSalaryPayableSubjectName?: string; payrollTaxPayableSubjectCode?: string; payrollTaxPayableSubjectName?: string; payrollEmployeeContributionPayableSubjectCode?: string; payrollEmployeeContributionPayableSubjectName?: string; payrollEmployerContributionPayableSubjectCode?: string; payrollEmployerContributionPayableSubjectName?: string; payrollDepartmentName?: string; payrollProjectName?: string; payrollCostCenterName?: string; remark?: string; accountSetId?: string; createTime?: string; updateTime?: string }): Promise<void> {
     await this.ensureInitialized();
     const now = new Date().toISOString();
     const accountSetId = partner.accountSetId || this.accountSetId;
@@ -2650,13 +2917,32 @@ class SQLiteService {
       else typeValue = 'other';
     }
     const stmt = this.dbInstance.prepare(
-      `INSERT OR REPLACE INTO partners (id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled, accountSetId, createTime, updateTime)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO partners (
+         id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled,
+         departmentCode, departmentName, paymentTermDays,
+         payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
+         payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
+         payrollSalaryPayableSubjectCode, payrollSalaryPayableSubjectName,
+         payrollTaxPayableSubjectCode, payrollTaxPayableSubjectName,
+         payrollEmployeeContributionPayableSubjectCode, payrollEmployeeContributionPayableSubjectName,
+         payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
+         payrollDepartmentName, payrollProjectName, payrollCostCenterName,
+         accountSetId, createTime, updateTime
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     stmt.run([
       partner.id, partner.code, partner.name, typeValue,
       partner.contact || '', partner.phone || '', partner.email || '', partner.address || '',
-      partner.taxNo || '', partner.bankAccount || '', 1, accountSetId,
+      partner.taxNo || '', partner.bankAccount || '', 1,
+      partner.departmentCode || '', partner.departmentName || '', partner.paymentTermDays || null,
+      partner.payrollSalaryExpenseSubjectCode || '', partner.payrollSalaryExpenseSubjectName || '',
+      partner.payrollContributionExpenseSubjectCode || '', partner.payrollContributionExpenseSubjectName || '',
+      partner.payrollSalaryPayableSubjectCode || '', partner.payrollSalaryPayableSubjectName || '',
+      partner.payrollTaxPayableSubjectCode || '', partner.payrollTaxPayableSubjectName || '',
+      partner.payrollEmployeeContributionPayableSubjectCode || '', partner.payrollEmployeeContributionPayableSubjectName || '',
+      partner.payrollEmployerContributionPayableSubjectCode || '', partner.payrollEmployerContributionPayableSubjectName || '',
+      partner.payrollDepartmentName || '', partner.payrollProjectName || '', partner.payrollCostCenterName || '',
+      accountSetId,
       partner.createTime || now, partner.updateTime || now
     ]);
     stmt.free();
@@ -2876,12 +3162,15 @@ class SQLiteService {
     data.departments = await this.queryAllAsync<any>(`SELECT * FROM departments WHERE accountSetId = ?`, [this._accountSetId]);
     data.projects = await this.queryAllAsync<any>(`SELECT * FROM projects WHERE accountSetId = ?`, [this._accountSetId]);
     data.currencies = await this.queryAllAsync<any>(`SELECT * FROM currencies WHERE accountSetId = ?`, [this._accountSetId]);
+    data.fxRates = await this.queryAllAsync<any>(`SELECT * FROM fxRates WHERE accountSetId = ?`, [this._accountSetId]);
     data.partners = await this.queryAllAsync<any>(`SELECT * FROM partners WHERE accountSetId = ?`, [this._accountSetId]);
     data.voucherTemplates = await this.queryAllAsync<any>(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [this._accountSetId]);
     data.commonSummaries = await this.queryAllAsync<any>(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [this._accountSetId]);
     data.userPreferences = await this.queryAllAsync<any>(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [this._accountSetId]);
     data.auditLogs = await this.queryAllAsync<any>(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [this._accountSetId]);
     data.recRelations = await this.queryAllAsync<any>(`SELECT * FROM recRelations WHERE accountSetId = ?`, [this._accountSetId]);
+    data.fxRevaluationRuns = await this.queryAllAsync<any>(`SELECT * FROM fxRevaluationRuns WHERE accountSetId = ?`, [this._accountSetId]);
+    data.fxRevaluationRunLines = await this.queryAllAsync<any>(`SELECT * FROM fxRevaluationRunLines WHERE accountSetId = ?`, [this._accountSetId]);
 
     return data;
   }
@@ -2915,6 +3204,9 @@ class SQLiteService {
     if (data.currencies && Array.isArray(data.currencies)) {
       await this.saveCurrencies(data.currencies.filter((s: any) => s.accountSetId === this._accountSetId));
     }
+    if (data.fxRates && Array.isArray(data.fxRates)) {
+      await this.saveFxRates(data.fxRates.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
     if (data.partners && Array.isArray(data.partners)) {
       await this.savePartners(data.partners.filter((s: any) => s.accountSetId === this._accountSetId));
     }
@@ -2926,6 +3218,60 @@ class SQLiteService {
     }
     if (data.recRelations && Array.isArray(data.recRelations)) {
       await this.saveRecRelations(data.recRelations.filter((s: any) => s.accountSetId === this._accountSetId));
+    }
+    if (data.fxRevaluationRuns && Array.isArray(data.fxRevaluationRuns)) {
+      const db = this.dbInstance;
+      for (const run of data.fxRevaluationRuns.filter((s: any) => s.accountSetId === this._accountSetId)) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO fxRevaluationRuns (
+            id, accountSetId, period, baseCurrency, status, scope, revaluationDate,
+            createdBy, notes, createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run([
+          run.id,
+          run.accountSetId || this._accountSetId,
+          run.period,
+          run.baseCurrency || 'CNY',
+          run.status,
+          run.scope,
+          run.revaluationDate,
+          run.createdBy || null,
+          run.notes || null,
+          run.createTime || new Date().toISOString(),
+          run.updateTime || new Date().toISOString(),
+        ]);
+        stmt.free();
+      }
+    }
+    if (data.fxRevaluationRunLines && Array.isArray(data.fxRevaluationRunLines)) {
+      const db = this.dbInstance;
+      for (const line of data.fxRevaluationRunLines.filter((s: any) => s.accountSetId === this._accountSetId)) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO fxRevaluationRunLines (
+            id, runId, accountSetId, sourceType, sourceId, sourceNo, currencyCode,
+            baseCurrency, originalAmount, originalRate, revaluedAmount, gainLossAmount,
+            rateDate, createTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run([
+          line.id,
+          line.runId,
+          line.accountSetId || this._accountSetId,
+          line.sourceType,
+          line.sourceId,
+          line.sourceNo || null,
+          line.currencyCode,
+          line.baseCurrency || 'CNY',
+          line.originalAmount,
+          line.originalRate ?? null,
+          line.revaluedAmount,
+          line.gainLossAmount,
+          line.rateDate || null,
+          line.createTime || new Date().toISOString(),
+        ]);
+        stmt.free();
+      }
     }
 
     console.log('Data imported successfully for account set:', this._accountSetId);
@@ -3234,9 +3580,10 @@ class SQLiteService {
       deleteVouchersStmt.free();
 
       // Clear other tables
-      const tables = ['subjects', 'departments', 'projects', 'currencies', 'partners',
+      const tables = ['subjects', 'departments', 'projects', 'currencies', 'fxRates',
+                     'fxRevaluationRuns', 'fxRevaluationRunLines', 'partners',
                      'voucherTemplates', 'commonSummaries', 'userPreferences',
-                     'auditLogs', 'recRelations', 'bankTransactions'];
+                     'auditLogs', 'recRelations', 'bankTransactions', 'bank_account_bindings'];
 
       for (const table of tables) {
         const stmt = this.dbInstance.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
@@ -3895,8 +4242,8 @@ class SQLiteService {
       `INSERT OR REPLACE INTO payroll_batches
        (id, accountSetId, payrollPeriod, batchName, status, sourceFileName, employeeCount,
         grossTotal, employerCostTotal, taxTotal, netTotal, calculationConfigSnapshot,
-        createdAt, updatedAt, confirmedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        createdAt, updatedAt, confirmedAt, accrualVoucherId, accrualVoucherNo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         batch.id,
         this.accountSetId,
@@ -3913,6 +4260,8 @@ class SQLiteService {
         batch.createdAt,
         batch.updatedAt,
         batch.confirmedAt || null,
+        batch.accrualVoucherId || null,
+        batch.accrualVoucherNo || null,
       ],
     );
     await this.runAsync(
@@ -3972,6 +4321,60 @@ class SQLiteService {
       [batchId, this.accountSetId],
     );
     await this.persist();
+  }
+
+  async updatePayrollBatchVoucher(batchId: string, voucherId: string, voucherNo: string): Promise<void> {
+    await this.runAsync(
+      `UPDATE payroll_batches
+       SET accrualVoucherId = ?, accrualVoucherNo = ?, updatedAt = ?
+       WHERE id = ? AND accountSetId = ?`,
+      [voucherId, voucherNo, new Date().toISOString(), batchId, this.accountSetId],
+    );
+    await this.persist();
+  }
+
+  async clearPayrollBatchVoucherByVoucherId(voucherId: string): Promise<boolean> {
+    const existing = await this.querySingleAsync<{ id: string }>(
+      `SELECT id FROM payroll_batches WHERE accountSetId = ? AND accrualVoucherId = ? LIMIT 1`,
+      [this.accountSetId, voucherId],
+    );
+    if (!existing) return false;
+
+    await this.runAsync(
+      `UPDATE payroll_batches
+       SET accrualVoucherId = NULL, accrualVoucherNo = NULL, updatedAt = ?
+       WHERE accountSetId = ? AND accrualVoucherId = ?`,
+      [new Date().toISOString(), this.accountSetId, voucherId],
+    );
+    await this.persist();
+    return true;
+  }
+
+  async getPayrollBatchByVoucherId(voucherId: string): Promise<PayrollBatch | null> {
+    const row = await this.querySingleAsync<any>(
+      `SELECT * FROM payroll_batches WHERE accountSetId = ? AND accrualVoucherId = ? LIMIT 1`,
+      [this.accountSetId, voucherId],
+    );
+    if (!row) return null;
+    return {
+      id: row.id,
+      accountSetId: row.accountSetId,
+      payrollPeriod: row.payrollPeriod,
+      batchName: row.batchName,
+      status: row.status,
+      sourceFileName: row.sourceFileName || undefined,
+      employeeCount: row.employeeCount,
+      grossTotal: row.grossTotal,
+      employerCostTotal: row.employerCostTotal,
+      taxTotal: row.taxTotal,
+      netTotal: row.netTotal,
+      calculationConfigSnapshot: JSON.parse(row.calculationConfigSnapshot),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      confirmedAt: row.confirmedAt || undefined,
+      accrualVoucherId: row.accrualVoucherId || undefined,
+      accrualVoucherNo: row.accrualVoucherNo || undefined,
+    };
   }
 
   // --- Legacy stubs (will be removed once consumers migrate to smart rules) ---

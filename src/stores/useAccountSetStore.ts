@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -48,6 +48,7 @@ export interface AccountSet {
   taxNo: string; // 纳税人识别号
   address: string; // 公司地址
   baseCurrency: string;
+  baseCurrencyName?: string;
   currentPeriod: string;
   startDate: string; // 账套开始日期
   accountingStandard: 'small-enterprise' | 'enterprise' | 'other'; // 会计准则
@@ -86,6 +87,8 @@ export interface AccountSet {
   payrollTaxPayableSubjectName?: string;
   payrollEmployeeContributionPayableSubjectCode?: string;
   payrollEmployeeContributionPayableSubjectName?: string;
+  payrollEmployerContributionPayableSubjectCode?: string;
+  payrollEmployerContributionPayableSubjectName?: string;
 
   // 会计期间相关字段
   accountingPeriods?: AccountingPeriod[];

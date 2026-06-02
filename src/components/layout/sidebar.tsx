@@ -32,7 +32,7 @@ import {
   User,
   WalletCards,
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -77,7 +77,10 @@ const menuItems = [
     { label: '销项发票', path: '/invoices/output', permission: 'invoice:view' },
     { label: '发票资金一览表', path: '/invoices/summary', permission: 'invoice:view' },
   ]},
-  { icon: WalletCards, label: '薪酬管理', path: '/payroll', permission: 'voucher:view' },
+  { icon: WalletCards, label: '薪酬管理', path: '/payroll', permission: 'voucher:view', children: [
+    { label: '工资管理', path: '/payroll', permission: 'voucher:view' },
+    { label: '工资报表', path: '/payroll/report', permission: 'voucher:view' },
+  ]},
   { icon: Package, label: '资产管理', path: '/assets', permission: 'asset:view', children: [
     { label: '固定资产', path: '/assets/fixed', permission: 'asset:view' },
     { label: '固定资产汇总表', path: '/assets/summary', permission: 'asset:view' },
@@ -339,7 +342,13 @@ export function Sidebar() {
     setExpandedItems(newExpanded);
   };
 
-  const isActive = (path: string) => pathname === path || pathname?.startsWith(path + '/');
+  const isActive = useCallback((path: string) => pathname === path || pathname?.startsWith(path + '/'), [pathname]);
+
+  const autoExpandedItems = useMemo(() => new Set(
+    visibleMenuItems
+      .filter((item) => item.children?.some((child) => isActive(child.path)) || (item.children && isActive(item.path)))
+      .map((item) => item.label),
+  ), [isActive, visibleMenuItems]);
 
   const handleSwitchAccount = (accountSetId: string) => {
     // 保存当前账套ID到 sessionStorage，用于在 hook 中检测账套切换
@@ -471,13 +480,13 @@ export function Sidebar() {
                       <item.icon className="h-4 w-4" />
                       {item.label}
                     </span>
-                    {expandedItems.has(item.label) ? (
+                    {(expandedItems.has(item.label) || autoExpandedItems.has(item.label)) ? (
                       <ChevronDown className="h-4 w-4" />
                     ) : (
                       <ChevronRight className="h-4 w-4" />
                     )}
                   </button>
-                  {expandedItems.has(item.label) && (
+                  {(expandedItems.has(item.label) || autoExpandedItems.has(item.label)) && (
                     <ul className="mt-1 space-y-1 bg-slate-800/50">
                       {item.children.map((child) => (
                         <li key={child.path}>

@@ -1,5 +1,5 @@
 import { roundMoney, type PayrollItem } from './payroll';
-import type { Department, Partner, VoucherEntry } from '../types';
+import type { Partner, VoucherEntry } from '../types';
 
 export interface PayrollVoucherEntryPreview {
   summary: string;
@@ -21,6 +21,8 @@ export interface PayrollVoucherDefaultSubjects {
   payrollTaxPayableSubjectName?: string;
   payrollEmployeeContributionPayableSubjectCode?: string;
   payrollEmployeeContributionPayableSubjectName?: string;
+  payrollEmployerContributionPayableSubjectCode?: string;
+  payrollEmployerContributionPayableSubjectName?: string;
 }
 
 interface PayrollVoucherSubjects {
@@ -29,14 +31,16 @@ interface PayrollVoucherSubjects {
   salaryPayable: { code: string; name: string };
   taxPayable: { code: string; name: string };
   employeeContributionPayable: { code: string; name: string };
+  employerContributionPayable: { code: string; name: string };
 }
 
 const SUBJECTS = {
   salaryExpense: { code: '660201', name: '管理费用-工资' },
-  contributionExpense: { code: '660203', name: '管理费用-社保公积金' },
-  salaryPayable: { code: '2211', name: '应付职工薪酬' },
-  taxPayable: { code: '2221', name: '应交税费-个人所得税' },
-  employeeContributionPayable: { code: '2241', name: '其他应付款-个人社保公积金' },
+  contributionExpense: { code: '660202', name: '管理费用-社保' },
+  salaryPayable: { code: '2151', name: '应付职工薪酬' },
+  taxPayable: { code: '222102', name: '应交税费-个税' },
+  employeeContributionPayable: { code: '220101', name: '其他应付款-个人社保' },
+  employerContributionPayable: { code: '220102', name: '其他应付款-公司付社保' },
 };
 
 function addAmount(map: Map<string, number>, key: string, amount: number): void {
@@ -44,7 +48,7 @@ function addAmount(map: Map<string, number>, key: string, amount: number): void 
 }
 
 function departmentKey(name: string | undefined): string {
-  return name?.trim() || '未分部门';
+  return name?.trim() || '';
 }
 
 function subjectOrFallback(
@@ -61,10 +65,8 @@ export function resolvePayrollVoucherSubjects(
   item: PayrollItem,
   employeeByCode: Map<string, Partner>,
   defaultSubjects: PayrollVoucherDefaultSubjects = {},
-  departmentByName: Map<string, Department> = new Map(),
 ): PayrollVoucherSubjects {
   const employee = employeeByCode.get(item.employeeCode);
-  const department = departmentByName.get(item.departmentName?.trim() || '');
   return {
     salaryExpense: subjectOrFallback(
       item.inputData.payrollSalaryExpenseSubjectCode,
@@ -73,9 +75,9 @@ export function resolvePayrollVoucherSubjects(
         employee?.payrollSalaryExpenseSubjectCode,
         employee?.payrollSalaryExpenseSubjectName,
         subjectOrFallback(
-          department?.payrollSalaryExpenseSubjectCode,
-          department?.payrollSalaryExpenseSubjectName,
-          subjectOrFallback(defaultSubjects.payrollSalaryExpenseSubjectCode, defaultSubjects.payrollSalaryExpenseSubjectName, SUBJECTS.salaryExpense),
+          defaultSubjects.payrollSalaryExpenseSubjectCode,
+          defaultSubjects.payrollSalaryExpenseSubjectName,
+          SUBJECTS.salaryExpense,
         ),
       ),
     ),
@@ -86,9 +88,9 @@ export function resolvePayrollVoucherSubjects(
         employee?.payrollContributionExpenseSubjectCode,
         employee?.payrollContributionExpenseSubjectName,
         subjectOrFallback(
-          department?.payrollContributionExpenseSubjectCode,
-          department?.payrollContributionExpenseSubjectName,
-          subjectOrFallback(defaultSubjects.payrollContributionExpenseSubjectCode, defaultSubjects.payrollContributionExpenseSubjectName, SUBJECTS.contributionExpense),
+          defaultSubjects.payrollContributionExpenseSubjectCode,
+          defaultSubjects.payrollContributionExpenseSubjectName,
+          SUBJECTS.contributionExpense,
         ),
       ),
     ),
@@ -99,9 +101,9 @@ export function resolvePayrollVoucherSubjects(
         employee?.payrollSalaryPayableSubjectCode,
         employee?.payrollSalaryPayableSubjectName,
         subjectOrFallback(
-          department?.payrollSalaryPayableSubjectCode,
-          department?.payrollSalaryPayableSubjectName,
-          subjectOrFallback(defaultSubjects.payrollSalaryPayableSubjectCode, defaultSubjects.payrollSalaryPayableSubjectName, SUBJECTS.salaryPayable),
+          defaultSubjects.payrollSalaryPayableSubjectCode,
+          defaultSubjects.payrollSalaryPayableSubjectName,
+          SUBJECTS.salaryPayable,
         ),
       ),
     ),
@@ -112,9 +114,9 @@ export function resolvePayrollVoucherSubjects(
         employee?.payrollTaxPayableSubjectCode,
         employee?.payrollTaxPayableSubjectName,
         subjectOrFallback(
-          department?.payrollTaxPayableSubjectCode,
-          department?.payrollTaxPayableSubjectName,
-          subjectOrFallback(defaultSubjects.payrollTaxPayableSubjectCode, defaultSubjects.payrollTaxPayableSubjectName, SUBJECTS.taxPayable),
+          defaultSubjects.payrollTaxPayableSubjectCode,
+          defaultSubjects.payrollTaxPayableSubjectName,
+          SUBJECTS.taxPayable,
         ),
       ),
     ),
@@ -125,13 +127,22 @@ export function resolvePayrollVoucherSubjects(
         employee?.payrollEmployeeContributionPayableSubjectCode,
         employee?.payrollEmployeeContributionPayableSubjectName,
         subjectOrFallback(
-          department?.payrollEmployeeContributionPayableSubjectCode,
-          department?.payrollEmployeeContributionPayableSubjectName,
-          subjectOrFallback(
-            defaultSubjects.payrollEmployeeContributionPayableSubjectCode,
-            defaultSubjects.payrollEmployeeContributionPayableSubjectName,
-            SUBJECTS.employeeContributionPayable,
-          ),
+          defaultSubjects.payrollEmployeeContributionPayableSubjectCode,
+          defaultSubjects.payrollEmployeeContributionPayableSubjectName,
+          SUBJECTS.employeeContributionPayable,
+        ),
+      ),
+    ),
+    employerContributionPayable: subjectOrFallback(
+      item.inputData.payrollEmployerContributionPayableSubjectCode,
+      item.inputData.payrollEmployerContributionPayableSubjectName,
+      subjectOrFallback(
+        employee?.payrollEmployerContributionPayableSubjectCode,
+        employee?.payrollEmployerContributionPayableSubjectName,
+        subjectOrFallback(
+          defaultSubjects.payrollEmployerContributionPayableSubjectCode,
+          defaultSubjects.payrollEmployerContributionPayableSubjectName,
+          SUBJECTS.employerContributionPayable,
         ),
       ),
     ),
@@ -151,11 +162,11 @@ export function buildPayrollAccrualVoucherPreview(
   period: string,
   employees: Partner[] = [],
   defaultSubjects: PayrollVoucherDefaultSubjects = {},
-  departments: Department[] = [],
 ): PayrollVoucherEntryPreview[] {
   const salaryDebitMap = new Map<string, number>();
   const contributionDebitMap = new Map<string, number>();
   const salaryPayableMap = new Map<string, number>();
+  const employerContributionPayableMap = new Map<string, number>();
   const taxPayableMap = new Map<string, number>();
   const employeeContributionPayableMap = new Map<string, number>();
   const employeeByCode = new Map(
@@ -163,16 +174,11 @@ export function buildPayrollAccrualVoucherPreview(
       .filter((employee) => employee.isEmployee)
       .map((employee) => [employee.code, employee] as const),
   );
-  const departmentByName = new Map(
-    departments
-      .map((department) => [department.name.trim(), department] as const)
-      .filter(([name]) => Boolean(name)),
-  );
 
   items.forEach((item) => {
     const result = item.calculationResult;
     const departmentName = departmentKey(result.departmentName);
-    const subjects = resolvePayrollVoucherSubjects(item, employeeByCode, defaultSubjects, departmentByName);
+    const subjects = resolvePayrollVoucherSubjects(item, employeeByCode, defaultSubjects);
     const employerContribution = roundMoney(result.employerSocialInsurance + result.employerHousingFund);
     const employeeContribution = roundMoney(
       result.employeeSocialInsurance + result.employeeHousingFund + (item.inputData.otherPostTaxDeduction || 0),
@@ -191,7 +197,12 @@ export function buildPayrollAccrualVoucherPreview(
     addAmount(
       salaryPayableMap,
       makeCreditKey(subjects.salaryPayable.code, subjects.salaryPayable.name),
-      roundMoney(result.netSalary + employerContribution),
+      result.netSalary,
+    );
+    addAmount(
+      employerContributionPayableMap,
+      makeCreditKey(subjects.employerContributionPayable.code, subjects.employerContributionPayable.name),
+      employerContribution,
     );
     addAmount(
       taxPayableMap,
@@ -237,7 +248,19 @@ export function buildPayrollAccrualVoucherPreview(
     if (amount <= 0) return;
     const [subjectCode, subjectName] = key.split('|');
     entries.push({
-      summary: `${period} 应付员工实发工资及公司社保公积金`,
+      summary: `${period} 应付员工实发工资`,
+      subjectCode,
+      subjectName,
+      debit: 0,
+      credit: amount,
+    });
+  });
+
+  employerContributionPayableMap.forEach((amount, key) => {
+    if (amount <= 0) return;
+    const [subjectCode, subjectName] = key.split('|');
+    entries.push({
+      summary: `${period} 代提公司社保公积金`,
       subjectCode,
       subjectName,
       debit: 0,

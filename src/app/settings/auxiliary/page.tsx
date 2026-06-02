@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,25 +18,43 @@ import {
   Edit,
   Trash2,
   Save,
-  X,
   Phone,
-  Mail,
-  MapPin,
   Lock,
   Unlock,
-  Link,
   Merge
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
-import { exportToExcel, importFromExcel } from '@/lib/excel-utils';
+import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { usePartnerStore } from '@/stores/usePartnerStore';
-import { SubjectSearch } from '@/components/voucher/subject-search';
 import { useSubjectStore } from '@/stores';
+import { DepartmentPopover } from '@/components/shared/subject-popover';
 import type { Partner } from '@/types';
 
+type PartnerTemplateSample = {
+  code: string;
+  name: string;
+  departmentCode: string;
+  departmentName: string;
+  isCustomer: string;
+  isSupplier: string;
+  isEmployee: string;
+  contact: string;
+  phone: string;
+  email: string;
+  address: string;
+  taxNumber: string;
+  bankAccount: string;
+  bankName: string;
+};
+
+type PartnerTemplateHeader = {
+  key: keyof PartnerTemplateSample;
+  label: string;
+  placeholder?: string;
+};
+
 /** Popover 风格科目选择器：点击展开，选中后只显示 Tag */
-function SubjectSearchPopover({ value, onSelect, placeholder }: {
-  value: string;
+function SubjectSearchPopover({ onSelect, placeholder }: {
   onSelect: (code: string, name: string) => void;
   placeholder?: string;
 }) {
@@ -112,6 +130,7 @@ function SubjectSearchPopover({ value, onSelect, placeholder }: {
 export default function AuxiliaryDataPage() {
   const { showToast } = useToast();
   const partnerStore = usePartnerStore();
+  const hasInitializedPartnersRef = useRef(false);
 
   const [partners, setPartners] = useState<Partner[]>(partnerStore.partners);
   const [showDialog, setShowDialog] = useState(false);
@@ -131,6 +150,16 @@ export default function AuxiliaryDataPage() {
     onConfirm: () => void;
   } | null>(null);
 
+  useEffect(() => {
+    if (hasInitializedPartnersRef.current) return;
+    hasInitializedPartnersRef.current = true;
+    void partnerStore.initializePartners();
+  }, [partnerStore]);
+
+  useEffect(() => {
+    setPartners(partnerStore.partners);
+  }, [partnerStore.partners]);
+
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -146,16 +175,10 @@ export default function AuxiliaryDataPage() {
     bankName: '',
     defaultSubjectCode: '',
     defaultSubjectName: '',
+    departmentCode: '',
+    departmentName: '',
     payrollSalaryExpenseSubjectCode: '',
     payrollSalaryExpenseSubjectName: '',
-    payrollContributionExpenseSubjectCode: '',
-    payrollContributionExpenseSubjectName: '',
-    payrollSalaryPayableSubjectCode: '',
-    payrollSalaryPayableSubjectName: '',
-    payrollTaxPayableSubjectCode: '',
-    payrollTaxPayableSubjectName: '',
-    payrollEmployeeContributionPayableSubjectCode: '',
-    payrollEmployeeContributionPayableSubjectName: '',
     paymentTermDays: 30,
     frozen: false
   });
@@ -167,7 +190,9 @@ export default function AuxiliaryDataPage() {
     }
     const query = searchQuery.toLowerCase();
     return partner.code.toLowerCase().includes(query) ||
-           partner.name.toLowerCase().includes(query);
+           partner.name.toLowerCase().includes(query) ||
+           (partner.departmentCode || '').toLowerCase().includes(query) ||
+           (partner.departmentName || '').toLowerCase().includes(query);
   });
 
   const getPartnerTypes = (partner: Partner) => {
@@ -247,16 +272,10 @@ export default function AuxiliaryDataPage() {
       bankName: partner.bankName || '',
       defaultSubjectCode: partner.defaultSubjectCode || '',
       defaultSubjectName: partner.defaultSubjectName || '',
+      departmentCode: partner.departmentCode || '',
+      departmentName: partner.departmentName || '',
       payrollSalaryExpenseSubjectCode: partner.payrollSalaryExpenseSubjectCode || '',
       payrollSalaryExpenseSubjectName: partner.payrollSalaryExpenseSubjectName || '',
-      payrollContributionExpenseSubjectCode: partner.payrollContributionExpenseSubjectCode || '',
-      payrollContributionExpenseSubjectName: partner.payrollContributionExpenseSubjectName || '',
-      payrollSalaryPayableSubjectCode: partner.payrollSalaryPayableSubjectCode || '',
-      payrollSalaryPayableSubjectName: partner.payrollSalaryPayableSubjectName || '',
-      payrollTaxPayableSubjectCode: partner.payrollTaxPayableSubjectCode || '',
-      payrollTaxPayableSubjectName: partner.payrollTaxPayableSubjectName || '',
-      payrollEmployeeContributionPayableSubjectCode: partner.payrollEmployeeContributionPayableSubjectCode || '',
-      payrollEmployeeContributionPayableSubjectName: partner.payrollEmployeeContributionPayableSubjectName || '',
       paymentTermDays: partner.paymentTermDays ?? 30,
       frozen: partner.frozen
     });
@@ -297,12 +316,14 @@ export default function AuxiliaryDataPage() {
         const file = fileInputRef.current.files[0];
 
         // 导入往来单位数据
-        const headers = [
-          { key: 'code' as keyof Partner, label: '单位代码', required: true },
-          { key: 'name' as keyof Partner, label: '单位名称', required: true },
-          { key: 'isCustomer' as keyof Partner, label: '是否客户' },
-          { key: 'isSupplier' as keyof Partner, label: '是否供应商' },
-          { key: 'isEmployee' as keyof Partner, label: '是否雇员' },
+    const headers = [
+      { key: 'code' as keyof Partner, label: '单位代码', required: true },
+      { key: 'name' as keyof Partner, label: '单位名称', required: true },
+      { key: 'departmentCode' as keyof Partner, label: '部门代码' },
+      { key: 'departmentName' as keyof Partner, label: '部门名称' },
+      { key: 'isCustomer' as keyof Partner, label: '是否客户' },
+      { key: 'isSupplier' as keyof Partner, label: '是否供应商' },
+      { key: 'isEmployee' as keyof Partner, label: '是否雇员' },
           { key: 'contact' as keyof Partner, label: '联系人' },
           { key: 'phone' as keyof Partner, label: '联系电话' },
           { key: 'email' as keyof Partner, label: '电子邮箱' },
@@ -350,6 +371,8 @@ export default function AuxiliaryDataPage() {
     const exportData = dataToExport.map(partner => ({
       '单位代码': partner.code,
       '单位名称': partner.name,
+      '部门代码': partner.departmentCode || '',
+      '部门名称': partner.departmentName || '',
       '是否客户': partner.isCustomer ? '是' : '否',
       '是否供应商': partner.isSupplier ? '是' : '否',
       '是否雇员': partner.isEmployee ? '是' : '否',
@@ -370,37 +393,40 @@ export default function AuxiliaryDataPage() {
 
   // 导出模板
   const handleExportTemplate = () => {
-    const sampleData = {
-      '单位代码': 'AUX001',
-      '单位名称': '示例往来单位',
-      '是否客户': '是',
-      '是否供应商': '否',
-      '是否雇员': '否',
-      '联系人': '张三',
-      '联系电话': '021-12345678',
-      '电子邮箱': 'example@email.com',
-      '地址': '上海市浦东新区',
-      '税号': '310115XXXXXXXX',
-      '银行账号': '622588XXXXXXXXXXX',
-      '开户银行': '中国工商银行'
+    const sampleData: PartnerTemplateSample = {
+      code: 'AUX001',
+      name: '示例往来单位',
+      departmentCode: 'DEPT001',
+      departmentName: '销售部',
+      isCustomer: '是',
+      isSupplier: '否',
+      isEmployee: '否',
+      contact: '张三',
+      phone: '021-12345678',
+      email: 'example@email.com',
+      address: '上海市浦东新区',
+      taxNumber: '310115XXXXXXXX',
+      bankAccount: '622588XXXXXXXXXXX',
+      bankName: '中国工商银行'
     };
 
-    const headers = [
-      { key: 'code' as any, label: '单位代码' },
-      { key: 'name' as any, label: '单位名称' },
-      { key: 'isCustomer' as any, label: '是否客户', placeholder: '是/否' },
-      { key: 'isSupplier' as any, label: '是否供应商', placeholder: '是/否' },
-      { key: 'isEmployee' as any, label: '是否雇员', placeholder: '是/否' },
-      { key: 'contact' as any, label: '联系人' },
-      { key: 'phone' as any, label: '联系电话' },
-      { key: 'email' as any, label: '电子邮箱' },
-      { key: 'address' as any, label: '地址' },
-      { key: 'taxNumber' as any, label: '税号' },
-      { key: 'bankAccount' as any, label: '银行账号' },
-      { key: 'bankName' as any, label: '开户银行' }
+    const headers: PartnerTemplateHeader[] = [
+      { key: 'code', label: '单位代码' },
+      { key: 'name', label: '单位名称' },
+      { key: 'departmentCode', label: '部门代码' },
+      { key: 'departmentName', label: '部门名称' },
+      { key: 'isCustomer', label: '是否客户', placeholder: '是/否' },
+      { key: 'isSupplier', label: '是否供应商', placeholder: '是/否' },
+      { key: 'isEmployee', label: '是否雇员', placeholder: '是/否' },
+      { key: 'contact', label: '联系人' },
+      { key: 'phone', label: '联系电话' },
+      { key: 'email', label: '电子邮箱' },
+      { key: 'address', label: '地址' },
+      { key: 'taxNumber', label: '税号' },
+      { key: 'bankAccount', label: '银行账号' },
+      { key: 'bankName', label: '开户银行' }
     ];
 
-    // @ts-ignore
     exportTemplate('往来单位', sampleData, headers);
     showToast('success', '往来单位模板导出成功');
   };
@@ -427,16 +453,10 @@ export default function AuxiliaryDataPage() {
       bankName: '',
       defaultSubjectCode: '',
       defaultSubjectName: '',
+      departmentCode: '',
+      departmentName: '',
       payrollSalaryExpenseSubjectCode: '',
       payrollSalaryExpenseSubjectName: '',
-      payrollContributionExpenseSubjectCode: '',
-      payrollContributionExpenseSubjectName: '',
-      payrollSalaryPayableSubjectCode: '',
-      payrollSalaryPayableSubjectName: '',
-      payrollTaxPayableSubjectCode: '',
-      payrollTaxPayableSubjectName: '',
-      payrollEmployeeContributionPayableSubjectCode: '',
-      payrollEmployeeContributionPayableSubjectName: '',
       paymentTermDays: 30,
       frozen: false
     });
@@ -599,6 +619,9 @@ export default function AuxiliaryDataPage() {
                       单位名称
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">
+                      部门
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">
                       身份
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">
@@ -624,6 +647,9 @@ export default function AuxiliaryDataPage() {
                           <span className="font-mono text-sm">{partner.code}</span>
                         </td>
                         <td className="px-4 py-3 font-medium">{partner.name}</td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {partner.departmentName || partner.departmentCode || '-'}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1">
                             {types.map((type) => (
@@ -764,6 +790,15 @@ export default function AuxiliaryDataPage() {
                 <Label className="font-semibold text-sm">地址</Label>
                 <Input placeholder="单位地址" value={formData.address} onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))} />
               </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-sm">部门</Label>
+                <DepartmentPopover
+                  value={formData.departmentCode}
+                  onSelect={(code, name) => setFormData(prev => ({ ...prev, departmentCode: code, departmentName: name }))}
+                  placeholder="选择部门"
+                />
+              </div>
             </div>
 
             {/* ========== 右侧栏：账务设置（白底） ========== */}
@@ -798,7 +833,7 @@ export default function AuxiliaryDataPage() {
               <div className="space-y-1.5">
                 <Label className="font-semibold text-sm">默认对方科目</Label>
                 <p className="text-xs text-slate-400">
-                  流水匹配时自动使用。供应商建议"应付账款"，客户建议"应收账款"
+                  流水匹配时自动使用。供应商建议 &quot;应付账款&quot;，客户建议 &quot;应收账款&quot;
                 </p>
                 {formData.defaultSubjectCode ? (
                   <div className="flex items-center gap-2">
@@ -815,7 +850,6 @@ export default function AuxiliaryDataPage() {
                   </div>
                 ) : (
                   <SubjectSearchPopover
-                    value=""
                     onSelect={(code, name) => setFormData(prev => ({ ...prev, defaultSubjectCode: code, defaultSubjectName: name }))}
                     placeholder="点击选择科目..."
                   />
@@ -835,59 +869,7 @@ export default function AuxiliaryDataPage() {
                         <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollSalaryExpenseSubjectCode: '', payrollSalaryExpenseSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
                       </div>
                     ) : (
-                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollSalaryExpenseSubjectCode: code, payrollSalaryExpenseSubjectName: name }))} placeholder="选择工资费用科目" />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="font-semibold text-sm">社保公积金费用科目</Label>
-                    {formData.payrollContributionExpenseSubjectCode ? (
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
-                          {formData.payrollContributionExpenseSubjectCode} {formData.payrollContributionExpenseSubjectName}
-                        </Badge>
-                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollContributionExpenseSubjectCode: '', payrollContributionExpenseSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
-                      </div>
-                    ) : (
-                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollContributionExpenseSubjectCode: code, payrollContributionExpenseSubjectName: name }))} placeholder="选择社保公积金费用科目" />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="font-semibold text-sm">应付工资科目</Label>
-                    {formData.payrollSalaryPayableSubjectCode ? (
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
-                          {formData.payrollSalaryPayableSubjectCode} {formData.payrollSalaryPayableSubjectName}
-                        </Badge>
-                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollSalaryPayableSubjectCode: '', payrollSalaryPayableSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
-                      </div>
-                    ) : (
-                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollSalaryPayableSubjectCode: code, payrollSalaryPayableSubjectName: name }))} placeholder="选择应付工资科目" />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="font-semibold text-sm">个税应交科目</Label>
-                    {formData.payrollTaxPayableSubjectCode ? (
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
-                          {formData.payrollTaxPayableSubjectCode} {formData.payrollTaxPayableSubjectName}
-                        </Badge>
-                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollTaxPayableSubjectCode: '', payrollTaxPayableSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
-                      </div>
-                    ) : (
-                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollTaxPayableSubjectCode: code, payrollTaxPayableSubjectName: name }))} placeholder="选择个税应交科目" />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="font-semibold text-sm">个人社保公积金代扣科目</Label>
-                    {formData.payrollEmployeeContributionPayableSubjectCode ? (
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1">
-                          {formData.payrollEmployeeContributionPayableSubjectCode} {formData.payrollEmployeeContributionPayableSubjectName}
-                        </Badge>
-                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, payrollEmployeeContributionPayableSubjectCode: '', payrollEmployeeContributionPayableSubjectName: '' }))} className="text-xs text-slate-400 hover:text-red-500 transition-colors">清除</button>
-                      </div>
-                    ) : (
-                      <SubjectSearchPopover value="" onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollEmployeeContributionPayableSubjectCode: code, payrollEmployeeContributionPayableSubjectName: name }))} placeholder="选择个人社保公积金代扣科目" />
+                      <SubjectSearchPopover onSelect={(code, name) => setFormData(prev => ({ ...prev, payrollSalaryExpenseSubjectCode: code, payrollSalaryExpenseSubjectName: name }))} placeholder="选择工资费用科目" />
                     )}
                   </div>
                 </div>
