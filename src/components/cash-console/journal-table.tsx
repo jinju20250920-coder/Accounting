@@ -10,6 +10,7 @@ import { BANK_BRANDS } from '@/lib/bank-parsers/bank-registry';
 import { formatMoney } from '@/lib/accounting';
 import { VoucherStamp } from '@/components/shared/voucher-stamp';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
 import { Search, X, ChevronLeft, ChevronRight, FileText, Lock, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -45,6 +46,7 @@ interface JournalEntry {
   rowNumber?: number;
   ourAccount?: string;
   ourAccountName?: string;
+  currency?: string;
 }
 
 function SubjectSearchPortal({
@@ -291,6 +293,7 @@ export function JournalTable({
   onRefresh,
 }: JournalTableProps) {
   const { showToast } = useToast();
+  const baseCurrency = useAccountSetStore((s) => s.getCurrentAccountSet()?.baseCurrency) || 'CNY';
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -298,7 +301,10 @@ export function JournalTable({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [voucherDialogNo, setVoucherDialogNo] = useState<string | null>(null);
   const [bankNameMap, setBankNameMap] = useState<Record<string, string>>({});
+  const [accountCurrencyMap, setAccountCurrencyMap] = useState<Record<string, string>>({});
   const pageSize = 50;
+
+  const isForeignAccount = !!accountNumber && !!accountCurrencyMap[accountNumber] && accountCurrencyMap[accountNumber] !== baseCurrency;
 
   // Load bank name mapping from bindings
   useEffect(() => {
@@ -308,15 +314,20 @@ export function JournalTable({
   const loadBankNames = async () => {
     try {
       const bindings = await sqliteService.getBankAccountBindings();
-      const map: Record<string, string> = {};
+      const nameMap: Record<string, string> = {};
+      const currencyMap: Record<string, string> = {};
       for (const b of bindings) {
         const brand = BANK_BRANDS[b.bankId];
         const name = brand?.short || b.bankName || '';
         if (b.accountNumber && name) {
-          map[b.accountNumber] = name;
+          nameMap[b.accountNumber] = name;
+        }
+        if (b.accountNumber && b.currency) {
+          currencyMap[b.accountNumber] = b.currency;
         }
       }
-      setBankNameMap(map);
+      setBankNameMap(nameMap);
+      setAccountCurrencyMap(currencyMap);
     } catch { /* ignore */ }
   };
 
@@ -344,11 +355,12 @@ export function JournalTable({
 
   const entriesWithBalance = useMemo(() => {
     let runningBalance = openingBalance;
+    const accountCurrency = accountNumber ? accountCurrencyMap[accountNumber] : undefined;
     return entries.map(entry => {
       runningBalance = runningBalance + (entry.credit || 0) - (entry.debit || 0);
-      return { ...entry, balance: runningBalance };
+      return { ...entry, balance: runningBalance, currency: accountCurrency || 'CNY' };
     });
-  }, [entries, openingBalance]);
+  }, [entries, openingBalance, accountNumber, accountCurrencyMap]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -538,6 +550,7 @@ export function JournalTable({
           <span className="w-24 text-right shrink-0">支出</span>
           <span className="w-28 text-right shrink-0">余额</span>
           <span className="w-20 flex justify-center shrink-0">状态</span>
+          {isForeignAccount && <span className="w-14 text-center shrink-0">币种</span>}
           <span className="w-20 shrink-0">银行</span>
           <span className="w-24 shrink-0">备注</span>
           <span className="w-24 shrink-0">凭证编号</span>
@@ -555,6 +568,7 @@ export function JournalTable({
           <span className="w-24 text-right shrink-0">-</span>
           <span className="w-28 text-right font-medium text-slate-700 shrink-0">{formatMoney(openingBalance)}</span>
           <span className="w-20 flex justify-center shrink-0"><Lock className="h-3 w-3 text-slate-400" /></span>
+          {isForeignAccount && <span className="w-14 text-center shrink-0" />}
           <span className="w-20 shrink-0" />
           <span className="w-24 shrink-0" />
           <span className="w-24 shrink-0" />
@@ -626,6 +640,13 @@ export function JournalTable({
                 <span className="w-20 flex justify-center shrink-0">
                   {getStatusBadge(entry)}
                 </span>
+                {isForeignAccount && (
+                  <span className="w-14 text-center shrink-0">
+                    <Badge variant="outline" className="text-[10px] h-5 bg-amber-50 text-amber-700 border-amber-200">
+                      {entry.currency || 'CNY'}
+                    </Badge>
+                  </span>
+                )}
                 <span className="w-20 truncate text-slate-500 shrink-0" title={entry.ourAccount ? (bankNameMap[entry.ourAccount] || '') : ''}>
                   {entry.ourAccount ? (bankNameMap[entry.ourAccount] || '') : ''}
                 </span>
