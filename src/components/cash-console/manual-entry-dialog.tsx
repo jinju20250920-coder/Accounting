@@ -171,6 +171,8 @@ export function ManualEntryDialog({
         credit: isForeignCurrency ? (direction === 'credit' ? localAmount : 0) : credit,
         debit: isForeignCurrency ? (direction === 'debit' ? localAmount : 0) : debit,
         amount: isForeignCurrency ? (direction === 'credit' ? localAmount : -localAmount) : (direction === 'credit' ? numAmount : -numAmount),
+        exchangeRate: rate || undefined,
+        originalAmount: isForeignCurrency ? numAmount : undefined,
         ourAccount: accountNumber,
         status: subjectCode ? 'matched' : 'pending',
         matchedSubject: subjectCode || '',

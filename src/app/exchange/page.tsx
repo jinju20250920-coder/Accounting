@@ -582,13 +582,23 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
 
     if (Math.abs(balance) < 0.005) continue;
 
+    // Use originalAmount if available, otherwise treat debit/credit as original
+    const totalOriginalIncome = accountTxns.reduce((s: number, t: any) =>
+      s + (t.originalAmount && (t.income || 0) > 0 ? t.originalAmount : (t.income || 0)), 0);
+    const totalOriginalExpense = accountTxns.reduce((s: number, t: any) =>
+      s + (t.originalAmount && (t.expense || 0) > 0 ? t.originalAmount : (t.expense || 0)), 0);
+    const originalBalance = totalOriginalIncome - totalOriginalExpense;
+
+    // bookValueBase = sum of local currency amounts (debit/credit already converted)
+    const bookValueBase = Math.round((totalIncome - totalExpense) * 100) / 100;
+
     results.push({
       accountId: binding.id,
       accountNumber: binding.accountNumber,
       bankName: binding.bankName || binding.aliasName || binding.accountNumber,
       currencyCode: binding.currency,
-      originalAmount: balance,
-      bookValueBase: Math.round(balance * rate.middleRate * 100) / 100,
+      originalAmount: Math.abs(originalBalance) >= 0.005 ? originalBalance : balance,
+      bookValueBase,
       subjectCode: binding.subSubjectCode || '1002',
       subjectName: binding.subSubjectName || '银行存款',
     });

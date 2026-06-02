@@ -47,6 +47,8 @@ interface JournalEntry {
   ourAccount?: string;
   ourAccountName?: string;
   currency?: string;
+  exchangeRate?: number;
+  originalAmount?: number;
 }
 
 function SubjectSearchPortal({
@@ -358,7 +360,13 @@ export function JournalTable({
     const accountCurrency = accountNumber ? accountCurrencyMap[accountNumber] : undefined;
     return entries.map(entry => {
       runningBalance = runningBalance + (entry.credit || 0) - (entry.debit || 0);
-      return { ...entry, balance: runningBalance, currency: accountCurrency || 'CNY' };
+      return {
+        ...entry,
+        balance: runningBalance,
+        currency: accountCurrency || 'CNY',
+        exchangeRate: (entry as any).exchangeRate || undefined,
+        originalAmount: (entry as any).originalAmount || undefined,
+      };
     });
   }, [entries, openingBalance, accountNumber, accountCurrencyMap]);
 
@@ -641,10 +649,14 @@ export function JournalTable({
                   {getStatusBadge(entry)}
                 </span>
                 {isForeignAccount && (
-                  <span className="w-14 text-center shrink-0">
+                  <span className="w-14 text-center shrink-0" title={entry.exchangeRate ? `原币: ${entry.originalAmount || '-'} 汇率: ${entry.exchangeRate}` : undefined}>
                     <Badge variant="outline" className="text-[10px] h-5 bg-amber-50 text-amber-700 border-amber-200">
                       {entry.currency || 'CNY'}
+                      {entry.exchangeRate ? `@${entry.exchangeRate}` : ''}
                     </Badge>
+                    {entry.originalAmount ? (
+                      <div className="text-[10px] text-slate-400 mt-0.5">{formatMoney(entry.originalAmount)}</div>
+                    ) : null}
                   </span>
                 )}
                 <span className="w-20 truncate text-slate-500 shrink-0" title={entry.ourAccount ? (bankNameMap[entry.ourAccount] || '') : ''}>

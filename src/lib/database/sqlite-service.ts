@@ -514,6 +514,9 @@ class SQLiteService {
             importBatchId TEXT,
             voucherId TEXT,
             generatedVoucherNo TEXT,
+            exchangeRate REAL,
+            originalAmount REAL,
+            source TEXT DEFAULT 'import',
             accountSetId TEXT,
             createTime TEXT,
             updateTime TEXT,
@@ -887,6 +890,9 @@ class SQLiteService {
             importBatchId TEXT,
             voucherId TEXT,
             generatedVoucherNo TEXT,
+            exchangeRate REAL,
+            originalAmount REAL,
+            source TEXT DEFAULT 'import',
             accountSetId TEXT,
             createTime TEXT,
             updateTime TEXT,
@@ -2240,6 +2246,14 @@ class SQLiteService {
         if (!columnNames.includes('source')) {
           this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN source TEXT DEFAULT \'import\'');
           console.log('Migration: Added source column to bankTransactions');
+        }
+        if (!columnNames.includes('exchangeRate')) {
+          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN exchangeRate REAL');
+          console.log('Migration: Added exchangeRate column to bankTransactions');
+        }
+        if (!columnNames.includes('originalAmount')) {
+          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN originalAmount REAL');
+          console.log('Migration: Added originalAmount column to bankTransactions');
         }
       }
       // Add index for ourAccount filtering
@@ -3745,8 +3759,9 @@ class SQLiteService {
           transactionSerialNo, enterpriseSerialNo, ourAccount, ourAccountName, ourBranch,
           rowNumber, status, matchedSubject, matchedSubjectName, confidence,
           bankAccountId, importBatchId, voucherId, generatedVoucherNo,
+          exchangeRate, originalAmount,
           accountSetId, createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run([
         txWithAccountSet.id,
@@ -3776,6 +3791,8 @@ class SQLiteService {
         txWithAccountSet.importBatchId || '',
         txWithAccountSet.voucherId || '',
         txWithAccountSet.generatedVoucherNo || '',
+        txWithAccountSet.exchangeRate || null,
+        txWithAccountSet.originalAmount || null,
         txWithAccountSet.accountSetId,
         txWithAccountSet.createTime || now,
         txWithAccountSet.updateTime || now
