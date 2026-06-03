@@ -195,6 +195,7 @@ export interface FxRate {
   baseCurrency: string;
   middleRate: number;
   source?: string;
+  createdBy?: string;
   createTime: string;
   updateTime: string;
 }

@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { Currency, FxRate, FxRevaluationRun, FxRevaluationRunLine } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
+import { useAuthStore } from './useAuthStore';
 
 interface CurrencyStore {
   currencies: Currency[];
@@ -475,6 +476,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         (currentAccountSet?.baseCurrency && /^[A-Z]{3}$/.test(currentAccountSet.baseCurrency) ? currentAccountSet.baseCurrency : '') ||
         'CNY';
       const timestamp = nowIso();
+      const currentUser = useAuthStore.getState().currentUser;
+      const createdBy = rate.createdBy || currentUser?.username || undefined;
 
       const existingById = rate.id ? state.fxRates.find(item => item.id === rate.id) : undefined;
       const existingByKey = state.fxRates.find(item => item.rateDate === rate.rateDate && item.currencyCode === rate.currencyCode && item.accountSetId === accountSetId);
@@ -497,6 +500,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
             accountSetId,
             baseCurrency,
             id: existing.id,
+            createdBy: createdBy || existing.createdBy,
             updateTime: timestamp
           }
         : {
@@ -507,6 +511,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
             baseCurrency,
             middleRate: rate.middleRate,
             source: rate.source || 'manual',
+            createdBy,
             createTime: timestamp,
             updateTime: timestamp
           };

@@ -13,7 +13,8 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
 import { Popover } from '@/components/ui/popover';
 import { Search, X } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
+import { BANK_BRANDS } from '@/lib/bank-parsers/bank-registry';
 
 interface ManualEntryDialogProps {
   open: boolean;
@@ -21,6 +22,8 @@ interface ManualEntryDialogProps {
   accountNumber: string;
   period: string;
   onSaved?: () => void;
+  defaultCurrency?: string;
+  isAllAccounts?: boolean;
 }
 
 function SubjectPopover({
@@ -110,6 +113,8 @@ export function ManualEntryDialog({
   accountNumber,
   period,
   onSaved,
+  defaultCurrency,
+  isAllAccounts,
 }: ManualEntryDialogProps) {
   const { showToast } = useToast();
   const currencies = useCurrencyStore((s) => s.currencies);
@@ -122,10 +127,39 @@ export function ManualEntryDialog({
   const [direction, setDirection] = useState<'credit' | 'debit'>('credit');
   const [subjectCode, setSubjectCode] = useState<string | undefined>();
   const [subjectName, setSubjectName] = useState<string | undefined>();
-  const [currency, setCurrency] = useState(baseCurrency);
+  const [currency, setCurrency] = useState(defaultCurrency || baseCurrency);
   const [exchangeRate, setExchangeRate] = useState('');
   const [rateSource, setRateSource] = useState<'auto' | 'manual'>('auto');
   const [saving, setSaving] = useState(false);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
+  const [selectedBankAccountNumber, setSelectedBankAccountNumber] = useState('');
+  const [selectedBankCurrency, setSelectedBankCurrency] = useState<string | undefined>();
+  const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; bankId: string; accountNumber: string; bankName: string; currency?: string; subSubjectCode: string; subSubjectName: string }>>([]);
+
+  // Load bank accounts when dialog opens (for "all accounts" mode)
+  useEffect(() => {
+    if (open && isAllAccounts) {
+      sqliteService.getBankAccountBindings().then(bindings => {
+        setBankAccounts(bindings.map(b => ({
+          id: b.id || b.bankId,
+          bankId: b.bankId || '',
+          accountNumber: b.accountNumber || '',
+          bankName: b.bankName || '',
+          currency: b.currency,
+          subSubjectCode: b.subSubjectCode || '',
+          subSubjectName: b.subSubjectName || '',
+        })));
+      });
+    }
+  }, [open, isAllAccounts]);
+
+  // Sync currency when defaultCurrency changes or bank account selection changes
+  useEffect(() => {
+    const cur = isAllAccounts ? selectedBankCurrency : defaultCurrency;
+    if (cur) {
+      setCurrency(cur);
+    }
+  }, [defaultCurrency, selectedBankCurrency, isAllAccounts]);
 
   const isForeignCurrency = currency && currency !== baseCurrency;
 
@@ -189,12 +223,19 @@ export function ManualEntryDialog({
     setDirection('credit');
     setSubjectCode(undefined);
     setSubjectName(undefined);
-    setCurrency(baseCurrency);
+    setCurrency(defaultCurrency || baseCurrency);
     setExchangeRate('');
     setRateSource('auto');
+    setSelectedBankAccountId('');
+    setSelectedBankAccountNumber('');
+    setSelectedBankCurrency(undefined);
   };
 
   const handleSave = async () => {
+    if (isAllAccounts && !selectedBankAccountId) {
+      showToast('error', '请先选择银行账户');
+      return;
+    }
     if (!date || !summary || !amount) {
       showToast('error', '请填写日期、摘要和金额');
       return;
@@ -218,6 +259,7 @@ export function ManualEntryDialog({
       const rate = isForeignCurrency ? parseFloat(exchangeRate) : undefined;
       const localAmount = rate ? Math.round(numAmount * rate * 100) / 100 : numAmount;
       const summaryWithCurrency = isForeignCurrency ? `${summary} (${currency}@${rate?.toFixed(4)})` : summary;
+      const ourAccount = isAllAccounts ? selectedBankAccountNumber : accountNumber;
 
       await sqliteService.saveBankTransaction({
         id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -228,7 +270,7 @@ export function ManualEntryDialog({
         amount: isForeignCurrency ? (direction === 'credit' ? localAmount : -localAmount) : (direction === 'credit' ? numAmount : -numAmount),
         exchangeRate: rate || undefined,
         originalAmount: isForeignCurrency ? numAmount : undefined,
-        ourAccount: accountNumber,
+        ourAccount,
         status: subjectCode ? 'matched' : 'pending',
         matchedSubject: subjectCode || '',
         matchedSubjectName: subjectName || '',
@@ -260,6 +302,36 @@ export function ManualEntryDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {isAllAccounts && (
+            <div className="space-y-2">
+              <Label required>银行账户</Label>
+              <select
+                value={selectedBankAccountId}
+                onChange={e => {
+                  const acct = bankAccounts.find(a => a.id === e.target.value);
+                  if (acct) {
+                    setSelectedBankAccountId(acct.id);
+                    setSelectedBankAccountNumber(acct.accountNumber);
+                    setSelectedBankCurrency(acct.currency);
+                  }
+                }}
+                className="w-full px-3 py-2 border rounded-md text-sm"
+              >
+                <option value="">请选择银行账户</option>
+                {bankAccounts.map(acct => {
+                  const brand = BANK_BRANDS[acct.bankId];
+                  const bankLabel = brand?.short || acct.bankName || '银行';
+                  const lastFour = acct.accountNumber?.slice(-4) || '';
+                  const showCurrency = acct.currency && acct.currency !== baseCurrency;
+                  const label = `${acct.subSubjectName || '1002'} ${bankLabel}${lastFour ? `****${lastFour}` : ''}${showCurrency ? ` ${acct.currency}` : ''}`;
+                  return (
+                    <option key={acct.id} value={acct.id}>{label}</option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label required>日期</Label>
             <ChineseDatePicker value={date} onChange={handleDateChange} />

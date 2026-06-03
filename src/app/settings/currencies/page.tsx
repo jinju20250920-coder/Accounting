@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -23,7 +24,8 @@ import {
   RefreshCw,
   DollarSign,
   CalendarDays,
-  ArrowRightLeft
+  ArrowRightLeft,
+  X
 } from 'lucide-react';
 import { useCurrencyStore } from '@/stores/useCurrencyStore';
 import { useSubjectStore, useAccountSetStore } from '@/stores';
@@ -123,13 +125,113 @@ export default function CurrenciesPage() {
   const [currencyEditingId, setCurrencyEditingId] = useState<string | null>(null);
   const [fxDialogOpen, setFxDialogOpen] = useState(false);
   const [fxEditingId, setFxEditingId] = useState<string | null>(null);
-  const [fxDateFilter, setFxDateFilter] = useState(today());
+  const [fxPeriodStart, setFxPeriodStart] = useState('');
+  const [fxPeriodEnd, setFxPeriodEnd] = useState('');
   const [currencyFormData, setCurrencyFormData] = useState<CurrencyFormState>(createDefaultCurrencyFormState());
   const [fxFormData, setFxFormData] = useState<FxFormState>(createDefaultFxFormState(baseCurrency?.code || 'CNY'));
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>(null);
   const [subjectSearchOpen, setSubjectSearchOpen] = useState(false);
+  const [bocLoading, setBocLoading] = useState(false);
+  const [bocDateDialogOpen, setBocDateDialogOpen] = useState(false);
+  const [bocTargetDate, setBocTargetDate] = useState(today());
+  const [bocPreviewOpen, setBocPreviewOpen] = useState(false);
+  const [bocPreviewRates, setBocPreviewRates] = useState<Array<{ currencyCode: string; currencyName: string; middleRate: number; rateDate: string }>>([]);
+  const [bocFetchDate, setBocFetchDate] = useState('');
+  const [bocCaptchaImage, setBocCaptchaImage] = useState('');
+  const [bocCaptchaText, setBocCaptchaText] = useState('');
+  const [bocSessionId, setBocSessionId] = useState('');
+  const [autoFetchEnabled, setAutoFetchEnabled] = useState(false);
+  const [autoFetchFrequency, setAutoFetchFrequency] = useState<'daily' | 'weekly' | 'monthly_first' | 'monthly_last'>('daily');
+  const [autoFetchTime, setAutoFetchTime] = useState('09:00');
+  const [lastAutoFetchTime, setLastAutoFetchTime] = useState('');
+  const [fxSelectedIds, setFxSelectedIds] = useState<Set<string>>(new Set());
+  const [fxCurrencyFilter, setFxCurrencyFilter] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load auto-fetch settings from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('boc_auto_fetch_settings');
+      if (saved) {
+        const s = JSON.parse(saved);
+        setAutoFetchEnabled(s.enabled ?? false);
+        setAutoFetchFrequency(s.frequency ?? 'daily');
+        setAutoFetchTime(s.time ?? '09:00');
+        setLastAutoFetchTime(s.lastFetch ?? '');
+      }
+    } catch {}
+  }, []);
+
+  // Save auto-fetch settings whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('boc_auto_fetch_settings', JSON.stringify({
+        enabled: autoFetchEnabled,
+        frequency: autoFetchFrequency,
+        time: autoFetchTime,
+        lastFetch: lastAutoFetchTime,
+      }));
+    } catch {}
+  }, [autoFetchEnabled, autoFetchFrequency, autoFetchTime, lastAutoFetchTime]);
+
+  // Auto-fetch check on page load
+  useEffect(() => {
+    if (!autoFetchEnabled || !currencies.length) return;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const lastDate = lastAutoFetchTime?.slice(0, 10) || '';
+    if (lastDate === todayStr) return; // already fetched today
+
+    const [h, m] = autoFetchTime.split(':').map(Number);
+    const targetMinutes = (h || 0) * 60 + (m || 0);
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (nowMinutes < targetMinutes) return; // not yet time
+
+    // Check frequency condition
+    const shouldFetch = (() => {
+      switch (autoFetchFrequency) {
+        case 'daily': return true;
+        case 'weekly': return now.getDay() === 1; // Monday
+        case 'monthly_first': return now.getDate() === 1;
+        case 'monthly_last': {
+          const tomorrow = new Date(now);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          return tomorrow.getDate() === 1;
+        }
+        default: return true;
+      }
+    })();
+
+    if (!shouldFetch) return;
+
+    const systemCurrencyCodes = currencies.filter(c => !c.disabled && !c.isBase).map(c => c.code).filter(Boolean);
+    if (!systemCurrencyCodes.length) return;
+
+    const doAutoFetch = async () => {
+      try {
+        const params = new URLSearchParams({ currencies: systemCurrencyCodes.join(',') });
+        const response = await fetch(`/api/boc-rates?${params}`);
+        const data = await response.json();
+        if (!response.ok || !data.rates?.length) return;
+
+        const accountSetId = currentAccountSet?.id || 'default';
+        for (const rate of data.rates) {
+          await upsertFxRate({
+            accountSetId,
+            rateDate: todayStr,
+            currencyCode: rate.currencyCode,
+            baseCurrency: baseCurrencyCode,
+            middleRate: rate.middleRate,
+            source: 'api_boc',
+          });
+        }
+        setLastAutoFetchTime(new Date().toISOString());
+        showToast('success', `已自动获取 ${data.rates.length} 条中行汇率`);
+      } catch {}
+    };
+    void doAutoFetch();
+  }, [autoFetchEnabled, autoFetchFrequency, autoFetchTime, lastAutoFetchTime, currencies]);
 
   useEffect(() => {
     void initializeCurrencies();
@@ -165,9 +267,20 @@ export default function CurrenciesPage() {
   }, [currencies, baseCurrencyCode]);
 
   const fxRows = useMemo(() => {
-    const rows = fxDateFilter
-      ? fxRates.filter(rate => rate.rateDate === fxDateFilter)
-      : fxRates;
+    let rows = fxRates;
+
+    if (fxCurrencyFilter) {
+      rows = rows.filter(rate => rate.currencyCode === fxCurrencyFilter);
+    }
+
+    if (fxPeriodStart || fxPeriodEnd) {
+      rows = rows.filter(rate => {
+        const period = rate.rateDate.slice(0, 7);
+        if (fxPeriodStart && period < fxPeriodStart) return false;
+        if (fxPeriodEnd && period > fxPeriodEnd) return false;
+        return true;
+      });
+    }
 
     return [...rows].sort((left, right) => {
       if (left.rateDate !== right.rateDate) {
@@ -175,7 +288,7 @@ export default function CurrenciesPage() {
       }
       return left.currencyCode.localeCompare(right.currencyCode);
     });
-  }, [fxDateFilter, fxRates]);
+  }, [fxPeriodStart, fxPeriodEnd, fxCurrencyFilter, fxRates]);
 
   const currencyMap = useMemo(() => {
     return new Map(currencies.map(currency => [currency.code, currency]));
@@ -484,6 +597,179 @@ export default function CurrenciesPage() {
     setSubjectSearchOpen(false);
   };
 
+  const sourceLabels: Record<string, string> = {
+    manual: '手动录入',
+    import: 'Excel导入',
+    api_boc: '中国银行',
+    api_china: '外汇交易中心',
+  };
+
+  const getSourceLabel = (source?: string) => sourceLabels[source || 'manual'] || source || '手动录入';
+
+  const handleOpenBocDateDialog = () => {
+    setBocTargetDate(today());
+    setBocCaptchaText('');
+    setBocCaptchaImage('');
+    setBocSessionId('');
+    setBocDateDialogOpen(true);
+  };
+
+  const loadCaptcha = async () => {
+    try {
+      const response = await fetch('/api/boc-rates/captcha');
+      const data = await response.json();
+      if (!response.ok) {
+        showToast('error', data.error || '获取验证码失败');
+        return;
+      }
+      setBocCaptchaImage(data.image);
+      setBocSessionId(data.sessionId);
+    } catch {
+      showToast('error', '获取验证码失败');
+    }
+  };
+
+  const handleBocDateChange = (date: string) => {
+    setBocTargetDate(date);
+    setBocCaptchaText('');
+    setBocCaptchaImage('');
+    setBocSessionId('');
+  };
+
+  const handleFetchBocRates = async () => {
+    if (!bocTargetDate) {
+      showToast('error', '请输入汇率日期');
+      return;
+    }
+    const systemCurrencyCodes = currencies
+      .filter(c => !c.disabled && !c.isBase)
+      .map(c => c.code)
+      .filter(Boolean);
+    if (systemCurrencyCodes.length === 0) {
+      showToast('warning', '系统中没有配置外币币种，请先在币种页添加');
+      return;
+    }
+
+    const isToday = bocTargetDate === today();
+    setBocLoading(true);
+
+    try {
+      let data: any;
+      if (isToday) {
+        // Today: direct fetch from main page (no captcha needed)
+        const params = new URLSearchParams({ currencies: systemCurrencyCodes.join(',') });
+        const response = await fetch(`/api/boc-rates?${params}`);
+        data = await response.json();
+        if (!response.ok) {
+          showToast('error', data.error || '获取汇率失败');
+          return;
+        }
+      } else {
+        // Historical: use captcha-based search
+        if (!bocCaptchaText || !bocSessionId) {
+          showToast('error', '请输入验证码');
+          setBocLoading(false);
+          return;
+        }
+        const response = await fetch('/api/boc-rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: bocTargetDate,
+            currencies: systemCurrencyCodes,
+            captcha: bocCaptchaText,
+            sessionId: bocSessionId,
+          }),
+        });
+        data = await response.json();
+        if (!response.ok) {
+          // If captcha expired/wrong, reload captcha
+          if (response.status === 410 || response.status === 422) {
+            setBocCaptchaText('');
+            setBocCaptchaImage('');
+            setBocSessionId('');
+          }
+          showToast('error', data.error || '获取历史汇率失败');
+          return;
+        }
+      }
+
+      const rawRates: Array<{ currencyCode: string; currencyName: string; middleRate: number; rateDate: string }> = data.rates || [];
+      // Deduplicate: keep only the first entry per currencyCode
+      const seen = new Set<string>();
+      const rates = rawRates.filter(r => {
+        if (seen.has(r.currencyCode)) return false;
+        seen.add(r.currencyCode);
+        return true;
+      });
+      if (rates.length === 0) {
+        showToast('warning', '未找到匹配的汇率数据');
+        return;
+      }
+      if (data.warnings?.length) {
+        showToast('info', data.warnings.join('；'));
+      }
+      setBocPreviewRates(rates);
+      setBocFetchDate(data.fetchDate || bocTargetDate);
+      setBocDateDialogOpen(false);
+      setBocPreviewOpen(true);
+    } catch {
+      showToast('error', '获取汇率失败，请检查网络连接');
+    } finally {
+      setBocLoading(false);
+    }
+  };
+
+  const handleConfirmBocImport = async () => {
+    const accountSetId = currentAccountSet?.id || 'default';
+    let imported = 0;
+    for (const rate of bocPreviewRates) {
+      await upsertFxRate({
+        accountSetId,
+        rateDate: bocTargetDate,
+        currencyCode: rate.currencyCode,
+        baseCurrency: baseCurrencyCode,
+        middleRate: rate.middleRate,
+        source: 'api_boc',
+      });
+      imported++;
+    }
+    showToast('success', `成功导入 ${imported} 条汇率（日期：${bocTargetDate}）`);
+    setBocPreviewOpen(false);
+    setBocPreviewRates([]);
+  };
+
+  const toggleFxRow = (id: string) => {
+    setFxSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllFxRows = () => {
+    setFxSelectedIds(prev => {
+      if (prev.size === fxRows.length) return new Set();
+      return new Set(fxRows.map(r => r.id));
+    });
+  };
+
+  const handleBatchDeleteFxRates = () => {
+    if (fxSelectedIds.size === 0) return;
+    setConfirmDialog({
+      open: true,
+      title: '批量删除汇率',
+      description: `确认删除选中的 ${fxSelectedIds.size} 条汇率记录吗？`,
+      onConfirm: async () => {
+        for (const id of fxSelectedIds) {
+          await deleteFxRate(id);
+        }
+        showToast('success', `已删除 ${fxSelectedIds.size} 条汇率记录`);
+        setFxSelectedIds(new Set());
+      }
+    });
+  };
+
   const renderCurrencyTab = () => (
     <div className="space-y-6">
       <Card>
@@ -675,26 +961,114 @@ export default function CurrenciesPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-end gap-4 flex-wrap">
-            <div className="min-w-[220px]">
-              <Label className="mb-2 block">日期筛选</Label>
-              <Input
-                type="date"
-                value={fxDateFilter}
-                onChange={(event) => setFxDateFilter(event.target.value)}
+            <div className="min-w-[160px]">
+              <Label className="mb-2 block">起始期间</Label>
+              <ChineseMonthPicker
+                value={fxPeriodStart}
+                onChange={setFxPeriodStart}
+                placeholder="选择起始月份"
               />
             </div>
-            <div className="min-w-[220px]">
+            <span className="text-slate-400 pb-2">—</span>
+            <div className="min-w-[160px]">
+              <Label className="mb-2 block">结束期间</Label>
+              <ChineseMonthPicker
+                value={fxPeriodEnd}
+                onChange={setFxPeriodEnd}
+                placeholder="选择结束月份"
+              />
+            </div>
+            <div className="min-w-[140px]">
+              <Label className="mb-2 block">币种筛选</Label>
+              <select
+                value={fxCurrencyFilter}
+                onChange={(e) => setFxCurrencyFilter(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md text-sm"
+              >
+                <option value="">全部币种</option>
+                {currencyOptions.map(c => (
+                  <option key={c.id} value={c.code}>{c.code} - {c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-[140px]">
               <Label className="mb-2 block">当前本位币</Label>
               <Input value={baseCurrencyLabel} readOnly disabled />
             </div>
-            <Button variant="outline" size="sm" onClick={() => setFxDateFilter('')}>
-              全部日期
+            <Button variant="outline" size="sm" onClick={() => { setFxPeriodStart(''); setFxPeriodEnd(''); setFxCurrencyFilter(''); }}>
+              重置筛选
             </Button>
             <Button variant="outline" size="sm" onClick={() => openFxDialog()}>
               <Plus className="h-4 w-4 mr-2" />
               新增汇率
             </Button>
+            <Button variant="outline" size="sm" onClick={handleOpenBocDateDialog}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${bocLoading ? 'animate-spin' : ''}`} />
+              {bocLoading ? '获取中...' : '从中行获取'}
+            </Button>
+            {fxSelectedIds.size > 0 && (
+              <Button variant="destructive" size="sm" onClick={handleBatchDeleteFxRates}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                删除选中 ({fxSelectedIds.size})
+              </Button>
+            )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <RefreshCw className="h-4 w-4" />
+            定时自动获取设置
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-end gap-4 flex-wrap">
+            <label className="flex items-center gap-2 pb-2">
+              <input type="checkbox" checked={autoFetchEnabled} onChange={(e) => setAutoFetchEnabled(e.target.checked)} className="rounded" />
+              <span className="text-sm">启用定时获取</span>
+            </label>
+            {autoFetchEnabled && (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs">频率</Label>
+                  <select value={autoFetchFrequency} onChange={(e) => setAutoFetchFrequency(e.target.value as any)} className="px-3 py-1.5 border rounded-md text-sm">
+                    <option value="daily">每天</option>
+                    <option value="weekly">每周一</option>
+                    <option value="monthly_first">每月第一天</option>
+                    <option value="monthly_last">每月最后一天</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">时间</Label>
+                  <input type="time" value={autoFetchTime} onChange={(e) => setAutoFetchTime(e.target.value)} className="px-3 py-1.5 border rounded-md text-sm" />
+                </div>
+                {lastAutoFetchTime && (
+                  <span className="text-xs text-slate-400 pb-2">上次获取: {lastAutoFetchTime.replace('T', ' ').slice(0, 16)}</span>
+                )}
+              </>
+            )}
+          </div>
+          {autoFetchEnabled && (
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-md text-xs text-blue-700 space-y-2">
+              <p className="font-medium">自动获取规则说明</p>
+              <ul className="list-disc list-inside space-y-0.5 text-blue-600">
+                <li>每次打开汇率页面时检查是否满足获取条件</li>
+                <li>当天已获取过则自动跳过</li>
+                <li>仅在设定时间之后才会触发（如设09:00，早上8点打开不会触发）</li>
+                <li>仅获取当天中行折算价（历史汇率需手动获取）</li>
+              </ul>
+              <div className="pt-2 border-t border-blue-200 mt-2">
+                <p className="text-blue-700 font-medium mb-1">方式2：通过 Windows 任务计划程序定时调用（应用需运行中）</p>
+                <p className="text-blue-500 mb-1">步骤：Win+S 搜索"任务计划程序" → 创建基本任务 → 设置触发器 → 操作选"启动程序" → 粘贴下方命令</p>
+                <code className="block bg-white px-2 py-1.5 rounded border border-blue-200 text-slate-700 select-all text-[11px] leading-relaxed">
+                  {`curl -X POST http://localhost:3000/api/boc-rates/auto-fetch -H "Content-Type: application/json" -d '{"currencies":["USD","EUR"]}'`}
+                </code>
+                <p className="text-blue-400 mt-1">提示：将 EUR,USD 替换为系统中实际使用的币种代码</p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -722,21 +1096,28 @@ export default function CurrenciesPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200">
+                    <th className="w-10 py-3 px-2 text-center">
+                      <input type="checkbox" checked={fxRows.length > 0 && fxSelectedIds.size === fxRows.length} onChange={toggleAllFxRows} className="rounded" />
+                    </th>
                     <th className="text-left py-3 px-4 font-medium text-slate-600">日期</th>
                     <th className="text-left py-3 px-4 font-medium text-slate-600">币种</th>
                     <th className="text-left py-3 px-4 font-medium text-slate-600">本位币</th>
                     <th className="text-left py-3 px-4 font-medium text-slate-600">中间价</th>
                     <th className="text-left py-3 px-4 font-medium text-slate-600">来源</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-600">更新时间</th>
+                    <th className="text-left py-3 px-4 font-medium text-slate-600">录入人</th>
                     <th className="text-right py-3 px-4 font-medium text-slate-600">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {fxRows.map(rate => {
                     const currency = currencyMap.get(rate.currencyCode);
+                    const checked = fxSelectedIds.has(rate.id);
                     return (
-                      <tr key={rate.id} className="hover:bg-slate-50">
-                        <td className="py-3 px-4">{rate.rateDate}</td>
+                      <tr key={rate.id} className={`${checked ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
+                        <td className="py-3 px-2 text-center">
+                          <input type="checkbox" checked={checked} onChange={() => toggleFxRow(rate.id)} className="rounded" />
+                        </td>
+                        <td className="py-3 px-4">{rate.rateDate.replace(/(\d{4})-(\d{2})-(\d{2})/, (_, y, m, d) => `${y}年${parseInt(m)}月${parseInt(d)}日`)}</td>
                         <td className="py-3 px-4">
                           <div className="flex flex-col">
                             <span className="font-medium">{rate.currencyCode}</span>
@@ -746,11 +1127,13 @@ export default function CurrenciesPage() {
                         <td className="py-3 px-4">
                           <Badge variant="outline">{rate.baseCurrency}</Badge>
                         </td>
-                        <td className="py-3 px-4 font-medium">{rate.middleRate.toFixed(6)}</td>
+                        <td className="py-3 px-4 font-medium">{rate.middleRate.toFixed(4)}</td>
                         <td className="py-3 px-4">
-                          <Badge variant="secondary">{rate.source || 'manual'}</Badge>
+                          <Badge variant="secondary" className={rate.source === 'api_boc' ? 'bg-red-50 text-red-700 border-red-200' : ''}>
+                            {getSourceLabel(rate.source)}
+                          </Badge>
                         </td>
-                        <td className="py-3 px-4 text-slate-500">{rate.updateTime}</td>
+                        <td className="py-3 px-4 text-slate-500 text-xs">{rate.createdBy || '-'}</td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button
@@ -882,48 +1265,38 @@ export default function CurrenciesPage() {
               </div>
             </div>
 
-            {!currencyFormData.isBase && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>汇率（对本位币）</Label>
-                  <Input
-                    type="number"
-                    step="0.0001"
-                    placeholder="7.25"
-                    value={currencyFormData.exchangeRate}
-                    onChange={(event) => setCurrencyFormData(prev => ({ ...prev, exchangeRate: Number.parseFloat(event.target.value) || 0 }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>汇率开始日期</Label>
-                  <ChineseDatePicker
-                    value={currencyFormData.rateStartDate}
-                    onChange={(value) => setCurrencyFormData(prev => ({ ...prev, rateStartDate: value }))}
-                  />
-                </div>
-              </div>
-            )}
-
             <div className="space-y-2">
               <Label required>币别损益科目</Label>
               <Popover
                 open={subjectSearchOpen}
                 onOpenChange={setSubjectSearchOpen}
                 content={
-                  <div className="w-[400px] p-0">
+                  <div className="w-[400px] bg-white rounded-lg shadow-lg border border-slate-200 overflow-hidden">
                     <SubjectSearch value={currencyFormData.gainLossSubjectCode} onSelect={handleSubjectSelect} />
                   </div>
                 }
               >
-                <Button variant="outline" className="w-full justify-between font-normal" onClick={() => setSubjectSearchOpen(true)}>
+                <div
+                  className="w-full flex items-center justify-between border rounded-md px-3 py-2 text-sm cursor-pointer hover:bg-slate-50"
+                  onClick={() => setSubjectSearchOpen(true)}
+                >
                   {currencyFormData.gainLossSubjectCode ? (
-                    <span>
-                      {currencyFormData.gainLossSubjectCode} - {currencyFormData.gainLossSubjectName}
-                    </span>
+                    <>
+                      <span className="text-blue-700">{currencyFormData.gainLossSubjectCode} - {currencyFormData.gainLossSubjectName}</span>
+                      <span
+                        className="inline-flex items-center justify-center p-1 rounded hover:bg-red-50 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrencyFormData(prev => ({ ...prev, gainLossSubjectCode: '', gainLossSubjectName: '' }));
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 pointer-events-none" />
+                      </span>
+                    </>
                   ) : (
                     <span className="text-slate-400">请选择科目</span>
                   )}
-                </Button>
+                </div>
               </Popover>
             </div>
 
@@ -1059,6 +1432,98 @@ export default function CurrenciesPage() {
                 保存
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bocDateDialogOpen} onOpenChange={setBocDateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>从中国银行获取汇率</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label required>汇率日期</Label>
+              <ChineseDatePicker
+                value={bocTargetDate}
+                onChange={handleBocDateChange}
+                className="w-full"
+                placeholder="选择汇率日期"
+              />
+            </div>
+
+            {bocTargetDate && bocTargetDate !== today() && (
+              <div className="space-y-2">
+                <Label required>验证码</Label>
+                <div className="flex items-center gap-3">
+                  {bocCaptchaImage ? (
+                    <img src={bocCaptchaImage} alt="验证码" className="h-10 border rounded cursor-pointer" onClick={loadCaptcha} title="点击刷新" />
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={loadCaptcha}>获取验证码</Button>
+                  )}
+                  <Input
+                    value={bocCaptchaText}
+                    onChange={(e) => setBocCaptchaText(e.target.value)}
+                    placeholder="输入验证码"
+                    className="w-32"
+                    autoComplete="off"
+                  />
+                </div>
+                <p className="text-xs text-slate-400">历史汇率需通过中行验证码查询，点击图片可刷新</p>
+              </div>
+            )}
+
+            <p className="text-sm text-slate-500">
+              系统将自动获取已配置币种（{currencies.filter(c => !c.disabled && !c.isBase).map(c => c.code).join('、') || '无'}）的汇率
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBocDateDialogOpen(false)}>取消</Button>
+            <Button onClick={() => void handleFetchBocRates()} disabled={!bocTargetDate || bocLoading || (bocTargetDate !== today() && !bocCaptchaText)}>
+              {bocLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />获取中...</> : <><RefreshCw className="h-4 w-4 mr-2" />确认获取</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bocPreviewOpen} onOpenChange={(open) => { setBocPreviewOpen(open); if (!open) setBocPreviewRates([]); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>确认导入汇率</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center gap-4 text-sm text-slate-600">
+              <span>导入日期：<span className="font-medium text-slate-900">{bocTargetDate}</span></span>
+              <span>中行发布：<span className="font-medium text-slate-900">{bocFetchDate}</span></span>
+              <span>共 <span className="font-medium text-slate-900">{bocPreviewRates.length}</span> 条</span>
+            </div>
+            <div className="max-h-[360px] overflow-y-auto border rounded-md">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-50">
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-3 font-medium text-slate-600">币种</th>
+                    <th className="text-left py-2 px-3 font-medium text-slate-600">币种名称</th>
+                    <th className="text-right py-2 px-3 font-medium text-slate-600">中间价（1外币=?本币）</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {bocPreviewRates.map((r, i) => (
+                    <tr key={`${r.currencyCode}-${i}`} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 font-medium">{r.currencyCode}</td>
+                      <td className="py-2 px-3 text-slate-600">{r.currencyName}</td>
+                      <td className="py-2 px-3 text-right font-mono">{r.middleRate.toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBocPreviewOpen(false)}>取消</Button>
+            <Button onClick={() => void handleConfirmBocImport()}>
+              <Save className="h-4 w-4 mr-2" />
+              确认导入 ({bocPreviewRates.length})
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -45,6 +45,7 @@ export default function ImportPage() {
   });
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedAccountNumber, setSelectedAccountNumber] = useState('');
+  const [selectedAccountCurrency, setSelectedAccountCurrency] = useState<string | undefined>();
 
   const periodStart = `${periodFrom}-01`;
   const periodEnd = (() => {
@@ -92,9 +93,10 @@ export default function ImportPage() {
     }
   };
 
-  const handleAccountSelect = (id: string, accountNumber: string) => {
+  const handleAccountSelect = (id: string, accountNumber: string, currency?: string) => {
     setSelectedAccountId(id);
     setSelectedAccountNumber(accountNumber);
+    setSelectedAccountCurrency(currency);
     setStatusFilter('');
   };
 
@@ -553,49 +555,38 @@ export default function ImportPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Zone 1: Header + Account Selector */}
-      <div className="flex items-center justify-between mb-6">
+      {/* Zone 1: Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">资金管理控制台</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/fund-hub"
-            className="text-sm text-slate-500 hover:text-blue-600 hover:underline flex items-center gap-1"
-          >
-            结算看板 <LinkIcon className="h-3 w-3" />
-          </Link>
-          <div className="flex items-center gap-1">
-            <Label className="text-xs text-slate-500">期间</Label>
-            <ChineseMonthPicker
-              value={periodFrom}
-              onChange={setPeriodFrom}
-            />
-            <span className="text-xs text-slate-400">~</span>
-            <ChineseMonthPicker
-              value={periodTo}
-              onChange={setPeriodTo}
-            />
-          </div>
-          <AccountSelector
-            selectedAccountId={selectedAccountId}
-            onSelectAccount={handleAccountSelect}
+        <Link
+          href="/fund-hub"
+          className="text-sm text-slate-500 hover:text-blue-600 hover:underline flex items-center gap-1"
+        >
+          结算看板 <LinkIcon className="h-3 w-3" />
+        </Link>
+      </div>
+
+      {/* Zone 2: Toolbar - period + account + actions */}
+      <div className="mb-5 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1">
+          <Label className="text-xs text-slate-500">期间</Label>
+          <ChineseMonthPicker
+            value={periodFrom}
+            onChange={setPeriodFrom}
+          />
+          <span className="text-xs text-slate-400">~</span>
+          <ChineseMonthPicker
+            value={periodTo}
+            onChange={setPeriodTo}
           />
         </div>
-      </div>
-
-      {/* Zone 2: Cash Overview */}
-      <div className="mb-5">
-        <CashOverview
-          accountNumber={selectedAccountNumber}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
-          refreshKey={refreshKey}
+        <AccountSelector
+          selectedAccountId={selectedAccountId}
+          onSelectAccount={handleAccountSelect}
         />
-      </div>
-
-      {/* Zone 3: Action Buttons */}
-      <div className="mb-5 flex gap-3 flex-wrap">
+        <div className="h-6 w-px bg-slate-200" />
         <Button onClick={handleImportClick} disabled={isImporting} className="gap-2">
           {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           {isImporting ? '导入中...' : '导入流水'}
@@ -629,6 +620,16 @@ export default function ImportPage() {
         />
       </div>
 
+      {/* Zone 3: Cash Overview */}
+      <div className="mb-5">
+        <CashOverview
+          accountNumber={selectedAccountNumber}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          refreshKey={refreshKey}
+        />
+      </div>
+
       {/* Zone 4: Journal Table */}
       <JournalTable
         accountNumber={selectedAccountNumber}
@@ -648,6 +649,8 @@ export default function ImportPage() {
         accountNumber={selectedAccountNumber}
         period={periodTo}
         onSaved={handleManualSaved}
+        defaultCurrency={selectedAccountCurrency}
+        isAllAccounts={selectedAccountId === 'all-accounts'}
       />
 
       {/* Bank Rules Dialog */}

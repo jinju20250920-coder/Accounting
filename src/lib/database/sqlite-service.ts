@@ -169,6 +169,8 @@ class SQLiteService {
     await this.migrateCreatePayrollTables();
     // 迁移：创建用户/角色/权限相关表
     await this.migrateCreateUserTables();
+    // 迁移：fxRates 表增加 createdBy 列
+    await this.migrateFxRatesCreatedBy();
   }
 
   private async migrateCreatePayrollTables(): Promise<void> {
@@ -2471,6 +2473,24 @@ class SQLiteService {
       console.error('Migration: Failed to create user tables', error);
     }
   }
+
+  /**
+   * 迁移：fxRates 表增加 createdBy 列
+   */
+  private async migrateFxRatesCreatedBy(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const cols = this.dbInstance.exec(`PRAGMA table_info(fxRates)`);
+      const colNames = cols[0]?.values?.map((r: any[]) => r[1] as string) || [];
+      if (!colNames.includes('createdBy')) {
+        this.dbInstance.exec(`ALTER TABLE fxRates ADD COLUMN createdBy TEXT`);
+        console.log('Migration: Added createdBy column to fxRates');
+      }
+    } catch (error) {
+      console.error('Migration: Failed to add createdBy to fxRates', error);
+    }
+  }
+
   async getCashOverview(ourAccount: string, periodStart: string, periodEnd: string): Promise<{
     openingBalance: number;
     totalCredit: number;
@@ -2784,8 +2804,8 @@ class SQLiteService {
     for (const rate of rates) {
       const stmt = this.dbInstance.prepare(`
         INSERT OR REPLACE INTO fxRates
-          (id, accountSetId, rateDate, currencyCode, baseCurrency, middleRate, source, createTime, updateTime)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, accountSetId, rateDate, currencyCode, baseCurrency, middleRate, source, createdBy, createTime, updateTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run([
         rate.id,
@@ -2795,6 +2815,7 @@ class SQLiteService {
         rate.baseCurrency || 'CNY',
         rate.middleRate,
         rate.source || null,
+        rate.createdBy || null,
         rate.createTime || new Date().toISOString(),
         rate.updateTime || new Date().toISOString(),
       ]);
@@ -2818,6 +2839,7 @@ class SQLiteService {
       baseCurrency: row.baseCurrency || 'CNY',
       middleRate: row.middleRate,
       source: row.source || undefined,
+      createdBy: row.createdBy || undefined,
       createTime: row.createTime,
       updateTime: row.updateTime,
     }));
@@ -3760,6 +3782,7 @@ class SQLiteService {
           rowNumber, status, matchedSubject, matchedSubjectName, confidence,
           bankAccountId, importBatchId, voucherId, generatedVoucherNo,
           exchangeRate, originalAmount,
+          source,
           accountSetId, createTime, updateTime
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
@@ -3793,6 +3816,7 @@ class SQLiteService {
         txWithAccountSet.generatedVoucherNo || '',
         txWithAccountSet.exchangeRate || null,
         txWithAccountSet.originalAmount || null,
+        txWithAccountSet.source || 'import',
         txWithAccountSet.accountSetId,
         txWithAccountSet.createTime || now,
         txWithAccountSet.updateTime || now

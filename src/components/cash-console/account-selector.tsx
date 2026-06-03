@@ -22,11 +22,12 @@ interface AccountOption {
   brandColor?: string;
   icon?: string;
   isCash?: boolean;
+  currency?: string;
 }
 
 interface AccountSelectorProps {
   selectedAccountId: string;
-  onSelectAccount: (id: string, accountNumber: string) => void;
+  onSelectAccount: (id: string, accountNumber: string, currency?: string) => void;
 }
 
 export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountSelectorProps) {
@@ -62,6 +63,7 @@ export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountS
           accountNumber: binding.accountNumber || '',
           brandColor: brand?.color,
           icon: '🏦',
+          currency: binding.currency,
         });
       }
     } catch (e) {
@@ -85,7 +87,7 @@ export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountS
     // 自动选择"全部账户"
     if (options.length > 0 && !selectedAccountId) {
       const first = options[0];
-      onSelectAccount(first.id, first.accountNumber);
+      onSelectAccount(first.id, first.accountNumber, first.currency);
     }
   };
 
@@ -96,7 +98,7 @@ export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountS
         onValueChange={(value) => {
           const account = accounts.find(a => a.id === value);
           if (account) {
-            onSelectAccount(account.id, account.accountNumber);
+            onSelectAccount(account.id, account.accountNumber, account.currency);
           }
         }}
       >
