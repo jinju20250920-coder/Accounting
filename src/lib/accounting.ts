@@ -951,10 +951,5 @@ export function validateAccountingPeriod(
     return { valid: false, error: `${year}年${month}月账期已锁定` };
   }
 
-  const currentPeriod = accountSet.accountingPeriods?.find(p => p.isCurrent);
-  if (currentPeriod && (currentPeriod.year !== year || currentPeriod.month !== month)) {
-    return { valid: false, error: `入账日期必须在当前账期内` };
-  }
-
   return { valid: true, period: periodData };
 }

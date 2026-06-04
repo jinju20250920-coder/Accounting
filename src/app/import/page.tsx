@@ -339,19 +339,21 @@ export default function ImportPage() {
       return;
     }
 
-    // Check accounting period
-    const { usePeriodManagementStore } = await import('@/stores/usePeriodManagementStore');
-    const currentPeriod = usePeriodManagementStore.getState().getCurrentPeriod();
-    if (currentPeriod) {
-      const periodMonth = `${currentPeriod.year}-${String(currentPeriod.month).padStart(2, '0')}`;
-      const outOfPeriod = sourceEntries.filter((tx: any) => {
-        const txMonth = tx.date?.substring(0, 7);
-        return txMonth && txMonth !== periodMonth;
-      });
-      if (outOfPeriod.length > 0) {
-        const inPeriodCount = sourceEntries.length - outOfPeriod.length;
-        showToast('warning', `当前账期为 ${periodMonth}，有 ${outOfPeriod.length} 条流水不在账期内，仅入账 ${inPeriodCount} 条`);
-      }
+    // Check accounting period - filter out closed/locked periods
+    const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
+    const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    const periodMap = new Map(
+      (currentAccountSet?.accountingPeriods || []).map(p => [`${p.year}-${String(p.month).padStart(2, '0')}`, p])
+    );
+    const closedPeriodEntries = sourceEntries.filter((tx: any) => {
+      const txMonth = tx.date?.substring(0, 7);
+      if (!txMonth) return false;
+      const pd = periodMap.get(txMonth);
+      return pd && (pd.status === 'closed' || pd.status === 'locked');
+    });
+    if (closedPeriodEntries.length > 0) {
+      const closedMonths = [...new Set(closedPeriodEntries.map((tx: any) => tx.date?.substring(0, 7)))];
+      showToast('warning', `有 ${closedPeriodEntries.length} 条流水在已关账期间（${closedMonths.join('、')}），已跳过`);
     }
 
     if (!selectedBankAccountId) {
