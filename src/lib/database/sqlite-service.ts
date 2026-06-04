@@ -171,6 +171,8 @@ class SQLiteService {
     await this.migrateCreateUserTables();
     // 迁移：fxRates 表增加 createdBy 列
     await this.migrateFxRatesCreatedBy();
+    // 迁移：创建银行账户期初余额表
+    await this.migrateCreateBankOpeningBalancesTable();
   }
 
   private async migrateCreatePayrollTables(): Promise<void> {
@@ -2491,6 +2493,66 @@ class SQLiteService {
     }
   }
 
+  /**
+   * 迁移：创建银行账户期初余额表
+   */
+  private async migrateCreateBankOpeningBalancesTable(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const tableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='bank_opening_balances'"
+      );
+      if (!tableCheck[0]?.values?.length) {
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS bank_opening_balances (
+            id TEXT PRIMARY KEY,
+            accountSetId TEXT NOT NULL,
+            accountNumber TEXT NOT NULL,
+            periodStart TEXT NOT NULL,
+            balance REAL NOT NULL DEFAULT 0,
+            generateVoucher INTEGER NOT NULL DEFAULT 0,
+            voucherId TEXT,
+            createdBy TEXT,
+            createdAt TEXT,
+            updatedAt TEXT
+          )
+        `);
+        this.dbInstance.exec(`CREATE INDEX IF NOT EXISTS idx_bank_opening_balances_lookup ON bank_opening_balances (accountSetId, accountNumber, periodStart)`);
+        console.log('Migration: Created bank_opening_balances table');
+      }
+    } catch (error) {
+      console.error('Migration: Failed to create bank_opening_balances table', error);
+    }
+  }
+
+  async getBankOpeningBalance(accountNumber: string, periodStart: string): Promise<number | null> {
+    await this.ensureInitialized();
+    const result = await this.querySingleAsync<any>(
+      `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
+      [this.accountSetId, accountNumber, periodStart]
+    );
+    return result?.balance ?? null;
+  }
+
+  async saveBankOpeningBalance(data: {
+    accountNumber: string;
+    periodStart: string;
+    balance: number;
+    generateVoucher?: boolean;
+    createdBy?: string;
+  }): Promise<void> {
+    await this.ensureInitialized();
+    const now = new Date().toISOString();
+    const id = `${this.accountSetId}-${data.accountNumber}-${data.periodStart}`;
+
+    const stmt = this.dbInstance.prepare(`
+      INSERT OR REPLACE INTO bank_opening_balances (id, accountSetId, accountNumber, periodStart, balance, generateVoucher, createdBy, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run([id, this.accountSetId, data.accountNumber, data.periodStart, data.balance, data.generateVoucher ? 1 : 0, data.createdBy || null, now, now]);
+    stmt.free();
+  }
+
   async getCashOverview(ourAccount: string, periodStart: string, periodEnd: string): Promise<{
     openingBalance: number;
     totalCredit: number;
@@ -2534,9 +2596,24 @@ class SQLiteService {
       periodParams
     );
 
-    const openingCredit = openingResult?.totalCredit || 0;
-    const openingDebit = openingResult?.totalDebit || 0;
-    const openingBalance = Math.round((openingCredit - openingDebit) * 100) / 100;
+    // Check for manual opening balance first
+    let openingBalance: number | null = null;
+    if (ourAccount) {
+      const manualBalance = await this.querySingleAsync<any>(
+        `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
+        [this.accountSetId, ourAccount, periodStart]
+      );
+      if (manualBalance?.balance != null) {
+        openingBalance = manualBalance.balance;
+      }
+    }
+
+    // Fall back to computed balance from transactions
+    if (openingBalance === null) {
+      const openingCredit = openingResult?.totalCredit || 0;
+      const openingDebit = openingResult?.totalDebit || 0;
+      openingBalance = Math.round((openingCredit - openingDebit) * 100) / 100;
+    }
     const totalCredit = periodResult?.totalCredit || 0;
     const totalDebit = periodResult?.totalDebit || 0;
     const closingBalance = Math.round((openingBalance + totalCredit - totalDebit) * 100) / 100;

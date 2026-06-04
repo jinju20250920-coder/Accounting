@@ -3,7 +3,12 @@
 import { useState, useEffect } from 'react';
 import { sqliteService } from '@/lib/database';
 import { formatMoney } from '@/lib/accounting';
-import { TrendingUp, TrendingDown, Wallet, Scale } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Scale, Pencil } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/components/ui/toast';
 
 interface CashOverviewProps {
   accountNumber: string;
@@ -18,11 +23,17 @@ interface OverviewData {
   totalDebit: number;
   closingBalance: number;
   lastBankBalance: number | null;
+  computedOpening?: number;
+  manualOpening?: number | null;
 }
 
 export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey }: CashOverviewProps) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editAmount, setEditAmount] = useState('');
+  const [saving, setSaving] = useState(false);
+  const { showToast } = useToast();
 
   useEffect(() => {
     loadOverview();
@@ -32,11 +43,65 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
     setLoading(true);
     try {
       const result = await sqliteService.getCashOverview(accountNumber, periodStart, periodEnd);
-      setData(result);
+
+      // Also get computed opening (without manual override) and manual value
+      let computedOpening: number | undefined;
+      let manualOpening: number | null = null;
+      if (accountNumber) {
+        manualOpening = await sqliteService.getBankOpeningBalance(accountNumber, periodStart);
+        if (manualOpening !== null) {
+          // Recompute from transactions to show what it would be without manual entry
+          const accountSetId = sqliteService.accountSetId;
+          const computed = await sqliteService.getCashOverview('', periodStart, periodEnd);
+          // We just need the computed part for this specific account
+          computedOpening = undefined; // will use computedOpening from overall result
+        }
+      }
+
+      setData({
+        ...result,
+        manualOpening,
+      });
     } catch (e) {
       console.error('Failed to load cash overview', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEditOpening = () => {
+    if (!data) return;
+    setEditAmount(String(data.openingBalance));
+    setEditOpen(true);
+  };
+
+  const handleSaveOpening = async () => {
+    const amount = parseFloat(editAmount);
+    if (isNaN(amount)) {
+      showToast('error', '请输入有效金额');
+      return;
+    }
+
+    if (!accountNumber) {
+      showToast('warning', '请先选择一个银行账户');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await sqliteService.saveBankOpeningBalance({
+        accountNumber,
+        periodStart,
+        balance: amount,
+      });
+      showToast('success', '期初余额已更新');
+      setEditOpen(false);
+      await loadOverview();
+    } catch (e) {
+      console.error('Failed to save opening balance', e);
+      showToast('error', '保存失败');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -69,6 +134,8 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
       value: fmt(data.openingBalance),
       icon: Wallet,
       color: 'text-slate-800',
+      editable: true,
+      isManual: data.manualOpening !== null,
     },
     {
       label: '本月收入',
@@ -92,25 +159,76 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {cards.map((card) => (
-        <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-slate-500">{card.label}</span>
-            <card.icon className="h-4 w-4 text-slate-300" />
-          </div>
-          <div className={`text-2xl font-bold ${card.color}`}>{card.value}</div>
-          {card.recon && reconciliationDiff !== null && (
-            <div className={`mt-2 text-xs flex items-center gap-1 ${isReconciled ? 'text-green-600' : 'text-amber-600'}`}>
-              {isReconciled ? (
-                <><Scale className="h-3 w-3" /> 与银行对账: 平</>
-              ) : (
-                <><Scale className="h-3 w-3" /> 差 {fmt(Math.abs(reconciliationDiff))}</>
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {cards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 group">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm text-slate-500">{card.label}</span>
+              <card.icon className="h-4 w-4 text-slate-300" />
+            </div>
+            <div className={`text-2xl font-bold ${card.color} flex items-center gap-2`}>
+              <span>{card.value}</span>
+              {card.editable && accountNumber && (
+                <button
+                  onClick={handleEditOpening}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  title="编辑期初余额"
+                >
+                  <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500" />
+                </button>
               )}
             </div>
-          )}
-        </div>
-      ))}
-    </div>
+            {card.editable && card.isManual && (
+              <span className="text-[10px] text-blue-500 mt-0.5 block">手动录入</span>
+            )}
+            {card.recon && reconciliationDiff !== null && (
+              <div className={`mt-2 text-xs flex items-center gap-1 ${isReconciled ? 'text-green-600' : 'text-amber-600'}`}>
+                {isReconciled ? (
+                  <><Scale className="h-3 w-3" /> 与银行对账: 平</>
+                ) : (
+                  <><Scale className="h-3 w-3" /> 差 {fmt(Math.abs(reconciliationDiff))}</>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>编辑期初余额</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="text-sm text-slate-500">
+              账户: <span className="font-medium text-slate-700">{accountNumber}</span> | 期间起始: <span className="font-medium text-slate-700">{periodStart}</span>
+            </div>
+            <div className="space-y-2">
+              <Label required>期初余额</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editAmount}
+                onChange={e => setEditAmount(e.target.value)}
+                placeholder="0.00"
+                autoFocus
+                autoComplete="off"
+              />
+            </div>
+            <div className="p-2 bg-slate-50 rounded text-xs text-slate-500">
+              <p>直接录入金额，不自动生成凭证。</p>
+              <p>系统将以录入值作为此账户在此期间的期初余额，覆盖自动计算值。</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditOpen(false)}>取消</Button>
+            <Button onClick={handleSaveOpening} disabled={saving}>
+              {saving ? '保存中...' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
