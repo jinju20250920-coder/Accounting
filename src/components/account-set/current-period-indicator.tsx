@@ -13,15 +13,17 @@ interface CurrentPeriodIndicatorProps {
 }
 
 export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicatorProps) {
-  const { closeCurrentPeriod, createNextPeriod } = usePeriodManagementStore();
+  const { closeCurrentPeriod, createNextPeriod, setCurrentPeriod: switchPeriod } = usePeriodManagementStore();
   const vouchers = useVoucherStore((s) => s.vouchers);
   const [currentPeriod, setCurrentPeriod] = useState<AccountingPeriod | null>(null);
+  const [allPeriods, setAllPeriods] = useState<AccountingPeriod[]>([]);
 
   // 只在客户端获取期间数据
   useEffect(() => {
     const fetchPeriod = () => {
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
       if (accountSet?.accountingPeriods) {
+        setAllPeriods(accountSet.accountingPeriods);
         const period = accountSet.accountingPeriods.find(p => p.isCurrent);
         setCurrentPeriod(period || null);
       }
@@ -98,11 +100,19 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
     return (
       <div className="flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200">
         {getStatusIcon(currentPeriod.status)}
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-blue-900">当前账期: {currentPeriod.name}</span>
-          {getStatusBadge(currentPeriod.status)}
-          <span className="text-xs text-blue-700">凭证数: {voucherCount}</span>
-        </div>
+        <select
+          value={currentPeriod.id}
+          onChange={e => { switchPeriod(e.target.value); window.location.reload(); }}
+          className="text-sm font-medium text-blue-900 bg-transparent border-none outline-none cursor-pointer"
+        >
+          {allPeriods.sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month)).map(p => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.status === 'open' ? '进行中' : p.status === 'closed' ? '已结转' : '已锁定'})
+            </option>
+          ))}
+        </select>
+        {getStatusBadge(currentPeriod.status)}
+        <span className="text-xs text-blue-700">凭证数: {voucherCount}</span>
       </div>
     );
   }
@@ -118,6 +128,17 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="text-lg font-semibold text-blue-900">当前会计期间</span>
+              <select
+                value={currentPeriod.id}
+                onChange={e => { switchPeriod(e.target.value); window.location.reload(); }}
+                className="text-sm font-medium text-blue-900 bg-blue-100 border border-blue-300 rounded-md px-2 py-0.5 outline-none cursor-pointer hover:bg-blue-200"
+              >
+                {allPeriods.sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month)).map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.status === 'open' ? '进行中' : p.status === 'closed' ? '已结转' : '已锁定'})
+                  </option>
+                ))}
+              </select>
               {getStatusBadge(currentPeriod.status)}
             </div>
 
