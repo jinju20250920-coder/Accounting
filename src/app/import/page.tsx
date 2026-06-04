@@ -46,6 +46,7 @@ export default function ImportPage() {
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedAccountNumber, setSelectedAccountNumber] = useState('');
   const [selectedAccountCurrency, setSelectedAccountCurrency] = useState<string | undefined>();
+  const [journalSelectedIds, setJournalSelectedIds] = useState<Set<string>>(new Set());
 
   const periodStart = `${periodFrom}-01`;
   const periodEnd = (() => {
@@ -328,17 +329,27 @@ export default function ImportPage() {
       return;
     }
 
+    // Filter by selected rows if any
+    const sourceEntries = journalSelectedIds.size > 0
+      ? result.entries.filter((tx: any) => journalSelectedIds.has(tx.id))
+      : result.entries;
+
+    if (sourceEntries.length === 0) {
+      showToast('warning', '选中的流水没有匹配的科目，请先匹配');
+      return;
+    }
+
     // Check accounting period
     const { usePeriodManagementStore } = await import('@/stores/usePeriodManagementStore');
     const currentPeriod = usePeriodManagementStore.getState().getCurrentPeriod();
     if (currentPeriod) {
       const periodMonth = `${currentPeriod.year}-${String(currentPeriod.month).padStart(2, '0')}`;
-      const outOfPeriod = result.entries.filter((tx: any) => {
+      const outOfPeriod = sourceEntries.filter((tx: any) => {
         const txMonth = tx.date?.substring(0, 7);
         return txMonth && txMonth !== periodMonth;
       });
       if (outOfPeriod.length > 0) {
-        const inPeriodCount = result.entries.length - outOfPeriod.length;
+        const inPeriodCount = sourceEntries.length - outOfPeriod.length;
         showToast('warning', `当前账期为 ${periodMonth}，有 ${outOfPeriod.length} 条流水不在账期内，仅入账 ${inPeriodCount} 条`);
       }
     }
@@ -356,7 +367,7 @@ export default function ImportPage() {
     const { usePartnerStore } = await import('@/stores/usePartnerStore');
     const existingPartners = usePartnerStore.getState().partners;
 
-    const entries = result.entries.map((tx: any) => {
+    const entries = sourceEntries.map((tx: any) => {
       const isDebit = !!tx.debit;
       const amount = tx.debit || tx.credit || 0;
       const willCreatePartner = !!(tx.counterpartyName &&
@@ -568,7 +579,17 @@ export default function ImportPage() {
         </Link>
       </div>
 
-      {/* Zone 2: Toolbar - period + account + actions */}
+      {/* Zone 2: Cash Overview */}
+      <div className="mb-5">
+        <CashOverview
+          accountNumber={selectedAccountNumber}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          refreshKey={refreshKey}
+        />
+      </div>
+
+      {/* Zone 3: Toolbar - period + account + actions (below card) */}
       <div className="mb-5 flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1">
           <Label className="text-xs text-slate-500">期间</Label>
@@ -605,7 +626,7 @@ export default function ImportPage() {
           className="gap-2"
         >
           {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-          {isGenerating ? '生成中...' : '预览并生成全部'}
+          {isGenerating ? '生成中...' : journalSelectedIds.size > 0 ? `预览并生成 (${journalSelectedIds.size})` : '预览并生成全部'}
         </Button>
         <Button variant="outline" onClick={handleClearTransactions} className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50">
           <Trash2 className="h-4 w-4" />
@@ -620,16 +641,6 @@ export default function ImportPage() {
         />
       </div>
 
-      {/* Zone 3: Cash Overview */}
-      <div className="mb-5">
-        <CashOverview
-          accountNumber={selectedAccountNumber}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
-          refreshKey={refreshKey}
-        />
-      </div>
-
       {/* Zone 4: Journal Table */}
       <JournalTable
         accountNumber={selectedAccountNumber}
@@ -640,6 +651,7 @@ export default function ImportPage() {
         onStatusFilterChange={setStatusFilter}
         refreshKey={refreshKey}
         onRefresh={() => setRefreshKey(k => k + 1)}
+        onSelectionChange={setJournalSelectedIds}
       />
 
       {/* Manual Entry Dialog */}

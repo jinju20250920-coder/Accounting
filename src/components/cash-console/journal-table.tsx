@@ -24,6 +24,7 @@ interface JournalTableProps {
   onStatusFilterChange: (filter: string) => void;
   refreshKey: number;
   onRefresh?: () => void;
+  onSelectionChange?: (selectedIds: Set<string>) => void;
 }
 
 interface JournalEntry {
@@ -293,6 +294,7 @@ export function JournalTable({
   onStatusFilterChange,
   refreshKey,
   onRefresh,
+  onSelectionChange,
 }: JournalTableProps) {
   const { showToast } = useToast();
   const baseCurrency = useAccountSetStore((s) => s.getCurrentAccountSet()?.baseCurrency) || 'CNY';
@@ -347,7 +349,9 @@ export function JournalTable({
       });
       setEntries(result.entries || []);
       setTotal(result.total || 0);
-      setSelectedIds(new Set());
+      const emptySet = new Set<string>();
+      setSelectedIds(emptySet);
+      onSelectionChange?.(emptySet);
     } catch (e) {
       console.error('Failed to load journal entries', e);
     } finally {
@@ -429,17 +433,21 @@ export function JournalTable({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      onSelectionChange?.(next);
       return next;
     });
-  }, []);
+  }, [onSelectionChange]);
 
   const toggleSelectAll = useCallback(() => {
     if (selectedIds.size === entries.length) {
       setSelectedIds(new Set());
+      onSelectionChange?.(new Set());
     } else {
-      setSelectedIds(new Set(entries.map(e => e.id)));
+      const next = new Set(entries.map(e => e.id));
+      setSelectedIds(next);
+      onSelectionChange?.(next);
     }
-  }, [entries, selectedIds]);
+  }, [entries, selectedIds, onSelectionChange]);
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -449,7 +457,9 @@ export function JournalTable({
         await sqliteService.deleteBankTransaction(id);
       }
       showToast('success', `已删除 ${count} 条流水`);
-      setSelectedIds(new Set());
+      const emptySet = new Set<string>();
+      setSelectedIds(emptySet);
+      onSelectionChange?.(emptySet);
       onRefresh?.();
       loadEntries();
     } catch (e) {
