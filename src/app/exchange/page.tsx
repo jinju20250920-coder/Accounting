@@ -7,6 +7,7 @@ import {
   Loader2,
   RefreshCw,
   Trash2,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 import { getCurrentService } from '@/lib/database';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useCurrencyStore } from '@/stores/useCurrencyStore';
@@ -84,15 +86,22 @@ export default function ExchangePage() {
     setVoucherEntries([]);
 
     try {
-      // 1. 获取期末汇率
+      // 1. 获取期末汇率（自动回退到最近日期）
       const periodEnd = getMonthEndDate(period);
       const service = getCurrentService() as any;
       const rates: FxRate[] = await (service.getFxRates?.(periodEnd) || []);
 
       if (rates.length === 0) {
-        showToast('warning', `${periodEnd} 未录入汇率，请先在币别管理中录入当日汇率`);
+        showToast('warning', `${periodEnd} 及之前均未录入汇率，请先在币别管理中录入汇率`);
         setLoading(false);
         return;
+      }
+
+      // Show warning if using fallback rates (not exact period-end date)
+      const usingFallback = rates.some(r => r.rateDate !== periodEnd);
+      if (usingFallback) {
+        const usedDates = [...new Set(rates.map(r => r.rateDate))].join('、');
+        showToast('info', `未找到 ${periodEnd} 的汇率，已使用最近日期（${usedDates}）的汇率`);
       }
 
       // 2. 获取外币银行账户余额
@@ -268,11 +277,20 @@ export default function ExchangePage() {
       <div className="max-w-5xl mx-auto space-y-4">
         {/* 标题栏 */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-slate-900">期末汇兑损益</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              按期末汇率对外币余额进行重估，自动生成调汇凭证
-            </p>
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-slate-900">期末汇兑损益</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                按期末汇率对外币余额进行重估，自动生成调汇凭证
+              </p>
+            </div>
+            <Link
+              href="/settings/currencies"
+              className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              币种与汇率
+            </Link>
           </div>
           <div className="flex items-center gap-3">
             <Label className="text-sm text-slate-600">会计期间</Label>

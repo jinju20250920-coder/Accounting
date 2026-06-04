@@ -68,6 +68,21 @@ export interface AuditLog {
   accountSetId?: string;
 }
 
+function mapFxRateRow(row: any): FxRate {
+  return {
+    id: row.id,
+    accountSetId: row.accountSetId,
+    rateDate: row.rateDate,
+    currencyCode: row.currencyCode,
+    baseCurrency: row.baseCurrency || 'CNY',
+    middleRate: row.middleRate,
+    source: row.source || undefined,
+    createdBy: row.createdBy || undefined,
+    createTime: row.createTime,
+    updateTime: row.updateTime,
+  };
+}
+
 class SQLiteService {
   private dbInstance: any = null;
   private _accountSetId: string = 'default'; // 当前账套ID
@@ -2903,23 +2918,34 @@ class SQLiteService {
 
   async getFxRates(rateDate?: string): Promise<FxRate[]> {
     await this.ensureInitialized();
-    const sql = rateDate
-      ? `SELECT * FROM fxRates WHERE accountSetId = ? AND rateDate = ? ORDER BY currencyCode`
-      : `SELECT * FROM fxRates WHERE accountSetId = ? ORDER BY rateDate DESC, currencyCode`;
-    const params = rateDate ? [this.accountSetId, rateDate] : [this.accountSetId];
-    const rows = await this.queryAllAsync<any>(sql, params);
-    return rows.map((row) => ({
-      id: row.id,
-      accountSetId: row.accountSetId,
-      rateDate: row.rateDate,
-      currencyCode: row.currencyCode,
-      baseCurrency: row.baseCurrency || 'CNY',
-      middleRate: row.middleRate,
-      source: row.source || undefined,
-      createdBy: row.createdBy || undefined,
-      createTime: row.createTime,
-      updateTime: row.updateTime,
-    }));
+    if (rateDate) {
+      // First try exact date match
+      const exactRows = await this.queryAllAsync<any>(
+        `SELECT * FROM fxRates WHERE accountSetId = ? AND rateDate = ? ORDER BY currencyCode`,
+        [this.accountSetId, rateDate]
+      );
+      if (exactRows.length > 0) {
+        return exactRows.map(mapFxRateRow);
+      }
+      // Fallback: find the most recent rate on or before this date for each currency
+      const allRows = await this.queryAllAsync<any>(
+        `SELECT * FROM fxRates WHERE accountSetId = ? AND rateDate <= ? ORDER BY currencyCode, rateDate DESC`,
+        [this.accountSetId, rateDate]
+      );
+      // Keep only the latest rate per currency
+      const latestByCurrency = new Map<string, any>();
+      for (const row of allRows) {
+        if (!latestByCurrency.has(row.currencyCode)) {
+          latestByCurrency.set(row.currencyCode, row);
+        }
+      }
+      return [...latestByCurrency.values()].map(mapFxRateRow);
+    }
+    const rows = await this.queryAllAsync<any>(
+      `SELECT * FROM fxRates WHERE accountSetId = ? ORDER BY rateDate DESC, currencyCode`,
+      [this.accountSetId]
+    );
+    return rows.map(mapFxRateRow);
   }
 
   // ========== FX 重估运行操作 ==========

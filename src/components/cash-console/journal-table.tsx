@@ -351,7 +351,7 @@ export function JournalTable({
       setTotal(result.total || 0);
       const emptySet = new Set<string>();
       setSelectedIds(emptySet);
-      onSelectionChange?.(emptySet);
+      setTimeout(() => onSelectionChange?.(emptySet), 0);
     } catch (e) {
       console.error('Failed to load journal entries', e);
     } finally {
@@ -429,23 +429,26 @@ export function JournalTable({
   };
 
   const toggleSelect = useCallback((id: string) => {
+    let next: Set<string>;
     setSelectedIds(prev => {
-      const next = new Set(prev);
+      next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      onSelectionChange?.(next);
       return next;
     });
+    // Call outside state updater to avoid setState-during-render
+    setTimeout(() => onSelectionChange?.(next!), 0);
   }, [onSelectionChange]);
 
   const toggleSelectAll = useCallback(() => {
     if (selectedIds.size === entries.length) {
-      setSelectedIds(new Set());
-      onSelectionChange?.(new Set());
+      const empty = new Set<string>();
+      setSelectedIds(empty);
+      setTimeout(() => onSelectionChange?.(empty), 0);
     } else {
       const next = new Set(entries.map(e => e.id));
       setSelectedIds(next);
-      onSelectionChange?.(next);
+      setTimeout(() => onSelectionChange?.(next), 0);
     }
   }, [entries, selectedIds, onSelectionChange]);
 
@@ -459,7 +462,7 @@ export function JournalTable({
       showToast('success', `已删除 ${count} 条流水`);
       const emptySet = new Set<string>();
       setSelectedIds(emptySet);
-      onSelectionChange?.(emptySet);
+      setTimeout(() => onSelectionChange?.(emptySet), 0);
       onRefresh?.();
       loadEntries();
     } catch (e) {
