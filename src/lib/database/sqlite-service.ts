@@ -3108,6 +3108,39 @@ class SQLiteService {
     }
   }
 
+  async saveFixedAsset(asset: any): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      const db = this.dbInstance!;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO fixedAssets (
+          id, accountSetId, assetCode, assetName, categoryName, unit, quantity, remainingQuantity, unitPrice,
+          originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
+          depreciationMethod, usefulLifeYears, usefulLifeMonths, remainingDepreciationMonths,
+          acquisitionDate, status, accountingStatus, acquisitionType, isOpeningBalance, initialAccumulatedDepreciation,
+          createTime, updateTime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run([
+        asset.id, this.accountSetId, asset.assetCode, asset.assetName, asset.categoryName || '',
+        asset.unit || '台', asset.quantity || 1, asset.remainingQuantity || 1, asset.unitPrice || asset.originalValue,
+        asset.originalValue, asset.salvageValue || 0, asset.depreciableValue || asset.originalValue,
+        asset.accumulatedDepreciation || 0, asset.netValue || asset.originalValue,
+        asset.depreciationMethod || 'straight-line', asset.usefulLifeYears || 10,
+        asset.usefulLifeMonths || 120, asset.remainingDepreciationMonths || asset.usefulLifeMonths || 120,
+        asset.acquisitionDate || '', asset.status || 'active', asset.accountingStatus || 'accounted',
+        asset.acquisitionType || 'opening_balance', asset.isOpeningBalance ? 1 : 0,
+        asset.initialAccumulatedDepreciation || 0,
+        asset.createTime || new Date().toISOString(), asset.updateTime || new Date().toISOString(),
+      ]);
+      stmt.free();
+      await this.persist();
+    } catch (error) {
+      console.error('Save fixed asset failed:', error);
+      throw error;
+    }
+  }
+
   async getAllPartners(): Promise<Partner[]> {
     await this.ensureInitialized();
     const results = await this.queryAllAsync<any>(

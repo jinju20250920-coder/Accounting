@@ -31,7 +31,10 @@ interface AppSettings {
 
   // 往来核算方式设置
   accounting: {
-    partnerTrackingMethod: 'subject' | 'card'; // 科目方式 或 往来卡片方式
+    partnerTrackingMethod: 'subject' | 'card';
+    bankTrackingMethod: 'card' | 'subject';
+    assetTrackingMethod: 'card' | 'subject';
+    hasForeignCurrency?: boolean;
   };
 
   // 界面设置
@@ -84,7 +87,10 @@ const defaultSettings: AppSettings = {
     enableExport: true
   },
   accounting: {
-    partnerTrackingMethod: 'card' // 默认使用往来卡片方式
+    partnerTrackingMethod: 'card',
+    bankTrackingMethod: 'card',
+    assetTrackingMethod: 'card',
+    hasForeignCurrency: false,
   },
   ui: {
     theme: 'light',

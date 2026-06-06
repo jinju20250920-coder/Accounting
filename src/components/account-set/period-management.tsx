@@ -29,13 +29,15 @@ import {
   Database,
   Users,
   Settings,
-  ChevronRight
+  ChevronRight,
+  Shield
 } from 'lucide-react';
 import { usePeriodManagementStore, PeriodTemplate } from '@/stores/usePeriodManagementStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useToast } from '@/components/ui/toast';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
+import { MonthlyClosingWizard } from './monthly-closing-wizard';
 
 export function PeriodManagement() {
   const { showToast } = useToast();
@@ -57,6 +59,10 @@ export function PeriodManagement() {
   );
   const vouchers = useVoucherStore((s) => s.vouchers);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
+
+  // 月结向导状态
+  const [showMonthlyClosingWizard, setShowMonthlyClosingWizard] = useState(false);
+  const [closingPeriod, setClosingPeriod] = useState<AccountingPeriod | null>(null);
 
   // 新建期间对话框状态
   const [showCreatePeriodDialog, setShowCreatePeriodDialog] = useState(false);
@@ -340,15 +346,11 @@ export function PeriodManagement() {
                         </Button>
                       )}
                       {period.canClose && (
-                        <Button variant="ghost" size="sm" onClick={async (e) => {
+                        <Button variant="ghost" size="sm" onClick={(e) => {
                           e.stopPropagation();
-                          try {
-                            await closePeriod(period.id);
-                            showToast('success', `已关闭 ${period.name}`);
-                          } catch (error) {
-                            showToast('error', error instanceof Error ? error.message : '当前期间存在阻塞项，暂不能月结');
-                          }
-                        }}>
+                          setClosingPeriod(period);
+                          setShowMonthlyClosingWizard(true);
+                        }} title="月结向导">
                           <Pause className="h-4 w-4" />
                         </Button>
                       )}
@@ -489,12 +491,22 @@ export function PeriodManagement() {
       {/* 快速操作 */}
       <div className="flex gap-2">
         <Button variant="outline" onClick={() => {
+          const cp = getCurrentPeriod();
+          if (cp) {
+            setClosingPeriod(cp);
+            setShowMonthlyClosingWizard(true);
+          }
+        }}>
+          <Shield className="h-4 w-4 mr-2" />
+          月结向导
+        </Button>
+        <Button variant="outline" onClick={() => {
           void closeCurrentPeriod().catch((error) => {
             showToast('error', error instanceof Error ? error.message : '当前期间存在阻塞项，暂不能月结');
           });
         }}>
           <Calendar className="h-4 w-4 mr-2" />
-          期间结转
+          快速结转
         </Button>
         <Button variant="outline">
           <Copy className="h-4 w-4 mr-2" />
@@ -559,6 +571,18 @@ export function PeriodManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 月结向导 */}
+      {closingPeriod && (
+        <MonthlyClosingWizard
+          open={showMonthlyClosingWizard}
+          onOpenChange={(open) => {
+            setShowMonthlyClosingWizard(open);
+            if (!open) setClosingPeriod(null);
+          }}
+          period={closingPeriod}
+        />
+      )}
     </div>
   );
 }

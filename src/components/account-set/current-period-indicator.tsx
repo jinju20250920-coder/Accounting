@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, Play, ArrowRight } from 'lucide-react';
+import { Calendar, Clock, Play, ArrowRight, Shield } from 'lucide-react';
 import { usePeriodManagementStore } from '@/stores/usePeriodManagementStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
 import { useVoucherStore } from '@/stores/useVoucherStore';
+import { MonthlyClosingWizard } from './monthly-closing-wizard';
 
 interface CurrentPeriodIndicatorProps {
   compact?: boolean;
@@ -17,6 +18,7 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
   const vouchers = useVoucherStore((s) => s.vouchers);
   const [currentPeriod, setCurrentPeriod] = useState<AccountingPeriod | null>(null);
   const [allPeriods, setAllPeriods] = useState<AccountingPeriod[]>([]);
+  const [showMonthlyWizard, setShowMonthlyWizard] = useState(false);
 
   // 只在客户端获取期间数据
   useEffect(() => {
@@ -162,11 +164,11 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
             <Button
               variant="default"
               size="sm"
-              onClick={closeCurrentPeriod}
+              onClick={() => setShowMonthlyWizard(true)}
               className="bg-blue-600 hover:bg-blue-700"
             >
-              <Clock className="h-4 w-4 mr-1" />
-              结转本期
+              <Shield className="h-4 w-4 mr-1" />
+              月结向导
             </Button>
           )}
 
@@ -183,6 +185,14 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
           )}
         </div>
       </div>
+
+      {currentPeriod && (
+        <MonthlyClosingWizard
+          open={showMonthlyWizard}
+          onOpenChange={setShowMonthlyWizard}
+          period={currentPeriod}
+        />
+      )}
     </div>
   );
 }

@@ -57,49 +57,50 @@ interface AccountStore {
 
 // 计算科目余额从所有已记账凭证和当前凭证
 const calculateBalanceFromLedger = (subjectCode: string, excludeEntryId?: string): SubjectBalance => {
-  // 从 useVoucherStore 获取所有已记账凭证和当前数据
   const { vouchers, currentEntries } = useVoucherStore.getState();
 
-  // 从所有已记账凭证中计算历史余额
+  let openingDebit = 0;
+  let openingCredit = 0;
   let debitTotal = 0;
   let creditTotal = 0;
 
   vouchers.forEach(voucher => {
     if (voucher.status === 'posted' || voucher.status === 'reversed') {
+      const isOpening = voucher.voucherNo?.startsWith('记-期初');
       voucher.entries.forEach(entry => {
         if (entry.subjectCode === subjectCode) {
-          debitTotal += entry.debit;
-          creditTotal += entry.credit;
+          if (isOpening) {
+            openingDebit += entry.debit;
+            openingCredit += entry.credit;
+          } else {
+            debitTotal += entry.debit;
+            creditTotal += entry.credit;
+          }
         }
       });
     }
   });
 
-  // 加上当前凭证中该科目的金额（未入账金额），排除指定分录
   const currentSubjectEntries = currentEntries.filter(entry =>
     entry.subjectCode === subjectCode && entry.id !== excludeEntryId
   );
   const currentDebit = currentSubjectEntries.reduce((sum, entry) => sum + entry.debit, 0);
   const currentCredit = currentSubjectEntries.reduce((sum, entry) => sum + entry.credit, 0);
 
-  // 假设所有科目期初余额为0，实际应用中应从设置获取
-  const openingBalance = 0;
   const direction = subjectCode.startsWith('1') || subjectCode.startsWith('5') || subjectCode.startsWith('6') ? 'debit' : 'credit';
+  const openingBalance = direction === 'debit'
+    ? openingDebit - openingCredit
+    : openingCredit - openingDebit;
   const closingBalance = direction === 'debit'
     ? openingBalance + debitTotal + currentDebit - (creditTotal + currentCredit)
     : openingBalance + creditTotal + currentCredit - (debitTotal + currentDebit);
 
-  // 获取科目名称（从科目表获取）
   let subjectName = subjectCode;
   try {
     const subjects = require('../lib/data/subjects.json');
     const subject = subjects.find((s: any) => s.code === subjectCode);
-    if (subject) {
-      subjectName = subject.name;
-    }
-  } catch (error) {
-    console.error('Failed to load subjects:', error);
-  }
+    if (subject) subjectName = subject.name;
+  } catch {}
 
   return {
     subjectCode,

@@ -72,7 +72,10 @@ export interface AccountSet {
 
   // 会计核算设置
   accounting?: {
-    partnerTrackingMethod?: 'subject' | 'card'; // 往来核算方式：科目方式 or 往来卡片方式
+    partnerTrackingMethod?: 'subject' | 'card';
+    bankTrackingMethod?: 'card' | 'subject';
+    assetTrackingMethod?: 'card' | 'subject';
+    hasForeignCurrency?: boolean;
   };
 
   payrollRegionId?: string;
@@ -312,7 +315,10 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastVoucherNo: 0,  // 最后一个凭证号（序号部分）
           lastVoucherFullNo: '记-202603-000',  // 完整的最后一个凭证号
           accounting: {
-            partnerTrackingMethod: 'card'  // 默认使用往来卡片方式
+            partnerTrackingMethod: 'card',
+            bankTrackingMethod: 'card',
+            assetTrackingMethod: 'card',
+            hasForeignCurrency: false,
           },
           accountingPeriods: generateDefaultPeriods()
         }
@@ -454,7 +460,10 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
           lastVoucherNo: 0, // 最后一个凭证号（序号部分）
           lastVoucherFullNo: `记-${yearMonth}-000`, // 完整的最后一个凭证号
           accounting: {
-            partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card' // 默认使用往来卡片方式
+            partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card',
+            bankTrackingMethod: accountSet.accounting?.bankTrackingMethod || 'card',
+            assetTrackingMethod: accountSet.accounting?.assetTrackingMethod || 'card',
+            hasForeignCurrency: accountSet.accounting?.hasForeignCurrency || false,
           },
           accountingPeriods: generateDefaultPeriods() // 添加默认期间
         };

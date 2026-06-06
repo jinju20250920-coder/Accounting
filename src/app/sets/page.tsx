@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,11 +61,14 @@ interface AccountSetFormData {
   status: 'active' | 'closed' | 'archived' | 'trial';
   accounting: {
     partnerTrackingMethod: 'subject' | 'card';
+    bankTrackingMethod: 'card' | 'subject';
+    assetTrackingMethod: 'card' | 'subject';
   };
 }
 
 export default function SetsPage() {
   const [mounted, setMounted] = useState(false);
+  const router = useRouter();
   const { showToast } = useToast();
   const { vouchers } = useVoucherStore();
   const {
@@ -106,7 +110,7 @@ export default function SetsPage() {
     currentPeriod: '',
     status: 'active',
     accounting: {
-      partnerTrackingMethod: 'card' // 默认使用往来卡片方式
+      partnerTrackingMethod: 'card', bankTrackingMethod: 'card' as const, assetTrackingMethod: 'card' as const
     }
   });
 
@@ -151,7 +155,7 @@ export default function SetsPage() {
       currentPeriod: '',
       status: 'active',
       accounting: {
-        partnerTrackingMethod: 'card' // 默认使用往来卡片方式
+        partnerTrackingMethod: 'card', bankTrackingMethod: 'card' as const, assetTrackingMethod: 'card' as const
       }
     });
   };
@@ -172,7 +176,9 @@ export default function SetsPage() {
       currentPeriod: accountSet.currentPeriod || '',
       status: accountSet.status || 'active',
       accounting: {
-        partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card'
+        partnerTrackingMethod: accountSet.accounting?.partnerTrackingMethod || 'card',
+        bankTrackingMethod: accountSet.accounting?.bankTrackingMethod || 'card',
+        assetTrackingMethod: accountSet.accounting?.assetTrackingMethod || 'card',
       }
     });
   };
@@ -463,6 +469,17 @@ export default function SetsPage() {
       setShowCreateDialog(false);
       resetFormData();
 
+      // Redirect to setup wizard
+      const params = new URLSearchParams({
+        id: accountSetId,
+        name: formData.name,
+        code: formData.code,
+        startDate: formData.startDate,
+        enableDate: formData.enableDate,
+      });
+      router.push(`/setup?${params.toString()}`);
+      return;
+
       // 重新加载账套信息
       const infos = await fileHandleManager.getAllAccountSets();
       const infoMap = new Map<string, AccountSetHandleInfo>();
@@ -479,14 +496,18 @@ export default function SetsPage() {
     }
   };
 
-  // 编辑账套 - 打开对话框
+  // 编辑账套 - 跳转到设置向导
   const handleEdit = (accountSet: AccountSet) => {
-    setSelectedSet(accountSet);
-    fillFormData(accountSet);
-    setShowEditDialog(true);
+    const params = new URLSearchParams({
+      id: accountSet.id,
+      name: accountSet.name,
+      code: accountSet.code,
+      mode: 'edit',
+    });
+    router.push(`/setup?${params.toString()}`);
   };
 
-  // 确认编辑
+  // 确认编辑（保留给可能的简短编辑场景）
   const confirmEdit = () => {
     if (!selectedSet) return;
 
@@ -780,21 +801,6 @@ export default function SetsPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* 存储说明 */}
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-start gap-2">
-                <HardDrive className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900">自动存储</p>
-                  <p className="text-xs text-blue-800 mt-1">
-                    数据库将自动保存到浏览器存储中（OPFS），文件名为：
-                    <code className="bg-blue-100 px-1 py-0.5 rounded">{formData.code || 'SET001'}_timestamp.db</code>
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* 表单字段 */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label required>账套编码</Label>
@@ -831,105 +837,8 @@ export default function SetsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>统一社会信用代码</Label>
-                <Input
-                  value={formData.unifiedSocialCreditCode}
-                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value, taxNo: e.target.value })}
-                  placeholder="91110000XXXXXXXXXX"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>纳税人识别号</Label>
-                <Input
-                  value={formData.taxNo}
-                  onChange={(e) => setFormData({ ...formData, taxNo: e.target.value })}
-                  placeholder="与统一社会信用代码相同"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>公司地址</Label>
-                <Input
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="北京市朝阳区..."
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>本位币</Label>
-                <select
-                  value={formData.baseCurrency}
-                  onChange={(e) => setFormData({ ...formData, baseCurrency: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="人民币">人民币 (CNY)</option>
-                  <option value="美元">美元 (USD)</option>
-                  <option value="欧元">欧元 (EUR)</option>
-                  <option value="港币">港币 (HKD)</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>会计准则</Label>
-                <select
-                  value={formData.accountingStandard}
-                  onChange={(e) => setFormData({ ...formData, accountingStandard: e.target.value as any })}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="small-enterprise">小企业会计准则</option>
-                  <option value="enterprise">企业会计准则</option>
-                  <option value="other">其他</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label required>往来核算方式</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label
-                    className="flex items-center gap-2"
-                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
-                  >
-                    <input
-                      type="radio"
-                      name="partnerTrackingMethod"
-                      value="card"
-                      checked={formData.accounting.partnerTrackingMethod === 'card'}
-                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
-                      className="h-4 w-4 text-blue-600"
-                    />
-                    往来卡片方式
-                  </Label>
-                  <p className="text-xs text-slate-500 ml-6">
-                    使用辅助核算功能，每个往来单位作为一张独立的往来卡片，科目结构更简洁（推荐）
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label
-                    className="flex items-center gap-2"
-                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
-                  >
-                    <input
-                      type="radio"
-                      name="partnerTrackingMethod"
-                      value="subject"
-                      checked={formData.accounting.partnerTrackingMethod === 'subject'}
-                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
-                      className="h-4 w-4 text-blue-600"
-                    />
-                    科目方式
-                  </Label>
-                  <p className="text-xs text-slate-500 ml-6">
-                    每个往来单位自动创建对应的明细科目，适合传统手工记账习惯
-                  </p>
-                </div>
-              </div>
+            <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-600">
+              创建后将进入设置向导，可在向导中完善税务、地址、会计准则等公司信息
             </div>
           </div>
 
@@ -943,110 +852,6 @@ export default function SetsPage() {
             </Button>
             <Button onClick={confirmCreate} disabled={isCreating}>
               {isCreating ? '创建中...' : '创建账套'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 编辑账套对话框 */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>编辑账套</DialogTitle>
-            <DialogDescription>
-              修改账套的基本信息
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label required>账套编码</Label>
-                <Input
-                  value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label required>账套名称</Label>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>统一社会信用代码</Label>
-                <Input
-                  value={formData.unifiedSocialCreditCode}
-                  onChange={(e) => setFormData({ ...formData, unifiedSocialCreditCode: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>公司地址</Label>
-                <Input
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label required>往来核算方式</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label
-                    className="flex items-center gap-2"
-                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
-                  >
-                    <input
-                      type="radio"
-                      name="editPartnerTrackingMethod"
-                      value="card"
-                      checked={formData.accounting.partnerTrackingMethod === 'card'}
-                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'card' } })}
-                      className="h-4 w-4 text-blue-600"
-                    />
-                    往来卡片方式
-                  </Label>
-                  <p className="text-xs text-slate-500 ml-6">
-                    使用辅助核算功能，每个往来单位作为一张独立的往来卡片，科目结构更简洁（推荐）
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label
-                    className="flex items-center gap-2"
-                    onClick={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
-                  >
-                    <input
-                      type="radio"
-                      name="editPartnerTrackingMethod"
-                      value="subject"
-                      checked={formData.accounting.partnerTrackingMethod === 'subject'}
-                      onChange={() => setFormData({ ...formData, accounting: { ...formData.accounting, partnerTrackingMethod: 'subject' } })}
-                      className="h-4 w-4 text-blue-600"
-                    />
-                    科目方式
-                  </Label>
-                  <p className="text-xs text-slate-500 ml-6">
-                    每个往来单位自动创建对应的明细科目，适合传统手工记账习惯
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowEditDialog(false)}
-            >
-              取消
-            </Button>
-            <Button onClick={confirmEdit}>
-              保存
             </Button>
           </DialogFooter>
         </DialogContent>

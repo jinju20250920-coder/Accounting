@@ -41,14 +41,15 @@ export default function PreferencesPage() {
       if (currentAccountSet) {
         updateAccountSet(currentAccountSet.id, {
           accounting: {
+            ...currentAccountSet.accounting,
             partnerTrackingMethod
           }
         });
         showToast('success', '系统设置已保存');
       } else {
-        // 如果没有当前账套，保存到全局设置作为备用
         updateSettings({
           accounting: {
+            ...settings.accounting,
             partnerTrackingMethod
           }
         });
