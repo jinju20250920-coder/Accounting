@@ -13,14 +13,20 @@ import {
   HardHat,
   CheckCircle2,
   Loader2,
+  Upload,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
+import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { INDUSTRY_TEMPLATES, getIndustryTemplate, type IndustryTemplate } from '@/lib/data/industry-templates';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useToast } from '@/components/ui/toast';
 
 interface SetupStepTemplateProps {
   selectedTemplate: string | null;
-  onSelect: (templateId: string) => void;
+  onSelect: (templateId: string | null) => void;
   accountingStandard: 'small-enterprise' | 'enterprise' | 'other';
   accountSetId: string;
 }
@@ -62,6 +68,10 @@ export function SetupStepTemplate({
   const [previewTemplate, setPreviewTemplate] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [mode, setMode] = useState<'template' | 'custom'>('template');
+  const [importedSubjects, setImportedSubjects] = useState<any[]>([]);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const preview = previewTemplate ? getIndustryTemplate(previewTemplate) : null;
 
@@ -69,6 +79,16 @@ export function SetupStepTemplate({
     if (templateId === selectedTemplate) return;
     onSelect(templateId);
     setApplied(false);
+  };
+
+  const handleModeChange = (newMode: 'template' | 'custom') => {
+    setMode(newMode);
+    if (newMode === 'custom') {
+      onSelect(null);
+      setApplied(false);
+    } else {
+      setImportedSubjects([]);
+    }
   };
 
   const handleApplyTemplate = async () => {
@@ -128,17 +148,137 @@ export function SetupStepTemplate({
     }
   };
 
+  const SUBJECT_IMPORT_HEADERS = [
+    { key: 'code' as const, label: '科目代码', required: true },
+    { key: 'name' as const, label: '科目名称', required: true },
+    { key: 'direction' as const, label: '借贷方向(借/贷)', required: false },
+    { key: 'level' as const, label: '层级', required: false },
+    { key: 'parentCode' as const, label: '上级科目代码', required: false },
+  ];
+
+  const handleSubjectImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const rawData = await importFromExcel<any>(file, SUBJECT_IMPORT_HEADERS);
+      const subjects: any[] = [];
+      let skipped = 0;
+
+      for (const row of rawData) {
+        if (!row.code || !row.name) { skipped++; continue; }
+        const code = String(row.code).trim();
+        const name = String(row.name).trim();
+        const dirStr = String(row.direction || '借').trim();
+        const direction = dirStr.includes('贷') ? 'credit' : 'debit';
+        const level = Number(row.level) || Math.max(1, Math.floor((code.length - 1) / 2));
+        const parentCode = row.parentCode ? String(row.parentCode).trim() : (code.length > 4 ? code.substring(0, code.length - 2) : null);
+
+        subjects.push({
+          code, name, direction, level, parentCode,
+        });
+      }
+
+      setImportedSubjects(subjects);
+      if (subjects.length > 0) {
+        onSelect('__custom__');
+        showToast('success', `已解析 ${subjects.length} 条科目${skipped > 0 ? `，跳过 ${skipped} 条` : ''}`);
+      } else {
+        showToast('warning', '未找到有效科目数据');
+      }
+    } catch (error: any) {
+      showToast('error', `导入失败：${error.message}`);
+    } finally {
+      setImporting(false);
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleApplyCustomSubjects = async () => {
+    if (importedSubjects.length === 0) return;
+    setApplying(true);
+    try {
+      if (sqliteService.accountSetId !== accountSetId) {
+        sqliteService.setAccountSetId(accountSetId);
+      }
+
+      const existingSubjects = await sqliteService.getAllSubjects();
+      const existingCodes = new Set(existingSubjects.map(s => s.code));
+
+      const newSubjects = importedSubjects
+        .filter(s => !existingCodes.has(s.code))
+        .map(s => ({
+          id: s.code,
+          code: s.code,
+          name: s.name,
+          direction: s.direction as 'debit' | 'credit',
+          level: s.level,
+          parentId: s.parentCode || null,
+          subjectType: getSubjectType(s.code) as 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss',
+          isCustomer: false,
+          isSupplier: false,
+          isEmployee: false,
+          enableDept: false,
+          enableProject: false,
+          enableForeign: false,
+          enableCashFlow: false,
+          disabled: false,
+          block: false,
+          accountSetId,
+        }));
+
+      if (newSubjects.length > 0) {
+        await sqliteService.saveSubjects(newSubjects);
+      }
+
+      setApplied(true);
+      showToast('success', `已导入 ${newSubjects.length} 个科目`);
+    } catch (error) {
+      console.error('Import subjects failed:', error);
+      showToast('error', '导入科目失败');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleDownloadSubjectTemplate = () => {
+    exportTemplate<any>(
+      '科目导入模板',
+      { code: '1001', name: '库存现金', direction: '借', level: 1, parentCode: '' },
+      SUBJECT_IMPORT_HEADERS
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">选择行业模板</h2>
+        <h2 className="text-xl font-semibold text-slate-900">科目初始化</h2>
         <p className="text-sm text-slate-500 mt-1">
-          选择与您公司行业最匹配的模板，系统将自动初始化科目、业务规则和常用摘要
+          选择行业模板自动生成科目，或自行导入科目列表
         </p>
       </div>
 
-      {/* Template Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      {/* Mode Switcher */}
+      <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => handleModeChange('template')}
+          className={`px-4 py-2 text-sm rounded-md transition-all ${mode === 'template' ? 'bg-white shadow text-blue-700 font-medium' : 'text-slate-600 hover:text-slate-900'}`}
+        >
+          行业模板
+        </button>
+        <button
+          onClick={() => handleModeChange('custom')}
+          className={`px-4 py-2 text-sm rounded-md transition-all ${mode === 'custom' ? 'bg-white shadow text-blue-700 font-medium' : 'text-slate-600 hover:text-slate-900'}`}
+        >
+          自行导入
+        </button>
+      </div>
+
+      {mode === 'template' && (
+        <>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {INDUSTRY_TEMPLATES.map((template) => {
           const isSelected = selectedTemplate === template.id;
           return (
@@ -233,6 +373,78 @@ export function SetupStepTemplate({
               {INDUSTRY_TEMPLATES.find(t => t.id === selectedTemplate)?.businessGroups.length ?? 0} 个发票业务组和常用摘要
             </p>
           )}
+        </div>
+      )}
+        </>
+      )}
+
+      {/* Custom Import Mode */}
+      {mode === 'custom' && (
+        <div className="space-y-4">
+          <div className="border rounded-lg p-6 bg-slate-50">
+            <div className="flex items-center gap-3 mb-4">
+              <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+              <div>
+                <p className="font-medium text-slate-900">导入科目列表</p>
+                <p className="text-xs text-slate-500">上传 Excel 文件，包含科目代码、科目名称、借贷方向等列</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mb-4">
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleSubjectImport} className="hidden" />
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+                {importing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+                选择文件
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleDownloadSubjectTemplate}>
+                <Download className="h-4 w-4 mr-1" /> 下载模板
+              </Button>
+            </div>
+
+            {importedSubjects.length > 0 ? (
+              <>
+                <p className="text-sm text-slate-600 mb-2">
+                  已解析 <span className="font-semibold">{importedSubjects.length}</span> 个科目
+                </p>
+                <div className="max-h-48 overflow-y-auto border rounded bg-white p-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-1 text-sm">
+                    {importedSubjects.slice(0, 100).map((s) => (
+                      <div key={s.code} className="flex items-center gap-1 py-0.5">
+                        <span className="font-mono text-slate-500 text-xs">{s.code}</span>
+                        <span className="text-slate-700">{s.name}</span>
+                      </div>
+                    ))}
+                    {importedSubjects.length > 100 && (
+                      <div className="text-xs text-slate-400 py-0.5">... 还有 {importedSubjects.length - 100} 个科目</div>
+                    )}
+                  </div>
+                </div>
+
+                {!applied && (
+                  <div className="flex justify-end mt-3">
+                    <Button
+                      size="sm"
+                      onClick={handleApplyCustomSubjects}
+                      disabled={applying}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {applying ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                      导入 {importedSubjects.length} 个科目
+                    </Button>
+                  </div>
+                )}
+                {applied && (
+                  <Badge className="bg-green-100 text-green-700 mt-2">已导入</Badge>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-6 text-slate-400">
+                <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>请上传科目 Excel 文件</p>
+                <p className="text-xs">支持 .xlsx / .xls 格式</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -16,6 +16,7 @@ import {
   Sliders,
   Globe,
   Users,
+  FolderOpen,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -27,6 +28,7 @@ import { SetupStepRules, type BusinessRulesProgress } from './setup-step-rules';
 import { SetupStepCurrency } from './setup-step-currency';
 import { SetupStepPartners } from './setup-step-partners';
 import { SetupStepFixedAssets } from './setup-step-fixed-assets';
+import { SetupStepProjects } from './setup-step-projects';
 import { SetupStepComplete } from './setup-step-complete';
 
 export interface SetupProgress {
@@ -52,6 +54,12 @@ interface SetupWizardProps {
     address: string;
     baseCurrency: string;
     accountingStandard: 'small-enterprise' | 'enterprise' | 'other';
+    taxpayerType: 'small' | 'general';
+    voucherWord: string;
+    voucherNoPeriod: 'monthly' | 'yearly' | 'continuous';
+    voucherNoDigits: 3 | 4 | 5;
+    useClassifiedWords: boolean;
+    classifiedWords: { receipt: string; payment: string; general: string };
     enableDate: string;
     startDate: string;
   };
@@ -65,6 +73,7 @@ const BASE_STEPS = [
   { id: 'bank', label: '银行账户', icon: Landmark, required: false, conditional: 'bankCard' as const },
   { id: 'partners', label: '往来单位', icon: Users, required: false, conditional: 'partnerCard' as const },
   { id: 'fixed-assets', label: '固定资产', icon: Building2, required: false, conditional: 'assetCard' as const },
+  { id: 'projects', label: '项目核算', icon: FolderOpen, required: false, conditional: 'enableProject' as const },
   { id: 'opening', label: '期初余额', icon: Scale, required: false },
   { id: 'complete', label: '完成', icon: CheckCircle2, required: true },
 ];
@@ -72,6 +81,7 @@ const BASE_STEPS = [
 export function SetupWizard({ accountSetId, onComplete, mode = 'create', initialData }: SetupWizardProps) {
   const { showToast } = useToast();
   const accounting = useAccountSetStore(s => s.getCurrentAccountSet()?.accounting);
+  const [enableProject, setEnableProject] = useState(false);
 
   // Compute steps based on mode and config
   const STEPS = useMemo(() => {
@@ -96,8 +106,12 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     if ((accounting?.assetTrackingMethod ?? 'card') !== 'card') {
       steps = steps.filter(s => s.conditional !== 'assetCard');
     }
+    // Remove project step if project accounting not enabled
+    if (!enableProject) {
+      steps = steps.filter(s => s.conditional !== 'enableProject');
+    }
     return steps;
-  }, [mode, accounting?.hasForeignCurrency, accounting?.bankTrackingMethod, accounting?.partnerTrackingMethod, accounting?.assetTrackingMethod]);
+  }, [mode, accounting?.hasForeignCurrency, accounting?.bankTrackingMethod, accounting?.partnerTrackingMethod, accounting?.assetTrackingMethod, enableProject]);
 
   const [currentStep, setCurrentStep] = useState(0);
   // Track visited steps to allow free navigation
@@ -122,6 +136,12 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     address: '',
     baseCurrency: '人民币',
     accountingStandard: 'small-enterprise' as const,
+    taxpayerType: 'small' as const,
+    voucherWord: '记',
+    voucherNoPeriod: 'monthly' as const,
+    voucherNoDigits: 3 as const,
+    useClassifiedWords: false,
+    classifiedWords: { receipt: '收', payment: '付', general: '记' },
     enableDate: '',
     startDate: '',
   });
@@ -145,10 +165,34 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   const handleNext = useCallback(() => {
     const step = STEPS[currentStep];
     markCompleted(step.id);
+
+    // Save company data to account set when leaving company step
+    if (step.id === 'company') {
+      const store = useAccountSetStore.getState();
+      store.updateAccountSet(accountSetId, {
+        name: companyData.name,
+        code: companyData.code,
+        unifiedSocialCreditCode: companyData.unifiedSocialCreditCode,
+        taxNo: companyData.taxNo || companyData.unifiedSocialCreditCode,
+        address: companyData.address,
+        baseCurrency: companyData.baseCurrency,
+        accountingStandard: companyData.accountingStandard,
+        enableDate: companyData.enableDate,
+        startDate: companyData.startDate,
+        voucherNumbering: {
+          word: companyData.voucherWord,
+          period: companyData.voucherNoPeriod,
+          digits: companyData.voucherNoDigits,
+          useClassified: companyData.useClassifiedWords,
+          classifiedWords: companyData.useClassifiedWords ? companyData.classifiedWords : undefined,
+        },
+      });
+    }
+
     if (currentStep < STEPS.length - 1) {
       goToStep(currentStep + 1);
     }
-  }, [currentStep, markCompleted, goToStep, STEPS]);
+  }, [currentStep, markCompleted, goToStep, STEPS, accountSetId, companyData]);
 
   const handleBack = useCallback(() => {
     if (currentStep > 0) {
@@ -264,6 +308,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
                   data={companyData}
                   onChange={setCompanyData}
                   accountSetId={accountSetId}
+                  lastVoucherFullNo={useAccountSetStore(s => s.getCurrentAccountSet()?.lastVoucherFullNo)}
                 />
               )}
               {step.id === 'template' && (
@@ -277,9 +322,14 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
               {step.id === 'rules' && (
                 <SetupStepRules
                   accountSetId={accountSetId}
+                  taxpayerType={companyData.taxpayerType}
+                  industryTemplate={selectedTemplate}
                   onProgressChange={(p) =>
                     setProgress(prev => ({ ...prev, ...p }))
                   }
+                  onConfigChange={(config) => {
+                    setEnableProject(config.enableProject);
+                  }}
                 />
               )}
               {step.id === 'currency' && (
@@ -293,6 +343,9 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
               )}
               {step.id === 'fixed-assets' && (
                 <SetupStepFixedAssets accountSetId={accountSetId} />
+              )}
+              {step.id === 'projects' && (
+                <SetupStepProjects accountSetId={accountSetId} />
               )}
               {step.id === 'opening' && (
                 <SetupStepOpening

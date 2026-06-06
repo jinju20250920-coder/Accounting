@@ -24,6 +24,7 @@ import {
   X
 } from 'lucide-react';
 import { useVoucherStore, useSubjectStore, useAccountSetStore } from '@/stores';
+import { generateVoucherNo } from '@/stores/useVoucherStore';
 import { BankFormatSelector } from '@/components/bank-format-selector';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
 import { getAllConfigs } from '@/lib/bank-parsers/bank-registry';
@@ -686,7 +687,8 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
           const amount = previewEntry.amount;
           const voucherId = `voucher_${Date.now()}_${previewEntry.transactionId}`;
           const postingDate = previewEntry.postingDate || previewEntry.date;
-          const voucherNo = await generateVoucherNo(postingDate);
+          const voucherType = isDebit ? 'payment' as const : 'receipt' as const;
+          const voucherNo = await generateVoucherNo(postingDate, voucherType);
 
           // 创建凭证分录
           const entries: any[] = [];
@@ -833,30 +835,6 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  // 生成凭证号的辅助函数
-  const generateVoucherNo = async (date: string): Promise<string> => {
-    const yearMonth = date.substring(0, 7).replace('-', '');
-    const service = getCurrentService();
-
-    // 获取当前月份的所有凭证
-    const allVouchers = await service.getAllVouchers();
-    const currentMonthVouchers = allVouchers.filter((v: any) =>
-      v.voucherNo && v.voucherNo.startsWith(`记-${yearMonth}-`)
-    );
-
-    let maxSeq = 0;
-    for (const v of currentMonthVouchers) {
-      const match = v.voucherNo?.match(/-(\d{3})$/);
-      if (match) {
-        const seq = parseInt(match[1], 10);
-        if (seq > maxSeq) maxSeq = seq;
-      }
-    }
-
-    const newSeq = maxSeq + 1;
-    return `记-${yearMonth}-${String(newSeq).padStart(3, '0')}`;
   };
 
   const handleManualSubjectSelect = async (txId: string, code: string, name: string) => {

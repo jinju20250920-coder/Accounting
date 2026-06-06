@@ -135,8 +135,22 @@ src/
 │   │   └── ...
 │   ├── reports/                    # 报表组件（5个）
 │   ├── database/                   # 数据库管理组件（7个）
-│   ├── account-set/                # 账套管理组件（3个）
-│   │   └── account-set-members-dialog.tsx # 账套成员管理对话框
+│   ├── account-set/                # 账套管理组件（14个）
+│   │   ├── account-set-members-dialog.tsx # 账套成员管理对话框
+│   │   ├── setup-wizard.tsx         # 设置向导（9步条件流程，自由导航）
+│   │   ├── setup-step-company.tsx   # 公司信息（含纳税人类型选择）
+│   │   ├── setup-step-template.tsx  # 行业模板选择
+│   │   ├── setup-step-rules.tsx     # 业务规则（税率推荐+核算方式+工资社保+资产+发票）
+│   │   ├── setup-step-currency.tsx  # 币种汇率管理
+│   │   ├── setup-step-bank.tsx      # 银行账户设置
+│   │   ├── setup-step-partners.tsx  # 往来单位卡片
+│   │   ├── setup-step-fixed-assets.tsx # 固定资产卡片
+│   │   ├── setup-step-projects.tsx # 项目核算管理（条件步骤）
+│   │   ├── setup-step-opening.tsx   # 期初余额（多Tab：科目/往来/银行/资产）
+│   │   ├── setup-step-complete.tsx  # 完成确认
+│   │   ├── monthly-closing-wizard.tsx # 月结向导
+│   │   ├── period-management.tsx    # 期间管理
+│   │   └── current-period-indicator.tsx # 当前期间指示
 │   ├── invoice-rule/               # 发票智能规则组件
 │   │   ├── purchase-invoice-rules.tsx # 采购发票规则设置（业务组表格、供应商矩阵）
 │   │   └── components/
@@ -242,7 +256,8 @@ src/
 │   ├── data/                       # 数据配置
 │   │   ├── keyword-rules.json      # AI L1关键词匹配规则
 │   │   ├── subjects.json           # 默认科目
-│   │   └── templates.json          # 凭证模板
+│   │   ├── templates.json          # 凭证模板
+│   │   └── industry-templates/     # 行业模板（科技/制造/服务/餐饮/商贸/建筑）
 │   └── database/                   # 数据库层
 │       ├── index.ts                # 数据库服务工厂（SQLite/IndexedDB切换）
 │       ├── sqlite-service.ts       # SQLite CRUD（核心数据持久化）
@@ -595,6 +610,17 @@ npm run lint
 - ✅ 权限控制 - usePermission Hook、Sidebar菜单权限过滤、页面按钮权限控制
 - ✅ 账套用户授权 - account_set_users 表控制用户对账套的访问和角色
 - ✅ 审计日志联动 - 操作记录关联真实用户信息
+- ✅ 设置向导 - 10步条件流程（公司→模板→规则→币种→银行→往来→资产→项目→期初→完成），自由导航，条件步骤
+- ✅ 纳税人类型与行业税率推荐 - 小规模(3%/1%)、一般纳税人按行业推荐(商贸13%/服务业6%/建筑业9%等)，可手动调整
+- ✅ 行业模板 - 科技/制造/服务/餐饮/商贸/建筑6个预设模板，包含科目体系和默认配置
+- ✅ 科目自行导入 - 除预设模板外，支持Excel自行导入科目列表（科目代码/名称/借贷方向）
+- ✅ 凭证编号设置 - 公司信息步骤可选凭证字（记/收/付/转）、编号周期（按月/按年/连续）、序号位数（3/4/5位），实时预览编号格式，配置写入 voucherNumbering 字段
+- ✅ 凭证编号生成集成 - generateVoucherNo 从 currentAccountSet.voucherNumbering 读取配置（word/period/digits），支持按月/按年/连续三种编号周期，按周期自动重置序号
+- ✅ 分类凭证字 - 可选开启分类模式：收款用「收」、付款用「付」、转账用「记」，各凭证字独立编号；业务规则步骤配置 useClassified + classifiedWords；generateVoucherNo 支持 voucherType 参数自动选取凭证字
+- ✅ 凭证号硬编码统一 - import/page.tsx 和 transaction-import.tsx 统一使用 store 的 generateVoucherNo，消灭 3 处硬编码 `记-` 前缀
+- ✅ 资金管理页收款/付款筛选 - 日记账明细表增加全部/收款/付款 Tab 筛选（directionFilter）
+- ✅ 核算方式配置 - 往来/银行/固定资产三个维度可选卡片管理或明细科目管理
+- ✅ 部门/项目核算开关 - 业务规则步骤可选启用部门核算（含内联部门列表）和项目核算（条件步骤），项目核算启用后新增项目维护步骤
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎

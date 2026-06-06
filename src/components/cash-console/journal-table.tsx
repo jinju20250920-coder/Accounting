@@ -22,6 +22,8 @@ interface JournalTableProps {
   openingBalance: number;
   statusFilter: string;
   onStatusFilterChange: (filter: string) => void;
+  directionFilter?: string;
+  onDirectionFilterChange?: (filter: string) => void;
   refreshKey: number;
   onRefresh?: () => void;
   onSelectionChange?: (selectedIds: Set<string>) => void;
@@ -292,6 +294,8 @@ export function JournalTable({
   openingBalance,
   statusFilter,
   onStatusFilterChange,
+  directionFilter,
+  onDirectionFilterChange,
   refreshKey,
   onRefresh,
   onSelectionChange,
@@ -359,10 +363,19 @@ export function JournalTable({
     }
   };
 
+  // Filter by direction (receipt/payment)
+  const directionFilteredEntries = useMemo(() => {
+    const dir = directionFilter || '';
+    if (!dir) return entries;
+    if (dir === 'receipt') return entries.filter(e => (e.credit || 0) > 0);
+    if (dir === 'payment') return entries.filter(e => (e.debit || 0) > 0);
+    return entries;
+  }, [entries, directionFilter]);
+
   const entriesWithBalance = useMemo(() => {
     let runningBalance = openingBalance;
     const accountCurrency = accountNumber ? accountCurrencyMap[accountNumber] : undefined;
-    return entries.map(entry => {
+    return directionFilteredEntries.map(entry => {
       runningBalance = runningBalance + (entry.credit || 0) - (entry.debit || 0);
       return {
         ...entry,
@@ -372,7 +385,7 @@ export function JournalTable({
         originalAmount: (entry as any).originalAmount || undefined,
       };
     });
-  }, [entries, openingBalance, accountNumber, accountCurrencyMap]);
+  }, [directionFilteredEntries, openingBalance, accountNumber, accountCurrencyMap]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -529,6 +542,24 @@ export function JournalTable({
               className={`px-3 py-1 text-xs rounded-full border transition-colors ${
                 statusFilter === tab.key
                   ? 'bg-blue-50 text-blue-700 border-blue-300'
+                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+          <div className="h-4 w-px bg-slate-200 mx-1" />
+          {[
+            { key: '', label: '全部' },
+            { key: 'receipt', label: '收款' },
+            { key: 'payment', label: '付款' },
+          ].map(tab => (
+            <button
+              key={`dir-${tab.key}`}
+              onClick={() => { onDirectionFilterChange?.(tab.key); setPage(1); }}
+              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                (directionFilter || '') === tab.key
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                   : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
               }`}
             >

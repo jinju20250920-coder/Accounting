@@ -62,6 +62,19 @@ export interface AccountSet {
   lastVoucherNo?: number; // 最后一个凭证号（序号部分）
   lastVoucherFullNo?: string; // 完整的最后一个凭证号（含前缀）
 
+  // 凭证编号配置
+  voucherNumbering?: {
+    word: string; // 统一凭证字（useClassified=false 时使用）
+    period: 'monthly' | 'yearly' | 'continuous'; // 编号周期
+    digits: 3 | 4 | 5; // 序号位数
+    useClassified?: boolean; // 是否启用分类凭证字（默认 false）
+    classifiedWords?: { // 分类凭证字映射
+      receipt: string;  // 收款凭证字，默认 '收'
+      payment: string;  // 付款凭证字，默认 '付'
+      general: string;  // 转账凭证字，默认 '记'
+    };
+  };
+
   // 数据库文件相关字段
   dbFileName?: string;           // 数据库文件名
   dbFilePath?: string;           // 数据库文件路径

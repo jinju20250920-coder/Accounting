@@ -16,6 +16,7 @@ import {
   Info,
   Settings2,
   Globe,
+  FolderOpen,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -23,7 +24,10 @@ import { useToast } from '@/components/ui/toast';
 
 interface SetupStepRulesProps {
   accountSetId: string;
+  taxpayerType: 'small' | 'general';
+  industryTemplate: string | null;
   onProgressChange: (progress: Partial<BusinessRulesProgress>) => void;
+  onConfigChange?: (config: { enableDepartment: boolean; enableProject: boolean }) => void;
 }
 
 export interface BusinessRulesProgress {
@@ -34,19 +38,37 @@ export interface BusinessRulesProgress {
 }
 
 const TAX_RATES = [
-  { rate: 0.13, label: '13%（一般纳税人标准税率）' },
-  { rate: 0.09, label: '9%（交通运输、建筑、房地产等）' },
-  { rate: 0.06, label: '6%（现代服务、金融服务等）' },
+  { rate: 0.13, label: '13%（货物销售、加工修理修配等）' },
+  { rate: 0.09, label: '9%（交通运输、建筑、房地产、农产品等）' },
+  { rate: 0.06, label: '6%（现代服务、金融服务、生活服务等）' },
   { rate: 0.03, label: '3%（小规模纳税人）' },
-  { rate: 0.01, label: '1%（小规模纳税人减按）' },
+  { rate: 0.01, label: '1%（小规模纳税人减按征收）' },
 ];
 
-export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRulesProps) {
+const INDUSTRY_TAX_RATES: Record<string, number[]> = {
+  technology: [0.06, 0.13],
+  service: [0.06],
+  restaurant: [0.06],
+  commercial: [0.13, 0.09],
+  manufacturing: [0.13, 0.09],
+  construction: [0.09],
+};
+
+const INDUSTRY_TAX_LABELS: Record<string, string> = {
+  technology: '科技/信息技术',
+  service: '现代服务',
+  restaurant: '餐饮服务',
+  commercial: '商贸/零售',
+  manufacturing: '制造业',
+  construction: '建筑业',
+};
+
+export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, industryTemplate, onProgressChange, onConfigChange }: SetupStepRulesProps) {
   const { showToast } = useToast();
 
   // Tax settings
-  const [taxpayerType, setTaxpayerType] = useState<'general' | 'small'>('small');
-  const [enabledTaxRates, setEnabledTaxRates] = useState<number[]>([0.13, 0.06, 0.03]);
+  const [taxpayerType, setTaxpayerType] = useState<'general' | 'small'>(propTaxpayerType);
+  const [enabledTaxRates, setEnabledTaxRates] = useState<number[]>([]);
   const [taxBaseSubject] = useState('2221');
 
   // Payroll settings
@@ -63,7 +85,6 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
     housingFundPersonal: 0.07,
   });
   const [salaryPayDay, setSalaryPayDay] = useState(15);
-  const [defaultDepartments, setDefaultDepartments] = useState('管理部,财务部,销售部,技术部');
 
   // Asset settings
   const [assetCategories, setAssetCategories] = useState([
@@ -83,6 +104,32 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
   const [bankTrackingMethod, setBankTrackingMethod] = useState<'card' | 'subject'>('card');
   const [assetTrackingMethod, setAssetTrackingMethod] = useState<'card' | 'subject'>('card');
   const [hasForeignCurrency, setHasForeignCurrency] = useState(false);
+
+  // Department & Project settings
+  const [enableDepartment, setEnableDepartment] = useState(true);
+  const [enableProject, setEnableProject] = useState(false);
+  const [departmentList, setDepartmentList] = useState('管理部,财务部,销售部,技术部');
+
+  // Classified voucher words
+  const [useClassifiedWords, setUseClassifiedWords] = useState(false);
+  const [classifiedWords, setClassifiedWords] = useState({ receipt: '收', payment: '付', general: '记' });
+
+  // Auto-recommend tax rates when taxpayer type or industry changes
+  useEffect(() => {
+    if (propTaxpayerType === 'small') {
+      setTaxpayerType('small');
+      setEnabledTaxRates([0.03, 0.01]);
+    } else {
+      setTaxpayerType('general');
+      const recommended = INDUSTRY_TAX_RATES[industryTemplate || ''] || [0.13, 0.09, 0.06];
+      setEnabledTaxRates(recommended);
+    }
+  }, [propTaxpayerType, industryTemplate]);
+
+  // Notify parent when department/project config changes
+  useEffect(() => {
+    onConfigChange?.({ enableDepartment, enableProject });
+  }, [enableDepartment, enableProject, onConfigChange]);
 
   // Saving state
   const [saving, setSaving] = useState<string | null>(null);
@@ -109,6 +156,11 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
       if (accountSet.accounting.bankTrackingMethod) setBankTrackingMethod(accountSet.accounting.bankTrackingMethod);
       if (accountSet.accounting.assetTrackingMethod) setAssetTrackingMethod(accountSet.accounting.assetTrackingMethod);
       if (accountSet.accounting.hasForeignCurrency !== undefined) setHasForeignCurrency(accountSet.accounting.hasForeignCurrency);
+    }
+    // Load existing classified words config
+    if (accountSet?.voucherNumbering) {
+      if (accountSet.voucherNumbering.useClassified !== undefined) setUseClassifiedWords(accountSet.voucherNumbering.useClassified);
+      if (accountSet.voucherNumbering.classifiedWords) setClassifiedWords(accountSet.voucherNumbering.classifiedWords);
     }
   }, [accountSetId]);
 
@@ -177,7 +229,7 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
           accountSetId,
         });
 
-        const depts = defaultDepartments.split(',').map((d, i) => ({
+        const depts = departmentList.split(',').map((d, i) => ({
           id: `dept_preset_${i}`,
           code: `D${String(i + 1).padStart(2, '0')}`,
           name: d.trim(),
@@ -242,6 +294,14 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
             assetTrackingMethod,
             hasForeignCurrency,
           },
+          voucherNumbering: {
+            ...accountSet.voucherNumbering,
+            word: accountSet.voucherNumbering?.word || '记',
+            period: accountSet.voucherNumbering?.period || 'monthly',
+            digits: accountSet.voucherNumbering?.digits || 3,
+            useClassified: useClassifiedWords,
+            classifiedWords: useClassifiedWords ? classifiedWords : undefined,
+          },
         });
       }
       setSavedSections(prev => new Set(prev).add('tracking'));
@@ -250,6 +310,16 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
       showToast('error', '保存核算方式失败');
     } finally {
       setSaving(null);
+    }
+  };
+
+  const handleTaxpayerTypeChange = (type: 'general' | 'small') => {
+    setTaxpayerType(type);
+    if (type === 'small') {
+      setEnabledTaxRates([0.03, 0.01]);
+    } else {
+      const recommended = INDUSTRY_TAX_RATES[industryTemplate || ''] || [0.13, 0.09, 0.06];
+      setEnabledTaxRates(recommended);
     }
   };
 
@@ -311,7 +381,7 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
                   <Label>纳税人类型</Label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
-                      onClick={() => setTaxpayerType('general')}
+                      onClick={() => handleTaxpayerTypeChange('general')}
                       className={`p-3 border rounded-lg text-left text-sm transition-all ${
                         taxpayerType === 'general' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'hover:bg-slate-50'
                       }`}
@@ -320,7 +390,7 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
                       <p className="text-xs text-slate-500 mt-1">适用13%/9%/6%税率，可抵扣进项</p>
                     </button>
                     <button
-                      onClick={() => setTaxpayerType('small')}
+                      onClick={() => handleTaxpayerTypeChange('small')}
                       className={`p-3 border rounded-lg text-left text-sm transition-all ${
                         taxpayerType === 'small' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'hover:bg-slate-50'
                       }`}
@@ -331,24 +401,42 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
                   </div>
                 </div>
 
-                {/* 适用税率 */}
+                {/* 适用税率（带行业推荐标记） */}
                 <div className="space-y-2">
-                  <Label>适用税率</Label>
-                  <div className="space-y-2">
-                    {TAX_RATES.map(tr => (
-                      <label key={tr.rate} className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={enabledTaxRates.includes(tr.rate)}
-                          onChange={(e) => {
-                            if (e.target.checked) setEnabledTaxRates(prev => [...prev, tr.rate]);
-                            else setEnabledTaxRates(prev => prev.filter(r => r !== tr.rate));
-                          }}
-                          className="rounded"
-                        />
-                        {tr.label}
-                      </label>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <Label>适用税率</Label>
+                    {taxpayerType === 'general' && industryTemplate && INDUSTRY_TAX_RATES[industryTemplate] && (
+                      <span className="text-xs text-blue-600">
+                        根据行业「{INDUSTRY_TAX_LABELS[industryTemplate]}」推荐
+                      </span>
+                    )}
+                    {taxpayerType === 'small' && (
+                      <span className="text-xs text-blue-600">小规模纳税人推荐税率</span>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {TAX_RATES.map(tr => {
+                      const isRecommended = enabledTaxRates.includes(tr.rate);
+                      const isHiddenForSmall = taxpayerType === 'small' && (tr.rate === 0.13 || tr.rate === 0.09 || tr.rate === 0.06);
+                      const isHiddenForGeneral = taxpayerType === 'general' && (tr.rate === 0.01);
+                      if (isHiddenForSmall || isHiddenForGeneral) return null;
+                      return (
+                        <label key={tr.rate} className={`flex items-center gap-2 text-sm cursor-pointer p-2 rounded-lg transition-colors ${
+                          isRecommended ? 'bg-blue-50' : 'hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={isRecommended}
+                            onChange={(e) => {
+                              if (e.target.checked) setEnabledTaxRates(prev => [...prev, tr.rate]);
+                              else setEnabledTaxRates(prev => prev.filter(r => r !== tr.rate));
+                            }}
+                            className="rounded"
+                          />
+                          <span>{tr.label}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -435,6 +523,70 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
                   </div>
                 </div>
 
+                {/* 部门核算开关 */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Users className="h-5 w-5 text-emerald-600" />
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">部门核算</p>
+                        <p className="text-xs text-slate-500">按部门归集费用，支持部门损益分析</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 bg-white border rounded-lg p-0.5">
+                      <button
+                        onClick={() => setEnableDepartment(false)}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-all ${!enableDepartment ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                      >
+                        不启用
+                      </button>
+                      <button
+                        onClick={() => setEnableDepartment(true)}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-all ${enableDepartment ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                      >
+                        启用
+                      </button>
+                    </div>
+                  </div>
+                  {enableDepartment && (
+                    <div className="pl-4 space-y-2">
+                      <Label className="text-sm">部门列表</Label>
+                      <Input
+                        value={departmentList}
+                        onChange={(e) => setDepartmentList(e.target.value)}
+                        placeholder="逗号分隔，如：管理部,财务部,销售部"
+                        autoComplete="off"
+                      />
+                      <p className="text-xs text-slate-400">多个部门用逗号分隔，保存时自动创建</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 项目核算开关 */}
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <FolderOpen className="h-5 w-5 text-violet-600" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">项目核算</p>
+                      <p className="text-xs text-slate-500">按项目归集收入费用，支持项目盈亏分析</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white border rounded-lg p-0.5">
+                    <button
+                      onClick={() => setEnableProject(false)}
+                      className={`px-3 py-1.5 text-xs rounded-md transition-all ${!enableProject ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      不启用
+                    </button>
+                    <button
+                      onClick={() => setEnableProject(true)}
+                      className={`px-3 py-1.5 text-xs rounded-md transition-all ${enableProject ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      启用
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex justify-end">
                   <Button size="sm" onClick={handleSaveTrackingMethod} disabled={saving === 'tracking'} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'tracking' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
@@ -458,7 +610,7 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
                 <span className="font-medium text-slate-900">工资与社保</span>
                 {savedSections.has('payroll') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
-              <p className="text-xs text-slate-500">社保公积金费率、工资发放日、部门设置</p>
+              <p className="text-xs text-slate-500">社保公积金费率、工资发放日</p>
             </div>
             {expandedSections.has('payroll') ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
           </button>
@@ -513,18 +665,6 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
                   <span className="text-xs text-slate-400">每月几号发放工资</span>
                 </div>
 
-                {/* 部门 */}
-                <div className="space-y-2">
-                  <Label className="text-sm">默认部门</Label>
-                  <Input
-                    value={defaultDepartments}
-                    onChange={(e) => setDefaultDepartments(e.target.value)}
-                    placeholder="逗号分隔，如：管理部,财务部,销售部"
-                    autoComplete="off"
-                  />
-                  <p className="text-xs text-slate-400">多个部门用逗号分隔</p>
-                </div>
-
                 <div className="flex justify-end">
                   <Button size="sm" onClick={handleSavePayroll} disabled={saving === 'payroll'} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'payroll' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
@@ -536,7 +676,8 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
           )}
         </div>
 
-        {/* ===== 3. 固定资产 ===== */}
+        {/* ===== 3. 固定资产（仅卡片模式显示） ===== */}
+        {assetTrackingMethod === 'card' && (
         <div className="border rounded-lg">
           <button
             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
@@ -629,6 +770,7 @@ export function SetupStepRules({ accountSetId, onProgressChange }: SetupStepRule
             </div>
           )}
         </div>
+        )}
 
         {/* ===== 4. 发票业务组 ===== */}
         <div className="border rounded-lg">

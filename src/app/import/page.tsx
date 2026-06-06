@@ -14,6 +14,7 @@ import { sqliteService } from '@/lib/database';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useUserPreferenceStore } from '@/stores/useUserPreferenceStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { generateVoucherNo } from '@/stores/useVoucherStore';
 import { useToast } from '@/components/ui/toast';
 import { parseBankStatement } from '@/lib/parser';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
@@ -64,6 +65,7 @@ export default function ImportPage() {
   const [showManualDialog, setShowManualDialog] = useState(false);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+  const [directionFilter, setDirectionFilter] = useState('');
 
   // Voucher generation state
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
@@ -442,8 +444,6 @@ export default function ImportPage() {
       let successCount = 0;
       let errorCount = 0;
       const processedIds = new Set<string>();
-      const allVouchers = await service.getAllVouchers();
-      const seqByMonth: Record<string, number> = {};
 
       for (const pe of editedEntries) {
         try {
@@ -451,20 +451,8 @@ export default function ImportPage() {
           const amount = pe.amount;
           const voucherId = `voucher_${Date.now()}_${pe.transactionId}`;
           const postingDate = pe.postingDate || pe.date;
-          const yearMonth = postingDate.substring(0, 7).replace('-', '');
-
-          if (!seqByMonth[yearMonth]) {
-            let maxSeq = 0;
-            for (const v of allVouchers) {
-              if (v.voucherNo?.startsWith(`记-${yearMonth}-`)) {
-                const m = v.voucherNo.match(/-(\d{3})$/);
-                if (m) { const s = parseInt(m[1], 10); if (s > maxSeq) maxSeq = s; }
-              }
-            }
-            seqByMonth[yearMonth] = maxSeq;
-          }
-          seqByMonth[yearMonth]++;
-          const voucherNo = `记-${yearMonth}-${String(seqByMonth[yearMonth]).padStart(3, '0')}`;
+          const voucherType = isDebit ? 'payment' as const : 'receipt' as const;
+          const voucherNo = await generateVoucherNo(postingDate, voucherType);
 
           let counterpartSubjectCode = pe.counterpartSubjectCode;
           let counterpartSubjectName = pe.counterpartSubjectName;
@@ -651,6 +639,8 @@ export default function ImportPage() {
         openingBalance={openingBalance}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
+        directionFilter={directionFilter}
+        onDirectionFilterChange={setDirectionFilter}
         refreshKey={refreshKey}
         onRefresh={() => setRefreshKey(k => k + 1)}
         onSelectionChange={setJournalSelectedIds}

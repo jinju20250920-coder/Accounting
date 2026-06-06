@@ -141,61 +141,78 @@ const createDefaultEntry = (voucherId: string, index?: number): any => ({
   recRefNo: ''
 });
 
-// 辅助函数：生成凭证字号
-const generateVoucherNo = async (date: string): Promise<string> => {
-  const yearMonth = date.substring(0, 7).replace('-', '');
+// 根据 voucherType 选取凭证字
+export function resolveVoucherWord(
+  cfg: { word?: string; useClassified?: boolean; classifiedWords?: { receipt: string; payment: string; general: string } } | undefined,
+  voucherType?: string
+): string {
+  if (cfg?.useClassified && voucherType) {
+    const cw = cfg.classifiedWords || { receipt: '收', payment: '付', general: '记' };
+    if (voucherType === 'receipt') return cw.receipt;
+    if (voucherType === 'payment') return cw.payment;
+    return cw.general;
+  }
+  return cfg?.word || '记';
+}
 
-  // 从账套设置中获取最后一个凭证号和年月
+// 辅助函数：生成凭证字号（读取账套编号配置）
+export const generateVoucherNo = async (date: string, voucherType?: string): Promise<string> => {
   const { getCurrentAccountSet } = useAccountSetStore.getState();
   const currentAccountSet = getCurrentAccountSet();
+  const cfg = currentAccountSet?.voucherNumbering;
+  const word = resolveVoucherWord(cfg, voucherType);
+  const period = cfg?.period || 'monthly';
+  const digits = cfg?.digits || 3;
+
+  const yearMonth = date.substring(0, 7).replace('-', '');
+  const year = date.substring(0, 4);
+
+  // Determine the date prefix based on period config
+  let datePrefix: string;
+  let periodKey: string;
+  if (period === 'monthly') {
+    datePrefix = yearMonth;
+    periodKey = yearMonth;
+  } else if (period === 'yearly') {
+    datePrefix = year;
+    periodKey = year;
+  } else {
+    // continuous — no date prefix
+    datePrefix = '';
+    periodKey = '__continuous__';
+  }
+
+  const digitPattern = `\\d{${digits}}`;
 
   let lastSeq = 0;
-  let lastYearMonth = '';
 
-  // 检查账套中记录的最后凭证年月
-  if (currentAccountSet?.lastVoucherFullNo) {
-    // 从完整凭证号中提取年月：格式 "记-202603-001"
-    const match = currentAccountSet.lastVoucherFullNo.match(/记-(\d{6})-\d{3}/);
-    if (match) {
-      lastYearMonth = match[1];
-    }
-  }
-
-  // 如果是新月，重置序号为 0
-  if (lastYearMonth && lastYearMonth !== yearMonth) {
-    lastSeq = 0;
-  } else if (currentAccountSet?.lastVoucherNo !== undefined) {
-    // 同一月，使用账套中记录的序号
-    lastSeq = currentAccountSet.lastVoucherNo;
-  }
-
-  // 从数据库获取当前月份的所有凭证号，确保序号连续
+  // Query database for max sequence for THIS word in current period
   try {
     const allVouchers = await getCurrentService().getAllVouchers();
-    const currentMonthVouchers = allVouchers.filter(v =>
-      v.voucherNo.startsWith(`记-${yearMonth}-`)
+    const matchingPrefix = datePrefix ? `${word}-${datePrefix}-` : `${word}-`;
+    const periodVouchers = allVouchers.filter(v =>
+      v.voucherNo.startsWith(matchingPrefix)
     );
 
-    if (currentMonthVouchers.length > 0) {
-      // 提取序号并找到最大值
-      const sequences = currentMonthVouchers.map(v => {
-        const match = v.voucherNo.match(/-(\d{3})$/);
+    if (periodVouchers.length > 0) {
+      const sequences = periodVouchers.map(v => {
+        const seqRegex = new RegExp(`-(\\d{${digits}})$`);
+        const match = v.voucherNo.match(seqRegex);
         return match ? parseInt(match[1], 10) : 0;
       });
-
-      const maxSeq = Math.max(...sequences);
-      // 使用数据库中的最大序号和账套记录的序号中的较大值
-      lastSeq = Math.max(lastSeq, maxSeq);
+      lastSeq = Math.max(...sequences);
     }
   } catch (error) {
     console.warn('Failed to fetch vouchers for sequence generation:', error);
   }
 
-  // 生成新的序号
   const newSeq = lastSeq + 1;
-  const seqStr = String(newSeq).padStart(3, '0');
+  const seqStr = String(newSeq).padStart(digits, '0');
 
-  return `记-${yearMonth}-${seqStr}`;
+  if (datePrefix) {
+    return `${word}-${datePrefix}-${seqStr}`;
+  }
+  return `${word}-${seqStr}`;
 };
 
 const assertVoucherDateEditable = (date: string, actionName: string) => {
@@ -581,11 +598,10 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         const voucherId = `voucher_${Date.now()}_${transaction.id}`;
 
         // 生成凭证号
-        const voucherNo = await generateVoucherNo(transaction.date);
-
-        // 确定交易类型（借方或贷方）
         const isDebit = !!transaction.debit;
         const amount = transaction.debit || transaction.credit || 0;
+        const voucherType = isDebit ? 'receipt' as const : 'payment' as const;
+        const voucherNo = await generateVoucherNo(transaction.date, voucherType);
 
         // 获取银行科目信息（简化版）
         // 在实际应用中，应从 bankAccountId 获取真实的科目代码和名称
