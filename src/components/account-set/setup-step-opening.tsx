@@ -22,9 +22,11 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { usePeriodManagementStore } from '@/stores/usePeriodManagementStore';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { SubjectPopover } from '@/components/shared/subject-popover';
+import { MonthlyClosingWizard } from './monthly-closing-wizard';
 
 // ==================== Types ====================
 
@@ -102,6 +104,8 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
 
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('subject');
+  const [saved, setSaved] = useState(false);
+  const [showClosingWizard, setShowClosingWizard] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importTarget, setImportTarget] = useState<string>('subject');
@@ -156,6 +160,17 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const balancedRef = React.useRef(onBalancedChange);
   balancedRef.current = onBalancedChange;
   useEffect(() => { balancedRef.current(isBalanced); }, [isBalanced]);
+
+  // Get the opening period for monthly closing
+  const openingPeriod = useMemo(() => {
+    const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    if (!accountSet?.enableDate) return null;
+    const [year, month] = accountSet.enableDate.split('-').map(Number);
+    const period = (accountSet.accountingPeriods || []).find(
+      (p: any) => p.year === year && p.month === month
+    );
+    return period || null;
+  }, [saved]); // recalculate after save since periods may change
 
   // Tab visibility — default to 'card'
   const showPartnerTab = (accounting?.partnerTrackingMethod ?? 'card') === 'card';
@@ -422,6 +437,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       }
 
       const totalItems = validEntries.length + validPartnerEntries.length + validBankEntries.length + includedAssets.length;
+      setSaved(true);
       showToast('success', `期初数据已保存，共 ${totalItems} 条`);
     } catch (error) {
       console.error('Save opening balance failed:', error);
@@ -724,13 +740,46 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         )}
       </Tabs>
 
-      {/* Save */}
+      {/* Save & Monthly Closing */}
       {hasAnyData && (
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={loading || (entries.length > 0 && !isBalanced)} className="bg-blue-600 hover:bg-blue-700">
-            {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 保存中...</> : '保存期初数据'}
-          </Button>
+        <div className="flex items-center justify-between">
+          {saved && isBalanced && (
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <span className="text-sm text-green-700">期初数据已保存</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2 ml-auto">
+            {!saved ? (
+              <Button onClick={handleSave} disabled={loading || (entries.length > 0 && !isBalanced)} className="bg-blue-600 hover:bg-blue-700">
+                {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 保存中...</> : '保存期初数据'}
+              </Button>
+            ) : openingPeriod ? (
+              <Button onClick={() => setShowClosingWizard(true)} className="bg-green-600 hover:bg-green-700">
+                <CheckCircle2 className="h-4 w-4 mr-1" />
+                完成期初并月结
+              </Button>
+            ) : (
+              <Button onClick={() => setSaved(false)} variant="outline">
+                重新编辑
+              </Button>
+            )}
+          </div>
         </div>
+      )}
+
+      {/* Monthly Closing Wizard Dialog */}
+      {openingPeriod && (
+        <MonthlyClosingWizard
+          open={showClosingWizard}
+          onOpenChange={(open) => {
+            setShowClosingWizard(open);
+            if (!open) {
+              showToast('success', '期初月结完成，可以开始日常凭证录入');
+            }
+          }}
+          period={openingPeriod}
+        />
       )}
     </div>
   );

@@ -619,6 +619,7 @@ npm run lint
 - ✅ 分类凭证字 - 可选开启分类模式：收款用「收」、付款用「付」、转账用「记」，各凭证字独立编号；业务规则步骤配置 useClassified + classifiedWords；generateVoucherNo 支持 voucherType 参数自动选取凭证字
 - ✅ 凭证号硬编码统一 - import/page.tsx 和 transaction-import.tsx 统一使用 store 的 generateVoucherNo，消灭 3 处硬编码 `记-` 前缀
 - ✅ 资金管理页收款/付款筛选 - 日记账明细表增加全部/收款/付款 Tab 筛选（directionFilter）
+- ✅ 期初月结集成 - 期初余额保存后弹出月结向导，对启用月份执行结账确认
 - ✅ 核算方式配置 - 往来/银行/固定资产三个维度可选卡片管理或明细科目管理
 - ✅ 部门/项目核算开关 - 业务规则步骤可选启用部门核算（含内联部门列表）和项目核算（条件步骤），项目核算启用后新增项目维护步骤
 
