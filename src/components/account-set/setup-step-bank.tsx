@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -13,16 +13,24 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { BANK_BRANDS } from '@/lib/bank-parsers/bank-registry';
 import { useToast } from '@/components/ui/toast';
+import {
+  NEW_BANK_OPTION_ID,
+  buildBankAccountDisplayName,
+  resolveBankSelection,
+} from '@/lib/bank-account-names';
 
 interface BankAccountEntry {
   id: string;
-  bankName: string;
+  bankId: string;
+  customBankName: string;
   accountNumber: string;
   accountName: string;
   currency: string;
   subjectCode: string;
+  openingBalance: string;
 }
 
 interface SetupStepBankProps {
@@ -43,31 +51,36 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const bankOptions = Object.entries(BANK_BRANDS).map(([id, brand]) => ({
+  const bankOptions = useMemo(() => Object.entries(BANK_BRANDS).map(([id, brand]) => ({
     id,
     name: brand.short,
     shortName: brand.short,
-  }));
+  })), []);
 
   const addEntry = () => {
+    setSaved(false);
     setEntries(prev => [
       ...prev,
       {
-        id: `bank_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        bankName: '',
+        id: `bank_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        bankId: '',
+        customBankName: '',
         accountNumber: '',
         accountName: '',
         currency: 'CNY',
         subjectCode: '',
+        openingBalance: '',
       },
     ]);
   };
 
   const removeEntry = (index: number) => {
+    setSaved(false);
     setEntries(prev => prev.filter((_, i) => i !== index));
   };
 
   const updateEntry = (index: number, field: keyof BankAccountEntry, value: string) => {
+    setSaved(false);
     setEntries(prev => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
@@ -75,12 +88,36 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
     });
   };
 
-  const handleSave = async () => {
-    const validEntries = entries.filter(e => e.bankName && e.accountNumber);
+  const validateEntries = () => {
+    const validEntries: BankAccountEntry[] = [];
+
+    for (const [index, entry] of entries.entries()) {
+      if (!entry.bankId) {
+        showToast('warning', `第 ${index + 1} 个银行账户必须选择银行`);
+        return null;
+      }
+      if (entry.bankId === NEW_BANK_OPTION_ID && !entry.customBankName.trim()) {
+        showToast('warning', `第 ${index + 1} 个银行账户请输入新增银行名称`);
+        return null;
+      }
+      if (!entry.accountNumber.trim()) {
+        showToast('warning', `第 ${index + 1} 个银行账户请输入账号`);
+        return null;
+      }
+      validEntries.push(entry);
+    }
+
     if (validEntries.length === 0) {
       showToast('warning', '请至少添加一个银行账户');
-      return;
+      return null;
     }
+
+    return validEntries;
+  };
+
+  const handleSave = async () => {
+    const validEntries = validateEntries();
+    if (!validEntries) return;
 
     setSaving(true);
     try {
@@ -88,27 +125,45 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
         sqliteService.setAccountSetId(accountSetId);
       }
 
-      for (const entry of validEntries) {
-        // Save bank account binding
-        await sqliteService.saveBankAccountBinding?.({
-          id: entry.id,
-          bankId: entry.bankName,
+      const existingSubjects = await sqliteService.getAllSubjects();
+      const existingCodes = new Set(existingSubjects.map(subject => subject.code));
+      const now = new Date().toISOString();
+
+      for (const [index, entry] of validEntries.entries()) {
+        const selectedBank = bankOptions.find(bank => bank.id === entry.bankId);
+        const bankSelection = resolveBankSelection({
+          selectedBankId: entry.bankId,
+          selectedBankName: selectedBank?.name || '',
+          customBankName: entry.customBankName,
+        });
+        const subjectCode = entry.subjectCode || `1002${String(index + 1).padStart(2, '0')}`;
+        const accountDisplayName = buildBankAccountDisplayName({
+          bankName: bankSelection.bankName,
+          shortName: selectedBank?.shortName,
           accountNumber: entry.accountNumber,
-          accountName: entry.accountName,
           currency: entry.currency,
-          subjectCode: entry.subjectCode || `1002${String(entries.indexOf(entry) + 1).padStart(2, '0')}`,
-          accountSetId,
+          customName: entry.accountName,
         });
 
-        // Auto-create bank sub-subject under 1002
-        const subjectCode = entry.subjectCode || `1002${String(entries.indexOf(entry) + 1).padStart(2, '0')}`;
-        const bank = bankOptions.find(b => b.id === entry.bankName);
-        const existingSubjects = await sqliteService.getAllSubjects();
-        if (!existingSubjects.find(s => s.code === subjectCode)) {
+        await sqliteService.saveBankAccountBinding?.({
+          id: entry.id,
+          accountSetId,
+          bankId: bankSelection.bankId,
+          bankName: bankSelection.bankName,
+          accountNumber: entry.accountNumber.trim(),
+          aliasName: accountDisplayName,
+          subSubjectCode: subjectCode,
+          subSubjectName: accountDisplayName,
+          currency: entry.currency,
+          isDefault: index === 0,
+          createdAt: now,
+        });
+
+        if (!existingCodes.has(subjectCode)) {
           await sqliteService.saveSubjects([{
             id: subjectCode,
             code: subjectCode,
-            name: `${bank?.shortName || entry.bankName} ${entry.accountNumber.slice(-4)}`,
+            name: accountDisplayName,
             parentId: '1002',
             level: 2,
             direction: 'debit',
@@ -125,6 +180,23 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
             disabled: false,
             accountSetId,
           }]);
+          existingCodes.add(subjectCode);
+        }
+      }
+
+      // Save opening balances for entries that have one
+      const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      const periodStart = accountSet?.startDate || accountSet?.enableDate || new Date().toISOString().substring(0, 7);
+      for (const entry of validEntries) {
+        const balance = parseFloat(entry.openingBalance);
+        if (!isNaN(balance) && balance !== 0) {
+          await sqliteService.saveBankOpeningBalance({
+            accountNumber: entry.accountNumber.trim(),
+            periodStart: periodStart.substring(0, 7),
+            balance,
+            generateVoucher: false,
+            createdBy: 'system',
+          });
         }
       }
 
@@ -171,33 +243,45 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
 
               <div className="grid grid-cols-2 gap-4 pr-8">
                 <div className="space-y-2">
-                  <Label>银行</Label>
+                  <Label required>银行</Label>
                   <select
-                    value={entry.bankName}
-                    onChange={(e) => updateEntry(index, 'bankName', e.target.value)}
+                    value={entry.bankId}
+                    onChange={(event) => updateEntry(index, 'bankId', event.target.value)}
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
                     <option value="">选择银行</option>
-                    {bankOptions.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
+                    {bankOptions.map(bank => (
+                      <option key={bank.id} value={bank.id}>{bank.name}</option>
                     ))}
+                    <option value={NEW_BANK_OPTION_ID}>新增银行...</option>
                   </select>
                 </div>
                 <div className="space-y-2">
                   <Label required>账号</Label>
                   <Input
                     value={entry.accountNumber}
-                    onChange={(e) => updateEntry(index, 'accountNumber', e.target.value)}
+                    onChange={(event) => updateEntry(index, 'accountNumber', event.target.value)}
                     placeholder="银行账号"
                     autoComplete="off"
                   />
                 </div>
+                {entry.bankId === NEW_BANK_OPTION_ID && (
+                  <div className="space-y-2">
+                    <Label required>新增银行名称</Label>
+                    <Input
+                      value={entry.customBankName}
+                      onChange={(event) => updateEntry(index, 'customBankName', event.target.value)}
+                      placeholder="如：华润银行"
+                      autoComplete="off"
+                    />
+                  </div>
+                )}
                 <div className="space-y-2">
-                  <Label>户名</Label>
+                  <Label>银行账户名称</Label>
                   <Input
                     value={entry.accountName}
-                    onChange={(e) => updateEntry(index, 'accountName', e.target.value)}
-                    placeholder="与公司名称一致"
+                    onChange={(event) => updateEntry(index, 'accountName', event.target.value)}
+                    placeholder="可手写，如：XX银行-4451 USD"
                     autoComplete="off"
                   />
                 </div>
@@ -205,13 +289,23 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
                   <Label>币种</Label>
                   <select
                     value={entry.currency}
-                    onChange={(e) => updateEntry(index, 'currency', e.target.value)}
+                    onChange={(event) => updateEntry(index, 'currency', event.target.value)}
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
-                    {CURRENCIES.map(c => (
-                      <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
+                    {CURRENCIES.map(currency => (
+                      <option key={currency.code} value={currency.code}>{currency.name} ({currency.code})</option>
                     ))}
                   </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>期初余额</Label>
+                  <Input
+                    type="number"
+                    value={entry.openingBalance}
+                    onChange={(event) => updateEntry(index, 'openingBalance', event.target.value)}
+                    placeholder="0.00"
+                    autoComplete="off"
+                  />
                 </div>
               </div>
             </div>
