@@ -12,6 +12,7 @@ import {
   createPeriodClosingAuditLog,
   type PeriodClosingData,
 } from '@/lib/period-closing';
+import { switchCurrentAccountingPeriod } from '@/lib/accounting-period-switch';
 import { useMonthlyClosingCheckStore } from '@/lib/monthly-closing-check-state';
 
 // 期间模板接口
@@ -303,19 +304,10 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
   setCurrentPeriod: (id) => {
     const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
     if (currentAccountSet && currentAccountSet.accountingPeriods) {
+      const result = switchCurrentAccountingPeriod(currentAccountSet.accountingPeriods, id);
       useAccountSetStore.getState().updateAccountSet(currentAccountSet.id, {
-        accountingPeriods: currentAccountSet.accountingPeriods.map(period => {
-          const isCurrent = period.id === id;
-          return {
-            ...period,
-            isCurrent,
-            status: isCurrent ? 'open' : (period.status === 'open' ? 'closed' : period.status),
-            statusColor: isCurrent ? 'blue' : period.statusColor,
-            canEdit: isCurrent,
-            canClose: isCurrent,
-            canReopen: !isCurrent && period.status !== 'locked'
-          };
-        })
+        accountingPeriods: result.periods,
+        currentPeriod: result.currentPeriod,
       });
     }
   },
