@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   Voucher as _Voucher,
   VoucherEntry as _VoucherEntry,
   Subject as _Subject,
@@ -26,6 +26,167 @@ import type {
   PayrollItem,
 } from '../payroll';
 import { clonePayrollTaxRuleSet } from '../payroll-tax-rules';
+import { saveFixedAssetRecord, type FixedAssetSaveInput } from './services/fixed-asset-sqlite-service';
+import {
+  deleteBankAccountBindingRecord,
+  findBankAccountBindingRecord,
+  listBankAccountBindings,
+  saveBankAccountBindingRecord,
+  type BankAccountBinding,
+  type BankAccountBindingQueryService,
+} from './services/bank-account-sqlite-service';
+import {
+  findPartnerByCode,
+  findPartnerByName,
+  insertPartnerRecord,
+  listPartners,
+  savePartnersRecord,
+  type PartnerInsertInput,
+  type PartnerQueryService,
+} from './services/partner-sqlite-service';
+import {
+  buildBankTransactionUpdate,
+  clearBankTransactionsRecord,
+  deleteBankTransactionRecord,
+  deleteBankTransactionsByBatchRecord,
+  existsBankTransactionRecord,
+  findPostedBankTransactionRecord,
+  getBankTransactionRecord,
+  listBankTransactionsByBatchRecord,
+  listBankTransactionsByDateRangeRecord,
+  listBankTransactionsByStatusRecord,
+  listBankTransactionsRecord,
+  saveBankTransactionRecord,
+  updateBankTransactionRecord,
+  type BankTransactionQueryService,
+  type BankTransactionRecord,
+  type BankTransactionSaveInput,
+  type BankTransactionUpdateInput,
+} from './services/bank-transaction-sqlite-service';
+import {
+  calculatePartnerBalance as calcPartnerBalance,
+  findRecRelationsByEntryId as findRecByEntryId,
+  findRecRelationsByRecRefNo as findRecByRefNo,
+  getOutstandingItems as getOutstanding,
+  listRecRelations,
+  saveRecRelationRecord,
+  saveRecRelationsRecord,
+  updateEntryRecRefNoRecord,
+  type ReconciliationQueryService,
+} from './services/reconciliation-sqlite-service';
+import {
+  findSubjectByCode,
+  hasVoucherForSubject as hasVoucherForSubjectQuery,
+  listSubjects,
+  migrateSubjectVouchersRecord,
+  saveSubjectsRecord,
+  type SubjectQueryService,
+} from './services/subject-sqlite-service';
+import {
+  findCurrencyByCode as findCurrencyByCodeQuery,
+  findDepartmentByCode as findDeptByCodeQuery,
+  findProjectByCode as findProjByCodeQuery,
+  listCurrencies,
+  listDepartments,
+  listProjects,
+  saveCurrenciesRecord,
+  saveDepartmentsRecord,
+  saveProjectsRecord,
+  type SimpleQueryService,
+} from './services/dept-project-currency-sqlite-service';
+import {
+  addAuditLogRecord,
+  listAuditLogs,
+  listCommonSummaries,
+  listPreferencesByUser,
+  saveCommonSummariesRecord,
+  savePreferenceRecord,
+} from './services/audit-preference-summary-sqlite-service';
+import {
+  deleteFxRevaluationRunRecord,
+  findFxRevaluationRun,
+  findVoucherTemplateById,
+  getAccountSetBaseCurrencyQuery,
+  listFxRates,
+  listFxRevaluationRunLines,
+  listFxRevaluationRuns,
+  listVoucherTemplates,
+  mapFxRateRow,
+  saveAccountSetBaseCurrencyRecord,
+  saveFxRatesRecord,
+  saveFxRevaluationRunLinesRecord,
+  saveFxRevaluationRunRecord,
+  saveVoucherTemplatesRecord,
+} from './services/voucher-template-fx-sqlite-service';
+import {
+  checkDataIntegrityQuery,
+  clearAllDataRecord,
+  exportAccountSetData,
+  importFxRevaluationRunLinesRecord,
+  importFxRevaluationRunsRecord,
+} from './services/export-import-sqlite-service';
+import {
+  getBankOpeningBalanceQuery,
+  getCashOverviewQuery,
+  getJournalEntriesQuery,
+  getTransactionStatusCountsQuery,
+  saveBankOpeningBalanceRecord,
+} from './services/bank-cash-sqlite-service';
+import {
+  deleteVoucherRecord,
+  getVoucherById,
+  listVouchers,
+  listVouchersByDateRange,
+  listVouchersByStatus,
+  saveVoucherRecord,
+  updateVoucherStatusRecord,
+  type VoucherQueryService,
+} from './services/voucher-sqlite-service';
+import {
+  clearExpenseReimbursementsRecord,
+  deleteAssetCategoryMappingRecord,
+  deleteCustomBankConfigRecord,
+  deleteExpenseKeywordCategoryRecord,
+  deleteExpenseReimbursementRecord,
+  deleteSmartRuleRecord,
+  deleteSupplierMappingRecord,
+  getAuxiliaryStrategyQuery,
+  getPurchaseInvoiceRuleConfigQuery,
+  listAssetCategoryMappings,
+  listCustomBankConfigs,
+  listExpenseKeywordCategories,
+  listExpenseReimbursements,
+  listSmartRules,
+  listSupplierMappings,
+  listSupplierMappingsByGroup,
+  findSupplierMappingBySellerName,
+  saveAssetCategoryMappingRecord,
+  saveAuxiliaryStrategyRecord,
+  saveCustomBankConfigRecord,
+  saveExpenseKeywordCategoryRecord,
+  saveExpenseReimbursementRecord,
+  savePurchaseInvoiceRuleConfigRecord,
+  saveSmartRuleRecord,
+  saveSupplierMappingRecord,
+  updateExpenseReimbursementRecord,
+  updateInvoiceCategoryRecord,
+  updateInvoiceHoldStatusRecord,
+  type InvoiceRuleQueryService,
+} from './services/invoice-rule-sqlite-service';
+import type { CustomBankConfig } from '../bank-parsers/types';
+import {
+  clearPayrollBatchVoucherByVoucherIdRecord,
+  deletePayrollBatchRecord,
+  getPayrollBatchByVoucherId,
+  getPayrollCalculationConfigQuery,
+  listPayrollBatches,
+  listPayrollItems,
+  savePayrollBatchRecord,
+  savePayrollCalculationConfigRecord,
+  updatePayrollBatchStatusRecord,
+  updatePayrollBatchVoucherRecord,
+  type PayrollQueryService,
+} from './services/payroll-sqlite-service';
 
 const resolveSqlJsWasmPath = (file: string): string => {
   if (typeof window === 'undefined' && typeof process !== 'undefined' && typeof process.cwd === 'function') {
@@ -66,21 +227,6 @@ export interface AuditLog {
   userId: string;
   timestamp: string;
   accountSetId?: string;
-}
-
-function mapFxRateRow(row: any): FxRate {
-  return {
-    id: row.id,
-    accountSetId: row.accountSetId,
-    rateDate: row.rateDate,
-    currencyCode: row.currencyCode,
-    baseCurrency: row.baseCurrency || 'CNY',
-    middleRate: row.middleRate,
-    source: row.source || undefined,
-    createdBy: row.createdBy || undefined,
-    createTime: row.createTime,
-    updateTime: row.updateTime,
-  };
 }
 
 class SQLiteService {
@@ -147,6 +293,73 @@ class SQLiteService {
     }
 
     throw new Error('All database initialization methods failed');
+  }
+
+  private getBankAccountBindingQueryService(): BankAccountBindingQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+      runAsync: (sql: string, params?: unknown[]) => this.runAsync(sql, params),
+    };
+  }
+
+  private getBankTransactionQueryService(): BankTransactionQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+      runAsync: (sql: string, params?: unknown[]) => this.runAsync(sql, params),
+    };
+  }
+
+  private getPartnerQueryService(): PartnerQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+    };
+  }
+
+  private getVoucherQueryService(): VoucherQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+    };
+  }
+
+  private getReconciliationQueryService(): ReconciliationQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+    };
+  }
+
+  private getSubjectQueryService(): SubjectQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+    };
+  }
+
+  private getSimpleQueryService(): SimpleQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+    };
+  }
+
+  private getInvoiceRuleQueryService(): InvoiceRuleQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+      runAsync: (sql: string, params?: unknown[]) => this.runAsync(sql, params),
+    };
+  }
+
+  private getPayrollQueryService(): PayrollQueryService {
+    return {
+      queryAllAsync: <T>(sql: string, params?: unknown[]) => this.queryAllAsync<T>(sql, params),
+      querySingleAsync: <T>(sql: string, params?: unknown[]) => this.querySingleAsync<T>(sql, params),
+      runAsync: (sql: string, params?: unknown[]) => this.runAsync(sql, params),
+    };
   }
 
   // 确保数据库已初始化的辅助方法
@@ -1806,454 +2019,97 @@ class SQLiteService {
   // ========== 凭证操作 ==========
 
   async saveVoucher(voucher: Voucher): Promise<void> {
-    try {
-      await this.ensureInitialized();
-
-      if (!this.dbInstance) {
-        throw new Error('Database instance is null after initialization');
-      }
-
-      // Save voucher
-      const voucherWithAccountSet = {
-        ...voucher,
-        accountSetId: this.accountSetId
-      };
-
-      const stmt = this.dbInstance.prepare(`
-        INSERT OR REPLACE INTO vouchers (
-          id, voucherNo, date, status, summary, creator, reviewer, poster,
-          reverseVoucherId, referenceNumber, attachmentCount, accountSetId,
-          createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        voucherWithAccountSet.id || '',
-        voucherWithAccountSet.voucherNo || '',
-        voucherWithAccountSet.date || new Date().toISOString().split('T')[0],
-        voucherWithAccountSet.status || 'draft',
-        voucherWithAccountSet.summary || '',
-        (voucherWithAccountSet as any).creator || (voucherWithAccountSet as any).createdBy || 'user',
-        (voucherWithAccountSet as any).reviewer || '',
-        (voucherWithAccountSet as any).poster || '',
-        (voucherWithAccountSet as any).reverseVoucherId || '',
-        (voucherWithAccountSet as any).referenceNumber || '',
-        (voucherWithAccountSet as any).attachmentCount || 0,
-        voucherWithAccountSet.accountSetId || '',
-        (voucherWithAccountSet as any).createTime || new Date().toISOString(),
-        (voucherWithAccountSet as any).updateTime || new Date().toISOString()
-      ]);
-      stmt.free();
-
-      // Delete existing entries for this voucher
-      const deleteStmt = this.dbInstance.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
-      deleteStmt.run([voucher.id, this.accountSetId]);
-      deleteStmt.free();
-
-      // Save new entries
-      console.log('[saveVoucher] 保存凭证', voucher.voucherNo, 'id:', voucher.id, 'accountSetId:', this.accountSetId, '共有', voucher.entries?.length || 0, '条分录');
-      for (const entry of voucher.entries) {
-        const entryWithAccountSet = {
-          ...entry,
-          accountSetId: this.accountSetId,
-          voucherId: voucher.id
-        } as any;
-
-        const entryStmt = this.dbInstance.prepare(`
-          INSERT INTO entries (
-            id, voucherId, subjectCode, subjectName, direction, debit, credit,
-            summary, customerName, supplierName, auxiliary, recRefNo,
-            departmentCode, departmentName, projectCode, projectName,
-            currencyCode, currencyName, exchangeRate, originalAmount, date, accountSetId,
-            createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        entryStmt.run([
-          entryWithAccountSet.id,
-          entryWithAccountSet.voucherId,
-          entryWithAccountSet.subjectCode || '',
-          entryWithAccountSet.subjectName || '',
-          entryWithAccountSet.debit > 0 ? 'debit' : 'credit',
-          entryWithAccountSet.debit || 0,
-          entryWithAccountSet.credit || 0,
-          entryWithAccountSet.summary || '',
-          entryWithAccountSet.customerName || '',
-          entryWithAccountSet.supplierName || '',
-          JSON.stringify(entryWithAccountSet.auxiliary || {}),
-          entryWithAccountSet.recRefNo || '',
-          entryWithAccountSet.departmentCode || entryWithAccountSet.deptCode || '',
-          entryWithAccountSet.departmentName || '',
-          entryWithAccountSet.projectCode || '',
-          entryWithAccountSet.projectName || '',
-          entryWithAccountSet.currencyCode || '',
-          entryWithAccountSet.currencyName || '',
-          entryWithAccountSet.exchangeRate || 0,
-          entryWithAccountSet.originalAmount || 0,
-          entryWithAccountSet.date || new Date().toISOString().split('T')[0],
-          entryWithAccountSet.accountSetId,
-          entryWithAccountSet.createTime || new Date().toISOString(),
-          entryWithAccountSet.updateTime || new Date().toISOString()
-        ]);
-        entryStmt.free();
-      }
-      await this.persist();
-    } catch (error) {
-      console.error('Save voucher failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveVoucherRecord({
+      db: this.dbInstance,
+      voucher,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async updateVoucherStatus(id: string, status: string): Promise<void> {
-    try {
-      await this.ensureInitialized();
-
-      if (!this.dbInstance) {
-        throw new Error('Database instance is null after initialization');
-      }
-
-      const stmt = this.dbInstance.prepare(`
-        UPDATE vouchers
-        SET status = ?,
-            updateTime = ?
-        WHERE id = ? AND accountSetId = ?
-      `);
-      stmt.run([
-        status,
-        new Date().toISOString(),
-        id,
-        this.accountSetId
-      ]);
-      stmt.free();
-
-      await this.persist();
-    } catch (error) {
-      console.error('Update voucher status failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await updateVoucherStatusRecord({
+      db: this.dbInstance,
+      id,
+      status,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getVoucher(id: string): Promise<Voucher | undefined> {
     await this.ensureInitialized();
-    const voucher = await this.querySingleAsync<any>(
-      `SELECT * FROM vouchers WHERE id = ? AND accountSetId = ?`,
-      [id, this.accountSetId]
-    );
-
-    if (!voucher) {
-      return undefined;
-    }
-
-    const entries = await this.queryAllAsync<any>(
-      `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
-      [id, this.accountSetId]
-    );
-
-    return {
-      ...voucher,
-      // 字段映射：数据库字段 → 应用字段
-      createdBy: voucher.creator || voucher.createdBy || 'user',
-      entries: entries.map((entry: any) => ({
-        ...entry,
-        // 字段映射：数据库字段 → 应用字段
-        deptCode: entry.departmentCode || entry.deptCode || '',
-        auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-      }))
-    };
+    return getVoucherById(this.getVoucherQueryService(), this.accountSetId, id);
   }
 
   async getAllVouchers(): Promise<Voucher[]> {
     await this.ensureInitialized();
-    const vouchers = await this.queryAllAsync<any>(
-      `SELECT * FROM vouchers WHERE accountSetId = ? ORDER BY date DESC`,
-      [this.accountSetId]
-    );
-
-    console.log('[getAllVouchers] accountSetId:', this.accountSetId, '从数据库读取到', vouchers.length, '张凭证');
-
-    return Promise.all(
-      vouchers.map(async (voucher: any) => {
-        const entries = await this.queryAllAsync<any>(
-          `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
-          [voucher.id, this.accountSetId]
-        );
-
-        if (entries.length === 0) {
-          console.warn('[getAllVouchers] 凭证', voucher.voucherNo, '没有分录！数据可能未正确保存');
-        }
-
-        return {
-          ...voucher,
-          // 字段映射：数据库字段 → 应用字段
-          createdBy: voucher.creator || voucher.createdBy || 'user',
-          entries: entries.map((entry: any) => ({
-            ...entry,
-            // 字段映射：数据库字段 → 应用字段
-            deptCode: entry.departmentCode || entry.deptCode || '',
-            auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-          }))
-        };
-      })
-    );
+    return listVouchers(this.getVoucherQueryService(), this.accountSetId);
   }
 
   async getVouchersByDateRange(startDate: string, endDate: string): Promise<Voucher[]> {
     await this.ensureInitialized();
-    const vouchers = await this.queryAllAsync<any>(
-      `SELECT * FROM vouchers WHERE accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
-      [this.accountSetId, startDate, endDate]
-    );
-
-    return Promise.all(
-      vouchers.map(async (voucher: any) => {
-        const entries = await this.queryAllAsync<any>(
-          `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
-          [voucher.id, this.accountSetId]
-        );
-
-        return {
-          ...voucher,
-          // 字段映射：数据库字段 → 应用字段
-          createdBy: voucher.creator || voucher.createdBy || 'user',
-          entries: entries.map((entry: any) => ({
-            ...entry,
-            // 字段映射：数据库字段 → 应用字段
-            deptCode: entry.departmentCode || entry.deptCode || '',
-            auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-          }))
-        };
-      })
-    );
+    return listVouchersByDateRange(this.getVoucherQueryService(), this.accountSetId, startDate, endDate);
   }
 
   async getVouchersByStatus(status: 'draft' | 'review' | 'posted' | 'reversed'): Promise<Voucher[]> {
     await this.ensureInitialized();
-    const vouchers = await this.queryAllAsync<any>(
-      `SELECT * FROM vouchers WHERE accountSetId = ? AND status = ? ORDER BY date DESC`,
-      [this.accountSetId, status]
-    );
-
-    return Promise.all(
-      vouchers.map(async (voucher: any) => {
-        const entries = await this.queryAllAsync<any>(
-          `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
-          [voucher.id, this.accountSetId]
-        );
-
-        return {
-          ...voucher,
-          // 字段映射：数据库字段 → 应用字段
-          createdBy: voucher.creator || voucher.createdBy || 'user',
-          entries: entries.map((entry: any) => ({
-            ...entry,
-            // 字段映射：数据库字段 → 应用字段
-            deptCode: entry.departmentCode || entry.deptCode || '',
-            auxiliary: entry.auxiliary ? JSON.parse(entry.auxiliary) : {}
-          }))
-        };
-      })
-    );
+    return listVouchersByStatus(this.getVoucherQueryService(), this.accountSetId, status);
   }
 
   async deleteVoucher(id: string): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      // Delete entries first
-      const deleteEntriesStmt = this.dbInstance.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
-      deleteEntriesStmt.run([id, this.accountSetId]);
-      deleteEntriesStmt.free();
-
-      // Delete voucher
-      const deleteVoucherStmt = this.dbInstance.prepare(`DELETE FROM vouchers WHERE id = ? AND accountSetId = ?`);
-      deleteVoucherStmt.run([id, this.accountSetId]);
-      deleteVoucherStmt.free();
-    } catch (error) {
-      console.error('Delete voucher failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await deleteVoucherRecord({
+      db: this.dbInstance,
+      id,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   // ========== 科目操作 ==========
 
   async saveSubjects(subjects: Subject[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const subject of subjects) {
-        const subjectWithAccountSet = { ...subject, accountSetId: this.accountSetId } as any;
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO subjects (
-            id, code, name, parentId, level, type, direction, balance,
-            enabled, frozen, description, enableDept, enableProject,
-            enableForeign, foreignCurrency, isCustomer, isSupplier,
-            isEmployee, enableCashFlow, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          subjectWithAccountSet.id,
-          subjectWithAccountSet.code,
-          subjectWithAccountSet.name,
-          subjectWithAccountSet.parentId,
-          subjectWithAccountSet.level || 1,
-          subjectWithAccountSet.subjectType || subjectWithAccountSet.type || '',
-          subjectWithAccountSet.direction,
-          subjectWithAccountSet.balance || 0,
-          subjectWithAccountSet.disabled !== undefined ? Number(!subjectWithAccountSet.disabled) :
-            (subjectWithAccountSet.enabled !== undefined ? Number(subjectWithAccountSet.enabled) : 1),
-          subjectWithAccountSet.block !== undefined ? Number(subjectWithAccountSet.block) :
-            (subjectWithAccountSet.frozen !== undefined ? Number(subjectWithAccountSet.frozen) : 0),
-          subjectWithAccountSet.description || '',
-          Number(subjectWithAccountSet.enableDept || false),
-          Number(subjectWithAccountSet.enableProject || false),
-          Number(subjectWithAccountSet.enableForeign || false),
-          subjectWithAccountSet.foreignCurrency || '',
-          Number(subjectWithAccountSet.isCustomer || false),
-          Number(subjectWithAccountSet.isSupplier || false),
-          Number(subjectWithAccountSet.isEmployee || false),
-          Number(subjectWithAccountSet.enableCashFlow || false),
-          subjectWithAccountSet.accountSetId,
-          subjectWithAccountSet.createTime || now,
-          subjectWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-      await this.persist();
-    } catch (error) {
-      console.error('Save subjects failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveSubjectsRecord({
+      db: this.dbInstance,
+      subjects,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getAllSubjects(): Promise<Subject[]> {
     await this.ensureInitialized();
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM subjects WHERE accountSetId = ? ORDER BY code`,
-      [this.accountSetId]
-    );
-
-    const subjects = results.map(result => ({
-      id: result.id,
-      code: result.code,
-      name: result.name,
-      parentId: result.parentId,
-      level: result.level,
-      direction: result.direction,
-      enableDept: Boolean(result.enableDept),
-      enableProject: Boolean(result.enableProject),
-      enableForeign: Boolean(result.enableForeign),
-      foreignCurrency: result.foreignCurrency || '',
-      isCustomer: Boolean(result.isCustomer),
-      isSupplier: Boolean(result.isSupplier),
-      isEmployee: Boolean(result.isEmployee),
-      enableCashFlow: Boolean(result.enableCashFlow),
-      disabled: result.enabled === 0,
-      block: result.frozen === 1,
-      subjectType: result.type,
-      description: result.description,
-      balance: result.balance || 0,
-      createTime: result.createTime,
-      updateTime: result.updateTime,
-      accountSetId: result.accountSetId
-    }));
-
-    // 自动修复：确保 1122（应收账款）有 isCustomer=true
-    // 2202（应付账款）有 isSupplier=true
-    // 这是为了确保即使数据库中的值不正确，应用也能正常工作
-    // 同时修复 1122 的 parentId 和 level（应该是一级科目）
-    const fixedSubjects = subjects.map(subject => {
-      if (subject.code === '1122') {
-        const needsFix = !subject.isCustomer || subject.parentId !== null || subject.level !== 1;
-        if (needsFix) {
-          console.log('Auto-fix: Fixing subject 1122 (应收账款)', {
-            isCustomer: subject.isCustomer,
-            parentId: subject.parentId,
-            level: subject.level
-          });
-        }
-        return {
-          ...subject,
-          isCustomer: true,
-          enableDept: true,
-          enableProject: true,
-          parentId: null,
-          level: 1
-        };
-      }
-      if (subject.code === '2202') {
-        if (!subject.isSupplier) {
-          console.log('Auto-fix: Force setting isSupplier=true for subject 2202 (应付账款)');
-        }
-        return { ...subject, isSupplier: true };
-      }
-      return subject;
-    });
-
-    // 检查是否需要更新数据库
-    const needsDbUpdate = fixedSubjects.some((s, i) => {
-      const orig = subjects[i];
-      return (s.code === '1122' && (s.isCustomer !== orig.isCustomer || s.parentId !== orig.parentId || s.level !== orig.level)) ||
-             (s.code === '2202' && s.isSupplier !== orig.isSupplier);
-    });
-
-    if (needsDbUpdate) {
-      // 异步保存到数据库（不等待）
-      this.saveSubjects(fixedSubjects.filter(s => s.code === '1122' || s.code === '2202'))
-        .catch(err => console.warn('Failed to save subject fixes:', err));
-    }
-
-    return fixedSubjects;
+    return listSubjects(this.getSubjectQueryService(), this.accountSetId);
   }
 
   async getSubjectByCode(code: string): Promise<Subject | undefined> {
     await this.ensureInitialized();
-    const result = await this.querySingleAsync<any>(
-      `SELECT * FROM subjects WHERE accountSetId = ? AND code = ?`,
-      [this.accountSetId, code]
-    );
-
-    if (!result) return undefined;
-
-    // Map database result to Subject type
-    return {
-      id: result.id,
-      code: result.code,
-      name: result.name,
-      parentId: result.parentId,
-      level: result.level,
-      direction: result.direction,
-      enableDept: Boolean(result.enableDept),
-      enableProject: Boolean(result.enableProject),
-      enableForeign: Boolean(result.enableForeign),
-      foreignCurrency: result.foreignCurrency || '',
-      isCustomer: Boolean(result.isCustomer),
-      isSupplier: Boolean(result.isSupplier),
-      isEmployee: Boolean(result.isEmployee),
-      enableCashFlow: Boolean(result.enableCashFlow),
-      disabled: result.enabled === 0,
-      block: result.frozen === 1,
-      subjectType: result.type,
-      accountSetId: result.accountSetId
-    };
+    return findSubjectByCode(this.getSubjectQueryService(), this.accountSetId, code);
   }
 
   async hasVoucherForSubject(subjectIdOrCode: string): Promise<boolean> {
     await this.ensureInitialized();
-    const result = await this.querySingleAsync<any>(
-      `SELECT COUNT(*) as count FROM entries WHERE accountSetId = ? AND (subjectCode = ? OR subjectCode = (SELECT code FROM subjects WHERE accountSetId = ? AND id = ?))`,
-      [this.accountSetId, subjectIdOrCode, this.accountSetId, subjectIdOrCode]
-    );
-    return (result?.count || 0) > 0;
+    return hasVoucherForSubjectQuery(this.getSubjectQueryService(), this.accountSetId, subjectIdOrCode);
   }
 
-  // 迁移科目凭证数据到新科目
   async migrateSubjectVouchers(oldSubjectCode: string, newSubjectCode: string): Promise<number> {
     await this.ensureInitialized();
-    const stmt = this.dbInstance.prepare(
-      `UPDATE entries SET subjectCode = ? WHERE accountSetId = ? AND subjectCode = ?`
-    );
-    stmt.run([newSubjectCode, this.accountSetId, oldSubjectCode]);
-    const changes = this.dbInstance.getRowsModified();
-    stmt.free();
-    await this.persist();
-    return changes;
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    return migrateSubjectVouchersRecord({
+      db: this.dbInstance as any,
+      oldSubjectCode,
+      newSubjectCode,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   // 迁移：为 bankTransactions 添加 source 列和 ourAccount 索引
@@ -2542,11 +2398,7 @@ class SQLiteService {
 
   async getBankOpeningBalance(accountNumber: string, periodStart: string): Promise<number | null> {
     await this.ensureInitialized();
-    const result = await this.querySingleAsync<any>(
-      `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
-      [this.accountSetId, accountNumber, periodStart]
-    );
-    return result?.balance ?? null;
+    return getBankOpeningBalanceQuery(this.getSimpleQueryService(), this.accountSetId, accountNumber, periodStart);
   }
 
   async saveBankOpeningBalance(data: {
@@ -2557,15 +2409,12 @@ class SQLiteService {
     createdBy?: string;
   }): Promise<void> {
     await this.ensureInitialized();
-    const now = new Date().toISOString();
-    const id = `${this.accountSetId}-${data.accountNumber}-${data.periodStart}`;
-
-    const stmt = this.dbInstance.prepare(`
-      INSERT OR REPLACE INTO bank_opening_balances (id, accountSetId, accountNumber, periodStart, balance, generateVoucher, createdBy, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run([id, this.accountSetId, data.accountNumber, data.periodStart, data.balance, data.generateVoucher ? 1 : 0, data.createdBy || null, now, now]);
-    stmt.free();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveBankOpeningBalanceRecord({
+      db: this.dbInstance,
+      accountSetId: this.accountSetId,
+      ...data,
+    });
   }
 
   async getCashOverview(ourAccount: string, periodStart: string, periodEnd: string): Promise<{
@@ -2576,565 +2425,193 @@ class SQLiteService {
     lastBankBalance: number | null;
   }> {
     await this.ensureInitialized();
-
-    const accountFilter = ourAccount ? `AND ourAccount = ?` : '';
-    const openingParams = ourAccount
-      ? [this.accountSetId, ourAccount, periodStart]
-      : [this.accountSetId, periodStart];
-
-    // 期初余额 = 期初之前的所有收入 - 所有支出
-    const openingResult = await this.querySingleAsync<any>(
-      `SELECT COALESCE(SUM(credit), 0) as totalCredit,
-              COALESCE(SUM(debit), 0) as totalDebit
-       FROM bankTransactions
-       WHERE accountSetId = ? ${accountFilter} AND date < ?`,
-      openingParams
-    );
-
-    // 本月收支
-    const periodParams = ourAccount
-      ? [this.accountSetId, ourAccount, periodStart, periodEnd]
-      : [this.accountSetId, periodStart, periodEnd];
-    const periodResult = await this.querySingleAsync<any>(
-      `SELECT COALESCE(SUM(credit), 0) as totalCredit,
-              COALESCE(SUM(debit), 0) as totalDebit
-       FROM bankTransactions
-       WHERE accountSetId = ? ${accountFilter} AND date >= ? AND date <= ?`,
-      periodParams
-    );
-
-    // 银行报告的最后余额
-    const lastBalanceResult = await this.querySingleAsync<any>(
-      `SELECT balance FROM bankTransactions
-       WHERE accountSetId = ? ${accountFilter} AND date >= ? AND date <= ? AND balance IS NOT NULL
-       ORDER BY date DESC, id DESC LIMIT 1`,
-      periodParams
-    );
-
-    // Check for manual opening balance first
-    let openingBalance: number | null = null;
-    if (ourAccount) {
-      const manualBalance = await this.querySingleAsync<any>(
-        `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
-        [this.accountSetId, ourAccount, periodStart]
-      );
-      if (manualBalance?.balance != null) {
-        openingBalance = manualBalance.balance;
-      }
-    }
-
-    // Fall back to computed balance from transactions
-    if (openingBalance === null) {
-      const openingCredit = openingResult?.totalCredit || 0;
-      const openingDebit = openingResult?.totalDebit || 0;
-      openingBalance = Math.round((openingCredit - openingDebit) * 100) / 100;
-    }
-    const totalCredit = periodResult?.totalCredit || 0;
-    const totalDebit = periodResult?.totalDebit || 0;
-    const closingBalance = Math.round((openingBalance + totalCredit - totalDebit) * 100) / 100;
-
-    return {
-      openingBalance,
-      totalCredit,
-      totalDebit,
-      closingBalance,
-      lastBankBalance: lastBalanceResult?.balance ?? null
-    };
+    return getCashOverviewQuery(this.getSimpleQueryService(), this.accountSetId, ourAccount, periodStart, periodEnd);
   }
 
-  // 获取日记账明细（ourAccount为空时显示所有记录）
   async getJournalEntries(ourAccount: string, periodStart: string, periodEnd: string, options?: {
     statusFilter?: string;
     page?: number;
     pageSize?: number;
   }): Promise<{ entries: any[]; total: number }> {
     await this.ensureInitialized();
-
-    const page = options?.page || 1;
-    const pageSize = options?.pageSize || 50;
-    const offset = (page - 1) * pageSize;
-
-    const params: any[] = [this.accountSetId, periodStart, periodEnd];
-    let whereClause = `WHERE accountSetId = ? AND date >= ? AND date <= ?`;
-
-    if (ourAccount) {
-      whereClause += ` AND ourAccount = ?`;
-      params.push(ourAccount);
-    }
-
-    if (options?.statusFilter) {
-      whereClause += ` AND status = ?`;
-      params.push(options.statusFilter);
-    }
-
-    const countResult = await this.querySingleAsync<any>(
-      `SELECT COUNT(*) as total FROM bankTransactions ${whereClause}`,
-      params
-    );
-
-    const entries = await this.queryAllAsync<any>(
-      `SELECT * FROM bankTransactions ${whereClause} ORDER BY date ASC, id ASC LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
-    );
-
-    return {
-      entries: entries || [],
-      total: countResult?.total || 0
-    };
+    return getJournalEntriesQuery(this.getSimpleQueryService(), this.accountSetId, ourAccount, periodStart, periodEnd, options);
   }
 
   async getTransactionStatusCounts(ourAccount: string, periodStart: string, periodEnd: string): Promise<Record<string, number>> {
     await this.ensureInitialized();
-    const params: any[] = [this.accountSetId, periodStart, periodEnd];
-    let whereClause = `WHERE accountSetId = ? AND date >= ? AND date <= ?`;
-    if (ourAccount) {
-      whereClause += ` AND ourAccount = ?`;
-      params.push(ourAccount);
-    }
-    const rows = await this.queryAllAsync<any>(
-      `SELECT status, COUNT(*) as count FROM bankTransactions ${whereClause} GROUP BY status`,
-      params
-    );
-    const counts: Record<string, number> = { pending: 0, matched: 0, voucher_generated: 0 };
-    for (const row of rows) {
-      counts[row.status] = row.count;
-    }
-    return counts;
+    return getTransactionStatusCountsQuery(this.getSimpleQueryService(), this.accountSetId, ourAccount, periodStart, periodEnd);
   }
 
   // ========== 部门操作 ==========
 
   async saveDepartments(departments: Department[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const dept of departments) {
-        const deptWithAccountSet = { ...dept, accountSetId: this.accountSetId } as any;
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO departments (
-            id, code, name, parentId, level, enabled, description,
-            accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          deptWithAccountSet.id,
-          deptWithAccountSet.code,
-          deptWithAccountSet.name,
-          deptWithAccountSet.parentId,
-          deptWithAccountSet.level || 1,
-          deptWithAccountSet.enabled !== undefined ? Number(deptWithAccountSet.enabled) : 1,
-          deptWithAccountSet.description || '',
-          deptWithAccountSet.accountSetId,
-          deptWithAccountSet.createTime || now,
-          deptWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Save departments failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveDepartmentsRecord({
+      db: this.dbInstance,
+      departments,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getAllDepartments(): Promise<Department[]> {
     await this.ensureInitialized();
-    return await this.queryAllAsync<Department>(
-      `SELECT * FROM departments WHERE accountSetId = ? ORDER BY code`,
-      [this.accountSetId]
-    );
+    return listDepartments(this.getSimpleQueryService(), this.accountSetId);
   }
 
   async getDepartmentByCode(code: string): Promise<Department | undefined> {
     await this.ensureInitialized();
-    return await this.querySingleAsync<Department>(
-      `SELECT * FROM departments WHERE accountSetId = ? AND code = ?`,
-      [this.accountSetId, code]
-    );
+    return findDeptByCodeQuery(this.getSimpleQueryService(), this.accountSetId, code);
   }
 
   // ========== 项目操作 ==========
 
   async saveProjects(projects: Project[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const project of projects) {
-        const projectWithAccountSet = { ...project, accountSetId: this.accountSetId } as any;
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO projects (
-            id, code, name, description, enabled, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          projectWithAccountSet.id,
-          projectWithAccountSet.code,
-          projectWithAccountSet.name,
-          projectWithAccountSet.description || '',
-          projectWithAccountSet.frozen !== undefined ? Number(!projectWithAccountSet.frozen) : 1,
-          projectWithAccountSet.accountSetId,
-          projectWithAccountSet.createTime || now,
-          projectWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Save projects failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveProjectsRecord({
+      db: this.dbInstance,
+      projects,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getAllProjects(): Promise<Project[]> {
     await this.ensureInitialized();
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM projects WHERE accountSetId = ? ORDER BY code`,
-      [this.accountSetId]
-    );
-
-    return results.map(result => ({
-      id: result.id,
-      code: result.code,
-      name: result.name,
-      description: result.description,
-      type: 'income' as Project['type'], // Default value
-      parentId: null, // Default value
-      level: 1, // Default value
-      startDate: '', // Default value
-      endDate: '', // Default value
-      frozen: result.enabled === 0, // Map enabled to frozen
-      createTime: result.createTime,
-      updateTime: result.updateTime,
-      accountSetId: result.accountSetId
-    }));
+    return listProjects(this.getSimpleQueryService(), this.accountSetId);
   }
 
   async getProjectByCode(code: string): Promise<Project | undefined> {
     await this.ensureInitialized();
-    return await this.querySingleAsync<Project>(
-      `SELECT * FROM projects WHERE accountSetId = ? AND code = ?`,
-      [this.accountSetId, code]
-    );
+    return findProjByCodeQuery(this.getSimpleQueryService(), this.accountSetId, code);
   }
 
   // ========== 币别操作 ==========
 
   async saveCurrencies(currencies: Currency[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const currency of currencies) {
-        const currencyWithAccountSet = { ...currency, accountSetId: this.accountSetId } as any;
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO currencies (
-            id, code, name, symbol, exchangeRate, enabled, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          currencyWithAccountSet.id,
-          currencyWithAccountSet.code,
-          currencyWithAccountSet.name,
-          currencyWithAccountSet.symbol,
-          currencyWithAccountSet.exchangeRate || 1.0,
-          currencyWithAccountSet.enabled !== undefined ? Number(currencyWithAccountSet.enabled) : 1,
-          currencyWithAccountSet.accountSetId,
-          currencyWithAccountSet.createTime || now,
-          currencyWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Save currencies failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveCurrenciesRecord({
+      db: this.dbInstance,
+      currencies,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getAllCurrencies(): Promise<Currency[]> {
     await this.ensureInitialized();
-    return await this.queryAllAsync<Currency>(
-      `SELECT * FROM currencies WHERE accountSetId = ? ORDER BY code`,
-      [this.accountSetId]
-    );
+    return listCurrencies(this.getSimpleQueryService(), this.accountSetId);
   }
 
   async getCurrencyByCode(code: string): Promise<Currency | undefined> {
     await this.ensureInitialized();
-    return await this.querySingleAsync<Currency>(
-      `SELECT * FROM currencies WHERE accountSetId = ? AND code = ?`,
-      [this.accountSetId, code]
-    );
+    return findCurrencyByCodeQuery(this.getSimpleQueryService(), this.accountSetId, code);
   }
 
   // ========== 往来单位操作 ==========
 
   async getAccountSetBaseCurrency(accountSetId: string = this.accountSetId): Promise<{ baseCurrency: string; baseCurrencyName: string } | null> {
     await this.ensureInitialized();
-    const result = await this.querySingleAsync<any>(
-      `SELECT baseCurrency, baseCurrencyName FROM accountSets WHERE id = ? LIMIT 1`,
-      [accountSetId]
-    );
-    if (!result) return null;
-    return {
-      baseCurrency: result.baseCurrency || 'CNY',
-      baseCurrencyName: result.baseCurrencyName || '人民币',
-    };
+    return getAccountSetBaseCurrencyQuery(this.getSimpleQueryService(), accountSetId);
   }
 
   async saveAccountSetBaseCurrency(baseCurrency: string, baseCurrencyName?: string, accountSetId: string = this.accountSetId): Promise<void> {
     await this.ensureInitialized();
-    const now = new Date().toISOString();
-    const stmt = this.dbInstance.prepare(`
-      UPDATE accountSets
-      SET baseCurrency = ?, baseCurrencyName = COALESCE(?, baseCurrencyName), updateTime = ?
-      WHERE id = ?
-    `);
-    stmt.run([baseCurrency || 'CNY', baseCurrencyName || null, now, accountSetId]);
-    stmt.free();
-    await this.persist();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveAccountSetBaseCurrencyRecord({
+      db: this.dbInstance,
+      baseCurrency,
+      baseCurrencyName,
+      accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async saveFxRates(rates: FxRate[]): Promise<void> {
     await this.ensureInitialized();
-    for (const rate of rates) {
-      const stmt = this.dbInstance.prepare(`
-        INSERT OR REPLACE INTO fxRates
-          (id, accountSetId, rateDate, currencyCode, baseCurrency, middleRate, source, createdBy, createTime, updateTime)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        rate.id,
-        rate.accountSetId || this.accountSetId,
-        rate.rateDate,
-        rate.currencyCode,
-        rate.baseCurrency || 'CNY',
-        rate.middleRate,
-        rate.source || null,
-        rate.createdBy || null,
-        rate.createTime || new Date().toISOString(),
-        rate.updateTime || new Date().toISOString(),
-      ]);
-      stmt.free();
-    }
-    await this.persist();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveFxRatesRecord({
+      db: this.dbInstance,
+      rates,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getFxRates(rateDate?: string): Promise<FxRate[]> {
     await this.ensureInitialized();
-    if (rateDate) {
-      // First try exact date match
-      const exactRows = await this.queryAllAsync<any>(
-        `SELECT * FROM fxRates WHERE accountSetId = ? AND rateDate = ? ORDER BY currencyCode`,
-        [this.accountSetId, rateDate]
-      );
-      if (exactRows.length > 0) {
-        return exactRows.map(mapFxRateRow);
-      }
-      // Fallback: find the most recent rate on or before this date for each currency
-      const allRows = await this.queryAllAsync<any>(
-        `SELECT * FROM fxRates WHERE accountSetId = ? AND rateDate <= ? ORDER BY currencyCode, rateDate DESC`,
-        [this.accountSetId, rateDate]
-      );
-      // Keep only the latest rate per currency
-      const latestByCurrency = new Map<string, any>();
-      for (const row of allRows) {
-        if (!latestByCurrency.has(row.currencyCode)) {
-          latestByCurrency.set(row.currencyCode, row);
-        }
-      }
-      return [...latestByCurrency.values()].map(mapFxRateRow);
-    }
-    const rows = await this.queryAllAsync<any>(
-      `SELECT * FROM fxRates WHERE accountSetId = ? ORDER BY rateDate DESC, currencyCode`,
-      [this.accountSetId]
-    );
-    return rows.map(mapFxRateRow);
+    return listFxRates(this.getSimpleQueryService(), this.accountSetId, rateDate);
   }
 
   // ========== FX 重估运行操作 ==========
 
   async saveFxRevaluationRun(run: FxRevaluationRun): Promise<void> {
     await this.ensureInitialized();
-    const stmt = this.dbInstance.prepare(`
-      INSERT OR REPLACE INTO fxRevaluationRuns
-        (id, accountSetId, period, baseCurrency, status, previewData, voucherId, voucherNo, createdAt, confirmedAt, createTime, updateTime)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run([
-      run.id,
-      run.accountSetId || this.accountSetId,
-      run.period,
-      run.baseCurrency,
-      run.status,
-      run.previewData || null,
-      run.voucherId || null,
-      run.voucherNo || null,
-      run.createdAt,
-      run.confirmedAt || null,
-      run.createTime || new Date().toISOString(),
-      run.updateTime || new Date().toISOString(),
-    ]);
-    stmt.free();
-    await this.persist();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveFxRevaluationRunRecord({
+      db: this.dbInstance,
+      run,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getFxRevaluationRuns(period?: string): Promise<FxRevaluationRun[]> {
     await this.ensureInitialized();
-    const sql = period
-      ? `SELECT * FROM fxRevaluationRuns WHERE accountSetId = ? AND period = ? ORDER BY createdAt DESC`
-      : `SELECT * FROM fxRevaluationRuns WHERE accountSetId = ? ORDER BY createdAt DESC`;
-    const params = period ? [this.accountSetId, period] : [this.accountSetId];
-    return this.queryAllAsync<FxRevaluationRun>(sql, params);
+    return listFxRevaluationRuns(this.getSimpleQueryService(), this.accountSetId, period);
   }
 
   async getFxRevaluationRun(id: string): Promise<FxRevaluationRun | null> {
     await this.ensureInitialized();
-    return this.querySingleAsync<FxRevaluationRun>(
-      `SELECT * FROM fxRevaluationRuns WHERE id = ? AND accountSetId = ?`,
-      [id, this.accountSetId]
-    );
+    return findFxRevaluationRun(this.getSimpleQueryService(), this.accountSetId, id);
   }
 
   async deleteFxRevaluationRun(id: string): Promise<void> {
     await this.ensureInitialized();
-    this.dbInstance.prepare(`DELETE FROM fxRevaluationRunLines WHERE runId = ?`).run([id]).free();
-    this.dbInstance.prepare(`DELETE FROM fxRevaluationRuns WHERE id = ? AND accountSetId = ?`).run([id, this.accountSetId]).free();
-    await this.persist();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await deleteFxRevaluationRunRecord({
+      db: this.dbInstance,
+      id,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async saveFxRevaluationRunLines(lines: FxRevaluationRunLine[]): Promise<void> {
     await this.ensureInitialized();
-    for (const line of lines) {
-      const stmt = this.dbInstance.prepare(`
-        INSERT OR REPLACE INTO fxRevaluationRunLines
-          (id, runId, accountSetId, sourceType, sourceId, sourceName, currencyCode,
-           originalAmount, originalRate, revaluationRate, bookValueBase, revaluedBase,
-           gainLossAmount, gainLossDirection, subjectCode, subjectName, createTime)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        line.id, line.runId, line.accountSetId || this.accountSetId,
-        line.sourceType, line.sourceId, line.sourceName || null, line.currencyCode,
-        line.originalAmount, line.originalRate, line.revaluationRate,
-        line.bookValueBase, line.revaluedBase, line.gainLossAmount,
-        line.gainLossDirection, line.subjectCode || null, line.subjectName || null,
-        line.createTime || new Date().toISOString(),
-      ]);
-      stmt.free();
-    }
-    await this.persist();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveFxRevaluationRunLinesRecord({
+      db: this.dbInstance,
+      lines,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getFxRevaluationRunLines(runId: string): Promise<FxRevaluationRunLine[]> {
     await this.ensureInitialized();
-    return this.queryAllAsync<FxRevaluationRunLine>(
-      `SELECT * FROM fxRevaluationRunLines WHERE runId = ? AND accountSetId = ?`,
-      [runId, this.accountSetId]
-    );
+    return listFxRevaluationRunLines(this.getSimpleQueryService(), this.accountSetId, runId);
   }
 
   async savePartners(partners: Partner[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const partner of partners) {
-        const partnerWithAccountSet = { ...partner, accountSetId: this.accountSetId } as any;
-
-        // Convert booleans to type string for DB
-        let typeValue = 'other';
-        if (partnerWithAccountSet.isCustomer && !partnerWithAccountSet.isSupplier && !partnerWithAccountSet.isEmployee) {
-          typeValue = 'customer';
-        } else if (!partnerWithAccountSet.isCustomer && partnerWithAccountSet.isSupplier && !partnerWithAccountSet.isEmployee) {
-          typeValue = 'supplier';
-        } else if (!partnerWithAccountSet.isCustomer && !partnerWithAccountSet.isSupplier && partnerWithAccountSet.isEmployee) {
-          typeValue = 'employee';
-        } else if (partnerWithAccountSet.isCustomer && partnerWithAccountSet.isSupplier) {
-          typeValue = 'both';
-        }
-
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO partners (
-            id, code, name, type, contact, phone, email, address, taxNo,
-            bankAccount, enabled, defaultSubjectCode, defaultSubjectName, departmentCode, departmentName,
-            paymentTermDays, payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
-            payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
-            payrollSalaryPayableSubjectCode, payrollSalaryPayableSubjectName,
-            payrollTaxPayableSubjectCode, payrollTaxPayableSubjectName,
-            payrollEmployeeContributionPayableSubjectCode, payrollEmployeeContributionPayableSubjectName,
-            payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
-            payrollDepartmentName, payrollProjectName, payrollCostCenterName,
-            accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          partnerWithAccountSet.id,
-          partnerWithAccountSet.code,
-          partnerWithAccountSet.name,
-          typeValue,
-          partnerWithAccountSet.contact || '',
-          partnerWithAccountSet.phone || '',
-          partnerWithAccountSet.email || '',
-          partnerWithAccountSet.address || '',
-          partnerWithAccountSet.taxNumber || partnerWithAccountSet.taxNo || '',
-          partnerWithAccountSet.bankAccount || '',
-          partnerWithAccountSet.frozen !== undefined ? Number(!partnerWithAccountSet.frozen) : 1,
-          partnerWithAccountSet.defaultSubjectCode || '',
-          partnerWithAccountSet.defaultSubjectName || '',
-          partnerWithAccountSet.departmentCode || '',
-          partnerWithAccountSet.departmentName || '',
-          partnerWithAccountSet.paymentTermDays || null,
-          partnerWithAccountSet.payrollSalaryExpenseSubjectCode || '',
-          partnerWithAccountSet.payrollSalaryExpenseSubjectName || '',
-          partnerWithAccountSet.payrollContributionExpenseSubjectCode || '',
-          partnerWithAccountSet.payrollContributionExpenseSubjectName || '',
-          partnerWithAccountSet.payrollSalaryPayableSubjectCode || '',
-          partnerWithAccountSet.payrollSalaryPayableSubjectName || '',
-          partnerWithAccountSet.payrollTaxPayableSubjectCode || '',
-          partnerWithAccountSet.payrollTaxPayableSubjectName || '',
-          partnerWithAccountSet.payrollEmployeeContributionPayableSubjectCode || '',
-          partnerWithAccountSet.payrollEmployeeContributionPayableSubjectName || '',
-          partnerWithAccountSet.payrollEmployerContributionPayableSubjectCode || '',
-          partnerWithAccountSet.payrollEmployerContributionPayableSubjectName || '',
-          partnerWithAccountSet.payrollDepartmentName || '',
-          partnerWithAccountSet.payrollProjectName || '',
-          partnerWithAccountSet.payrollCostCenterName || '',
-          partnerWithAccountSet.accountSetId,
-          partnerWithAccountSet.createTime || now,
-          partnerWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-      await this.persist();
-    } catch (error) {
-      console.error('Save partners failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await savePartnersRecord({
+      db: this.dbInstance,
+      partners,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
-  async saveFixedAsset(asset: any): Promise<void> {
+  async saveFixedAsset(asset: FixedAssetSaveInput): Promise<void> {
     try {
-      await this.ensureInitialized();
-      const db = this.dbInstance!;
-      const stmt = db.prepare(`
-        INSERT OR REPLACE INTO fixedAssets (
-          id, accountSetId, assetCode, assetName, categoryName, unit, quantity, remainingQuantity, unitPrice,
-          originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
-          depreciationMethod, usefulLifeYears, usefulLifeMonths, remainingDepreciationMonths,
-          acquisitionDate, status, accountingStatus, acquisitionType, isOpeningBalance, initialAccumulatedDepreciation,
-          createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        asset.id, this.accountSetId, asset.assetCode, asset.assetName, asset.categoryName || '',
-        asset.unit || '台', asset.quantity || 1, asset.remainingQuantity || 1, asset.unitPrice || asset.originalValue,
-        asset.originalValue, asset.salvageValue || 0, asset.depreciableValue || asset.originalValue,
-        asset.accumulatedDepreciation || 0, asset.netValue || asset.originalValue,
-        asset.depreciationMethod || 'straight-line', asset.usefulLifeYears || 10,
-        asset.usefulLifeMonths || 120, asset.remainingDepreciationMonths || asset.usefulLifeMonths || 120,
-        asset.acquisitionDate || '', asset.status || 'active', asset.accountingStatus || 'accounted',
-        asset.acquisitionType || 'opening_balance', asset.isOpeningBalance ? 1 : 0,
-        asset.initialAccumulatedDepreciation || 0,
-        asset.createTime || new Date().toISOString(), asset.updateTime || new Date().toISOString(),
-      ]);
-      stmt.free();
-      await this.persist();
+      await saveFixedAssetRecord({
+        db: this.dbInstance!,
+        accountSetId: this.accountSetId,
+        asset,
+        persist: () => this.persist(),
+      });
     } catch (error) {
       console.error('Save fixed asset failed:', error);
       throw error;
@@ -3143,352 +2620,115 @@ class SQLiteService {
 
   async getAllPartners(): Promise<Partner[]> {
     await this.ensureInitialized();
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM partners WHERE accountSetId = ? ORDER BY code`,
-      [this.accountSetId]
-    );
-
-    return results.map(result => {
-      // Convert type string to booleans for Type
-      const isCustomer = result.type === 'customer' || result.type === 'both';
-      const isSupplier = result.type === 'supplier' || result.type === 'both';
-      const isEmployee = result.type === 'employee';
-
-      return {
-        id: result.id,
-        code: result.code,
-        name: result.name,
-        isCustomer,
-        isSupplier,
-        isEmployee,
-        contact: result.contact,
-        phone: result.phone,
-        email: result.email,
-        address: result.address,
-        taxNumber: result.taxNo,
-        bankAccount: result.bankAccount,
-        defaultSubjectCode: result.defaultSubjectCode || undefined,
-        defaultSubjectName: result.defaultSubjectName || undefined,
-        departmentCode: result.departmentCode || undefined,
-        departmentName: result.departmentName || undefined,
-        paymentTermDays: result.paymentTermDays !== null && result.paymentTermDays !== undefined ? Number(result.paymentTermDays) : undefined,
-        payrollSalaryExpenseSubjectCode: result.payrollSalaryExpenseSubjectCode || undefined,
-        payrollSalaryExpenseSubjectName: result.payrollSalaryExpenseSubjectName || undefined,
-        payrollContributionExpenseSubjectCode: result.payrollContributionExpenseSubjectCode || undefined,
-        payrollContributionExpenseSubjectName: result.payrollContributionExpenseSubjectName || undefined,
-        payrollSalaryPayableSubjectCode: result.payrollSalaryPayableSubjectCode || undefined,
-        payrollSalaryPayableSubjectName: result.payrollSalaryPayableSubjectName || undefined,
-        payrollTaxPayableSubjectCode: result.payrollTaxPayableSubjectCode || undefined,
-        payrollTaxPayableSubjectName: result.payrollTaxPayableSubjectName || undefined,
-        payrollEmployeeContributionPayableSubjectCode: result.payrollEmployeeContributionPayableSubjectCode || undefined,
-        payrollEmployeeContributionPayableSubjectName: result.payrollEmployeeContributionPayableSubjectName || undefined,
-        payrollEmployerContributionPayableSubjectCode: result.payrollEmployerContributionPayableSubjectCode || undefined,
-        payrollEmployerContributionPayableSubjectName: result.payrollEmployerContributionPayableSubjectName || undefined,
-        payrollDepartmentName: result.payrollDepartmentName || undefined,
-        payrollProjectName: result.payrollProjectName || undefined,
-        payrollCostCenterName: result.payrollCostCenterName || undefined,
-        frozen: result.enabled === 0,
-        createTime: result.createTime,
-        updateTime: result.updateTime,
-        accountSetId: result.accountSetId
-      };
-    });
+    return await listPartners(this.getPartnerQueryService(), this.accountSetId);
   }
 
   async getPartnerByCode(code: string): Promise<Partner | undefined> {
     await this.ensureInitialized();
-    return await this.querySingleAsync<Partner>(
-      `SELECT * FROM partners WHERE accountSetId = ? AND code = ?`,
-      [this.accountSetId, code]
-    );
+    return await findPartnerByCode(this.getPartnerQueryService(), this.accountSetId, code);
   }
 
   async getPartnerByName(name: string): Promise<Partner | undefined> {
     await this.ensureInitialized();
-    return await this.querySingleAsync<Partner>(
-      `SELECT * FROM partners WHERE accountSetId = ? AND name = ?`,
-      [this.accountSetId, name]
-    );
+    return await findPartnerByName(this.getPartnerQueryService(), this.accountSetId, name);
   }
 
-  async addPartner(partner: { id: string; name: string; code: string; type: string; isSupplier?: boolean; isCustomer?: boolean; contact?: string; phone?: string; email?: string; address?: string; taxNo?: string; bankAccount?: string; departmentCode?: string; departmentName?: string; paymentTermDays?: number; payrollSalaryExpenseSubjectCode?: string; payrollSalaryExpenseSubjectName?: string; payrollContributionExpenseSubjectCode?: string; payrollContributionExpenseSubjectName?: string; payrollSalaryPayableSubjectCode?: string; payrollSalaryPayableSubjectName?: string; payrollTaxPayableSubjectCode?: string; payrollTaxPayableSubjectName?: string; payrollEmployeeContributionPayableSubjectCode?: string; payrollEmployeeContributionPayableSubjectName?: string; payrollEmployerContributionPayableSubjectCode?: string; payrollEmployerContributionPayableSubjectName?: string; payrollDepartmentName?: string; payrollProjectName?: string; payrollCostCenterName?: string; remark?: string; accountSetId?: string; createTime?: string; updateTime?: string }): Promise<void> {
+  async addPartner(partner: PartnerInsertInput): Promise<void> {
     await this.ensureInitialized();
-    const now = new Date().toISOString();
-    const accountSetId = partner.accountSetId || this.accountSetId;
-    let typeValue = partner.type;
-    if (!typeValue) {
-      if (partner.isSupplier && partner.isCustomer) typeValue = 'both';
-      else if (partner.isSupplier) typeValue = 'supplier';
-      else if (partner.isCustomer) typeValue = 'customer';
-      else typeValue = 'other';
-    }
-    const stmt = this.dbInstance.prepare(
-      `INSERT OR REPLACE INTO partners (
-         id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled,
-         departmentCode, departmentName, paymentTermDays,
-         payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
-         payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
-         payrollSalaryPayableSubjectCode, payrollSalaryPayableSubjectName,
-         payrollTaxPayableSubjectCode, payrollTaxPayableSubjectName,
-         payrollEmployeeContributionPayableSubjectCode, payrollEmployeeContributionPayableSubjectName,
-         payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
-         payrollDepartmentName, payrollProjectName, payrollCostCenterName,
-         accountSetId, createTime, updateTime
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    stmt.run([
-      partner.id, partner.code, partner.name, typeValue,
-      partner.contact || '', partner.phone || '', partner.email || '', partner.address || '',
-      partner.taxNo || '', partner.bankAccount || '', 1,
-      partner.departmentCode || '', partner.departmentName || '', partner.paymentTermDays || null,
-      partner.payrollSalaryExpenseSubjectCode || '', partner.payrollSalaryExpenseSubjectName || '',
-      partner.payrollContributionExpenseSubjectCode || '', partner.payrollContributionExpenseSubjectName || '',
-      partner.payrollSalaryPayableSubjectCode || '', partner.payrollSalaryPayableSubjectName || '',
-      partner.payrollTaxPayableSubjectCode || '', partner.payrollTaxPayableSubjectName || '',
-      partner.payrollEmployeeContributionPayableSubjectCode || '', partner.payrollEmployeeContributionPayableSubjectName || '',
-      partner.payrollEmployerContributionPayableSubjectCode || '', partner.payrollEmployerContributionPayableSubjectName || '',
-      partner.payrollDepartmentName || '', partner.payrollProjectName || '', partner.payrollCostCenterName || '',
-      accountSetId,
-      partner.createTime || now, partner.updateTime || now
-    ]);
-    stmt.free();
-    await this.persist();
+    await insertPartnerRecord({
+      db: this.dbInstance!,
+      partner,
+      accountSetId: this.accountSetId,
+      now: new Date().toISOString(),
+      persist: () => this.persist(),
+    });
   }
 
   // ========== 凭证模板操作 ==========
 
   async saveVoucherTemplates(templates: VoucherTemplate[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const template of templates) {
-        const templateWithAccountSet = { ...template, accountSetId: this.accountSetId } as any;
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO voucherTemplates (
-            id, name, description, entries, validations, variables,
-            isSystem, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          templateWithAccountSet.id,
-          templateWithAccountSet.name,
-          templateWithAccountSet.description || '',
-          JSON.stringify(templateWithAccountSet.entries || []),
-          JSON.stringify(templateWithAccountSet.validations || []),
-          JSON.stringify(templateWithAccountSet.variables || []),
-          templateWithAccountSet.isSystem !== undefined ? Number(templateWithAccountSet.isSystem) : 0,
-          templateWithAccountSet.accountSetId,
-          templateWithAccountSet.createTime || now,
-          templateWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Save voucher templates failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveVoucherTemplatesRecord({
+      db: this.dbInstance,
+      templates,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getAllVoucherTemplates(): Promise<VoucherTemplate[]> {
     await this.ensureInitialized();
-    const templates = await this.queryAllAsync<any>(
-      `SELECT * FROM voucherTemplates WHERE accountSetId = ?`,
-      [this.accountSetId]
-    );
-    return templates.map((template: any) => ({
-      ...template,
-      entries: template.entries ? JSON.parse(template.entries) : [],
-      validations: template.validations ? JSON.parse(template.validations) : [],
-      variables: template.variables ? JSON.parse(template.variables) : [],
-      isSystem: Boolean(template.isSystem)
-    }));
+    return listVoucherTemplates(this.getSimpleQueryService(), this.accountSetId) as Promise<VoucherTemplate[]>;
   }
 
   async getVoucherTemplateById(id: string): Promise<VoucherTemplate | undefined> {
     await this.ensureInitialized();
-    const template = await this.querySingleAsync<any>(
-      `SELECT * FROM voucherTemplates WHERE id = ? AND accountSetId = ?`,
-      [id, this.accountSetId]
-    );
-    if (!template) return undefined;
-    return {
-      ...template,
-      entries: template.entries ? JSON.parse(template.entries) : [],
-      validations: template.validations ? JSON.parse(template.validations) : [],
-      variables: template.variables ? JSON.parse(template.variables) : [],
-      isSystem: Boolean(template.isSystem)
-    };
+    return findVoucherTemplateById(this.getSimpleQueryService(), this.accountSetId, id) as Promise<VoucherTemplate | undefined>;
   }
 
   // ========== 常用摘要操作 ==========
 
   async saveCommonSummaries(summaries: CommonSummary[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const summary of summaries) {
-        const summaryWithAccountSet = { ...summary, accountSetId: this.accountSetId } as any;
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO commonSummaries (
-            id, content, frequency, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          summaryWithAccountSet.id,
-          summaryWithAccountSet.text || summaryWithAccountSet.content || '',
-          summaryWithAccountSet.sortOrder || summaryWithAccountSet.frequency || 0,
-          summaryWithAccountSet.accountSetId,
-          summaryWithAccountSet.createTime || now,
-          summaryWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Save common summaries failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveCommonSummariesRecord({
+      db: this.dbInstance,
+      summaries,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getAllCommonSummaries(): Promise<CommonSummary[]> {
     await this.ensureInitialized();
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM commonSummaries WHERE accountSetId = ? ORDER BY frequency DESC`,
-      [this.accountSetId]
-    );
-
-    return results.map(result => ({
-      id: result.id,
-      text: result.content, // Map DB content to type text
-      sortOrder: result.frequency, // Map DB frequency to type sortOrder
-      createTime: result.createTime,
-      updateTime: result.updateTime,
-      accountSetId: result.accountSetId
-    }));
+    return listCommonSummaries(this.getSimpleQueryService(), this.accountSetId);
   }
 
   // ========== 用户偏好操作 ==========
 
   async savePreference(preference: UserPreference): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      const prefWithAccountSet = { ...preference, accountSetId: this.accountSetId } as any;
-      const stmt = this.dbInstance.prepare(`
-        INSERT OR REPLACE INTO userPreferences (
-          id, userId, type, key, value, accountSetId, createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        prefWithAccountSet.id,
-        prefWithAccountSet.userId || 'current-user',
-        prefWithAccountSet.type,
-        prefWithAccountSet.key,
-        JSON.stringify(prefWithAccountSet.value),
-        prefWithAccountSet.accountSetId,
-        prefWithAccountSet.createTime || now,
-        prefWithAccountSet.updateTime || now
-      ]);
-      stmt.free();
-    } catch (error) {
-      console.error('Save preference failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await savePreferenceRecord({
+      db: this.dbInstance,
+      preference,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getPreferencesByUser(userId: string): Promise<UserPreference[]> {
     await this.ensureInitialized();
-    const prefs = await this.queryAllAsync<any>(
-      `SELECT * FROM userPreferences WHERE accountSetId = ? AND userId = ?`,
-      [this.accountSetId, userId]
-    );
-    return prefs.map((pref: any) => ({
-      ...pref,
-      value: pref.value ? JSON.parse(pref.value) : null
-    }));
+    return listPreferencesByUser(this.getSimpleQueryService(), this.accountSetId, userId);
   }
 
   // ========== 审计日志操作 ==========
 
   async addAuditLog(log: AuditLog): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const logWithAccountSet = { ...log, accountSetId: this.accountSetId };
-      const stmt = this.dbInstance.prepare(`
-        INSERT INTO auditLogs (
-          id, type, entityType, entityId, details, userId, timestamp, accountSetId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        logWithAccountSet.id,
-        logWithAccountSet.type,
-        logWithAccountSet.entityType,
-        logWithAccountSet.entityId,
-        JSON.stringify(logWithAccountSet.details),
-        logWithAccountSet.userId,
-        logWithAccountSet.timestamp,
-        logWithAccountSet.accountSetId
-      ]);
-      stmt.free();
-      await this.persist();
-    } catch (error) {
-      console.error('Add audit log failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await addAuditLogRecord({
+      db: this.dbInstance,
+      log,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getAuditLogs(limit = 100): Promise<AuditLog[]> {
     await this.ensureInitialized();
-    const logs = await this.queryAllAsync<any>(
-      `SELECT * FROM auditLogs WHERE accountSetId = ? ORDER BY timestamp DESC LIMIT ?`,
-      [this.accountSetId, limit]
-    );
-    return logs.map((log: any) => ({
-      ...log,
-      details: log.details ? JSON.parse(log.details) : {}
-    }));
+    return listAuditLogs(this.getSimpleQueryService(), this.accountSetId, limit);
   }
 
   // ========== 数据导出/导入 ==========
 
   async exportData() {
     await this.ensureInitialized();
-    const db = this.dbInstance;
-    const data: any = {};
-
-    // 导出 vouchers
-    const vouchers = await this.queryAllAsync<any>(`SELECT * FROM vouchers WHERE accountSetId = ?`, [this._accountSetId]);
-    data.vouchers = vouchers;
-
-    // 导出 entries
-    const entries = await this.queryAllAsync<any>(`SELECT * FROM entries WHERE accountSetId = ?`, [this._accountSetId]);
-    data.entries = entries;
-
-    // 导出其他表
-    data.subjects = await this.queryAllAsync<any>(`SELECT * FROM subjects WHERE accountSetId = ?`, [this._accountSetId]);
-    data.departments = await this.queryAllAsync<any>(`SELECT * FROM departments WHERE accountSetId = ?`, [this._accountSetId]);
-    data.projects = await this.queryAllAsync<any>(`SELECT * FROM projects WHERE accountSetId = ?`, [this._accountSetId]);
-    data.currencies = await this.queryAllAsync<any>(`SELECT * FROM currencies WHERE accountSetId = ?`, [this._accountSetId]);
-    data.fxRates = await this.queryAllAsync<any>(`SELECT * FROM fxRates WHERE accountSetId = ?`, [this._accountSetId]);
-    data.partners = await this.queryAllAsync<any>(`SELECT * FROM partners WHERE accountSetId = ?`, [this._accountSetId]);
-    data.voucherTemplates = await this.queryAllAsync<any>(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [this._accountSetId]);
-    data.commonSummaries = await this.queryAllAsync<any>(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [this._accountSetId]);
-    data.userPreferences = await this.queryAllAsync<any>(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [this._accountSetId]);
-    data.auditLogs = await this.queryAllAsync<any>(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [this._accountSetId]);
-    data.recRelations = await this.queryAllAsync<any>(`SELECT * FROM recRelations WHERE accountSetId = ?`, [this._accountSetId]);
-    data.fxRevaluationRuns = await this.queryAllAsync<any>(`SELECT * FROM fxRevaluationRuns WHERE accountSetId = ?`, [this._accountSetId]);
-    data.fxRevaluationRunLines = await this.queryAllAsync<any>(`SELECT * FROM fxRevaluationRunLines WHERE accountSetId = ?`, [this._accountSetId]);
-
-    return data;
+    return exportAccountSetData(this.getSimpleQueryService(), this._accountSetId);
   }
 
   async importData(data: any) {
     await this.ensureInitialized();
-    const db = this.dbInstance;
-
-    // 清空当前账套的旧数据
     await this.clearAllData();
 
-    // 导入 vouchers
     if (data.vouchers && Array.isArray(data.vouchers)) {
       for (const voucher of data.vouchers) {
         if (voucher.accountSetId === this._accountSetId) {
@@ -3496,8 +2736,6 @@ class SQLiteService {
         }
       }
     }
-
-    // 导入其他表数据
     if (data.subjects && Array.isArray(data.subjects)) {
       await this.saveSubjects(data.subjects.filter((s: any) => s.accountSetId === this._accountSetId));
     }
@@ -3526,58 +2764,18 @@ class SQLiteService {
       await this.saveRecRelations(data.recRelations.filter((s: any) => s.accountSetId === this._accountSetId));
     }
     if (data.fxRevaluationRuns && Array.isArray(data.fxRevaluationRuns)) {
-      const db = this.dbInstance;
-      for (const run of data.fxRevaluationRuns.filter((s: any) => s.accountSetId === this._accountSetId)) {
-        const stmt = db.prepare(`
-          INSERT OR REPLACE INTO fxRevaluationRuns (
-            id, accountSetId, period, baseCurrency, status, scope, revaluationDate,
-            createdBy, notes, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          run.id,
-          run.accountSetId || this._accountSetId,
-          run.period,
-          run.baseCurrency || 'CNY',
-          run.status,
-          run.scope,
-          run.revaluationDate,
-          run.createdBy || null,
-          run.notes || null,
-          run.createTime || new Date().toISOString(),
-          run.updateTime || new Date().toISOString(),
-        ]);
-        stmt.free();
-      }
+      await importFxRevaluationRunsRecord({
+        db: this.dbInstance,
+        runs: data.fxRevaluationRuns.filter((s: any) => s.accountSetId === this._accountSetId),
+        accountSetId: this._accountSetId,
+      });
     }
     if (data.fxRevaluationRunLines && Array.isArray(data.fxRevaluationRunLines)) {
-      const db = this.dbInstance;
-      for (const line of data.fxRevaluationRunLines.filter((s: any) => s.accountSetId === this._accountSetId)) {
-        const stmt = db.prepare(`
-          INSERT OR REPLACE INTO fxRevaluationRunLines (
-            id, runId, accountSetId, sourceType, sourceId, sourceNo, currencyCode,
-            baseCurrency, originalAmount, originalRate, revaluedAmount, gainLossAmount,
-            rateDate, createTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          line.id,
-          line.runId,
-          line.accountSetId || this._accountSetId,
-          line.sourceType,
-          line.sourceId,
-          line.sourceNo || null,
-          line.currencyCode,
-          line.baseCurrency || 'CNY',
-          line.originalAmount,
-          line.originalRate ?? null,
-          line.revaluedAmount,
-          line.gainLossAmount,
-          line.rateDate || null,
-          line.createTime || new Date().toISOString(),
-        ]);
-        stmt.free();
-      }
+      await importFxRevaluationRunLinesRecord({
+        db: this.dbInstance,
+        lines: data.fxRevaluationRunLines.filter((s: any) => s.accountSetId === this._accountSetId),
+        accountSetId: this._accountSetId,
+      });
     }
 
     console.log('Data imported successfully for account set:', this._accountSetId);
@@ -3592,40 +2790,31 @@ class SQLiteService {
           await this.saveVoucher(voucher);
         }
       }
-
       if (store.subjects) {
         await this.saveSubjects(store.subjects);
       }
-
       if (store.departments) {
         await this.saveDepartments(store.departments);
       }
-
       if (store.projects) {
         await this.saveProjects(store.projects);
       }
-
       if (store.currencies) {
         await this.saveCurrencies(store.currencies);
       }
-
       if (store.partners) {
         await this.savePartners(store.partners);
       }
-
       if (store.voucherTemplates) {
         await this.saveVoucherTemplates(store.voucherTemplates);
       }
-
       if (store.commonSummaries) {
         await this.saveCommonSummaries(store.commonSummaries);
       }
-
       if (store.recRelations) {
         await this.saveRecRelations(store.recRelations);
       }
     }
-
     console.log('All data synchronized to SQLite');
   }
 
@@ -3636,237 +2825,66 @@ class SQLiteService {
   // ========== 核销关系操作 ==========
 
   async saveRecRelations(relations: any[]): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      for (const relation of relations) {
-        const relationWithAccountSet = { ...relation, accountSetId: this.accountSetId };
-        const stmt = this.dbInstance.prepare(`
-          INSERT OR REPLACE INTO recRelations (
-            id, recRefNo, debitEntryId, creditEntryId, amount, recDate,
-            partnerName, accountSetId, createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run([
-          relationWithAccountSet.id,
-          relationWithAccountSet.recRefNo || '',
-          relationWithAccountSet.debitEntryId,
-          relationWithAccountSet.creditEntryId,
-          relationWithAccountSet.amount || 0,
-          relationWithAccountSet.recDate || new Date().toISOString().split('T')[0],
-          relationWithAccountSet.partnerName || '',
-          relationWithAccountSet.accountSetId,
-          relationWithAccountSet.createTime || now,
-          relationWithAccountSet.updateTime || now
-        ]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Save rec relations failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveRecRelationsRecord({
+      db: this.dbInstance,
+      relations,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async saveRecRelation(relation: any): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const now = new Date().toISOString();
-      const relationWithAccountSet = { ...relation, accountSetId: this.accountSetId };
-      const stmt = this.dbInstance.prepare(`
-        INSERT OR REPLACE INTO recRelations (
-          id, recRefNo, debitEntryId, creditEntryId, amount, recDate,
-          partnerName, accountSetId, createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        relationWithAccountSet.id,
-        relationWithAccountSet.recRefNo || '',
-        relationWithAccountSet.debitEntryId,
-        relationWithAccountSet.creditEntryId,
-        relationWithAccountSet.amount || 0,
-        relationWithAccountSet.recDate || new Date().toISOString().split('T')[0],
-        relationWithAccountSet.partnerName || '',
-        relationWithAccountSet.accountSetId,
-        relationWithAccountSet.createTime || now,
-        relationWithAccountSet.updateTime || now
-      ]);
-      stmt.free();
-    } catch (error) {
-      console.error('Save rec relation failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await saveRecRelationRecord({
+      db: this.dbInstance,
+      relation,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getRecRelations(): Promise<any[]> {
     await this.ensureInitialized();
-    return await this.queryAllAsync<any>(
-      `SELECT * FROM recRelations WHERE accountSetId = ?`,
-      [this.accountSetId]
-    );
+    return listRecRelations(this.getReconciliationQueryService(), this.accountSetId);
   }
 
   async updateEntryRecRefNo(entryId: string, recRefNo: string): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      const stmt = this.dbInstance.prepare(
-        `UPDATE entries SET recRefNo = ? WHERE id = ? AND accountSetId = ?`
-      );
-      stmt.run([recRefNo, entryId, this.accountSetId]);
-      stmt.free();
-    } catch (error) {
-      console.error('Update entry recRefNo failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await updateEntryRecRefNoRecord({
+      db: this.dbInstance,
+      entryId,
+      recRefNo,
+      accountSetId: this.accountSetId,
+    });
   }
 
   async getRecRelationsByRecRefNo(recRefNo: string): Promise<any[]> {
     await this.ensureInitialized();
-    return await this.queryAllAsync<any>(
-      `SELECT * FROM recRelations WHERE recRefNo = ? AND accountSetId = ?`,
-      [recRefNo, this.accountSetId]
-    );
+    return findRecByRefNo(this.getReconciliationQueryService(), this.accountSetId, recRefNo);
   }
 
   async getRecRelationsByEntryId(entryId: string): Promise<any[]> {
     await this.ensureInitialized();
-    const debitRelations = await this.queryAllAsync<any>(
-      `SELECT * FROM recRelations WHERE debitEntryId = ? AND accountSetId = ?`,
-      [entryId, this.accountSetId]
-    );
-    const creditRelations = await this.queryAllAsync<any>(
-      `SELECT * FROM recRelations WHERE creditEntryId = ? AND accountSetId = ?`,
-      [entryId, this.accountSetId]
-    );
-    return [...debitRelations, ...creditRelations];
+    return findRecByEntryId(this.getReconciliationQueryService(), this.accountSetId, entryId);
   }
 
   async getOutstandingItems(query: any): Promise<any[]> {
-    console.log('getOutstandingItems called with query:', query);
-
-    if (!query.partnerName) {
-      return [];
-    }
-
     await this.ensureInitialized();
-    const allEntries = await this.queryAllAsync<any>(
-      `SELECT * FROM entries WHERE accountSetId = ?`,
-      [this.accountSetId]
-    );
-
-    console.log('All entries count:', allEntries.length);
-
-    // Filter partner entries
-    let partnerEntries = allEntries.filter((entry: any) => {
-      const matches =
-        entry.customerName === query.partnerName ||
-        entry.supplierName === query.partnerName ||
-        (entry.auxiliary?.customer === query.partnerName) ||
-        (entry.auxiliary?.supplier === query.partnerName);
-      return matches;
-    });
-
-    console.log('Partner entries after filter:', partnerEntries.length);
-
-    // Subject code filter
-    if (query.subjectCode) {
-      partnerEntries = partnerEntries.filter((entry: any) =>
-        entry.subjectCode === query.subjectCode
-      );
-    }
-
-    // Date range filter
-    if (query.startDate && query.endDate) {
-      partnerEntries = partnerEntries.filter((entry: any) =>
-        entry.date >= query.startDate && entry.date <= query.endDate
-      );
-    }
-
-    const outstandingItems: any[] = [];
-
-    for (const entry of partnerEntries) {
-      console.log('Processing entry:', entry.id, entry.summary);
-
-      const relations = await this.getRecRelationsByEntryId(entry.id);
-      console.log('Rec relations for entry:', entry.id, relations);
-
-      const totalRecAmount = relations.reduce((sum: number, rel: any) => {
-        return sum + rel.amount;
-      }, 0);
-
-      console.log('Total rec amount:', totalRecAmount);
-
-      const entryAmount = entry.debit > 0 ? entry.debit : entry.credit;
-      const remainingAmount = entryAmount - totalRecAmount;
-
-      console.log('Entry amount:', entryAmount, 'Remaining:', remainingAmount);
-
-      if (remainingAmount > 0.001) { // Consider floating point errors
-        if (query.amountRange) {
-          if (remainingAmount < query.amountRange[0] || remainingAmount > query.amountRange[1]) {
-            continue;
-          }
-        }
-
-        const item = {
-          entryId: entry.id,
-          voucherNo: entry.voucherNo || '未知凭证',
-          docNo: entry.docNo || '',
-          date: entry.date,
-          summary: entry.summary,
-          amount: entryAmount,
-          remainingAmount: remainingAmount,
-          direction: entry.debit > 0 ? 'debit' as const : 'credit' as const,
-          partnerName: entry.customerName || entry.supplierName || query.partnerName
-        };
-
-        console.log('Adding outstanding item:', item);
-        outstandingItems.push(item);
-      }
-    }
-
-    console.log('Final outstanding items:', outstandingItems);
-    return outstandingItems;
+    return getOutstanding(this.getReconciliationQueryService(), this.accountSetId, query);
   }
 
   async calculatePartnerBalance(partnerName: string): Promise<number> {
     await this.ensureInitialized();
-    const outstandingItems = await this.getOutstandingItems({
-      partnerName,
-      subjectCode: '',
-      startDate: '',
-      endDate: '',
-      amountRange: [0, Infinity]
-    });
-
-    const debitSum = outstandingItems
-      .filter(item => item.direction === 'debit')
-      .reduce((sum: number, item: any) => sum + item.remainingAmount, 0);
-
-    const creditSum = outstandingItems
-      .filter(item => item.direction === 'credit')
-      .reduce((sum: number, item: any) => sum + item.remainingAmount, 0);
-
-    return debitSum - creditSum;
+    return calcPartnerBalance(this.getReconciliationQueryService(), this.accountSetId, partnerName);
   }
 
   // ========== 数据完整性检查 ==========
 
   async checkDataIntegrity() {
     await this.ensureInitialized();
-    const counts: any = {};
-    counts.vouchers = (await this.queryAllAsync<any>(`SELECT * FROM vouchers WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.entries = (await this.queryAllAsync<any>(`SELECT * FROM entries WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.subjects = (await this.queryAllAsync<any>(`SELECT * FROM subjects WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.departments = (await this.queryAllAsync<any>(`SELECT * FROM departments WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.projects = (await this.queryAllAsync<any>(`SELECT * FROM projects WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.currencies = (await this.queryAllAsync<any>(`SELECT * FROM currencies WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.partners = (await this.queryAllAsync<any>(`SELECT * FROM partners WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.voucherTemplates = (await this.queryAllAsync<any>(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.commonSummaries = (await this.queryAllAsync<any>(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.userPreferences = (await this.queryAllAsync<any>(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.auditLogs = (await this.queryAllAsync<any>(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [this.accountSetId])).length;
-    counts.recRelations = (await this.queryAllAsync<any>(`SELECT * FROM recRelations WHERE accountSetId = ?`, [this.accountSetId])).length;
-
+    const counts = await checkDataIntegrityQuery(this.getSimpleQueryService(), this.accountSetId);
     console.log('Data integrity check:', counts);
     return counts;
   }
@@ -3874,158 +2892,81 @@ class SQLiteService {
   // ========== 清空数据 ==========
 
   async clearAllData() {
-    try {
-      await this.ensureInitialized();
-      // Clear vouchers and entries
-      const deleteEntriesStmt = this.dbInstance.prepare(`DELETE FROM entries WHERE accountSetId = ?`);
-      deleteEntriesStmt.run([this.accountSetId]);
-      deleteEntriesStmt.free();
-
-      const deleteVouchersStmt = this.dbInstance.prepare(`DELETE FROM vouchers WHERE accountSetId = ?`);
-      deleteVouchersStmt.run([this.accountSetId]);
-      deleteVouchersStmt.free();
-
-      // Clear other tables
-      const tables = ['subjects', 'departments', 'projects', 'currencies', 'fxRates',
-                     'fxRevaluationRuns', 'fxRevaluationRunLines', 'partners',
-                     'voucherTemplates', 'commonSummaries', 'userPreferences',
-                     'auditLogs', 'recRelations', 'bankTransactions', 'bank_account_bindings'];
-
-      for (const table of tables) {
-        const stmt = this.dbInstance.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
-        stmt.run([this.accountSetId]);
-        stmt.free();
-      }
-    } catch (error) {
-      console.error('Clear all data failed:', error);
-      throw error;
-    }
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await clearAllDataRecord(this.dbInstance, this.accountSetId);
   }
 
   // ========== 银行流水操作 ==========
 
-  async saveBankTransaction(transaction: any): Promise<void> {
+  async saveBankTransaction(transaction: BankTransactionSaveInput): Promise<void> {
     try {
       await this.ensureInitialized();
-      const now = new Date().toISOString();
-      const txWithAccountSet = { ...transaction, accountSetId: this.accountSetId };
-
-      const stmt = this.dbInstance.prepare(`
-        INSERT OR REPLACE INTO bankTransactions (
-          id, date, transactionTime, voucherType, voucherNo, debit, credit, balance,
-          cashRemitFlag, counterpartyName, counterpartyAccount, summary, notes,
-          transactionSerialNo, enterpriseSerialNo, ourAccount, ourAccountName, ourBranch,
-          rowNumber, status, matchedSubject, matchedSubjectName, confidence,
-          bankAccountId, importBatchId, voucherId, generatedVoucherNo,
-          exchangeRate, originalAmount,
-          source,
-          accountSetId, createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run([
-        txWithAccountSet.id,
-        txWithAccountSet.date || '',
-        txWithAccountSet.transactionTime || '',
-        txWithAccountSet.voucherType || '',
-        txWithAccountSet.voucherNo || '',
-        txWithAccountSet.debit || 0,
-        txWithAccountSet.credit || 0,
-        txWithAccountSet.balance || 0,
-        txWithAccountSet.cashRemitFlag || '',
-        txWithAccountSet.counterpartyName || '',
-        txWithAccountSet.counterpartyAccount || '',
-        txWithAccountSet.summary || '',
-        txWithAccountSet.notes || '',
-        txWithAccountSet.transactionSerialNo || '',
-        txWithAccountSet.enterpriseSerialNo || '',
-        txWithAccountSet.ourAccount || '',
-        txWithAccountSet.ourAccountName || '',
-        txWithAccountSet.ourBranch || '',
-        txWithAccountSet.rowNumber || 0,
-        txWithAccountSet.status || 'pending',
-        txWithAccountSet.matchedSubject || '',
-        txWithAccountSet.matchedSubjectName || '',
-        txWithAccountSet.confidence || 0,
-        txWithAccountSet.bankAccountId || '',
-        txWithAccountSet.importBatchId || '',
-        txWithAccountSet.voucherId || '',
-        txWithAccountSet.generatedVoucherNo || '',
-        txWithAccountSet.exchangeRate || null,
-        txWithAccountSet.originalAmount || null,
-        txWithAccountSet.source || 'import',
-        txWithAccountSet.accountSetId,
-        txWithAccountSet.createTime || now,
-        txWithAccountSet.updateTime || now
-      ]);
-      stmt.free();
+      await saveBankTransactionRecord({
+        db: this.dbInstance!,
+        accountSetId: this.accountSetId,
+        transaction,
+        persist: () => this.persist(),
+      });
     } catch (error) {
       console.error('Save bank transaction failed:', error);
       throw error;
     }
   }
 
-  async saveBankTransactions(transactions: any[]): Promise<void> {
-    for (const tx of transactions) {
-      await this.saveBankTransaction(tx);
-    }
-    await this.persist();
-  }
-
-  async getBankTransaction(id: string): Promise<any | undefined> {
-    await this.ensureInitialized();
-    return await this.querySingleAsync<any>(
-      `SELECT * FROM bankTransactions WHERE id = ? AND accountSetId = ?`,
-      [id, this.accountSetId]
-    );
-  }
-
-  async getAllBankTransactions(): Promise<any[]> {
-    await this.ensureInitialized();
-    return await this.queryAllAsync<any>(
-      `SELECT * FROM bankTransactions WHERE accountSetId = ? ORDER BY date DESC, rowNumber ASC`,
-      [this.accountSetId]
-    );
-  }
-
-  async getBankTransactionsByStatus(status: 'pending' | 'matched' | 'voucher_generated'): Promise<any[]> {
-    await this.ensureInitialized();
-    return await this.queryAllAsync<any>(
-      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND status = ? ORDER BY date DESC`,
-      [this.accountSetId, status]
-    );
-  }
-
-  async getBankTransactionsByDateRange(startDate: string, endDate: string): Promise<any[]> {
-    await this.ensureInitialized();
-    return await this.queryAllAsync<any>(
-      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
-      [this.accountSetId, startDate, endDate]
-    );
-  }
-
-  async getBankTransactionsByBatch(batchId: string): Promise<any[]> {
-    await this.ensureInitialized();
-    return await this.queryAllAsync<any>(
-      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND importBatchId = ? ORDER BY rowNumber ASC`,
-      [this.accountSetId, batchId]
-    );
-  }
-
-  async updateBankTransaction(id: string, updates: Partial<any>): Promise<void> {
+  async saveBankTransactions(transactions: BankTransactionSaveInput[]): Promise<void> {
     try {
       await this.ensureInitialized();
-      const now = new Date().toISOString();
-
-      // 构建动态更新语句
-      const updateFields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-      const values = [...Object.values(updates), now, id, this.accountSetId];
-
-      const stmt = this.dbInstance.prepare(
-        `UPDATE bankTransactions SET ${updateFields}, updateTime = ? WHERE id = ? AND accountSetId = ?`
-      );
-      stmt.run(values);
-      stmt.free();
+      for (const tx of transactions) {
+        await saveBankTransactionRecord({
+          db: this.dbInstance!,
+          accountSetId: this.accountSetId,
+          transaction: tx,
+          persist: async () => {},
+        });
+      }
       await this.persist();
+    } catch (error) {
+      console.error('Save bank transactions failed:', error);
+      throw error;
+    }
+  }
+
+  async getBankTransaction(id: string): Promise<BankTransactionRecord | undefined> {
+    await this.ensureInitialized();
+    return await getBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, id);
+  }
+
+  async getAllBankTransactions(): Promise<BankTransactionRecord[]> {
+    await this.ensureInitialized();
+    return await listBankTransactionsRecord(this.getBankTransactionQueryService(), this.accountSetId);
+  }
+
+  async getBankTransactionsByStatus(status: 'pending' | 'matched' | 'voucher_generated'): Promise<BankTransactionRecord[]> {
+    await this.ensureInitialized();
+    return await listBankTransactionsByStatusRecord(this.getBankTransactionQueryService(), this.accountSetId, status);
+  }
+
+  async getBankTransactionsByDateRange(startDate: string, endDate: string): Promise<BankTransactionRecord[]> {
+    await this.ensureInitialized();
+    return await listBankTransactionsByDateRangeRecord(this.getBankTransactionQueryService(), this.accountSetId, startDate, endDate);
+  }
+
+  async getBankTransactionsByBatch(batchId: string): Promise<BankTransactionRecord[]> {
+    await this.ensureInitialized();
+    return await listBankTransactionsByBatchRecord(this.getBankTransactionQueryService(), this.accountSetId, batchId);
+  }
+
+  async updateBankTransaction(id: string, updates: BankTransactionUpdateInput): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      await updateBankTransactionRecord({
+        db: this.dbInstance!,
+        accountSetId: this.accountSetId,
+        id,
+        updates,
+        persist: () => this.persist(),
+      });
     } catch (error) {
       console.error('Update bank transaction failed:', error);
       throw error;
@@ -4033,31 +2974,21 @@ class SQLiteService {
   }
 
   /** 检查流水是否已入账（按 date + voucherNo + transactionSerialNo 去重） */
-  async findPostedBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<any | null> {
+  async findPostedBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<BankTransactionRecord | null> {
     await this.ensureInitialized();
-    const rows = await this.queryAllAsync<any>(
-      `SELECT * FROM bankTransactions WHERE accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? AND status = 'voucher_generated' LIMIT 1`,
-      [this.accountSetId, date, voucherNo, transactionSerialNo]
-    );
-    return rows.length > 0 ? rows[0] : null;
+    return await findPostedBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, date, voucherNo, transactionSerialNo);
   }
 
   /** 检查流水是否已存在（导入去重，不论状态） */
   async existsBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<boolean> {
     await this.ensureInitialized();
-    const rows = await this.queryAllAsync<any>(
-      `SELECT id FROM bankTransactions WHERE accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? LIMIT 1`,
-      [this.accountSetId, date, voucherNo, transactionSerialNo]
-    );
-    return rows.length > 0;
+    return await existsBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, date, voucherNo, transactionSerialNo);
   }
 
   async deleteBankTransaction(id: string): Promise<void> {
     try {
       await this.ensureInitialized();
-      const stmt = this.dbInstance.prepare(`DELETE FROM bankTransactions WHERE id = ? AND accountSetId = ?`);
-      stmt.run([id, this.accountSetId]);
-      stmt.free();
+      await deleteBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, id, () => this.persist());
     } catch (error) {
       console.error('Delete bank transaction failed:', error);
       throw error;
@@ -4067,9 +2998,7 @@ class SQLiteService {
   async deleteBankTransactionsByBatch(batchId: string): Promise<void> {
     try {
       await this.ensureInitialized();
-      const stmt = this.dbInstance.prepare(`DELETE FROM bankTransactions WHERE importBatchId = ? AND accountSetId = ?`);
-      stmt.run([batchId, this.accountSetId]);
-      stmt.free();
+      await deleteBankTransactionsByBatchRecord(this.getBankTransactionQueryService(), this.accountSetId, batchId, () => this.persist());
     } catch (error) {
       console.error('Delete bank transactions by batch failed:', error);
       throw error;
@@ -4079,12 +3008,7 @@ class SQLiteService {
   async clearBankTransactions(): Promise<void> {
     try {
       await this.ensureInitialized();
-      const stmt = this.dbInstance.prepare(
-        `DELETE FROM bankTransactions WHERE accountSetId = ? AND status != 'voucher_generated'`
-      );
-      stmt.run([this.accountSetId]);
-      stmt.free();
-      await this.persist();
+      await clearBankTransactionsRecord(this.getBankTransactionQueryService(), this.accountSetId, () => this.persist());
     } catch (error) {
       console.error('Clear bank transactions failed:', error);
       throw error;
@@ -4092,600 +3016,332 @@ class SQLiteService {
   }
 
   // --- Bank Account Bindings ---
-  async getBankAccountBindings(): Promise<any[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM bank_account_bindings WHERE accountSetId = ? ORDER BY createdAt DESC`,
-      [this.accountSetId]
-    );
-    return (results || []).map(row => ({
-      id: row.id, accountSetId: row.accountSetId, accountNumber: row.accountNumber, bankId: row.bankId,
-      bankName: row.bankName, aliasName: row.aliasName, subSubjectCode: row.subSubjectCode, subSubjectName: row.subSubjectName,
-      branch: row.branch, currency: row.currency, isDefault: !!row.isDefault, createdAt: row.createdAt,
-    }));
+  async getBankAccountBindings(): Promise<BankAccountBinding[]> {
+    await this.ensureInitialized();
+    return await listBankAccountBindings(this.getBankAccountBindingQueryService(), this.accountSetId);
   }
 
-  async saveBankAccountBinding(binding: any): Promise<void> {
-    await this.runAsync(
-      `INSERT OR REPLACE INTO bank_account_bindings
-       (id, accountSetId, accountNumber, bankId, bankName, aliasName, subSubjectCode, subSubjectName, branch, currency, isDefault, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [binding.id, binding.accountSetId, binding.accountNumber, binding.bankId, binding.bankName,
-       binding.aliasName || null, binding.subSubjectCode, binding.subSubjectName,
-       binding.branch || null, binding.currency || null, binding.isDefault ? 1 : 0, binding.createdAt]
-    );
-    await this.persist();
+  async saveBankAccountBinding(binding: BankAccountBinding): Promise<void> {
+    await this.ensureInitialized();
+    await saveBankAccountBindingRecord({
+      db: this.dbInstance!,
+      binding,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteBankAccountBinding(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM bank_account_bindings WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteBankAccountBindingRecord(this.getBankAccountBindingQueryService(), this.accountSetId, id, () => this.persist());
   }
 
-  async findBankAccountBinding(accountNumber: string): Promise<any | null> {
-    const result = await this.querySingleAsync<any>(
-      `SELECT * FROM bank_account_bindings WHERE accountNumber = ? AND accountSetId = ?`,
-      [accountNumber, this.accountSetId]
-    );
-    if (!result) return null;
-    return {
-      id: result.id, accountSetId: result.accountSetId, accountNumber: result.accountNumber, bankId: result.bankId,
-      bankName: result.bankName, aliasName: result.aliasName, subSubjectCode: result.subSubjectCode, subSubjectName: result.subSubjectName,
-      branch: result.branch, currency: result.currency, isDefault: !!result.isDefault, createdAt: result.createdAt,
-    };
+  async findBankAccountBinding(accountNumber: string): Promise<BankAccountBinding | null> {
+    await this.ensureInitialized();
+    return await findBankAccountBindingRecord(this.getBankAccountBindingQueryService(), this.accountSetId, accountNumber);
   }
 
   // --- Custom Bank Configs ---
-  async getCustomBankConfigs(): Promise<any[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM custom_bank_configs WHERE accountSetId = ? ORDER BY createdAt DESC`,
-      [this.accountSetId]
-    );
-    return (results || []).map(row => ({
-      id: row.id, accountSetId: row.accountSetId, name: row.name, config: JSON.parse(row.config),
-      createdAt: row.createdAt, updatedAt: row.updatedAt,
-    }));
+  async getCustomBankConfigs(): Promise<CustomBankConfig[]> {
+    await this.ensureInitialized();
+    return await listCustomBankConfigs(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
-  async saveCustomBankConfig(customConfig: any): Promise<void> {
-    await this.runAsync(
-      `INSERT OR REPLACE INTO custom_bank_configs (id, accountSetId, name, config, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [customConfig.id, customConfig.accountSetId, customConfig.name,
-       JSON.stringify(customConfig.config), customConfig.createdAt, customConfig.updatedAt]
-    );
-    await this.persist();
+  async saveCustomBankConfig(customConfig: CustomBankConfig): Promise<void> {
+    await this.ensureInitialized();
+    await saveCustomBankConfigRecord({
+      db: this.dbInstance!,
+      config: customConfig,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteCustomBankConfig(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM custom_bank_configs WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteCustomBankConfigRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
   }
 
   // ========== 智能规则引擎操作 ==========
 
   // --- Smart Rules ---
   async getSmartRules(): Promise<InvoiceSmartRule[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM invoice_smart_rules WHERE accountSetId = ? ORDER BY priority DESC, name ASC`,
-      [this.accountSetId]
-    );
-    return (results || []).map(row => {
-      try { row.conditions = JSON.parse(row.conditions); } catch { row.conditions = []; }
-      try { row.actions = JSON.parse(row.actions); } catch { row.actions = []; }
-      row.enabled = !!row.enabled;
-      return row as InvoiceSmartRule;
-    });
+    await this.ensureInitialized();
+    return await listSmartRules(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
   async saveSmartRule(rule: InvoiceSmartRule): Promise<void> {
-    const conditions = typeof rule.conditions === 'string' ? rule.conditions : JSON.stringify(rule.conditions || []);
-    const actions = typeof rule.actions === 'string' ? rule.actions : JSON.stringify(rule.actions || []);
-    await this.runAsync(
-      `INSERT OR REPLACE INTO invoice_smart_rules
-        (id, accountSetId, name, invoiceType, priority, conditions, actions, enabled, createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [rule.id, rule.accountSetId || this.accountSetId, rule.name, rule.invoiceType || 'both',
-       rule.priority ?? 50, conditions, actions, rule.enabled !== false ? 1 : 0,
-       rule.createTime || new Date().toISOString(), rule.updateTime || new Date().toISOString()]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await saveSmartRuleRecord({
+      db: this.dbInstance!,
+      rule,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteSmartRule(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM invoice_smart_rules WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteSmartRuleRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
   }
 
   // --- Supplier Subject Mapping ---
   async getSupplierMappings(): Promise<SupplierSubjectMapping[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? ORDER BY groupName, sellerName`,
-      [this.accountSetId]
-    );
-    return (results || []) as SupplierSubjectMapping[];
+    await this.ensureInitialized();
+    return await listSupplierMappings(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
   async getSupplierMappingsByGroup(groupName: string): Promise<SupplierSubjectMapping[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND groupName = ? ORDER BY sellerName`,
-      [this.accountSetId, groupName]
-    );
-    return (results || []) as SupplierSubjectMapping[];
+    await this.ensureInitialized();
+    return await listSupplierMappingsByGroup(this.getInvoiceRuleQueryService(), this.accountSetId, groupName);
   }
 
   async saveSupplierMapping(mapping: SupplierSubjectMapping): Promise<void> {
-    const now = new Date().toISOString();
-    await this.runAsync(
-      `INSERT OR REPLACE INTO supplier_subject_mapping
-        (id, accountSetId, groupName, sellerName,
-         defaultDebitSubject, defaultDebitSubjectName,
-         defaultTaxSubject, defaultTaxSubjectName,
-         defaultCreditSubject, defaultCreditSubjectName,
-         createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [mapping.id, mapping.accountSetId || this.accountSetId,
-       mapping.groupName, mapping.sellerName,
-       mapping.defaultDebitSubject || null, mapping.defaultDebitSubjectName || null,
-       mapping.defaultTaxSubject || null, mapping.defaultTaxSubjectName || null,
-       mapping.defaultCreditSubject || null, mapping.defaultCreditSubjectName || null,
-       mapping.createTime || now, mapping.updateTime || now]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await saveSupplierMappingRecord({
+      db: this.dbInstance!,
+      mapping,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteSupplierMapping(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM supplier_subject_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteSupplierMappingRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
   }
 
   async getSupplierMappingBySellerName(sellerName: string): Promise<SupplierSubjectMapping | null> {
-    const result = await this.querySingleAsync<any>(
-      `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND sellerName = ? LIMIT 1`,
-      [this.accountSetId, sellerName]
-    );
-    return result as SupplierSubjectMapping | null;
+    await this.ensureInitialized();
+    return await findSupplierMappingBySellerName(this.getInvoiceRuleQueryService(), this.accountSetId, sellerName);
   }
 
   // --- Purchase Invoice Rule Config ---
   async getPurchaseInvoiceRuleConfig(): Promise<PurchaseInvoiceRuleConfig> {
-    const result = await this.querySingleAsync<any>(
-      `SELECT * FROM purchase_invoice_rule_config WHERE accountSetId = ?`,
-      [this.accountSetId]
-    );
-    if (result) {
-      const parsedConfig = {
-        id: result.id,
-        accountSetId: result.accountSetId,
-        businessGroups: JSON.parse(result.businessGroups),
-        keywordRules: JSON.parse(result.keywordRules),
-        globalSettings: JSON.parse(result.globalSettings),
-        updateTime: result.updateTime,
-      };
-      return parsedConfig;
+    await this.ensureInitialized();
+    const { config, isDefault } = await getPurchaseInvoiceRuleConfigQuery(this.getInvoiceRuleQueryService(), this.accountSetId);
+    if (isDefault) {
+      await this.savePurchaseInvoiceRuleConfig(config);
     }
-    // 返回默认配置
-    const defaultConfig: PurchaseInvoiceRuleConfig = {
-      id: `pirc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-      accountSetId: this.accountSetId,
-      businessGroups: [
-        { id: 'inventory', name: '库存商品', debitSubject: '1403.02 库存商品', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 100, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['库存', '商品', '存货'], requirePartnerCard: true },
-        { id: 'material', name: '生产材料', debitSubject: '1403.01 原材料', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 90, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['材料', '原料', '配件'], requirePartnerCard: true },
-        { id: 'reimbursement', name: '员工报销', debitSubject: '(匹配关键词)', taxSubject: '', creditSubject: '2241 其他应付款', partnerType: '员工', priority: 80, assetThreshold: 0, isPreset: true, autoTax: false, keywords: ['报销', '差旅', '办公'], requirePartnerCard: false },
-        { id: 'fixed_asset', name: '固定资产', debitSubject: '1601 固定资产', taxSubject: '2221.01.{{税率}}', creditSubject: '2202 应付账款', partnerType: '供应商', priority: 70, assetThreshold: 5000, isPreset: true, autoTax: true, keywords: ['设备', '固定资产', '机器'], requirePartnerCard: true },
-      ],
-      keywordRules: [
-        { id: '1', keywords: '电脑, 服务器', businessGroup: 'fixed_asset', threshold: 5000 },
-        { id: '2', keywords: '滴滴, 打车', businessGroup: 'reimbursement', threshold: 0 },
-      ],
-      globalSettings: {
-        assetThreshold: 5000,
-        autoTaxSubject: true,
-        autoCheckDuplicate: true,
-        autoRecognizeReimburser: true,
-      },
-      updateTime: new Date().toISOString(),
-    };
-    await this.savePurchaseInvoiceRuleConfig(defaultConfig);
-    return defaultConfig;
+    return config;
   }
 
   async savePurchaseInvoiceRuleConfig(config: PurchaseInvoiceRuleConfig): Promise<void> {
-    const now = new Date().toISOString();
-    const values = [
-      config.id,
-      config.accountSetId || this.accountSetId,
-      JSON.stringify(config.businessGroups),
-      JSON.stringify(config.keywordRules),
-      JSON.stringify(config.globalSettings),
-      config.updateTime || now,
-    ];
-    await this.runAsync(
-      `INSERT OR REPLACE INTO purchase_invoice_rule_config
-        (id, accountSetId, businessGroups, keywordRules, globalSettings, updateTime)
-       VALUES (?,?,?,?,?,?)`,
-      values
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await savePurchaseInvoiceRuleConfigRecord({
+      db: this.dbInstance!,
+      config,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   // --- Expense Reimbursement ---
   async getExpenseReimbursements(): Promise<ExpenseReimbursement[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM expense_reimbursement WHERE accountSetId = ? ORDER BY createTime DESC`,
-      [this.accountSetId]
-    );
-    return (results || []) as ExpenseReimbursement[];
+    await this.ensureInitialized();
+    return await listExpenseReimbursements(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
   async saveExpenseReimbursement(record: ExpenseReimbursement): Promise<void> {
-    const now = new Date().toISOString();
-    await this.runAsync(
-      `INSERT OR REPLACE INTO expense_reimbursement
-        (id, accountSetId, invoiceCode, reimburserName, reimburserId, notes, importBatchId, createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [record.id, record.accountSetId || this.accountSetId,
-       record.invoiceCode, record.reimburserName,
-       record.reimburserId || null, record.notes || null, record.importBatchId || null,
-       record.createTime || now, record.updateTime || now]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await saveExpenseReimbursementRecord({
+      db: this.dbInstance!,
+      record,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async updateExpenseReimbursement(id: string, updates: Partial<ExpenseReimbursement>): Promise<void> {
-    const now = new Date().toISOString();
-    const updateFields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-    const values = [...Object.values(updates), now, id, this.accountSetId];
-    await this.runAsync(
-      `UPDATE expense_reimbursement SET ${updateFields}, updateTime = ? WHERE id = ? AND accountSetId = ?`,
-      values
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await updateExpenseReimbursementRecord({
+      db: this.dbInstance!,
+      id,
+      updates,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteExpenseReimbursement(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM expense_reimbursement WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteExpenseReimbursementRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
   }
 
   async clearExpenseReimbursements(): Promise<void> {
-    await this.runAsync(`DELETE FROM expense_reimbursement WHERE accountSetId = ?`, [this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await clearExpenseReimbursementsRecord(this.getInvoiceRuleQueryService(), this.accountSetId, () => this.persist());
   }
 
   // --- Expense Keyword Categories ---
   async getExpenseKeywordCategories(): Promise<ExpenseKeywordCategory[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM expense_keyword_categories WHERE accountSetId = ? ORDER BY category`,
-      [this.accountSetId]
-    );
-    return (results || []).map(row => {
-      try { row.keywords = JSON.parse(row.keywords); } catch { row.keywords = []; }
-      row.isSystem = !!row.isSystem;
-      row.enabled = !!row.enabled;
-      return row as ExpenseKeywordCategory;
-    });
+    await this.ensureInitialized();
+    return await listExpenseKeywordCategories(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
   async saveExpenseKeywordCategory(cat: ExpenseKeywordCategory): Promise<void> {
-    const keywords = typeof cat.keywords === 'string' ? cat.keywords : JSON.stringify(cat.keywords || []);
-    const now = new Date().toISOString();
-    await this.runAsync(
-      `INSERT OR REPLACE INTO expense_keyword_categories
-        (id, accountSetId, category, keywords, expenseSubjectCode, expenseSubjectName,
-         isSystem, enabled, createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [cat.id, cat.accountSetId || this.accountSetId,
-       cat.category, keywords,
-       cat.expenseSubjectCode || null, cat.expenseSubjectName || null,
-       cat.isSystem ? 1 : 0, cat.enabled !== false ? 1 : 0,
-       cat.createTime || now, cat.updateTime || now]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await saveExpenseKeywordCategoryRecord({
+      db: this.dbInstance!,
+      cat,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteExpenseKeywordCategory(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM expense_keyword_categories WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteExpenseKeywordCategoryRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
   }
 
   // --- Auxiliary Strategy ---
   async getAuxiliaryStrategy(): Promise<AuxiliaryStrategyConfig | null> {
-    const result = await this.querySingleAsync<any>(
-      `SELECT * FROM auxiliary_strategy_config WHERE accountSetId = ? LIMIT 1`,
-      [this.accountSetId]
-    );
-    if (!result) return null;
-    result.autoCreatePartner = !!result.autoCreatePartner;
-    result.autoDisableAuxiliaryOnSubAccount = !!result.autoDisableAuxiliaryOnSubAccount;
-    return result as AuxiliaryStrategyConfig;
+    await this.ensureInitialized();
+    return await getAuxiliaryStrategyQuery(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
   async saveAuxiliaryStrategy(config: AuxiliaryStrategyConfig): Promise<void> {
-    await this.runAsync(
-      `INSERT OR REPLACE INTO auxiliary_strategy_config
-        (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
-       VALUES (?,?,?,?,?,?)`,
-      [config.id, config.accountSetId || this.accountSetId,
-       config.mode || 'auxiliary',
-       config.autoCreatePartner ? 1 : 0,
-       config.autoDisableAuxiliaryOnSubAccount !== false ? 1 : 0,
-       config.updateTime || new Date().toISOString()]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await saveAuxiliaryStrategyRecord({
+      db: this.dbInstance!,
+      config,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   // --- Asset Category Mapping ---
   async getAssetCategoryMappings(): Promise<AssetCategoryMapping[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM asset_category_mapping WHERE accountSetId = ? ORDER BY assetCategory`,
-      [this.accountSetId]
-    );
-    return (results || []).map(row => {
-      try { row.keywords = JSON.parse(row.keywords); } catch { row.keywords = []; }
-      row.isSystem = !!row.isSystem;
-      return row as AssetCategoryMapping;
-    });
+    await this.ensureInitialized();
+    return await listAssetCategoryMappings(this.getInvoiceRuleQueryService(), this.accountSetId);
   }
 
   async saveAssetCategoryMapping(mapping: AssetCategoryMapping): Promise<void> {
-    const keywords = typeof mapping.keywords === 'string' ? mapping.keywords : JSON.stringify(mapping.keywords || []);
-    const now = new Date().toISOString();
-    await this.runAsync(
-      `INSERT OR REPLACE INTO asset_category_mapping
-        (id, accountSetId, keywords, assetCategory, depreciationYears, depreciationMethod,
-         subjectCode, residualRate, isSystem, createTime, updateTime)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [mapping.id, mapping.accountSetId || this.accountSetId,
-       keywords, mapping.assetCategory, mapping.depreciationYears,
-       mapping.depreciationMethod || 'straight_line',
-       mapping.subjectCode, mapping.residualRate ?? 0.05,
-       mapping.isSystem ? 1 : 0,
-       mapping.createTime || now, mapping.updateTime || now]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await saveAssetCategoryMappingRecord({
+      db: this.dbInstance!,
+      mapping,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async deleteAssetCategoryMapping(id: string): Promise<void> {
-    await this.runAsync(`DELETE FROM asset_category_mapping WHERE id = ? AND accountSetId = ?`, [id, this.accountSetId]);
-    await this.persist();
+    await this.ensureInitialized();
+    await deleteAssetCategoryMappingRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
   }
 
   // --- Invoice hold/category updates ---
   async updateInvoiceHoldStatus(id: string, holdStatus: 'normal' | 'on_hold'): Promise<void> {
-    const now = new Date().toISOString();
-    await this.runAsync(
-      `UPDATE invoices SET holdStatus = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
-      [holdStatus, now, id, this.accountSetId]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await updateInvoiceHoldStatusRecord({
+      db: this.dbInstance!,
+      id,
+      holdStatus,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async updateInvoiceCategory(id: string, category: string | null): Promise<void> {
-    const now = new Date().toISOString();
-    await this.runAsync(
-      `UPDATE invoices SET category = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
-      [category, now, id, this.accountSetId]
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await updateInvoiceCategoryRecord({
+      db: this.dbInstance!,
+      id,
+      category,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   // --- Payroll import and calculation ---
   async getPayrollBatches(period?: string): Promise<PayrollBatch[]> {
-    const params = period ? [this.accountSetId, period] : [this.accountSetId];
-    const sql = period
-      ? `SELECT * FROM payroll_batches WHERE accountSetId = ? AND payrollPeriod = ? ORDER BY updatedAt DESC`
-      : `SELECT * FROM payroll_batches WHERE accountSetId = ? ORDER BY payrollPeriod DESC, updatedAt DESC`;
-    const results = await this.queryAllAsync<any>(sql, params);
-    return results.map((row) => ({
-      ...row,
-      calculationConfigSnapshot: JSON.parse(row.calculationConfigSnapshot),
-    })) as PayrollBatch[];
+    await this.ensureInitialized();
+    return await listPayrollBatches(this.getPayrollQueryService(), this.accountSetId, period);
   }
 
   async getPayrollItems(batchId: string): Promise<PayrollItem[]> {
-    const results = await this.queryAllAsync<any>(
-      `SELECT * FROM payroll_items WHERE accountSetId = ? AND batchId = ? ORDER BY employeeCode`,
-      [this.accountSetId, batchId],
-    );
-    return results.map((row) => ({
-      ...row,
-      inputData: JSON.parse(row.inputData),
-      calculationResult: JSON.parse(row.calculationResult),
-      validationMessages: JSON.parse(row.validationMessages),
-    })) as PayrollItem[];
+    await this.ensureInitialized();
+    return await listPayrollItems(this.getPayrollQueryService(), this.accountSetId, batchId);
   }
 
   async savePayrollCalculationConfig(record: PayrollCalculationConfigRecord): Promise<void> {
-    const individualTaxConfig = {
-      ...record.config.individualTax,
-      __taxRules: record.config.taxRules,
-    };
-    await this.runAsync(
-      `INSERT OR REPLACE INTO payroll_calculation_configs
-       (id, accountSetId, effectivePeriod, socialInsuranceConfig, housingFundConfig,
-        individualTaxConfig, policyLabel, policyEffectiveDate, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        record.id,
-        this.accountSetId,
-        record.effectivePeriod,
-        JSON.stringify(record.config.socialInsurance),
-        JSON.stringify(record.config.housingFund),
-        JSON.stringify(individualTaxConfig),
-        record.policyLabel,
-        record.policyEffectiveDate,
-        record.createdAt,
-        record.updatedAt,
-      ],
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await savePayrollCalculationConfigRecord({
+      db: this.dbInstance!,
+      record,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getPayrollCalculationConfig(period: string): Promise<PayrollCalculationConfigRecord | null> {
-    const row = await this.querySingleAsync<any>(
-      `SELECT * FROM payroll_calculation_configs
-       WHERE accountSetId = ? AND effectivePeriod <= ?
-       ORDER BY effectivePeriod DESC LIMIT 1`,
-      [this.accountSetId, period],
+    await this.ensureInitialized();
+    return await getPayrollCalculationConfigQuery(
+      this.getPayrollQueryService(),
+      this.accountSetId,
+      period,
+      clonePayrollTaxRuleSet,
     );
-    if (!row) return null;
-    const parsedIndividualTaxConfig = JSON.parse(row.individualTaxConfig) as Record<string, unknown>;
-    const { __taxRules, ...individualTax } = parsedIndividualTaxConfig;
-    return {
-      id: row.id,
-      accountSetId: row.accountSetId,
-      effectivePeriod: row.effectivePeriod,
-      config: {
-        socialInsurance: JSON.parse(row.socialInsuranceConfig),
-        housingFund: JSON.parse(row.housingFundConfig),
-        individualTax: individualTax as unknown as PayrollCalculationConfigRecord['config']['individualTax'],
-        taxRules: clonePayrollTaxRuleSet(__taxRules as Parameters<typeof clonePayrollTaxRuleSet>[0]),
-      },
-      policyLabel: row.policyLabel,
-      policyEffectiveDate: row.policyEffectiveDate,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    };
   }
 
   async savePayrollBatch(batch: PayrollBatch, items: PayrollItem[]): Promise<void> {
-    await this.runAsync(
-      `INSERT OR REPLACE INTO payroll_batches
-       (id, accountSetId, payrollPeriod, batchName, status, sourceFileName, employeeCount,
-        grossTotal, employerCostTotal, taxTotal, netTotal, calculationConfigSnapshot,
-        createdAt, updatedAt, confirmedAt, accrualVoucherId, accrualVoucherNo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        batch.id,
-        this.accountSetId,
-        batch.payrollPeriod,
-        batch.batchName,
-        batch.status,
-        batch.sourceFileName || null,
-        batch.employeeCount,
-        batch.grossTotal,
-        batch.employerCostTotal,
-        batch.taxTotal,
-        batch.netTotal,
-        JSON.stringify(batch.calculationConfigSnapshot),
-        batch.createdAt,
-        batch.updatedAt,
-        batch.confirmedAt || null,
-        batch.accrualVoucherId || null,
-        batch.accrualVoucherNo || null,
-      ],
-    );
-    await this.runAsync(
-      `DELETE FROM payroll_items WHERE batchId = ? AND accountSetId = ?`,
-      [batch.id, this.accountSetId],
-    );
-    for (const item of items) {
-      await this.runAsync(
-        `INSERT INTO payroll_items
-         (id, batchId, accountSetId, payrollPeriod, employeeCode, employeeName, departmentName,
-          inputData, calculationResult, validationStatus, validationMessages, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          item.id,
-          batch.id,
-          this.accountSetId,
-          batch.payrollPeriod,
-          item.employeeCode,
-          item.employeeName,
-          item.departmentName || null,
-          JSON.stringify(item.inputData),
-          JSON.stringify(item.calculationResult),
-          item.validationStatus,
-          JSON.stringify(item.validationMessages),
-          item.createdAt,
-          item.updatedAt,
-        ],
-      );
-    }
-    await this.persist();
+    await this.ensureInitialized();
+    await savePayrollBatchRecord({
+      db: this.dbInstance!,
+      batch,
+      items,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async updatePayrollBatchStatus(batchId: string, status: PayrollBatch['status']): Promise<void> {
-    const confirmedAt = status === 'confirmed' ? new Date().toISOString() : null;
-    await this.runAsync(
-      `UPDATE payroll_batches SET status = ?, confirmedAt = ?, updatedAt = ?
-       WHERE id = ? AND accountSetId = ?`,
-      [status, confirmedAt, new Date().toISOString(), batchId, this.accountSetId],
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await updatePayrollBatchStatusRecord({
+      db: this.dbInstance!,
+      batchId,
+      status,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async deletePayrollBatch(batchId: string): Promise<void> {
-    const batch = await this.querySingleAsync<{ status: PayrollBatch['status'] }>(
-      `SELECT status FROM payroll_batches WHERE id = ? AND accountSetId = ?`,
-      [batchId, this.accountSetId],
-    );
-    if (batch?.status === 'confirmed') {
-      throw new Error('已确认工资批次不能删除');
-    }
-    await this.runAsync(
-      `DELETE FROM payroll_items WHERE batchId = ? AND accountSetId = ?`,
-      [batchId, this.accountSetId],
-    );
-    await this.runAsync(
-      `DELETE FROM payroll_batches WHERE id = ? AND accountSetId = ? AND status <> 'confirmed'`,
-      [batchId, this.accountSetId],
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await deletePayrollBatchRecord({
+      service: this.getPayrollQueryService(),
+      db: this.dbInstance!,
+      batchId,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async updatePayrollBatchVoucher(batchId: string, voucherId: string, voucherNo: string): Promise<void> {
-    await this.runAsync(
-      `UPDATE payroll_batches
-       SET accrualVoucherId = ?, accrualVoucherNo = ?, updatedAt = ?
-       WHERE id = ? AND accountSetId = ?`,
-      [voucherId, voucherNo, new Date().toISOString(), batchId, this.accountSetId],
-    );
-    await this.persist();
+    await this.ensureInitialized();
+    await updatePayrollBatchVoucherRecord({
+      db: this.dbInstance!,
+      batchId,
+      voucherId,
+      voucherNo,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async clearPayrollBatchVoucherByVoucherId(voucherId: string): Promise<boolean> {
-    const existing = await this.querySingleAsync<{ id: string }>(
-      `SELECT id FROM payroll_batches WHERE accountSetId = ? AND accrualVoucherId = ? LIMIT 1`,
-      [this.accountSetId, voucherId],
-    );
-    if (!existing) return false;
-
-    await this.runAsync(
-      `UPDATE payroll_batches
-       SET accrualVoucherId = NULL, accrualVoucherNo = NULL, updatedAt = ?
-       WHERE accountSetId = ? AND accrualVoucherId = ?`,
-      [new Date().toISOString(), this.accountSetId, voucherId],
-    );
-    await this.persist();
-    return true;
+    await this.ensureInitialized();
+    return await clearPayrollBatchVoucherByVoucherIdRecord({
+      service: this.getPayrollQueryService(),
+      db: this.dbInstance!,
+      voucherId,
+      accountSetId: this.accountSetId,
+      persist: () => this.persist(),
+    });
   }
 
   async getPayrollBatchByVoucherId(voucherId: string): Promise<PayrollBatch | null> {
-    const row = await this.querySingleAsync<any>(
-      `SELECT * FROM payroll_batches WHERE accountSetId = ? AND accrualVoucherId = ? LIMIT 1`,
-      [this.accountSetId, voucherId],
-    );
-    if (!row) return null;
-    return {
-      id: row.id,
-      accountSetId: row.accountSetId,
-      payrollPeriod: row.payrollPeriod,
-      batchName: row.batchName,
-      status: row.status,
-      sourceFileName: row.sourceFileName || undefined,
-      employeeCount: row.employeeCount,
-      grossTotal: row.grossTotal,
-      employerCostTotal: row.employerCostTotal,
-      taxTotal: row.taxTotal,
-      netTotal: row.netTotal,
-      calculationConfigSnapshot: JSON.parse(row.calculationConfigSnapshot),
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      confirmedAt: row.confirmedAt || undefined,
-      accrualVoucherId: row.accrualVoucherId || undefined,
-      accrualVoucherNo: row.accrualVoucherNo || undefined,
-    };
+    await this.ensureInitialized();
+    return await getPayrollBatchByVoucherId(this.getPayrollQueryService(), this.accountSetId, voucherId);
   }
 
   // --- Legacy stubs (will be removed once consumers migrate to smart rules) ---
