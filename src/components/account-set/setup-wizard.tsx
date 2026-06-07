@@ -24,7 +24,7 @@ import { SetupStepCompany } from './setup-step-company';
 import { SetupStepTemplate } from './setup-step-template';
 import { SetupStepOpening } from './setup-step-opening';
 import { SetupStepBank } from './setup-step-bank';
-import { SetupStepRules, type BusinessRulesProgress } from './setup-step-rules';
+import { SetupStepRules } from './setup-step-rules';
 import { SetupStepCurrency } from './setup-step-currency';
 import { SetupStepPartners } from './setup-step-partners';
 import { SetupStepFixedAssets } from './setup-step-fixed-assets';
@@ -81,6 +81,7 @@ const BASE_STEPS = [
 export function SetupWizard({ accountSetId, onComplete, mode = 'create', initialData }: SetupWizardProps) {
   const { showToast } = useToast();
   const accounting = useAccountSetStore(s => s.getCurrentAccountSet()?.accounting);
+  const lastVoucherFullNo = useAccountSetStore(s => s.getCurrentAccountSet()?.lastVoucherFullNo);
   const [enableProject, setEnableProject] = useState(false);
 
   // Compute steps based on mode and config
@@ -114,8 +115,8 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   }, [mode, accounting?.hasForeignCurrency, accounting?.bankTrackingMethod, accounting?.partnerTrackingMethod, accounting?.assetTrackingMethod, enableProject]);
 
   const [currentStep, setCurrentStep] = useState(0);
-  // Track visited steps to allow free navigation
-  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
+  // Track visited steps by ID (not index) to survive STEPS array recomputation
+  const [visitedSteps, setVisitedSteps] = useState<Set<string>>(new Set([STEPS[0]?.id || 'company']));
   const [progress, setProgress] = useState<SetupProgress>({
     completed: [],
     current: STEPS[0]?.id || 'company',
@@ -157,7 +158,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   const goToStep = useCallback((index: number) => {
     if (index >= 0 && index < STEPS.length) {
       setCurrentStep(index);
-      setVisitedSteps(prev => new Set(prev).add(index));
+      setVisitedSteps(prev => new Set(prev).add(STEPS[index].id));
       setProgress(prev => ({ ...prev, current: STEPS[index].id }));
     }
   }, [STEPS]);
@@ -212,9 +213,14 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   }, [currentStep, handleNext, STEPS]);
 
   const handleFinish = useCallback(() => {
+    setVisitedSteps(new Set(STEPS.map(s => s.id)));
+    setProgress(prev => ({
+      ...prev,
+      completed: STEPS.map(s => s.id),
+    }));
     showToast('success', '账套设置完成，欢迎使用金桔财务系统！');
     onComplete();
-  }, [onComplete, showToast]);
+  }, [onComplete, showToast, STEPS]);
 
   const canGoNext = (): boolean => {
     const step = STEPS[currentStep];
@@ -258,8 +264,14 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
             {STEPS.map((s, i) => {
               const isCompleted = progress.completed.includes(s.id);
               const isCurrent = i === currentStep;
-              const isVisited = visitedSteps.has(i);
-              const canNavigate = isVisited || isCompleted || i <= Math.max(currentStep, ...Array.from(visitedSteps));
+              const isVisited = visitedSteps.has(s.id);
+              const visitedIndices = Array.from(visitedSteps)
+                .map(id => STEPS.findIndex(st => st.id === id))
+                .filter(idx => idx >= 0);
+              const maxVisitedIndex = visitedIndices.length > 0
+                ? Math.max(currentStep, ...visitedIndices)
+                : currentStep;
+              const canNavigate = isVisited || isCompleted || i <= maxVisitedIndex;
               const Icon = s.icon;
               return (
                 <React.Fragment key={s.id}>
@@ -308,7 +320,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
                   data={companyData}
                   onChange={setCompanyData}
                   accountSetId={accountSetId}
-                  lastVoucherFullNo={useAccountSetStore(s => s.getCurrentAccountSet()?.lastVoucherFullNo)}
+                  lastVoucherFullNo={lastVoucherFullNo}
                 />
               )}
               {step.id === 'template' && (
