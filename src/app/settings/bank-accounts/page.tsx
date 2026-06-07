@@ -15,12 +15,13 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { FieldMappingCoach } from '@/components/field-mapping-coach';
 import { BankFormatTestDialog } from '@/components/bank-format-test-dialog';
+import { buildBankAccountDisplayName } from '@/lib/bank-account-names';
 import type { BankAccountBinding, BankAccountBindingInput, BankParserConfig, CustomBankConfig } from '@/lib/bank-parsers/types';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
 import {
   Plus, Trash2, Edit2, Building2, Search, X, Landmark, CheckCircle2,
-  Upload, Download, FileSpreadsheet, FlaskConical, ChevronDown, ChevronRight,
-  ArrowRight, Check, ArrowLeft,
+  Upload, Download, FileSpreadsheet, FlaskConical,
+  ArrowRight, ArrowLeft,
 } from 'lucide-react';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -217,17 +218,23 @@ export default function BankAccountsPage() {
     const bankName = isNewBank ? customBankName.trim() : formData.bankName;
     if (!bankName) { showToast('error', '银行名称缺失'); return; }
 
-    const last4 = formData.accountNumber.slice(-4);
     const currency = formData.currency.trim() || defaultCurrencyCode;
+    const builtInBank = bankList.find(bank => bank.id === bankId);
+    const subjectName = buildBankAccountDisplayName({
+      bankName,
+      shortName: builtInBank ? BANK_BRANDS[builtInBank.id]?.short : undefined,
+      accountNumber: formData.accountNumber,
+      currency,
+      customName: formData.aliasName,
+    });
 
     if (editingId) {
       const existing = bindings.find(b => b.id === editingId);
       if (!existing) return;
-      const subjectName = `银行存款 - ${bankName} (${last4})`;
       const updatePayload: Partial<BankAccountBindingInput> = {
         bankId, bankName,
         accountNumber: formData.accountNumber.trim(),
-        aliasName: formData.aliasName.trim() || undefined,
+        aliasName: subjectName,
         subSubjectName: subjectName,
         currency,
       };
@@ -242,24 +249,23 @@ export default function BankAccountsPage() {
       showToast('success', '银行账户更新成功');
     } else {
       const subjectCode = generateNextSubjectCode();
-      const subjectName = `银行存款 - ${bankName} (${last4})`;
       const parent1002 = subjects.find(s => s.code === '1002');
 
       try {
         await addSubject({
-          code: subjectCode, name: subjectName, parentId: parent1002?.id || null,
+          code: subjectCode, name: subjectName, parentId: parent1002?.id || null, level: 2, disabled: false, block: false,
           direction: 'debit', enableDept: false, enableProject: false, enableForeign: false,
           isCustomer: false, isSupplier: false, isEmployee: false, enableCashFlow: false,
           subjectType: 'Asset', accountSetId: currentAccountSet?.id,
           bankAccountNumber: formData.accountNumber.trim(),
-        } as any);
+        });
       } catch { showToast('error', '创建科目失败'); return; }
 
       const bindingPayload: BankAccountBindingInput = {
         accountSetId: currentAccountSet?.id || '',
         accountNumber: formData.accountNumber.trim(),
         bankId, bankName,
-        aliasName: formData.aliasName.trim() || undefined,
+        aliasName: subjectName,
         subSubjectCode: subjectCode, subSubjectName: subjectName,
         currency,
         isDefault: bindings.length === 0,
@@ -326,7 +332,7 @@ export default function BankAccountsPage() {
 
   // === Import ===
   const handleDownloadTemplate = () => {
-    const rows = [['银行名称', '银行账号', '别名（可选）'], ['建设银行', '6227001234567890123', '基本户'], ['工商银行', '6222021234567890456', '']];
+    const rows = [['银行名称', '银行账号', '银行账户名称（可选）', '币种'], ['建设银行', '6227001234567890123', '建设银行-0123 CNY', 'CNY'], ['工商银行', '6222021234567890456', '工行-0456 USD', 'USD']];
     const csvContent = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -345,7 +351,7 @@ export default function BankAccountsPage() {
       const wb = XLSX.read(ab, { type: 'array' });
       const data: string[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
       if (data.length < 2) { showToast('error', '文件为空'); setImporting(false); return; }
-      const parsed = data.slice(1).filter(row => row.some((c: any) => String(c || '').trim())).map((row) => {
+      const parsed = data.slice(1).filter(row => row.some((c: unknown) => String(c || '').trim())).map((row) => {
         const bank = matchBankName(String(row[0] || '').trim());
         const accountNumber = String(row[1] || '').trim();
         const aliasName = String(row[2] || '').trim();
@@ -371,9 +377,15 @@ export default function BankAccountsPage() {
     for (const row of validRows) {
       try {
         const code = generateNextSubjectCode();
-        const name = `银行存款 - ${row.bankName} (${row.accountNumber.slice(-4)})`;
-        await addSubject({ code, name, parentId: parent1002?.id || null, direction: 'debit', enableDept: false, enableProject: false, enableForeign: false, isCustomer: false, isSupplier: false, isEmployee: false, enableCashFlow: false, subjectType: 'Asset', accountSetId: currentAccountSet?.id, bankAccountNumber: row.accountNumber } as any);
-        await addBinding({ accountSetId: currentAccountSet?.id || '', accountNumber: row.accountNumber, bankId: row.bankId, bankName: row.bankName, aliasName: row.aliasName || undefined, subSubjectCode: code, subSubjectName: name, currency: 'CNY', isDefault: bindings.length + successCount === 0 });
+        const name = buildBankAccountDisplayName({
+          bankName: row.bankName,
+          shortName: BANK_BRANDS[row.bankId]?.short,
+          accountNumber: row.accountNumber,
+          currency: row.currency || defaultCurrencyCode,
+          customName: row.aliasName,
+        });
+        await addSubject({ code, name, parentId: parent1002?.id || null, level: 2, disabled: false, block: false, direction: 'debit', enableDept: false, enableProject: false, enableForeign: false, isCustomer: false, isSupplier: false, isEmployee: false, enableCashFlow: false, subjectType: 'Asset', accountSetId: currentAccountSet?.id, bankAccountNumber: row.accountNumber });
+        await addBinding({ accountSetId: currentAccountSet?.id || '', accountNumber: row.accountNumber, bankId: row.bankId, bankName: row.bankName, aliasName: name, subSubjectCode: code, subSubjectName: name, currency: row.currency || defaultCurrencyCode, isDefault: bindings.length + successCount === 0 });
         successCount++;
       } catch { errorCount++; }
     }
@@ -471,7 +483,7 @@ export default function BankAccountsPage() {
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input placeholder="搜索银行名称、账号或别名..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
+                <Input placeholder="搜索银行名称、账号或账户名称..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
               </div>
             </div>
             <Button onClick={startAddManual}><Plus className="h-4 w-4 mr-2" />新增账户</Button>
@@ -563,8 +575,8 @@ export default function BankAccountsPage() {
                 <Input placeholder="输入银行账号" value={formData.accountNumber} onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium">别名</Label>
-                <Input placeholder="可选，如：基本户" value={formData.aliasName} onChange={(e) => setFormData(prev => ({ ...prev, aliasName: e.target.value }))} />
+                <Label className="text-sm font-medium">银行账户名称</Label>
+                <Input placeholder="可手写，如：XX银行-4451 USD" value={formData.aliasName} onChange={(e) => setFormData(prev => ({ ...prev, aliasName: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">币种</Label>

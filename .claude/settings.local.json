@@ -274,7 +274,11 @@
       "Bash(where node *)",
       "Bash(npx shadcn@latest add table)",
       "Bash(npx shadcn@latest add checkbox)",
-      "Bash(npx shadcn@latest add select)"
+      "Bash(npx shadcn@latest add select)",
+      "Bash(iconv -f gbk -t utf-8)",
+      "Bash(npx shadcn@latest add accordion -y)",
+      "Bash(npx.cmd tsc *)",
+      "Bash(npx.cmd eslint *)"
     ]
   }
 }

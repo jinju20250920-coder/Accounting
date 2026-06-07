@@ -260,12 +260,27 @@ src/
 │   │   └── industry-templates/     # 行业模板（科技/制造/服务/餐饮/商贸/建筑）
 │   └── database/                   # 数据库层
 │       ├── index.ts                # 数据库服务工厂（SQLite/IndexedDB切换）
-│       ├── sqlite-service.ts       # SQLite CRUD（核心数据持久化）
+│       ├── sqlite-service.ts       # SQLite 委托外壳（薄壳，业务逻辑在 services/）
 │       ├── sqlite-manager.ts       # SQLite 连接管理
 │       ├── account-set-db-manager.ts # 账套管理（CRUD、导出/导入，全局数据库内操作）
 │       ├── file-handle-manager.ts  # 全局数据库文件句柄管理（OPFS/FSA）
 │       ├── service.ts              # IndexedDB 服务（兼容层）
-│       └── manager.ts              # IndexedDB 管理器
+│       ├── manager.ts              # IndexedDB 管理器
+│       └── services/               # 类型化服务模块（从 sqlite-service 提取）
+│           ├── voucher-sqlite-service.ts         # 凭证 CRUD
+│           ├── reconciliation-sqlite-service.ts  # 核销关系
+│           ├── subject-sqlite-service.ts         # 科目管理
+│           ├── dept-project-currency-sqlite-service.ts # 部门/项目/币别
+│           ├── audit-preference-summary-sqlite-service.ts # 审计/偏好/摘要
+│           ├── voucher-template-fx-sqlite-service.ts  # 凭证模板/汇率/汇兑损益
+│           ├── export-import-sqlite-service.ts   # 数据导出/导入/完整性检查
+│           ├── fixed-asset-sqlite-service.ts     # 固定资产 + 共享类型（SqliteDatabaseLike）
+│           ├── bank-transaction-sqlite-service.ts # 银行流水 CRUD
+│           ├── bank-account-sqlite-service.ts    # 银行账户绑定
+│           ├── partner-sqlite-service.ts         # 往来单位
+│           ├── bank-cash-sqlite-service.ts       # 银行期初/资金概览/日记账
+│           ├── invoice-rule-sqlite-service.ts    # 智能规则/供应商映射/费用报销/辅助策略
+│           └── payroll-sqlite-service.ts         # 工资批次/明细/计算配置
 ├── hooks/                          # 自定义Hooks
 │   ├── useStorage.ts
 │   ├── useVoucherSession.ts
@@ -447,6 +462,9 @@ npm run lint
 - 所有操作带 `accountSetId` 隔离（统一模式，共享全局数据库）
 - `sqliteService` 通过 `@/lib/database` 导出，供 store 直接访问（如 `accountSetId` 同步）
 - `setAccountSetId()` 仅设置当前账套 ID，不切换数据库文件
+- **类型化委托架构**：业务逻辑和 SQL 已提取到 14 个 `services/` 模块，sqlite-service.ts 仅保留薄壳（ensureInitialized + 委托调用）
+- 每个服务模块定义 Row 接口 + mapper 函数，消除 `any` 类型
+- 写操作使用 `SqliteDatabaseLike`（db.prepare/run/free），读操作使用 `SimpleQueryService`（queryAllAsync/querySingleAsync）
 
 #### 账套管理器 (account-set-db-manager.ts)
 - 统一在全局数据库内操作，不再管理独立数据库文件
@@ -621,6 +639,7 @@ npm run lint
 - ✅ 资金管理页收款/付款筛选 - 日记账明细表增加全部/收款/付款 Tab 筛选（directionFilter）
 - ✅ 期初月结集成 - 期初余额保存后弹出月结向导，对启用月份执行结账确认
 - ✅ 核算方式配置 - 往来/银行/固定资产三个维度可选卡片管理或明细科目管理
+- ✅ sqlite-service 类型化重构 - 14个域提取到 services/ 模块，`any` 从 169 降到 53，文件从 4634 行降到 3427 行
 - ✅ 部门/项目核算开关 - 业务规则步骤可选启用部门核算（含内联部门列表）和项目核算（条件步骤），项目核算启用后新增项目维护步骤
 
 ### 待完善功能

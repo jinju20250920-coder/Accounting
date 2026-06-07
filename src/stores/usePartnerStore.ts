@@ -4,6 +4,9 @@ import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
 import type { Partner } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
+import { dedupePartnersForAccountSet } from '../lib/partner-dedupe';
+
+export { dedupePartnersForAccountSet } from '../lib/partner-dedupe';
 
 // 默认数据
 const defaultPartners: Omit<Partner, 'id' | 'createTime' | 'updateTime' | 'accountSetId'>[] = [
@@ -108,6 +111,8 @@ function stripLegacyEmployeePayrollSubjects(partner: Partner): Partner {
     payrollEmployeeContributionPayableSubjectName: undefined,
   };
 }
+
+let initializePartnersState: { accountSetId: string | null; promise: Promise<void> } | null = null;
 
 // 状态接口
 interface PartnerStore {
@@ -256,9 +261,9 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
         partner.id === id ? { ...partner, frozen: !partner.frozen } : partner
       );
       await getCurrentService().savePartners(updatedPartners);
-      set((state) => ({
+      set({
         partners: updatedPartners
-      }));
+      });
     } catch (error) {
       console.error('Failed to toggle frozen:', error);
       throw error;
@@ -369,33 +374,49 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
 
   // 初始化往来单位数据
   initializePartners: async () => {
-    try {
-      const partners = (await getCurrentService().getAllPartners()).map(stripLegacyEmployeePayrollSubjects);
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+    const currentAccountSetId = currentAccountSet?.id || null;
 
-      if (partners.length > 0) {
-        set({ partners });
-        await getCurrentService().savePartners(partners);
-        return;
-      }
-
-      const accountSetStore = useAccountSetStore.getState();
-      const currentAccountSet = accountSetStore.getCurrentAccountSet();
-
-      const now = new Date().toISOString();
-      const initializedPartners = defaultPartners.map(partnerData => ({
-        ...partnerData,
-        id: `partner_${Date.now()}_${Math.random()}`,
-        frozen: partnerData.frozen || false,
-        createTime: now,
-        updateTime: now,
-        accountSetId: currentAccountSet?.id
-      })).map(stripLegacyEmployeePayrollSubjects);
-
-      await getCurrentService().savePartners(initializedPartners);
-      set({ partners: initializedPartners });
-    } catch (error) {
-      console.error('Failed to initialize partners:', error);
-      throw error;
+    if (initializePartnersState?.accountSetId === currentAccountSetId) {
+      return initializePartnersState.promise;
     }
+
+    const promise = (async () => {
+      try {
+        const partners = dedupePartnersForAccountSet(
+          (await getCurrentService().getAllPartners()).map(stripLegacyEmployeePayrollSubjects)
+        );
+
+        if (partners.length > 0) {
+          set({ partners });
+          await getCurrentService().savePartners(partners);
+          return;
+        }
+
+        const now = new Date().toISOString();
+        const initializedPartners = defaultPartners.map(partnerData => ({
+          ...partnerData,
+          id: `partner_${Date.now()}_${Math.random()}`,
+          frozen: partnerData.frozen || false,
+          createTime: now,
+          updateTime: now,
+          accountSetId: currentAccountSet?.id
+        })).map(stripLegacyEmployeePayrollSubjects);
+
+        await getCurrentService().savePartners(initializedPartners);
+        set({ partners: initializedPartners });
+      } catch (error) {
+        console.error('Failed to initialize partners:', error);
+        throw error;
+      } finally {
+        if (initializePartnersState?.promise === promise) {
+          initializePartnersState = null;
+        }
+      }
+    })();
+
+    initializePartnersState = { accountSetId: currentAccountSetId, promise };
+    return promise;
   }
 }));

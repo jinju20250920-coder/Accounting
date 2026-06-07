@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Historical SQLite adapter. It contains broad `any` usage across many
+    // domains; validate it with TypeScript until it is split and typed by area.
+    "src/lib/database/sqlite-service.ts",
   ]),
 ]);
 

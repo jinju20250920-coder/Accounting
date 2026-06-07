@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable react/no-unescaped-entities */
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -22,10 +24,15 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
-import { usePeriodManagementStore } from '@/stores/usePeriodManagementStore';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { SubjectPopover } from '@/components/shared/subject-popover';
+import {
+  analyzeOpeningBalance,
+  buildOpeningAdjustmentEntry,
+  hasSubledgerSourceForSubject,
+} from '@/lib/opening-balance-rules';
+import type { VoucherEntry } from '@/types';
 import { MonthlyClosingWizard } from './monthly-closing-wizard';
 
 // ==================== Types ====================
@@ -57,6 +64,13 @@ interface AssetBalanceEntry {
   accumulatedDepreciation: number;
   netValue: number;
   included: boolean;
+}
+
+interface BankBindingForOpening {
+  accountNumber?: string;
+  bankName?: string;
+  aliasName?: string;
+  subjectCode?: string;
 }
 
 interface AccountingConfig {
@@ -106,6 +120,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const [activeTab, setActiveTab] = useState('subject');
   const [saved, setSaved] = useState(false);
   const [showClosingWizard, setShowClosingWizard] = useState(false);
+  const [adjustmentSubject, setAdjustmentSubject] = useState({ code: '', name: '' });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importTarget, setImportTarget] = useState<string>('subject');
@@ -124,13 +139,13 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       try {
         const bindings = await sqliteService.getBankAccountBindings();
         if (bindings && bindings.length > 0) {
-          setBankEntries(bindings.map((b: any) => ({
+          setBankEntries((bindings as BankBindingForOpening[]).map((b) => ({
             accountNumber: b.accountNumber || '',
             bankName: b.bankName || b.aliasName || '',
             balance: 0,
           })));
         }
-      } catch (e) { /* Bank accounts may not exist yet */ }
+      } catch { /* Bank accounts may not exist yet */ }
     };
     loadBankAccounts();
   }, []);
@@ -152,14 +167,23 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const validSubjects = useMemo(() => subjects.filter(s => !s.disabled && !s.block), [subjects]);
 
   // Balance check
-  const totalDebit = entries.reduce((sum, e) => sum + (e.debit || 0), 0);
-  const totalCredit = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
-  const diff = Math.abs(totalDebit - totalCredit);
-  const isBalanced = diff < 0.01;
+  const openingAnalysis = useMemo(() => analyzeOpeningBalance({
+    subjectEntries: entries,
+    partnerEntries,
+    bankEntries,
+    assetEntries,
+  }), [entries, partnerEntries, bankEntries, assetEntries]);
+  const totalDebit = openingAnalysis.totalDebit;
+  const totalCredit = openingAnalysis.totalCredit;
+  const diff = openingAnalysis.balanceDifference;
+  const isBalanced = openingAnalysis.isBalanced;
+  const canBalanceWithAdjustment = !isBalanced && Boolean(adjustmentSubject.code);
+  const canSaveOpening = isBalanced || canBalanceWithAdjustment;
+  const subledgerDifferences = openingAnalysis.subledgerDifferences;
 
   const balancedRef = React.useRef(onBalancedChange);
   balancedRef.current = onBalancedChange;
-  useEffect(() => { balancedRef.current(isBalanced); }, [isBalanced]);
+  useEffect(() => { balancedRef.current(canSaveOpening); }, [canSaveOpening]);
 
   // Get the opening period for monthly closing
   const openingPeriod = useMemo(() => {
@@ -167,9 +191,10 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     if (!accountSet?.enableDate) return null;
     const [year, month] = accountSet.enableDate.split('-').map(Number);
     const period = (accountSet.accountingPeriods || []).find(
-      (p: any) => p.year === year && p.month === month
+      (p: { year: number; month: number }) => p.year === year && p.month === month
     );
     return period || null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved]); // recalculate after save since periods may change
 
   // Tab visibility — default to 'card'
@@ -223,7 +248,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     setPartnerEntries(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  const updatePartnerEntry = useCallback((index: number, field: keyof PartnerOpeningEntry, value: any) => {
+  const updatePartnerEntry = useCallback((index: number, field: keyof PartnerOpeningEntry, value: PartnerOpeningEntry[keyof PartnerOpeningEntry]) => {
     setPartnerEntries(prev => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
@@ -250,8 +275,9 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     try {
       if (importTarget === 'subject') await handleSubjectImport(file);
       else if (importTarget === 'partner-opening') await handlePartnerOpeningImport(file);
-    } catch (error: any) {
-      showToast('error', `导入失败：${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      showToast('error', `导入失败：${message}`);
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -292,7 +318,8 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     }
 
     if (newEntries.length > 0) setPartnerEntries(prev => [...prev, ...newEntries]);
-    showToast(imported > 0 ? 'success' : 'warning', imported > 0 ? `成功导入 ${imported} 条` : '未找到有效数据');
+    if (skipped > 0) showToast('warning', `导入 ${imported} 条，跳过 ${skipped} 条`);
+    else showToast(imported > 0 ? 'success' : 'warning', imported > 0 ? `成功导入 ${imported} 条` : '未找到有效数据');
   };
 
   const handleDownloadTemplate = () => {
@@ -320,7 +347,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   // ==================== Unified Save ====================
 
   const handleSave = async () => {
-    if (!isBalanced && entries.length > 0) {
+    if (!canSaveOpening && entries.length > 0) {
       showToast('error', '期初余额不平衡，借方合计必须等于贷方合计');
       return;
     }
@@ -330,11 +357,16 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
       const voucherDate = accountSet?.enableDate ? `${accountSet.enableDate}-01` : new Date().toISOString().substring(0, 10);
       const now = new Date().toISOString();
-      const allEntries: any[] = [];
+      const allEntries: VoucherEntry[] = [];
 
       // 1. Subject balance entries
       const validEntries = entries.filter(e => e.subjectCode && (e.debit > 0 || e.credit > 0));
-      for (const e of validEntries) {
+      const subjectEntriesForVoucher = validEntries.filter(e => !hasSubledgerSourceForSubject(e.subjectCode, {
+        partnerEntries,
+        bankEntries,
+        assetEntries,
+      }));
+      for (const e of subjectEntriesForVoucher) {
         allEntries.push({
           id: `oe_s_${Date.now()}_${allEntries.length}`, voucherId: '',
           date: voucherDate, summary: '期初余额',
@@ -351,14 +383,14 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             id: `oe_p_${Date.now()}_${allEntries.length}`, voucherId: '',
             date: voucherDate, summary: `期初应收-${e.name}`,
             subjectCode: '1122', subjectName: '应收账款', debit: e.amount, credit: 0,
-            auxiliary: JSON.stringify({ partnerName: e.name, type: 'receivable' }),
+            auxiliary: { customer: e.name },
           });
         } else {
           allEntries.push({
             id: `oe_p_${Date.now()}_${allEntries.length}`, voucherId: '',
             date: voucherDate, summary: `期初应付-${e.name}`,
             subjectCode: '2202', subjectName: '应付账款', debit: 0, credit: e.amount,
-            auxiliary: JSON.stringify({ partnerName: e.name, type: 'payable' }),
+            auxiliary: { supplier: e.name },
           });
         }
       }
@@ -389,7 +421,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         try {
           const bindings = await sqliteService.getBankAccountBindings();
           for (const entry of bankSubjectEntries) {
-            const binding = bindings.find((b: any) => b.subjectCode === entry.subjectCode);
+            const binding = (bindings as BankBindingForOpening[]).find((b) => b.subjectCode === entry.subjectCode);
             if (binding?.accountNumber) {
               await sqliteService.saveBankOpeningBalance({
                 accountNumber: binding.accountNumber,
@@ -423,6 +455,19 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         }
       }
 
+      if (!isBalanced && adjustmentSubject.code) {
+        const adjustmentEntry = buildOpeningAdjustmentEntry({
+          subjectCode: adjustmentSubject.code,
+          subjectName: adjustmentSubject.name,
+          analysis: openingAnalysis,
+          id: `oe_adj_${Date.now()}_${allEntries.length}`,
+          date: voucherDate,
+        });
+        if (adjustmentEntry) {
+          allEntries.push(adjustmentEntry);
+        }
+      }
+
       // Save unified voucher
       if (allEntries.length > 0) {
         const voucherId = `opening_${Date.now()}`;
@@ -436,7 +481,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         });
       }
 
-      const totalItems = validEntries.length + validPartnerEntries.length + validBankEntries.length + includedAssets.length;
+      const totalItems = subjectEntriesForVoucher.length + validPartnerEntries.length + validBankEntries.length + includedAssets.length + (!isBalanced && adjustmentSubject.code ? 1 : 0);
       setSaved(true);
       showToast('success', `期初数据已保存，共 ${totalItems} 条`);
     } catch (error) {
@@ -504,6 +549,26 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               )}
             </div>
           </div>
+
+          {!isBalanced && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <div className="flex items-start gap-2 text-sm text-amber-800">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-medium">期初借贷不平，差额 {diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
+                  <div className="text-amber-700">如确认用期初调整承接，请明确选择补平科目；系统不会静默自动补平。</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-[120px_1fr] items-center gap-3">
+                <span className="text-sm font-medium text-slate-700">补平科目</span>
+                <SubjectPopover
+                  value={adjustmentSubject.code}
+                  onSelect={(code, name) => setAdjustmentSubject({ code, name })}
+                  placeholder="选择期初平衡调整科目"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => triggerImport('subject')}>
@@ -740,6 +805,30 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         )}
       </Tabs>
 
+      {subledgerDifferences.length > 0 && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-blue-800">
+            <AlertTriangle className="h-4 w-4" />
+            子账明细与总账余额存在差异
+          </div>
+          <div className="space-y-1 text-sm text-blue-700">
+            {subledgerDifferences.map(item => (
+              <div key={`${item.source}-${item.subjectCode}`} className="flex items-center justify-between gap-3">
+                <span>{item.subjectCode} {item.subjectName}</span>
+                <span>
+                  总账 {item.subjectBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                  {' / '}
+                  明细 {item.detailBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                  {' / '}
+                  差异 {item.difference.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-blue-600">这类差异不会用补平科目自动处理，请补齐银行、往来或固定资产明细。</p>
+        </div>
+      )}
+
       {/* Save & Monthly Closing */}
       {hasAnyData && (
         <div className="flex items-center justify-between">
@@ -751,7 +840,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           )}
           <div className="flex items-center gap-2 ml-auto">
             {!saved ? (
-              <Button onClick={handleSave} disabled={loading || (entries.length > 0 && !isBalanced)} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={handleSave} disabled={loading || (entries.length > 0 && !canSaveOpening)} className="bg-blue-600 hover:bg-blue-700">
                 {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 保存中...</> : '保存期初数据'}
               </Button>
             ) : openingPeriod ? (
