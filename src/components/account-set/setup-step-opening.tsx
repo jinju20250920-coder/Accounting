@@ -24,12 +24,14 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { SubjectPopover } from '@/components/shared/subject-popover';
 import {
   analyzeOpeningBalance,
   buildOpeningAdjustmentEntry,
+  buildPartnerOpeningEntriesFromPartners,
   hasSubledgerSourceForSubject,
 } from '@/lib/opening-balance-rules';
 import type { VoucherEntry } from '@/types';
@@ -106,6 +108,8 @@ const PARTNER_OPENING_HEADERS = [
 export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }: SetupStepOpeningProps) {
   const { showToast } = useToast();
   const subjects = useSubjectStore(s => s.subjects);
+  const partners = usePartnerStore(s => s.partners);
+  const initializePartners = usePartnerStore(s => s.initializePartners);
 
   // Tab 1: 科目余额
   const [entries, setEntries] = useState<OpeningEntry[]>([]);
@@ -132,6 +136,17 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   }, [accountSetId]);
 
   const fixedAssets = useFixedAssetStore(s => s.assets);
+
+  useEffect(() => {
+    initializePartners();
+  }, [initializePartners]);
+
+  useEffect(() => {
+    setPartnerEntries(prev => {
+      if (prev.length > 0) return prev;
+      return buildPartnerOpeningEntriesFromPartners(partners);
+    });
+  }, [partners]);
 
   // Load bank accounts from previous step
   useEffect(() => {

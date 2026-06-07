@@ -20,6 +20,7 @@ const partnerRow = {
   departmentCode: '',
   departmentName: '',
   paymentTermDays: 30,
+  openingBalance: 1250.5,
   payrollSalaryExpenseSubjectCode: '',
   payrollSalaryExpenseSubjectName: '',
   payrollContributionExpenseSubjectCode: '',
@@ -59,6 +60,7 @@ assert.deepEqual(mapPartnerRow(partnerRow), {
   departmentCode: undefined,
   departmentName: undefined,
   paymentTermDays: 30,
+  openingBalance: 1250.5,
   payrollSalaryExpenseSubjectCode: undefined,
   payrollSalaryExpenseSubjectName: undefined,
   payrollContributionExpenseSubjectCode: undefined,
@@ -89,16 +91,18 @@ const insert = buildPartnerInsert({
   isSupplier: false,
   phone: '13800138000',
   taxNo: '91310000',
+  openingBalance: 800,
   accountSetId: 'set-1',
   createTime: '2026-06-07T00:00:00.000Z',
   updateTime: '2026-06-07T00:00:00.000Z',
 }, 'default-set', '2026-06-07T00:00:00.000Z');
 
-assert.equal(insert.params.length, 32);
+assert.equal(insert.params.length, 33);
 assert.equal(insert.params[3], 'customer');
 assert.equal(insert.params[9], '');
-assert.equal(insert.params[29], 'set-1');
-assert.equal(insert.params[30], '2026-06-07T00:00:00.000Z');
+assert.equal(insert.params[14], 800);
+assert.equal(insert.params[30], 'set-1');
+assert.equal(insert.params[31], '2026-06-07T00:00:00.000Z');
 insert.params.forEach((value, index) => {
   assert.notEqual(value, undefined, `insert param ${index} should not be undefined`);
 });

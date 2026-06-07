@@ -9,7 +9,14 @@ export interface PartnerOpeningEntry {
   name: string;
   type: 'receivable' | 'payable';
   amount: number;
-  remark?: string;
+  remark: string;
+}
+
+export interface PartnerOpeningSource {
+  name: string;
+  isCustomer?: boolean;
+  isSupplier?: boolean;
+  openingBalance?: number;
 }
 
 export interface BankOpeningEntry {
@@ -186,6 +193,21 @@ export function buildOpeningAdjustmentEntry(input: OpeningAdjustmentEntryInput):
     debit: input.analysis.adjustmentSide === 'debit' ? input.analysis.balanceDifference : 0,
     credit: input.analysis.adjustmentSide === 'credit' ? input.analysis.balanceDifference : 0,
   };
+}
+
+export function buildPartnerOpeningEntriesFromPartners(partners: PartnerOpeningSource[]): PartnerOpeningEntry[] {
+  return partners
+    .map((partner): PartnerOpeningEntry | null => {
+      const amount = roundMoney(Math.abs(partner.openingBalance || 0));
+      if (!partner.name || amount < MONEY_EPSILON) return null;
+      return {
+        name: partner.name,
+        type: partner.isSupplier && !partner.isCustomer ? 'payable' as const : 'receivable' as const,
+        amount,
+        remark: '往来单位期初余额',
+      };
+    })
+    .filter((entry): entry is PartnerOpeningEntry => entry !== null);
 }
 
 export function hasSubledgerSourceForSubject(

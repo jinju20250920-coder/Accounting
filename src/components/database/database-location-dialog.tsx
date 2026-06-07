@@ -353,6 +353,7 @@ export function DatabaseLocationDialog({
           address TEXT,
           taxNo TEXT,
           bankAccount TEXT,
+          openingBalance REAL DEFAULT 0,
           enabled INTEGER DEFAULT 1,
           createTime TEXT,
           updateTime TEXT

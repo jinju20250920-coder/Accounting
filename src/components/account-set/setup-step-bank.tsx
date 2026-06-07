@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -56,6 +56,38 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
     name: brand.short,
     shortName: brand.short,
   })), []);
+
+  useEffect(() => {
+    const loadExistingAccounts = async () => {
+      try {
+        if (sqliteService.accountSetId !== accountSetId) {
+          sqliteService.setAccountSetId(accountSetId);
+        }
+        const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+        const periodStart = (accountSet?.startDate || accountSet?.enableDate || new Date().toISOString().substring(0, 7)).substring(0, 7);
+        const bindings = await sqliteService.getBankAccountBindings();
+        const loadedEntries = await Promise.all(bindings.map(async (binding) => {
+          const openingBalance = await sqliteService.getBankOpeningBalance(binding.accountNumber, periodStart);
+          const knownBank = bankOptions.some(bank => bank.id === binding.bankId);
+          return {
+            id: binding.id,
+            bankId: knownBank ? binding.bankId : NEW_BANK_OPTION_ID,
+            customBankName: knownBank ? '' : binding.bankName,
+            accountNumber: binding.accountNumber,
+            accountName: binding.aliasName || binding.subSubjectName || '',
+            currency: binding.currency || 'CNY',
+            subjectCode: binding.subSubjectCode || '',
+            openingBalance: openingBalance !== null && openingBalance !== undefined ? String(openingBalance) : '',
+          };
+        }));
+        setEntries(loadedEntries);
+        setSaved(loadedEntries.length > 0);
+      } catch (error) {
+        console.warn('Load bank accounts failed:', error);
+      }
+    };
+    loadExistingAccounts();
+  }, [accountSetId, bankOptions]);
 
   const addEntry = () => {
     setSaved(false);
@@ -127,6 +159,7 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
 
       const existingSubjects = await sqliteService.getAllSubjects();
       const existingCodes = new Set(existingSubjects.map(subject => subject.code));
+      const existingBindings = await sqliteService.getBankAccountBindings();
       const now = new Date().toISOString();
 
       for (const [index, entry] of validEntries.entries()) {
@@ -136,7 +169,11 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
           selectedBankName: selectedBank?.name || '',
           customBankName: entry.customBankName,
         });
-        const subjectCode = entry.subjectCode || `1002${String(index + 1).padStart(2, '0')}`;
+        let subjectCode = entry.subjectCode || `1002${String(index + 1).padStart(2, '0')}`;
+        while (!entry.subjectCode && existingCodes.has(subjectCode)) {
+          const nextNumber = Number(subjectCode.slice(4) || '0') + 1;
+          subjectCode = `1002${String(nextNumber).padStart(2, '0')}`;
+        }
         const accountDisplayName = buildBankAccountDisplayName({
           bankName: bankSelection.bankName,
           shortName: selectedBank?.shortName,
@@ -145,7 +182,9 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
           customName: entry.accountName,
         });
 
+        const existingBinding = existingBindings.find(binding => binding.accountNumber === entry.accountNumber.trim());
         await sqliteService.saveBankAccountBinding?.({
+          ...existingBinding,
           id: entry.id,
           accountSetId,
           bankId: bankSelection.bankId,

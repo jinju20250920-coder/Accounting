@@ -643,6 +643,7 @@ class SQLiteManager {
         address TEXT,
         taxNo TEXT,
         bankAccount TEXT,
+        openingBalance REAL DEFAULT 0,
         enabled INTEGER DEFAULT 1,
         accountSetId TEXT,
         createTime TEXT,

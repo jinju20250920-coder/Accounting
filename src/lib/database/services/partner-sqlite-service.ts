@@ -17,6 +17,7 @@ export interface PartnerRow {
   departmentCode: string | null;
   departmentName: string | null;
   paymentTermDays: number | string | null;
+  openingBalance: number | string | null;
   payrollSalaryExpenseSubjectCode: string | null;
   payrollSalaryExpenseSubjectName: string | null;
   payrollContributionExpenseSubjectCode: string | null;
@@ -54,6 +55,7 @@ export interface PartnerInsertInput {
   departmentCode?: string;
   departmentName?: string;
   paymentTermDays?: number;
+  openingBalance?: number;
   payrollSalaryExpenseSubjectCode?: string;
   payrollSalaryExpenseSubjectName?: string;
   payrollContributionExpenseSubjectCode?: string;
@@ -88,7 +90,7 @@ export interface PartnerInsert {
 const PARTNER_INSERT_SQL = `
   INSERT OR REPLACE INTO partners (
     id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled,
-    departmentCode, departmentName, paymentTermDays,
+    departmentCode, departmentName, paymentTermDays, openingBalance,
     payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
     payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
     payrollSalaryPayableSubjectCode, payrollSalaryPayableSubjectName,
@@ -97,7 +99,7 @@ const PARTNER_INSERT_SQL = `
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
     accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -139,6 +141,7 @@ export function mapPartnerRow(row: PartnerRow): Partner {
     departmentCode: optionalText(row.departmentCode),
     departmentName: optionalText(row.departmentName),
     paymentTermDays: row.paymentTermDays !== null && row.paymentTermDays !== undefined ? Number(row.paymentTermDays) : undefined,
+    openingBalance: row.openingBalance !== null && row.openingBalance !== undefined ? Number(row.openingBalance) : undefined,
     payrollSalaryExpenseSubjectCode: optionalText(row.payrollSalaryExpenseSubjectCode),
     payrollSalaryExpenseSubjectName: optionalText(row.payrollSalaryExpenseSubjectName),
     payrollContributionExpenseSubjectCode: optionalText(row.payrollContributionExpenseSubjectCode),
@@ -180,6 +183,7 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       text(partner.departmentCode),
       text(partner.departmentName),
       partner.paymentTermDays || null,
+      partner.openingBalance || 0,
       text(partner.payrollSalaryExpenseSubjectCode),
       text(partner.payrollSalaryExpenseSubjectName),
       text(partner.payrollContributionExpenseSubjectCode),
@@ -274,6 +278,7 @@ export async function savePartnersRecord(input: {
       departmentCode: partner.departmentCode,
       departmentName: partner.departmentName,
       paymentTermDays: partner.paymentTermDays,
+      openingBalance: partner.openingBalance,
       payrollSalaryExpenseSubjectCode: partner.payrollSalaryExpenseSubjectCode,
       payrollSalaryExpenseSubjectName: partner.payrollSalaryExpenseSubjectName,
       payrollContributionExpenseSubjectCode: partner.payrollContributionExpenseSubjectCode,

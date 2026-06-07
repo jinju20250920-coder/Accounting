@@ -89,6 +89,8 @@ export interface AccountSet {
     bankTrackingMethod?: 'card' | 'subject';
     assetTrackingMethod?: 'card' | 'subject';
     hasForeignCurrency?: boolean;
+    enableDepartment?: boolean;
+    enableProject?: boolean;
   };
 
   payrollRegionId?: string;

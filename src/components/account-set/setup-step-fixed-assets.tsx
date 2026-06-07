@@ -21,6 +21,7 @@ import {
   buildFixedAssetSetupPayload,
   type FixedAssetSetupRow,
 } from '@/lib/fixed-asset-setup-payload';
+import { getFixedAssetSetupCategories } from '@/lib/fixed-asset-setup-categories';
 
 interface SetupStepFixedAssetsProps {
   accountSetId: string;
@@ -59,13 +60,13 @@ const emptyAssetRow: AssetRow = {
 export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps) {
   const { showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { categories, initialize } = useFixedAssetStore();
+  const { categories, initialize, initializeDefaultCategories } = useFixedAssetStore();
   const [assets, setAssets] = useState<AssetRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<AssetRow>(emptyAssetRow);
 
   const fixedAssetCategories = useMemo(
-    () => categories.filter(category => category.enabled !== false && category.assetType !== 'intangible'),
+    () => getFixedAssetSetupCategories(categories),
     [categories],
   );
 
@@ -76,8 +77,16 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
   }, [accountSetId]);
 
   useEffect(() => {
-    initialize();
-  }, [initialize]);
+    const initializeAssetData = async () => {
+      await initialize();
+      const latestCategories = useFixedAssetStore.getState().categories;
+      if (latestCategories.length === 0) {
+        await initializeDefaultCategories();
+        await initialize();
+      }
+    };
+    initializeAssetData();
+  }, [initialize, initializeDefaultCategories]);
 
   const totalOriginal = assets.reduce((sum, asset) => sum + asset.originalValue, 0);
   const totalDepreciation = assets.reduce((sum, asset) => sum + asset.accumulatedDepreciation, 0);

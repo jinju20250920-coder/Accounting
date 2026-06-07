@@ -30,6 +30,7 @@ import { SetupStepPartners } from './setup-step-partners';
 import { SetupStepFixedAssets } from './setup-step-fixed-assets';
 import { SetupStepProjects } from './setup-step-projects';
 import { SetupStepComplete } from './setup-step-complete';
+import { canNavigateSetupStep, canProceedFromSetupStep, computeSetupSteps } from '@/lib/setup-step-rules';
 
 export interface SetupProgress {
   completed: string[];
@@ -82,37 +83,16 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   const { showToast } = useToast();
   const accounting = useAccountSetStore(s => s.getCurrentAccountSet()?.accounting);
   const lastVoucherFullNo = useAccountSetStore(s => s.getCurrentAccountSet()?.lastVoucherFullNo);
-  const [enableProject, setEnableProject] = useState(false);
+  const [enableProjectOverride, setEnableProjectOverride] = useState<boolean | null>(null);
+  const enableProject = enableProjectOverride ?? accounting?.enableProject ?? false;
 
   // Compute steps based on mode and config
-  const STEPS = useMemo(() => {
-    let steps = BASE_STEPS;
-    // Remove template step in edit mode
-    if (mode === 'edit') {
-      steps = steps.filter(s => s.id !== 'template');
-    }
-    // Remove currency step if no foreign currency
-    if (!accounting?.hasForeignCurrency) {
-      steps = steps.filter(s => s.conditional !== 'hasForeignCurrency');
-    }
-    // Remove bank step if not using card tracking
-    if ((accounting?.bankTrackingMethod ?? 'card') !== 'card') {
-      steps = steps.filter(s => s.conditional !== 'bankCard');
-    }
-    // Remove partner step if not using card tracking
-    if ((accounting?.partnerTrackingMethod ?? 'card') !== 'card') {
-      steps = steps.filter(s => s.conditional !== 'partnerCard');
-    }
-    // Remove fixed asset step if not using card tracking
-    if ((accounting?.assetTrackingMethod ?? 'card') !== 'card') {
-      steps = steps.filter(s => s.conditional !== 'assetCard');
-    }
-    // Remove project step if project accounting not enabled
-    if (!enableProject) {
-      steps = steps.filter(s => s.conditional !== 'enableProject');
-    }
-    return steps;
-  }, [mode, accounting?.hasForeignCurrency, accounting?.bankTrackingMethod, accounting?.partnerTrackingMethod, accounting?.assetTrackingMethod, enableProject]);
+  const STEPS = useMemo(() => computeSetupSteps({
+    baseSteps: BASE_STEPS,
+    mode,
+    accounting,
+    enableProject,
+  }), [mode, accounting, enableProject]);
 
   const [currentStep, setCurrentStep] = useState(0);
   // Track visited steps by ID (not index) to survive STEPS array recomputation
@@ -212,6 +192,22 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     handleNext();
   }, [currentStep, handleNext, STEPS]);
 
+  const openProjectsStep = useCallback(() => {
+    const nextSteps = computeSetupSteps({
+      baseSteps: BASE_STEPS,
+      mode,
+      accounting,
+      enableProject: true,
+    });
+    const projectIndex = nextSteps.findIndex(item => item.id === 'projects');
+    if (projectIndex < 0) return;
+
+    setEnableProjectOverride(true);
+    setCurrentStep(projectIndex);
+    setVisitedSteps(prev => new Set(prev).add('projects'));
+    setProgress(prev => ({ ...prev, current: 'projects' }));
+  }, [accounting, mode]);
+
   const handleFinish = useCallback(() => {
     setVisitedSteps(new Set(STEPS.map(s => s.id)));
     setProgress(prev => ({
@@ -224,6 +220,9 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
 
   const canGoNext = (): boolean => {
     const step = STEPS[currentStep];
+    if (!canProceedFromSetupStep({ stepId: step.id, openingBalanced: progress.openingBalanced })) {
+      return false;
+    }
     switch (step.id) {
       case 'company':
         return !!(companyData.name && companyData.code && companyData.enableDate);
@@ -264,14 +263,14 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
             {STEPS.map((s, i) => {
               const isCompleted = progress.completed.includes(s.id);
               const isCurrent = i === currentStep;
-              const isVisited = visitedSteps.has(s.id);
-              const visitedIndices = Array.from(visitedSteps)
-                .map(id => STEPS.findIndex(st => st.id === id))
-                .filter(idx => idx >= 0);
-              const maxVisitedIndex = visitedIndices.length > 0
-                ? Math.max(currentStep, ...visitedIndices)
-                : currentStep;
-              const canNavigate = isVisited || isCompleted || i <= maxVisitedIndex;
+              const canNavigate = canNavigateSetupStep({
+                mode,
+                stepId: s.id,
+                stepIndex: i,
+                currentStep,
+                visitedStepIds: visitedSteps,
+                completedStepIds: new Set(progress.completed),
+              });
               const Icon = s.icon;
               return (
                 <React.Fragment key={s.id}>
@@ -340,8 +339,12 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
                     setProgress(prev => ({ ...prev, ...p }))
                   }
                   onConfigChange={(config) => {
-                    setEnableProject(config.enableProject);
+                    setEnableProjectOverride(config.enableProject);
+                    if (config.enableProject) {
+                      setVisitedSteps(prev => new Set(prev).add('projects'));
+                    }
                   }}
+                  onProjectSetupRequested={openProjectsStep}
                 />
               )}
               {step.id === 'currency' && (
@@ -401,7 +404,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
             )}
 
             {isLastStep ? (
-              <Button onClick={handleFinish} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={handleFinish} disabled={!canGoNext()} className="bg-blue-600 hover:bg-blue-700">
                 <CheckCircle2 className="h-4 w-4 mr-1" />
                 完成设置
               </Button>

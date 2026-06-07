@@ -28,6 +28,7 @@ interface SetupStepRulesProps {
   industryTemplate: string | null;
   onProgressChange: (progress: Partial<BusinessRulesProgress>) => void;
   onConfigChange?: (config: { enableDepartment: boolean; enableProject: boolean }) => void;
+  onProjectSetupRequested?: () => void;
 }
 
 export interface BusinessRulesProgress {
@@ -63,7 +64,7 @@ const INDUSTRY_TAX_LABELS: Record<string, string> = {
   construction: '建筑业',
 };
 
-export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, industryTemplate, onProgressChange, onConfigChange }: SetupStepRulesProps) {
+export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, industryTemplate, onProgressChange, onConfigChange, onProjectSetupRequested }: SetupStepRulesProps) {
   const { showToast } = useToast();
 
   // Tax settings
@@ -156,6 +157,8 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       if (accountSet.accounting.bankTrackingMethod) setBankTrackingMethod(accountSet.accounting.bankTrackingMethod);
       if (accountSet.accounting.assetTrackingMethod) setAssetTrackingMethod(accountSet.accounting.assetTrackingMethod);
       if (accountSet.accounting.hasForeignCurrency !== undefined) setHasForeignCurrency(accountSet.accounting.hasForeignCurrency);
+      if (accountSet.accounting.enableDepartment !== undefined) setEnableDepartment(accountSet.accounting.enableDepartment);
+      if (accountSet.accounting.enableProject !== undefined) setEnableProject(accountSet.accounting.enableProject);
     }
     // Load existing classified words config
     if (accountSet?.voucherNumbering) {
@@ -170,11 +173,13 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
       if (accountSet) {
         const current = accountSet.accounting || {};
-        const updated = { partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency };
+        const updated = { partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject };
         if (current.partnerTrackingMethod !== updated.partnerTrackingMethod ||
             current.bankTrackingMethod !== updated.bankTrackingMethod ||
             current.assetTrackingMethod !== updated.assetTrackingMethod ||
-            current.hasForeignCurrency !== updated.hasForeignCurrency) {
+            current.hasForeignCurrency !== updated.hasForeignCurrency ||
+            current.enableDepartment !== updated.enableDepartment ||
+            current.enableProject !== updated.enableProject) {
           useAccountSetStore.getState().updateAccountSet(accountSet.id, {
             accounting: { ...current, ...updated },
           });
@@ -261,7 +266,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       setSavedSections(prev => new Set(prev).add('asset'));
       onProgressChange({ assetConfigured: true });
       showToast('success', '固定资产配置已保存');
-    } catch (error) {
+    } catch {
       showToast('error', '保存固定资产配置失败');
     } finally {
       setSaving(null);
@@ -274,7 +279,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       setSavedSections(prev => new Set(prev).add('invoice'));
       onProgressChange({ invoiceRulesConfigured: true });
       showToast('success', '发票业务组配置已保存');
-    } catch (error) {
+    } catch {
       showToast('error', '保存发票配置失败');
     } finally {
       setSaving(null);
@@ -293,6 +298,8 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             bankTrackingMethod,
             assetTrackingMethod,
             hasForeignCurrency,
+            enableDepartment,
+            enableProject,
           },
           voucherNumbering: {
             ...accountSet.voucherNumbering,
@@ -306,7 +313,10 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       }
       setSavedSections(prev => new Set(prev).add('tracking'));
       showToast('success', '核算方式已保存');
-    } catch (error) {
+      if (enableProject) {
+        onProjectSetupRequested?.();
+      }
+    } catch {
       showToast('error', '保存核算方式失败');
     } finally {
       setSaving(null);

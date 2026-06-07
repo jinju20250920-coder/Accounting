@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   analyzeOpeningBalance,
   buildOpeningAdjustmentEntry,
+  buildPartnerOpeningEntriesFromPartners,
   hasSubledgerSourceForSubject,
 } from './src/lib/opening-balance-rules';
 
@@ -77,6 +78,20 @@ assert.equal(
     assetEntries: [],
   }),
   false,
+);
+
+assert.deepEqual(
+  buildPartnerOpeningEntriesFromPartners([
+    { name: '客户A', isCustomer: true, isSupplier: false, openingBalance: 1200 },
+    { name: '供应商B', isCustomer: false, isSupplier: true, openingBalance: 800 },
+    { name: '客户供应商C', isCustomer: true, isSupplier: true, openingBalance: 300 },
+    { name: '零余额D', isCustomer: true, isSupplier: false, openingBalance: 0 },
+  ]),
+  [
+    { name: '客户A', type: 'receivable', amount: 1200, remark: '往来单位期初余额' },
+    { name: '供应商B', type: 'payable', amount: 800, remark: '往来单位期初余额' },
+    { name: '客户供应商C', type: 'receivable', amount: 300, remark: '往来单位期初余额' },
+  ],
 );
 
 console.log('opening balance rules ok');

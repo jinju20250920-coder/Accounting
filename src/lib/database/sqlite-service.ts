@@ -1204,6 +1204,7 @@ class SQLiteService {
         'departmentCode',
         'departmentName',
         'paymentTermDays',
+        'openingBalance',
         'payrollSalaryExpenseSubjectCode',
         'payrollSalaryExpenseSubjectName',
         'payrollContributionExpenseSubjectCode',

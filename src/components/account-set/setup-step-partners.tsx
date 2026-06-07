@@ -15,6 +15,7 @@ import {
 import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
+import type { Partner } from '@/types';
 
 interface SetupStepPartnersProps {
   accountSetId: string;
@@ -24,21 +25,31 @@ interface PartnerRow {
   code: string;
   name: string;
   type: string;
+  openingBalance: number;
   contact: string;
   phone: string;
   taxNumber: string;
+}
+
+type PartnerSetupType = 'customer' | 'supplier' | 'both';
+type PartnerImportInput = Omit<Partner, 'id' | 'createTime' | 'updateTime'>;
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const PARTNER_IMPORT_HEADERS = [
   { key: 'code' as const, label: '编码', required: true },
   { key: 'name' as const, label: '名称', required: true },
   { key: 'type' as const, label: '类型(客户/供应商/两者)', required: true },
+  { key: 'openingBalance' as const, label: '期初余额', required: false },
   { key: 'contact' as const, label: '联系人', required: false },
   { key: 'phone' as const, label: '电话', required: false },
   { key: 'taxNumber' as const, label: '税号', required: false },
 ];
 
 export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
+  void accountSetId;
   const { showToast } = useToast();
   const {
     partners,
@@ -54,7 +65,8 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
   // Form state for inline add
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState<'customer' | 'supplier' | 'both'>('customer');
+  const [newType, setNewType] = useState<PartnerSetupType>('customer');
+  const [newOpeningBalance, setNewOpeningBalance] = useState<number>(0);
 
   useEffect(() => {
     initializePartners();
@@ -80,13 +92,15 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
         isCustomer: newType === 'customer' || newType === 'both',
         isSupplier: newType === 'supplier' || newType === 'both',
         isEmployee: false,
+        openingBalance: Math.round(newOpeningBalance * 100) / 100,
         frozen: false,
       });
       setNewCode('');
       setNewName('');
       setNewType('customer');
-    } catch (error: any) {
-      showToast('error', `添加失败：${error.message}`);
+      setNewOpeningBalance(0);
+    } catch (error: unknown) {
+      showToast('error', `添加失败：${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -95,8 +109,8 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
   const handleDelete = async (id: string) => {
     try {
       await deletePartner(id);
-    } catch (error: any) {
-      showToast('error', `删除失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `删除失败：${getErrorMessage(error)}`);
     }
   };
 
@@ -106,7 +120,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
 
     try {
       const rawData = await importFromExcel<PartnerRow>(file, PARTNER_IMPORT_HEADERS);
-      const toImport: any[] = [];
+      const toImport: PartnerImportInput[] = [];
       let skipped = 0;
 
       for (const row of rawData) {
@@ -127,6 +141,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
           isCustomer: isCustomer || !isSupplier,
           isSupplier,
           isEmployee: false,
+          openingBalance: Math.round((Number(row.openingBalance) || 0) * 100) / 100,
           contact: String(row.contact || '').trim(),
           phone: String(row.phone || '').trim(),
           taxNumber: String(row.taxNumber || '').trim(),
@@ -145,8 +160,8 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
       } else {
         showToast('warning', '未找到有效数据');
       }
-    } catch (error: any) {
-      showToast('error', `导入失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `导入失败：${getErrorMessage(error)}`);
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -155,12 +170,12 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
   const handleDownloadTemplate = () => {
     exportTemplate<PartnerRow>(
       '往来单位导入模板',
-      { code: 'C001', name: '示例客户', type: '客户', contact: '张三', phone: '13800138000', taxNumber: '' },
+      { code: 'C001', name: '示例客户', type: '客户', openingBalance: 5000, contact: '张三', phone: '13800138000', taxNumber: '' },
       PARTNER_IMPORT_HEADERS
     );
   };
 
-  const getTypeBadge = (p: any) => {
+  const getTypeBadge = (p: Partner) => {
     const types: string[] = [];
     if (p.isCustomer) types.push('客户');
     if (p.isSupplier) types.push('供应商');
@@ -191,11 +206,15 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
           </div>
           <div className="w-32">
             <Label className="text-xs text-slate-500">类型</Label>
-            <select value={newType} onChange={(e) => setNewType(e.target.value as any)} className="h-8 text-sm border rounded px-2 w-full">
+            <select value={newType} onChange={(e) => setNewType(e.target.value as PartnerSetupType)} className="h-8 text-sm border rounded px-2 w-full">
               <option value="customer">客户</option>
               <option value="supplier">供应商</option>
               <option value="both">两者</option>
             </select>
+          </div>
+          <div className="w-32">
+            <Label className="text-xs text-slate-500">期初余额</Label>
+            <Input type="number" value={newOpeningBalance || ''} onChange={(e) => setNewOpeningBalance(parseFloat(e.target.value) || 0)} placeholder="0.00" className="h-8 text-sm text-right" autoComplete="off" />
           </div>
           <Button size="sm" onClick={handleAdd} disabled={saving || !newCode || !newName}>
             <Plus className="h-4 w-4 mr-1" /> 添加
@@ -224,6 +243,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">编码</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600">名称</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">类型</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初余额</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">联系人</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">电话</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-36">税号</th>
@@ -238,6 +258,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                   <td className="px-3 py-2">
                     <Badge variant="outline" className="text-xs">{getTypeBadge(p)}</Badge>
                   </td>
+                  <td className="px-3 py-2 text-right text-slate-600">{(p.openingBalance || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                   <td className="px-3 py-2 text-slate-600">{p.contact || '-'}</td>
                   <td className="px-3 py-2 text-slate-600">{p.phone || '-'}</td>
                   <td className="px-3 py-2 text-slate-600 font-mono text-xs">{p.taxNumber || '-'}</td>
@@ -255,7 +276,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
         <div className="text-center py-8 text-slate-400">
           <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p>暂无往来单位</p>
-          <p className="text-sm">点击"添加"或"导入Excel"批量录入</p>
+          <p className="text-sm">点击添加或导入 Excel 批量录入</p>
         </div>
       )}
     </div>
