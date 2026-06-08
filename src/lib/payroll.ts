@@ -92,6 +92,34 @@ export interface PayrollInput {
   payrollEmployerContributionPayableSubjectCode?: string;
   payrollEmployerContributionPayableSubjectName?: string;
   otherPostTaxDeduction?: number;
+
+  // 身份信息（个税系统）
+  idType?: string;
+  idNumber?: string;
+
+  // 五险一金明细（个人当月缴纳额）
+  pensionInsurance?: number;
+  medicalInsurance?: number;
+  unemploymentInsurance?: number;
+  housingFund?: number;
+
+  // 专项附加扣除明细（当月金额）
+  childEducation?: number;
+  continuingEducation?: number;
+  housingLoanInterest?: number;
+  housingRent?: number;
+  elderlyCare?: number;
+  infantCare?: number;
+  privatePension?: number;
+
+  // 其他扣除项
+  taxExemptIncome?: number;
+  corporateAnnuity?: number;
+  commercialHealthInsurance?: number;
+  taxDeferredPension?: number;
+  donation?: number;
+  taxReduction?: number;
+  remark?: string;
 }
 
 const PAYROLL_INPUT_AMOUNT_FIELDS = [
@@ -111,6 +139,23 @@ const PAYROLL_INPUT_AMOUNT_FIELDS = [
   ['priorCumulativeOtherLegalDeduction', '前期累计其他依法扣除'],
   ['priorCumulativeTaxWithheld', '前期累计已预扣税额'],
   ['otherPostTaxDeduction', '其他税后扣减'],
+  ['pensionInsurance', '基本养老保险费'],
+  ['medicalInsurance', '基本医疗保险费'],
+  ['unemploymentInsurance', '失业保险费'],
+  ['housingFund', '住房公积金'],
+  ['childEducation', '子女教育'],
+  ['continuingEducation', '继续教育'],
+  ['housingLoanInterest', '住房贷款利息'],
+  ['housingRent', '住房租金'],
+  ['elderlyCare', '赡养老人'],
+  ['infantCare', '婴幼儿照护'],
+  ['privatePension', '个人养老金'],
+  ['taxExemptIncome', '免税收入'],
+  ['corporateAnnuity', '企业年金'],
+  ['commercialHealthInsurance', '商业健康保险'],
+  ['taxDeferredPension', '税延养老保险'],
+  ['donation', '捐赠额'],
+  ['taxReduction', '减免税额'],
 ] as const satisfies readonly (readonly [keyof PayrollInput, string])[];
 
 export function createBlankPayrollInput(): PayrollInput {
@@ -133,6 +178,23 @@ export function createBlankPayrollInput(): PayrollInput {
     priorCumulativeTaxWithheld: 0,
     priorCumulativeMonths: 1,
     otherPostTaxDeduction: 0,
+    pensionInsurance: 0,
+    medicalInsurance: 0,
+    unemploymentInsurance: 0,
+    housingFund: 0,
+    childEducation: 0,
+    continuingEducation: 0,
+    housingLoanInterest: 0,
+    housingRent: 0,
+    elderlyCare: 0,
+    infantCare: 0,
+    privatePension: 0,
+    taxExemptIncome: 0,
+    corporateAnnuity: 0,
+    commercialHealthInsurance: 0,
+    taxDeferredPension: 0,
+    donation: 0,
+    taxReduction: 0,
   };
 }
 

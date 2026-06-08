@@ -46,8 +46,9 @@ import {
 } from '@/lib/payroll';
 import {
   exportPayrollResults,
-  generatePayrollImportTemplate,
-  parsePayrollFile,
+  exportToTaxSystem,
+  generateTaxSystemImportTemplate,
+  parsePayrollFileWithTaxSupport,
   type PayrollImportError,
 } from '@/lib/payroll-import';
 import {
@@ -500,7 +501,7 @@ export default function PayrollPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const result = await parsePayrollFile(file);
+      const result = await parsePayrollFileWithTaxSupport(file);
       setPreviewRows(result.validRows);
       setPreviewErrors(result.errors);
       setPreviewFileName(file.name);
@@ -1016,7 +1017,7 @@ export default function PayrollPage() {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={generatePayrollImportTemplate}>
+            <Button variant="outline" size="sm" onClick={generateTaxSystemImportTemplate}>
               <Download />下载模板
             </Button>
             <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
@@ -1045,6 +1046,18 @@ export default function PayrollPage() {
               onClick={() => exportPayrollResults(calculatedItems, period)}
             >
               <FileDown />导出结果
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={items.length === 0}
+              onClick={() => exportToTaxSystem(items.map(it => ({
+                ...it.inputData,
+                grossSalary: it.calculationResult.grossSalary,
+                individualIncomeTax: it.calculationResult.individualIncomeTax,
+              })), period)}
+            >
+              <FileDown />导出到个税系统
             </Button>
             <input
               ref={fileInputRef}

@@ -178,6 +178,39 @@ export async function parsePayrollFile(file: File): Promise<PayrollImportResult>
   return parsePayrollRows(rows);
 }
 
+/** 生成个税系统导入模板（29列格式，与个税扣缴系统一致） */
+export function generateTaxSystemImportTemplate(): void {
+  const sampleRow = [
+    'E001', '赵六', '居民身份证', '110101199001011234',
+    8000, 0,
+    800, 200, 50, 800,
+    1000, 0, 1000, 0, 1500, 0, 0,
+    0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0, '',
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([[...TAX_SYSTEM_IMPORT_HEADERS], sampleRow]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '正常工资薪金收入');
+
+  const guideSheet = XLSX.utils.aoa_to_sheet([
+    ['注意事项：', '', '', '', '', ''],
+    ['1、模板中标识为红色带*号的栏目为必填项，导入时不能为空！', '', '', '', '', ''],
+    ['2、本期收入 = 基本工资+奖金+津贴补贴+其他应发-请假扣款-其他税前扣减', '', '', '', '', ''],
+    ['3、五险一金填写个人当月缴纳金额', '', '', '', '', ''],
+    ['4、专项附加扣除填写累计金额（截至当月的本年度累计）', '', '', '', '', ''],
+    ['', '', '', '', '', ''],
+    ['证照类型填写范围', '', '', '', '', ''],
+    ['居民身份证', '', '', '', '', ''],
+    ['港澳居民来往内地通行证', '', '', '', '', ''],
+    ['台湾居民来往大陆通行证', '', '', '', '', ''],
+    ['外国人永久居留身份证', '', '', '', '', ''],
+    ['护照', '', '', '', '', ''],
+  ]);
+  XLSX.utils.book_append_sheet(wb, guideSheet, '填表说明');
+  XLSX.writeFile(wb, '正常工资薪金所得_导入模板.xls');
+}
+
 export function generatePayrollImportTemplate(): void {
   const sampleRow = [
     'E001',
@@ -238,4 +271,195 @@ export function exportPayrollResults(items: PayrollCalculationResult[], period: 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, '工资计算结果');
   XLSX.writeFile(workbook, `工资计算结果_${period}.xlsx`);
+}
+
+// ==================== 个税系统导入/导出 ====================
+
+const TAX_SYSTEM_IMPORT_HEADERS = [
+  '工号', '*姓名', '*证件类型', '*证件号码', '本期收入', '本期免税收入',
+  '基本养老保险费', '基本医疗保险费', '失业保险费', '住房公积金',
+  '累计子女教育', '累计继续教育', '累计住房贷款利息', '累计住房租金',
+  '累计赡养老人', '累计3岁以下婴幼儿照护', '累计个人养老金',
+  '企业(职业)年金', '商业健康保险', '税延养老保险',
+  '公务交通费用', '通讯费用', '律师办案费用', '西藏附加减除费用',
+  '其他', '准予扣除的捐赠额', '减免税额', '协定减免', '备注',
+] as const;
+
+const TAX_SYSTEM_EXPORT_HEADERS = [
+  '工号', '姓名', '证件类型', '证件号码', '所得期间起', '所得期间止',
+  '本期收入', '本期免税收入', '基本养老保险费', '基本医疗保险费',
+  '失业保险费', '住房公积金', '累计子女教育', '累计继续教育',
+  '累计住房贷款利息', '累计住房租金', '累计赡养老人',
+  '累计3岁以下婴幼儿照护', '累计个人养老金', '企业(职业)年金',
+  '商业健康保险', '税延养老保险', '公务交通费用', '通讯费用',
+  '律师办案费用', '准予扣除的捐赠额', '税前扣除项目合计',
+  '减免税额', '协定减免', '减除费用标准', '已缴税额', '备注',
+] as const;
+
+function textVal(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function numVal(value: unknown): number {
+  const n = Number(String(value ?? '').trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** 导出到个税系统导入模板格式（29列） */
+export function exportToTaxSystem(
+  items: (PayrollInput & { grossSalary?: number; individualIncomeTax?: number })[],
+  period: string,
+): void {
+  const [year, month] = period.split('-').map(Number);
+  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const periodEnd = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+
+  const rows = items.map((item) => ({
+    '工号': item.employeeCode,
+    '*姓名': item.employeeName,
+    '*证件类型': item.idType || '居民身份证',
+    '*证件号码': item.idNumber || '',
+    '本期收入': item.grossSalary ?? item.basicSalary + item.bonus + item.allowance + item.otherEarnings - item.leaveDeduction - item.otherPreTaxDeduction,
+    '本期免税收入': item.taxExemptIncome || 0,
+    '基本养老保险费': item.pensionInsurance || 0,
+    '基本医疗保险费': item.medicalInsurance || 0,
+    '失业保险费': item.unemploymentInsurance || 0,
+    '住房公积金': item.housingFund || 0,
+    '累计子女教育': (item.priorCumulativeSpecialAdditionalDeduction || 0) + (item.childEducation || 0),
+    '累计继续教育': item.continuingEducation || 0,
+    '累计住房贷款利息': item.housingLoanInterest || 0,
+    '累计住房租金': item.housingRent || 0,
+    '累计赡养老人': item.elderlyCare || 0,
+    '累计3岁以下婴幼儿照护': item.infantCare || 0,
+    '累计个人养老金': item.privatePension || 0,
+    '企业(职业)年金': item.corporateAnnuity || 0,
+    '商业健康保险': item.commercialHealthInsurance || 0,
+    '税延养老保险': item.taxDeferredPension || 0,
+    '公务交通费用': 0,
+    '通讯费用': 0,
+    '律师办案费用': 0,
+    '西藏附加减除费用': 0,
+    '其他': item.otherLegalDeduction || 0,
+    '准予扣除的捐赠额': item.donation || 0,
+    '减免税额': item.taxReduction || 0,
+    '协定减免': 0,
+    '备注': item.remark || '',
+  }));
+
+  const headerRow = [...TAX_SYSTEM_IMPORT_HEADERS];
+  const ws = XLSX.utils.json_to_sheet(rows, { header: headerRow });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '正常工资薪金收入');
+
+  // 填表说明 sheet
+  const guideSheet = XLSX.utils.aoa_to_sheet([
+    ['注意事项：', '', '', '', '', ''],
+    ['1、模板中标识为红色带*号的栏目为必填项，导入时不能为空！', '', '', '', '', ''],
+    ['2、部分栏目内容需从如下表格中选择，否则系统禁止导入！', '', '', '', '', ''],
+    ['', '', '', '', '', ''],
+    ['证照类型填写范围', '', '', '', '', ''],
+    ['居民身份证', '', '', '', '', ''],
+    ['港澳居民来往内地通行证', '', '', '', '', ''],
+    ['台湾居民来往大陆通行证', '', '', '', '', ''],
+    ['中华人民共和国港澳居民居住证', '', '', '', '', ''],
+    ['外国人永久居留身份证', '', '', '', '', ''],
+    ['护照', '', '', '', '', ''],
+  ]);
+  XLSX.utils.book_append_sheet(wb, guideSheet, '填表说明');
+  XLSX.writeFile(wb, `正常工资薪金所得_${period}.xls`);
+}
+
+/** 从个税系统导出文件导入（32列格式） */
+export function parseTaxSystemExportRows(rows: unknown[][]): PayrollImportResult {
+  const headerRow = rows[0] || [];
+  const headerIndex = new Map<string, number>(
+    headerRow.map((value, index) => [textVal(value), index]),
+  );
+  const errors: PayrollImportError[] = [];
+  const validRows: PayrollInput[] = [];
+  const seenCodes = new Set<string>();
+
+  rows.slice(1).forEach((row, offset) => {
+    if (row.every((cell) => !textVal(cell))) return;
+    const rowNumber = offset + 2;
+    const messages: string[] = [];
+
+    const employeeCode = textVal(row[headerIndex.get('工号') ?? -1]);
+    const employeeName = textVal(row[headerIndex.get('姓名') ?? -1]);
+    const idType = textVal(row[headerIndex.get('证件类型') ?? -1]) || undefined;
+    const idNumber = textVal(row[headerIndex.get('证件号码') ?? -1]) || undefined;
+
+    if (!employeeName) messages.push('姓名不能为空');
+    if (employeeCode && seenCodes.has(employeeCode)) messages.push('重复工号');
+
+    const currentIncome = numVal(row[headerIndex.get('本期收入') ?? -1]);
+
+    if (employeeCode) seenCodes.add(employeeCode);
+    if (messages.length > 0) {
+      errors.push({ rowNumber, message: messages.join('；') });
+      return;
+    }
+
+    validRows.push({
+      employeeCode: employeeCode || `EMP${String(validRows.length + 1).padStart(3, '0')}`,
+      employeeName,
+      idType,
+      idNumber,
+      basicSalary: currentIncome,
+      bonus: 0,
+      allowance: 0,
+      otherEarnings: 0,
+      leaveDeduction: 0,
+      otherPreTaxDeduction: 0,
+      specialAdditionalDeduction: 0,
+      otherLegalDeduction: 0,
+      priorCumulativeIncome: 0,
+      priorCumulativeEmployeeContributions: 0,
+      priorCumulativeSpecialAdditionalDeduction: 0,
+      priorCumulativeOtherLegalDeduction: 0,
+      priorCumulativeTaxWithheld: 0,
+      pensionInsurance: numVal(row[headerIndex.get('基本养老保险费') ?? -1]),
+      medicalInsurance: numVal(row[headerIndex.get('基本医疗保险费') ?? -1]),
+      unemploymentInsurance: numVal(row[headerIndex.get('失业保险费') ?? -1]),
+      housingFund: numVal(row[headerIndex.get('住房公积金') ?? -1]),
+      childEducation: numVal(row[headerIndex.get('累计子女教育') ?? -1]),
+      continuingEducation: numVal(row[headerIndex.get('累计继续教育') ?? -1]),
+      housingLoanInterest: numVal(row[headerIndex.get('累计住房贷款利息') ?? -1]),
+      housingRent: numVal(row[headerIndex.get('累计住房租金') ?? -1]),
+      elderlyCare: numVal(row[headerIndex.get('累计赡养老人') ?? -1]),
+      infantCare: numVal(row[headerIndex.get('累计3岁以下婴幼儿照护') ?? -1]),
+      privatePension: numVal(row[headerIndex.get('累计个人养老金') ?? -1]),
+      taxExemptIncome: numVal(row[headerIndex.get('本期免税收入') ?? -1]),
+      corporateAnnuity: numVal(row[headerIndex.get('企业(职业)年金') ?? -1]),
+      commercialHealthInsurance: numVal(row[headerIndex.get('商业健康保险') ?? -1]),
+      taxDeferredPension: numVal(row[headerIndex.get('税延养老保险') ?? -1]),
+      donation: numVal(row[headerIndex.get('准予扣除的捐赠额') ?? -1]),
+      taxReduction: numVal(row[headerIndex.get('减免税额') ?? -1]),
+      remark: textVal(row[headerIndex.get('备注') ?? -1]) || undefined,
+      otherPostTaxDeduction: 0,
+    });
+  });
+
+  return { validRows, errors };
+}
+
+/** 检测文件是否为个税系统导出格式 */
+function isTaxSystemExport(headers: unknown[]): boolean {
+  const headerTexts = headers.map(h => textVal(h));
+  return headerTexts.includes('证件号码') && headerTexts.includes('所得期间起');
+}
+
+/** 增强版文件解析：自动识别个税系统导出格式 vs 自有格式 */
+export async function parsePayrollFileWithTaxSupport(file: File): Promise<PayrollImportResult> {
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: '' });
+  if (rows.length === 0) return { validRows: [], errors: [] };
+
+  const headerRow = rows[0] || [];
+  if (isTaxSystemExport(headerRow)) {
+    return parseTaxSystemExportRows(rows);
+  }
+  return parsePayrollRows(rows);
 }
