@@ -12,6 +12,8 @@ export interface PartnerRow {
   address: string | null;
   taxNo: string | null;
   bankAccount: string | null;
+  idType: string | null;
+  idNumber: string | null;
   defaultSubjectCode?: string | null;
   defaultSubjectName?: string | null;
   departmentCode: string | null;
@@ -52,6 +54,8 @@ export interface PartnerInsertInput {
   address?: string;
   taxNo?: string;
   bankAccount?: string;
+  idType?: string;
+  idNumber?: string;
   departmentCode?: string;
   departmentName?: string;
   paymentTermDays?: number;
@@ -90,6 +94,7 @@ export interface PartnerInsert {
 const PARTNER_INSERT_SQL = `
   INSERT OR REPLACE INTO partners (
     id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled,
+    idType, idNumber,
     departmentCode, departmentName, paymentTermDays, openingBalance,
     payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
     payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
@@ -99,7 +104,7 @@ const PARTNER_INSERT_SQL = `
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
     accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -136,6 +141,8 @@ export function mapPartnerRow(row: PartnerRow): Partner {
     address: row.address || '',
     taxNumber: row.taxNo || '',
     bankAccount: row.bankAccount || '',
+    idType: optionalText(row.idType),
+    idNumber: optionalText(row.idNumber),
     defaultSubjectCode: optionalText(row.defaultSubjectCode),
     defaultSubjectName: optionalText(row.defaultSubjectName),
     departmentCode: optionalText(row.departmentCode),
@@ -180,6 +187,8 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       text(partner.taxNo),
       text(partner.bankAccount),
       1,
+      text(partner.idType),
+      text(partner.idNumber),
       text(partner.departmentCode),
       text(partner.departmentName),
       partner.paymentTermDays || null,
@@ -275,6 +284,8 @@ export async function savePartnersRecord(input: {
       address: partner.address,
       taxNo: partner.taxNumber,
       bankAccount: partner.bankAccount,
+      idType: partner.idType,
+      idNumber: partner.idNumber,
       departmentCode: partner.departmentCode,
       departmentName: partner.departmentName,
       paymentTermDays: partner.paymentTermDays,

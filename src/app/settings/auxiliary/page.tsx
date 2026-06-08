@@ -179,6 +179,8 @@ export default function AuxiliaryDataPage() {
     departmentName: '',
     payrollSalaryExpenseSubjectCode: '',
     payrollSalaryExpenseSubjectName: '',
+    idType: '',
+    idNumber: '',
     paymentTermDays: 30,
     frozen: false
   });
@@ -276,6 +278,8 @@ export default function AuxiliaryDataPage() {
       departmentName: partner.departmentName || '',
       payrollSalaryExpenseSubjectCode: partner.payrollSalaryExpenseSubjectCode || '',
       payrollSalaryExpenseSubjectName: partner.payrollSalaryExpenseSubjectName || '',
+      idType: partner.idType || '',
+      idNumber: partner.idNumber || '',
       paymentTermDays: partner.paymentTermDays ?? 30,
       frozen: partner.frozen
     });
@@ -457,6 +461,8 @@ export default function AuxiliaryDataPage() {
       departmentName: '',
       payrollSalaryExpenseSubjectCode: '',
       payrollSalaryExpenseSubjectName: '',
+      idType: '',
+      idNumber: '',
       paymentTermDays: 30,
       frozen: false
     });
@@ -859,6 +865,33 @@ export default function AuxiliaryDataPage() {
               {formData.isEmployee && (
                 <div className="space-y-3 border-t border-slate-100 pt-4">
                   <h3 className="text-sm font-semibold text-slate-700">工资核算设置</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">证件类型</Label>
+                      <select
+                        className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+                        value={formData.idType}
+                        onChange={e => setFormData(prev => ({ ...prev, idType: e.target.value }))}
+                      >
+                        <option value="">--</option>
+                        <option value="居民身份证">居民身份证</option>
+                        <option value="护照">护照</option>
+                        <option value="港澳居民来往内地通行证">港澳居民来往内地通行证</option>
+                        <option value="台湾居民来往大陆通行证">台湾居民来往大陆通行证</option>
+                        <option value="外国人永久居留身份证">外国人永久居留身份证</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">证件号码</Label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+                        value={formData.idNumber}
+                        onChange={e => setFormData(prev => ({ ...prev, idNumber: e.target.value }))}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-1.5">
                     <Label className="font-semibold text-sm">工资费用科目</Label>
                     {formData.payrollSalaryExpenseSubjectCode ? (

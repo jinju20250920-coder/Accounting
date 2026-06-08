@@ -309,6 +309,8 @@ function completeEmployeeFields(
     employeeCode: employee.code,
     employeeName: employee.name,
     departmentName: employeeDepartmentName,
+    idType: employee.idType || input.idType,
+    idNumber: employee.idNumber || input.idNumber,
   };
 }
 
