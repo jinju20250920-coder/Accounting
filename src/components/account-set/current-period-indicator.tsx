@@ -59,7 +59,9 @@ function getStatusBadge(status: AccountingPeriod['status']) {
 
 export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicatorProps) {
   const { createNextPeriod, setCurrentPeriod: switchPeriod } = usePeriodManagementStore();
-  const accountSet = useAccountSetStore((state) => state.getCurrentAccountSet());
+  const accountSet = useAccountSetStore((state) =>
+    state.accountSets.find(s => s.id === state.currentAccountSetId) || null
+  );
   const vouchers = useVoucherStore((state) => state.vouchers);
   const [showMonthlyWizard, setShowMonthlyWizard] = useState(false);
 
@@ -107,9 +109,9 @@ export function CurrentPeriodIndicator({ compact = false }: CurrentPeriodIndicat
       }
       aria-label="切换账期"
     >
-      {allPeriods.map(period => (
+      {allPeriods.filter(p => p.status === 'open').map(period => (
         <option key={period.id} value={period.id}>
-          {period.name} ({getStatusLabel(period.status)})
+          {period.name}
         </option>
       ))}
     </select>

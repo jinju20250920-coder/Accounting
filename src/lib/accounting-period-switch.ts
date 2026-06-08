@@ -46,11 +46,9 @@ export function switchCurrentAccountingPeriod<T extends SwitchableAccountingPeri
       return {
         ...period,
         isCurrent,
-        status: isCurrent ? 'open' : (period.status === 'open' ? 'closed' : period.status),
-        statusColor: isCurrent ? 'blue' : (period.status === 'open' ? 'green' : period.statusColor),
-        canEdit: isCurrent,
-        canClose: isCurrent,
-        canReopen: !isCurrent && period.status !== 'locked',
+        canEdit: isCurrent && period.status === 'open',
+        canClose: isCurrent && period.status === 'open',
+        canReopen: !isCurrent && period.status === 'closed',
       };
     }) as T[],
   };
