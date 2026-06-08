@@ -145,20 +145,25 @@ const INSURANCE_ROWS: { key: InsuranceKey; label: string }[] = [
 ];
 
 const PAYROLL_AMOUNT_FIELDS: { key: keyof PayrollInput; label: string }[] = [
-  { key: 'basicSalary', label: '基本工资' },
-  { key: 'bonus', label: '奖金' },
-  { key: 'allowance', label: '津贴补贴' },
-  { key: 'otherEarnings', label: '其他应发' },
-  { key: 'leaveDeduction', label: '请假扣款' },
-  { key: 'otherPreTaxDeduction', label: '其他税前扣减' },
-  { key: 'specialAdditionalDeduction', label: '专项附加扣除' },
-  { key: 'otherLegalDeduction', label: '其他依法扣除' },
-  { key: 'priorCumulativeIncome', label: '前期累计收入' },
-  { key: 'priorCumulativeEmployeeContributions', label: '前期累计个人社保公积金' },
-  { key: 'priorCumulativeSpecialAdditionalDeduction', label: '前期累计专项附加扣除' },
-  { key: 'priorCumulativeOtherLegalDeduction', label: '前期累计其他依法扣除' },
-  { key: 'priorCumulativeTaxWithheld', label: '前期累计已预扣税额' },
-  { key: 'otherPostTaxDeduction', label: '其他税后扣减' },
+  { key: 'basicSalary', label: '本期收入' },
+  { key: 'taxExemptIncome', label: '本期免税收入' },
+  { key: 'pensionInsurance', label: '基本养老保险费' },
+  { key: 'medicalInsurance', label: '基本医疗保险费' },
+  { key: 'unemploymentInsurance', label: '失业保险费' },
+  { key: 'housingFund', label: '住房公积金' },
+  { key: 'childEducation', label: '累计子女教育' },
+  { key: 'continuingEducation', label: '累计继续教育' },
+  { key: 'housingLoanInterest', label: '累计住房贷款利息' },
+  { key: 'housingRent', label: '累计住房租金' },
+  { key: 'elderlyCare', label: '累计赡养老人' },
+  { key: 'infantCare', label: '累计婴幼儿照护' },
+  { key: 'privatePension', label: '累计个人养老金' },
+  { key: 'corporateAnnuity', label: '企业(职业)年金' },
+  { key: 'commercialHealthInsurance', label: '商业健康保险' },
+  { key: 'taxDeferredPension', label: '税延养老保险' },
+  { key: 'donation', label: '准予扣除的捐赠额' },
+  { key: 'taxReduction', label: '减免税额' },
+  { key: 'otherLegalDeduction', label: '其他' },
 ];
 
 const EMPTY_ENTRY_ROW_COUNT = 10;
@@ -169,19 +174,13 @@ const EXCEL_READONLY_CELL_CLASS = 'border border-slate-300 bg-slate-50 px-1.5 py
 const EXCEL_HEADER_CELL_CLASS = 'border border-slate-300 bg-slate-100 px-2 py-1 text-left font-medium text-slate-700';
 const EXCEL_SELECT_CLASS = 'h-7 w-full border-0 bg-transparent px-1.5 text-xs outline-none';
 const OPTIONAL_AMOUNT_FIELD_KEYS = new Set<keyof PayrollInput>([
-  'bonus',
-  'allowance',
-  'otherEarnings',
-  'leaveDeduction',
-  'otherPreTaxDeduction',
-  'specialAdditionalDeduction',
+  'taxExemptIncome',
+  'corporateAnnuity',
+  'commercialHealthInsurance',
+  'taxDeferredPension',
+  'donation',
+  'taxReduction',
   'otherLegalDeduction',
-  'priorCumulativeIncome',
-  'priorCumulativeEmployeeContributions',
-  'priorCumulativeSpecialAdditionalDeduction',
-  'priorCumulativeOtherLegalDeduction',
-  'priorCumulativeTaxWithheld',
-  'otherPostTaxDeduction',
 ]);
 
 function createBlankPayrollRows(): PayrollInput[] {
@@ -192,7 +191,7 @@ function hasDraftInput(row: PayrollInput): boolean {
   return Boolean(
     row.employeeCode.trim()
     || row.employeeName.trim()
-    || row.departmentName?.trim()
+    || row.idNumber?.trim()
     || PAYROLL_AMOUNT_FIELDS.some(({ key }) => Number(row[key] || 0) !== 0),
   );
 }
@@ -602,21 +601,12 @@ export default function PayrollPage() {
   }
 
   function updateEditingText(
-    field: 'employeeCode' | 'employeeName' | 'departmentName' | 'incomeType' | 'annualBonusTaxMethod',
+    field: 'employeeCode' | 'employeeName' | 'idType' | 'idNumber',
     value: string,
   ) {
     setEditingInput((input) => {
-      if (field === 'departmentName') return { ...input, departmentName: value };
-      if (field === 'incomeType') {
-        return {
-          ...input,
-          incomeType: value as PayrollInput['incomeType'],
-          annualBonusTaxMethod: value === 'annual_bonus' ? input.annualBonusTaxMethod : undefined,
-        };
-      }
-      if (field === 'annualBonusTaxMethod') {
-        return { ...input, annualBonusTaxMethod: (value || undefined) as PayrollInput['annualBonusTaxMethod'] };
-      }
+      if (field === 'idType') return { ...input, idType: value || undefined };
+      if (field === 'idNumber') return { ...input, idNumber: value || undefined };
       return completeEmployeeFields(input, field, value, employeeOptions, departmentOptions);
     });
   }
@@ -644,24 +634,14 @@ export default function PayrollPage() {
 
   function updateDraftText(
     index: number,
-    field: 'employeeCode' | 'employeeName' | 'departmentName' | 'incomeType' | 'annualBonusTaxMethod',
+    field: 'employeeCode' | 'employeeName' | 'idType' | 'idNumber',
     value: string,
   ) {
     setDraftRows((rows) => rows.map((row, rowIndex) => {
       if (rowIndex !== index) return row;
-      if (field === 'incomeType') {
-        return {
-          ...row,
-          incomeType: value as PayrollInput['incomeType'],
-          annualBonusTaxMethod: value === 'annual_bonus' ? row.annualBonusTaxMethod : undefined,
-        };
-      }
-      if (field === 'annualBonusTaxMethod') {
-        return { ...row, annualBonusTaxMethod: (value || undefined) as PayrollInput['annualBonusTaxMethod'] };
-      }
-      return field === 'departmentName'
-        ? { ...row, departmentName: value }
-        : completeEmployeeFields(row, field, value, employeeOptions, departmentOptions);
+      if (field === 'idType') return { ...row, idType: value || undefined };
+      if (field === 'idNumber') return { ...row, idNumber: value || undefined };
+      return completeEmployeeFields(row, field, value, employeeOptions, departmentOptions);
     }));
   }
 
@@ -726,7 +706,7 @@ export default function PayrollPage() {
   function renderEditableCells(
     input: PayrollInput,
     rowLabel: string,
-    onTextChange: (field: 'employeeCode' | 'employeeName' | 'departmentName' | 'incomeType' | 'annualBonusTaxMethod', value: string) => void,
+    onTextChange: (field: 'employeeCode' | 'employeeName' | 'idType' | 'idNumber', value: string) => void,
     onAmountChange: (field: keyof PayrollInput, value: string) => void,
     onKeyDown?: React.KeyboardEventHandler<HTMLElement>,
   ) {
@@ -739,34 +719,23 @@ export default function PayrollPage() {
           <Input variant="excel" list="employee-name-options" aria-label={`${rowLabel}姓名`} className={EXCEL_TEXT_INPUT_CLASS} value={input.employeeName} onChange={(event) => onTextChange('employeeName', event.target.value)} onKeyDown={onKeyDown} />
         </td>
         <td className={EXCEL_CELL_CLASS}>
-          <Input variant="excel" list="department-options" aria-label={`${rowLabel}部门`} className={EXCEL_TEXT_INPUT_CLASS} value={input.departmentName || ''} onChange={(event) => onTextChange('departmentName', event.target.value)} onKeyDown={onKeyDown} />
-        </td>
-        <td className={EXCEL_CELL_CLASS}>
           <select
-            aria-label={`${rowLabel}收入类型`}
+            aria-label={`${rowLabel}证件类型`}
             className={EXCEL_SELECT_CLASS}
-            value={input.incomeType || ''}
-            onChange={(event) => onTextChange('incomeType', event.target.value)}
+            value={input.idType || ''}
+            onChange={(event) => onTextChange('idType', event.target.value)}
             onKeyDown={onKeyDown}
           >
             <option value="">--</option>
-            <option value="salary">工资薪金</option>
-            <option value="annual_bonus">全年一次性奖金</option>
+            <option value="居民身份证">居民身份证</option>
+            <option value="护照">护照</option>
+            <option value="港澳居民来往内地通行证">港澳居民来往内地通行证</option>
+            <option value="台湾居民来往大陆通行证">台湾居民来往大陆通行证</option>
+            <option value="外国人永久居留身份证">外国人永久居留身份证</option>
           </select>
         </td>
         <td className={EXCEL_CELL_CLASS}>
-          <select
-            aria-label={`${rowLabel}年终奖计税方式`}
-            className={EXCEL_SELECT_CLASS}
-            value={input.incomeType === 'annual_bonus' ? (input.annualBonusTaxMethod || '') : ''}
-            onChange={(event) => onTextChange('annualBonusTaxMethod', event.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={input.incomeType !== 'annual_bonus'}
-          >
-            <option value="">--</option>
-            <option value="separate">单独计税</option>
-            <option value="consolidated">并入综合所得</option>
-          </select>
+          <Input variant="excel" aria-label={`${rowLabel}证件号码`} className={`${EXCEL_TEXT_INPUT_CLASS} font-mono`} value={input.idNumber || ''} onChange={(event) => onTextChange('idNumber', event.target.value)} onKeyDown={onKeyDown} />
         </td>
         {visibleAmountFields.map((field) => (
           <td key={String(field.key)} className={EXCEL_CELL_CLASS}>
@@ -803,9 +772,8 @@ export default function PayrollPage() {
           <>
             <td className="border border-slate-300 bg-white px-1 py-0.5 font-mono text-xs">{item.employeeCode}</td>
             <td className="border border-slate-300 bg-white px-1 py-0.5">{item.employeeName}</td>
-            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.departmentName || ''}</td>
-            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{getIncomeTypeLabel(item.inputData)}</td>
-            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{getAnnualBonusTaxMethodLabel(item.inputData)}</td>
+            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.inputData.idType || '居民身份证'}</td>
+            <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.inputData.idNumber || ''}</td>
             {visibleAmountFields.map((field) => (
               <td key={String(field.key)} className="border border-slate-300 bg-white px-1 py-0.5 text-right tabular-nums">
                 {formatMoney(Number(item.inputData[field.key] || 0))}
@@ -1141,20 +1109,21 @@ export default function PayrollPage() {
               <table className="w-full min-w-[640px] text-sm">
                 <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
                   <tr>
-                    {['工号', '姓名', '部门', '基本工资', '奖金', '专项附加扣除'].map((title) => (
+                    {['工号', '姓名', '证件号码', '本期收入', '养老保险', '住房公积金', '专项附加扣除'].map((title) => (
                       <th key={title} className="px-4 py-2 text-left font-medium">{title}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {previewRows.map((row) => (
-                    <tr key={row.employeeCode} className="border-t border-slate-100">
-                      <td className="px-4 py-2 font-mono text-xs">{row.employeeCode}</td>
+                    <tr key={row.employeeCode || row.employeeName} className="border-t border-slate-100">
+                      <td className="px-4 py-2 font-mono text-xs">{row.employeeCode || '-'}</td>
                       <td className="px-4 py-2">{row.employeeName}</td>
-                      <td className="px-4 py-2">{row.departmentName || '-'}</td>
+                      <td className="px-4 py-2 font-mono text-xs">{row.idNumber || '-'}</td>
                       <td className="px-4 py-2 tabular-nums">{formatMoney(row.basicSalary)}</td>
-                      <td className="px-4 py-2 tabular-nums">{formatMoney(row.bonus)}</td>
-                      <td className="px-4 py-2 tabular-nums">{formatMoney(row.specialAdditionalDeduction)}</td>
+                      <td className="px-4 py-2 tabular-nums">{formatMoney(row.pensionInsurance || 0)}</td>
+                      <td className="px-4 py-2 tabular-nums">{formatMoney(row.housingFund || 0)}</td>
+                      <td className="px-4 py-2 tabular-nums">{formatMoney(row.childEducation + (row.continuingEducation || 0) + (row.housingLoanInterest || 0) + (row.housingRent || 0) + (row.elderlyCare || 0) + (row.infantCare || 0) + (row.privatePension || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1237,9 +1206,8 @@ export default function PayrollPage() {
                   <th className="sticky left-0 z-10 w-12 border border-slate-300 bg-slate-100 px-2 py-1 text-center font-medium text-slate-700">序号</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>工号</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>姓名</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-28`}>部门</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-32 whitespace-nowrap`}>收入类型</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-32 whitespace-nowrap`}>年终奖计税方式</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-28`}>证件类型</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-36`}>证件号码</th>
                   {visibleAmountFields.map((field) => (
                     <th key={String(field.key)} className={`${EXCEL_HEADER_CELL_CLASS} w-36 whitespace-nowrap text-right`}>{field.label}</th>
                   ))}
@@ -1252,7 +1220,7 @@ export default function PayrollPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 8} className="border border-slate-300 px-4 py-14 text-center text-sm text-slate-400">加载中...</td></tr>
+                  <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 7} className="border border-slate-300 px-4 py-14 text-center text-sm text-slate-400">加载中...</td></tr>
                 ) : (
                   <>
                     {items.map(renderSavedRow)}
@@ -1278,7 +1246,7 @@ export default function PayrollPage() {
                       </tr>
                     ))}
                     {items.length === 0 && (!editable || !showDraftRows) && (
-                      <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 8} className="border border-slate-300 px-4 py-8 text-center text-sm text-slate-400">暂无工资明细。</td></tr>
+                      <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 7} className="border border-slate-300 px-4 py-8 text-center text-sm text-slate-400">暂无工资明细。</td></tr>
                     )}
                   </>
                 )}
