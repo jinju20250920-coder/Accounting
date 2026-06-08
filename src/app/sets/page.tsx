@@ -24,7 +24,6 @@ import {
   Plus,
   Edit2,
   FolderOpen,
-  HardDrive,
   Settings,
   Clock,
   Play,
@@ -40,9 +39,6 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import type { AccountSet } from '@/stores/useAccountSetStore';
 import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
 import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
-import type { AccountSetHandleInfo } from '@/lib/database/file-handle-manager';
-import { DbStatusIndicator, StorageTypeBadge } from '@/components/database/db-status-indicator';
-import { DatabaseLocationDialog } from '@/components/database/database-location-dialog';
 import { AccountSetMembersDialog } from '@/components/account-set/account-set-members-dialog';
 import initSqlJs from 'sql.js';
 
@@ -88,7 +84,6 @@ export default function SetsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showDbLocationDialog, setShowDbLocationDialog] = useState(false);
   const [showMembersDialog, setShowMembersDialog] = useState(false);
   const [membersAccountSetId, setMembersAccountSetId] = useState('');
   const [membersAccountSetName, setMembersAccountSetName] = useState('');
@@ -120,27 +115,6 @@ export default function SetsPage() {
   // 加载状态
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-
-  // 账套数据库信息映射
-  const [accountSetDbInfos, setAccountSetDbInfos] = useState<Map<string, AccountSetHandleInfo>>(new Map());
-
-  // 加载账套数据库信息
-  useEffect(() => {
-    const loadAccountSetInfos = async () => {
-      try {
-        const infos = await fileHandleManager.getAllAccountSets();
-        const infoMap = new Map<string, AccountSetHandleInfo>();
-        for (const info of infos) {
-          infoMap.set(info.accountSetId, info);
-        }
-        setAccountSetDbInfos(infoMap);
-      } catch (error) {
-        console.error('Failed to load account set infos:', error);
-      }
-    };
-
-    loadAccountSetInfos();
-  }, [accountSets]);
 
   // 重置表单数据
   const resetFormData = () => {
@@ -484,14 +458,6 @@ export default function SetsPage() {
       router.push(`/setup?${params.toString()}`);
       return;
 
-      // 重新加载账套信息
-      const infos = await fileHandleManager.getAllAccountSets();
-      const infoMap = new Map<string, AccountSetHandleInfo>();
-      for (const info of infos) {
-        infoMap.set(info.accountSetId, info);
-      }
-      setAccountSetDbInfos(infoMap);
-
     } catch (error) {
       console.error('Create account set failed:', error);
       showToast('error', '创建账套失败: ' + (error as Error).message);
@@ -527,11 +493,6 @@ export default function SetsPage() {
     showToast('success', '账套更新成功');
   };
 
-  // 管理数据库位置
-  const handleManageDbLocation = (accountSet: AccountSet) => {
-    setSelectedSet(accountSet);
-    setShowDbLocationDialog(true);
-  };
 
   // 确认删除
   const confirmDelete = async () => {
@@ -640,10 +601,6 @@ export default function SetsPage() {
                       </p>
                     </div>
                   </div>
-                  <DbStatusIndicator
-                    accountSetId={getCurrentAccountSet()!.id}
-                    showDetails={true}
-                  />
                 </div>
               </CardContent>
             </Card>
@@ -652,7 +609,6 @@ export default function SetsPage() {
           {/* 账套列表 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {mounted && accountSets.map((accountSet) => {
-          const dbInfo = accountSetDbInfos.get(accountSet.id);
           const isSelected = currentAccountSetId === accountSet.id;
 
           return (
@@ -697,18 +653,6 @@ export default function SetsPage() {
                     </div>
                   </div>
 
-                  {/* 数据库状态 */}
-                  {dbInfo && (
-                    <div className="pt-2 border-t">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-slate-600">数据库存储:</span>
-                        <StorageTypeBadge storageType={dbInfo.storageType} />
-                      </div>
-                      <p className="text-xs text-slate-500 truncate">
-                        {dbInfo.fileName}
-                      </p>
-                    </div>
-                  )}
 
                   {/* 操作按钮 */}
                   <div className="flex gap-2 pt-2">
@@ -729,14 +673,6 @@ export default function SetsPage() {
                       onClick={() => handleEdit(accountSet)}
                     >
                       <Edit2 className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleManageDbLocation(accountSet)}
-                      title="管理数据库位置"
-                    >
-                      <HardDrive className="h-3 w-3" />
                     </Button>
                     <Button
                       size="sm"
@@ -892,15 +828,6 @@ export default function SetsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 数据库位置管理对话框 */}
-      {selectedSet && (
-        <DatabaseLocationDialog
-          open={showDbLocationDialog}
-          onOpenChange={setShowDbLocationDialog}
-          accountSetId={selectedSet.id}
-          accountSetName={selectedSet.name}
-        />
-      )}
     </div>
   );
 }
