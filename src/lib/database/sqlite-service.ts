@@ -1207,6 +1207,8 @@ class SQLiteService {
         'openingBalance',
         'idType',
         'idNumber',
+        'employmentStartDate',
+        'employmentEndDate',
         'payrollSalaryExpenseSubjectCode',
         'payrollSalaryExpenseSubjectName',
         'payrollContributionExpenseSubjectCode',

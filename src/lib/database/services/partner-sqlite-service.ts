@@ -14,6 +14,8 @@ export interface PartnerRow {
   bankAccount: string | null;
   idType: string | null;
   idNumber: string | null;
+  employmentStartDate: string | null;
+  employmentEndDate: string | null;
   defaultSubjectCode?: string | null;
   defaultSubjectName?: string | null;
   departmentCode: string | null;
@@ -56,6 +58,8 @@ export interface PartnerInsertInput {
   bankAccount?: string;
   idType?: string;
   idNumber?: string;
+  employmentStartDate?: string;
+  employmentEndDate?: string;
   departmentCode?: string;
   departmentName?: string;
   paymentTermDays?: number;
@@ -95,6 +99,7 @@ const PARTNER_INSERT_SQL = `
   INSERT OR REPLACE INTO partners (
     id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled,
     idType, idNumber,
+    employmentStartDate, employmentEndDate,
     departmentCode, departmentName, paymentTermDays, openingBalance,
     payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
     payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
@@ -104,7 +109,7 @@ const PARTNER_INSERT_SQL = `
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
     accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -143,6 +148,8 @@ export function mapPartnerRow(row: PartnerRow): Partner {
     bankAccount: row.bankAccount || '',
     idType: optionalText(row.idType),
     idNumber: optionalText(row.idNumber),
+    employmentStartDate: optionalText(row.employmentStartDate),
+    employmentEndDate: optionalText(row.employmentEndDate),
     defaultSubjectCode: optionalText(row.defaultSubjectCode),
     defaultSubjectName: optionalText(row.defaultSubjectName),
     departmentCode: optionalText(row.departmentCode),
@@ -189,6 +196,8 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       1,
       text(partner.idType),
       text(partner.idNumber),
+      text(partner.employmentStartDate),
+      text(partner.employmentEndDate),
       text(partner.departmentCode),
       text(partner.departmentName),
       partner.paymentTermDays || null,
@@ -286,6 +295,8 @@ export async function savePartnersRecord(input: {
       bankAccount: partner.bankAccount,
       idType: partner.idType,
       idNumber: partner.idNumber,
+      employmentStartDate: partner.employmentStartDate,
+      employmentEndDate: partner.employmentEndDate,
       departmentCode: partner.departmentCode,
       departmentName: partner.departmentName,
       paymentTermDays: partner.paymentTermDays,

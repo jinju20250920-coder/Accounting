@@ -45,6 +45,10 @@ type PartnerTemplateSample = {
   taxNumber: string;
   bankAccount: string;
   bankName: string;
+  idType: string;
+  idNumber: string;
+  employmentStartDate: string;
+  employmentEndDate: string;
 };
 
 type PartnerTemplateHeader = {
@@ -181,6 +185,8 @@ export default function AuxiliaryDataPage() {
     payrollSalaryExpenseSubjectName: '',
     idType: '',
     idNumber: '',
+    employmentStartDate: '',
+    employmentEndDate: '',
     paymentTermDays: 30,
     frozen: false
   });
@@ -280,6 +286,8 @@ export default function AuxiliaryDataPage() {
       payrollSalaryExpenseSubjectName: partner.payrollSalaryExpenseSubjectName || '',
       idType: partner.idType || '',
       idNumber: partner.idNumber || '',
+      employmentStartDate: partner.employmentStartDate || '',
+      employmentEndDate: partner.employmentEndDate || '',
       paymentTermDays: partner.paymentTermDays ?? 30,
       frozen: partner.frozen
     });
@@ -334,7 +342,11 @@ export default function AuxiliaryDataPage() {
           { key: 'address' as keyof Partner, label: '地址' },
           { key: 'taxNumber' as keyof Partner, label: '税号' },
           { key: 'bankAccount' as keyof Partner, label: '银行账号' },
-          { key: 'bankName' as keyof Partner, label: '开户银行' }
+          { key: 'bankName' as keyof Partner, label: '开户银行' },
+          { key: 'idType' as keyof Partner, label: '证件类型' },
+          { key: 'idNumber' as keyof Partner, label: '证件号码' },
+          { key: 'employmentStartDate' as keyof Partner, label: '雇佣开始日期' },
+          { key: 'employmentEndDate' as keyof Partner, label: '雇佣结束日期' }
         ];
 
         const importedData = await importFromExcel<Partner>(file, headers);
@@ -387,6 +399,10 @@ export default function AuxiliaryDataPage() {
       '税号': partner.taxNumber || '',
       '银行账号': partner.bankAccount || '',
       '开户银行': partner.bankName || '',
+      '证件类型': partner.idType || '',
+      '证件号码': partner.idNumber || '',
+      '雇佣开始日期': partner.employmentStartDate || '',
+      '雇佣结束日期': partner.employmentEndDate || '',
       '冻结状态': partner.frozen ? '是' : '否',
       '创建时间': partner.createTime
     }));
@@ -411,7 +427,11 @@ export default function AuxiliaryDataPage() {
       address: '上海市浦东新区',
       taxNumber: '310115XXXXXXXX',
       bankAccount: '622588XXXXXXXXXXX',
-      bankName: '中国工商银行'
+      bankName: '中国工商银行',
+      idType: '',
+      idNumber: '',
+      employmentStartDate: '',
+      employmentEndDate: ''
     };
 
     const headers: PartnerTemplateHeader[] = [
@@ -428,7 +448,11 @@ export default function AuxiliaryDataPage() {
       { key: 'address', label: '地址' },
       { key: 'taxNumber', label: '税号' },
       { key: 'bankAccount', label: '银行账号' },
-      { key: 'bankName', label: '开户银行' }
+      { key: 'bankName', label: '开户银行' },
+      { key: 'idType', label: '证件类型', placeholder: '居民身份证/护照等' },
+      { key: 'idNumber', label: '证件号码' },
+      { key: 'employmentStartDate', label: '雇佣开始日期', placeholder: 'YYYY-MM-DD' },
+      { key: 'employmentEndDate', label: '雇佣结束日期', placeholder: 'YYYY-MM-DD' }
     ];
 
     exportTemplate('往来单位', sampleData, headers);
@@ -463,6 +487,8 @@ export default function AuxiliaryDataPage() {
       payrollSalaryExpenseSubjectName: '',
       idType: '',
       idNumber: '',
+      employmentStartDate: '',
+      employmentEndDate: '',
       paymentTermDays: 30,
       frozen: false
     });
@@ -889,6 +915,26 @@ export default function AuxiliaryDataPage() {
                         value={formData.idNumber}
                         onChange={e => setFormData(prev => ({ ...prev, idNumber: e.target.value }))}
                         autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">雇佣开始日期</Label>
+                      <input
+                        type="date"
+                        className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+                        value={formData.employmentStartDate}
+                        onChange={e => setFormData(prev => ({ ...prev, employmentStartDate: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">雇佣结束日期</Label>
+                      <input
+                        type="date"
+                        className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+                        value={formData.employmentEndDate}
+                        onChange={e => setFormData(prev => ({ ...prev, employmentEndDate: e.target.value }))}
                       />
                     </div>
                   </div>

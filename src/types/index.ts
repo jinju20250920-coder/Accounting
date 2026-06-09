@@ -616,6 +616,8 @@ export interface Partner {
   bankName?: string; // 开户银行
   idType?: string; // 证件类型（居民身份证、护照等）
   idNumber?: string; // 证件号码
+  employmentStartDate?: string; // 雇佣开始日期
+  employmentEndDate?: string; // 雇佣结束日期
   departmentCode?: string; // 部门代码
   departmentName?: string; // 部门名称
   defaultSubjectCode?: string; // 默认对方科目代码（供应商→应付账款，客户→应收账款）
