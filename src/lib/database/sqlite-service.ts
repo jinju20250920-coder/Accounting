@@ -401,6 +401,8 @@ class SQLiteService {
     await this.migrateFxRatesCreatedBy();
     // 迁移：创建银行账户期初余额表
     await this.migrateCreateBankOpeningBalancesTable();
+    // 迁移：创建部门和项目表
+    await this.migrateCreateDepartmentProjectTables();
   }
 
   private async migrateCreatePayrollTables(): Promise<void> {
@@ -1201,6 +1203,7 @@ class SQLiteService {
       }
 
       const extraPartnerColumns = [
+        'bankName',
         'departmentCode',
         'departmentName',
         'paymentTermDays',
@@ -1792,6 +1795,7 @@ class SQLiteService {
       const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
 
       const neededColumns = [
+        'type', 'balance', 'description', 'frozen',
         'enableDept', 'enableProject', 'enableForeign', 'foreignCurrency',
         'isCustomer', 'isSupplier', 'isEmployee', 'enableCashFlow',
         'bankAccountNumber'
@@ -1803,8 +1807,10 @@ class SQLiteService {
         console.log('Migrating subjects table: adding columns', missingColumns);
 
         const alterStatements = missingColumns.map(col => {
-          if (col === 'foreignCurrency' || col === 'bankAccountNumber') {
+          if (col === 'foreignCurrency' || col === 'bankAccountNumber' || col === 'type' || col === 'description') {
             return `ALTER TABLE subjects ADD COLUMN ${col} TEXT;`;
+          } else if (col === 'balance') {
+            return `ALTER TABLE subjects ADD COLUMN ${col} REAL DEFAULT 0;`;
           } else {
             return `ALTER TABLE subjects ADD COLUMN ${col} INTEGER DEFAULT 0;`;
           }
@@ -2398,6 +2404,43 @@ class SQLiteService {
       }
     } catch (error) {
       console.error('Migration: Failed to create bank_opening_balances table', error);
+    }
+  }
+
+  private async migrateCreateDepartmentProjectTables(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS departments (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          parentId TEXT,
+          level INTEGER DEFAULT 1,
+          enabled INTEGER DEFAULT 1,
+          description TEXT,
+          accountSetId TEXT,
+          createTime TEXT,
+          updateTime TEXT
+        )
+      `);
+      this.dbInstance.exec(`CREATE INDEX IF NOT EXISTS idx_departments_accountSetId ON departments (accountSetId)`);
+
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS projects (
+          id TEXT PRIMARY KEY,
+          code TEXT,
+          name TEXT,
+          description TEXT,
+          enabled INTEGER DEFAULT 1,
+          accountSetId TEXT,
+          createTime TEXT,
+          updateTime TEXT
+        )
+      `);
+      this.dbInstance.exec(`CREATE INDEX IF NOT EXISTS idx_projects_accountSetId ON projects (accountSetId)`);
+    } catch (error) {
+      console.error('Migration: Failed to create departments/projects tables', error);
     }
   }
 

@@ -12,12 +12,13 @@ export interface PartnerRow {
   address: string | null;
   taxNo: string | null;
   bankAccount: string | null;
+  bankName: string | null;
   idType: string | null;
   idNumber: string | null;
   employmentStartDate: string | null;
   employmentEndDate: string | null;
-  defaultSubjectCode?: string | null;
-  defaultSubjectName?: string | null;
+  defaultSubjectCode: string | null;
+  defaultSubjectName: string | null;
   departmentCode: string | null;
   departmentName: string | null;
   paymentTermDays: number | string | null;
@@ -50,16 +51,20 @@ export interface PartnerInsertInput {
   type?: string;
   isSupplier?: boolean;
   isCustomer?: boolean;
+  isEmployee?: boolean;
   contact?: string;
   phone?: string;
   email?: string;
   address?: string;
   taxNo?: string;
   bankAccount?: string;
+  bankName?: string;
   idType?: string;
   idNumber?: string;
   employmentStartDate?: string;
   employmentEndDate?: string;
+  defaultSubjectCode?: string;
+  defaultSubjectName?: string;
   departmentCode?: string;
   departmentName?: string;
   paymentTermDays?: number;
@@ -98,8 +103,10 @@ export interface PartnerInsert {
 const PARTNER_INSERT_SQL = `
   INSERT OR REPLACE INTO partners (
     id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled,
+    bankName,
     idType, idNumber,
     employmentStartDate, employmentEndDate,
+    defaultSubjectCode, defaultSubjectName,
     departmentCode, departmentName, paymentTermDays, openingBalance,
     payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
     payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
@@ -109,7 +116,7 @@ const PARTNER_INSERT_SQL = `
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
     accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -122,16 +129,22 @@ function text(value: string | undefined): string {
 
 function resolvePartnerType(partner: PartnerInsertInput): string {
   if (partner.type) return partner.type;
-  if (partner.isSupplier && partner.isCustomer) return 'both';
-  if (partner.isSupplier) return 'supplier';
-  if (partner.isCustomer) return 'customer';
-  return 'other';
+  const roles: string[] = [];
+  if (partner.isCustomer) roles.push('customer');
+  if (partner.isSupplier) roles.push('supplier');
+  if (partner.isEmployee) roles.push('employee');
+  if (roles.length === 0) return 'other';
+  if (roles.length === 1) return roles[0];
+  if (roles.length === 2 && roles.includes('customer') && roles.includes('supplier')) return 'both';
+  return roles.join(',');
 }
 
 export function mapPartnerRow(row: PartnerRow): Partner {
-  const isCustomer = row.type === 'customer' || row.type === 'both';
-  const isSupplier = row.type === 'supplier' || row.type === 'both';
-  const isEmployee = row.type === 'employee';
+  const typeStr = row.type || '';
+  const typeParts = typeStr.split(',');
+  const isCustomer = typeParts.includes('customer') || typeStr === 'both';
+  const isSupplier = typeParts.includes('supplier') || typeStr === 'both';
+  const isEmployee = typeParts.includes('employee');
 
   return {
     id: row.id,
@@ -146,6 +159,7 @@ export function mapPartnerRow(row: PartnerRow): Partner {
     address: row.address || '',
     taxNumber: row.taxNo || '',
     bankAccount: row.bankAccount || '',
+    bankName: row.bankName || '',
     idType: optionalText(row.idType),
     idNumber: optionalText(row.idNumber),
     employmentStartDate: optionalText(row.employmentStartDate),
@@ -194,10 +208,13 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       text(partner.taxNo),
       text(partner.bankAccount),
       1,
+      text(partner.bankName),
       text(partner.idType),
       text(partner.idNumber),
       text(partner.employmentStartDate),
       text(partner.employmentEndDate),
+      text(partner.defaultSubjectCode),
+      text(partner.defaultSubjectName),
       text(partner.departmentCode),
       text(partner.departmentName),
       partner.paymentTermDays || null,
@@ -287,16 +304,20 @@ export async function savePartnersRecord(input: {
       name: partner.name,
       isCustomer: partner.isCustomer,
       isSupplier: partner.isSupplier,
+      isEmployee: partner.isEmployee,
       contact: partner.contact,
       phone: partner.phone,
       email: partner.email,
       address: partner.address,
       taxNo: partner.taxNumber,
       bankAccount: partner.bankAccount,
+      bankName: partner.bankName,
       idType: partner.idType,
       idNumber: partner.idNumber,
       employmentStartDate: partner.employmentStartDate,
       employmentEndDate: partner.employmentEndDate,
+      defaultSubjectCode: partner.defaultSubjectCode,
+      defaultSubjectName: partner.defaultSubjectName,
       departmentCode: partner.departmentCode,
       departmentName: partner.departmentName,
       paymentTermDays: partner.paymentTermDays,
@@ -317,7 +338,7 @@ export async function savePartnersRecord(input: {
       payrollProjectName: partner.payrollProjectName,
       payrollCostCenterName: partner.payrollCostCenterName,
       accountSetId: input.accountSetId,
-      createTime: now,
+      createTime: partner.createTime || now,
       updateTime: now,
     };
     const insert = buildPartnerInsert(insertInput, input.accountSetId, now);

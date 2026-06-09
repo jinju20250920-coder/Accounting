@@ -994,6 +994,140 @@ class SQLiteManager {
         FOREIGN KEY (entryId) REFERENCES entries(id),
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );
+
+      CREATE TABLE IF NOT EXISTS departments (
+        id TEXT PRIMARY KEY,
+        code TEXT,
+        name TEXT,
+        parentId TEXT,
+        level INTEGER DEFAULT 1,
+        enabled INTEGER DEFAULT 1,
+        description TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        code TEXT,
+        name TEXT,
+        description TEXT,
+        enabled INTEGER DEFAULT 1,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS bankTransactions (
+        id TEXT PRIMARY KEY,
+        date TEXT,
+        voucherNo TEXT,
+        transactionSerialNo TEXT,
+        counterpartyName TEXT,
+        counterpartyAccount TEXT,
+        amount REAL,
+        balance REAL,
+        direction TEXT,
+        summary TEXT,
+        subjectCode TEXT,
+        subjectName TEXT,
+        isReconciled INTEGER DEFAULT 0,
+        voucherId TEXT,
+        voucherGenerated INTEGER DEFAULT 0,
+        bankAccountNumber TEXT,
+        bankName TEXT,
+        source TEXT,
+        ourAccount TEXT,
+        docNo TEXT,
+        otherAccountName TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        passwordHash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        displayName TEXT,
+        role TEXT DEFAULT 'accountant',
+        enabled INTEGER DEFAULT 1,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS user_roles (
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        displayName TEXT,
+        permissions TEXT,
+        isSystem INTEGER DEFAULT 0,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS account_set_users (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT,
+        userId TEXT,
+        role TEXT DEFAULT 'accountant',
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS invoice_subject_rules (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        invoiceType TEXT,
+        keywords TEXT,
+        priority INTEGER DEFAULT 0,
+        debitSubjectCode TEXT,
+        debitSubjectName TEXT,
+        creditSubjectCode TEXT,
+        creditSubjectName TEXT,
+        taxSubjectCode TEXT,
+        taxSubjectName TEXT,
+        autoTax INTEGER DEFAULT 1,
+        requirePartnerCard INTEGER DEFAULT 1,
+        enabled INTEGER DEFAULT 1,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS supplier_subject_mapping (
+        id TEXT PRIMARY KEY,
+        supplierName TEXT,
+        groupName TEXT,
+        invoiceType TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS custom_bank_configs (
+        id TEXT PRIMARY KEY,
+        bankName TEXT,
+        bankId TEXT,
+        config TEXT,
+        accountSetId TEXT,
+        createTime TEXT,
+        updateTime TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS monthly_closing_checks (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT,
+        period TEXT,
+        checkType TEXT,
+        checkResult TEXT,
+        details TEXT,
+        status TEXT DEFAULT 'pending',
+        createTime TEXT,
+        updateTime TEXT
+      );
     `;
 
     this.db.exec(tables);
