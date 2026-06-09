@@ -230,10 +230,11 @@ export default function AuxiliaryDataPage() {
       return;
     }
 
+    const normalizedCode = formData.code.toUpperCase();
     // 检查代码是否重复
-    const existingPartner = partners.find(p => p.code === formData.code);
+    const existingPartner = partners.find(p => p.code === normalizedCode);
     if (existingPartner && (!editingId || existingPartner.id !== editingId)) {
-      showToast('error', `往来单位代码 ${formData.code} 已存在，请使用其他代码`);
+      showToast('error', `往来单位代码 ${normalizedCode} 已存在，请使用其他代码`);
       return;
     }
 
@@ -243,14 +244,15 @@ export default function AuxiliaryDataPage() {
       return;
     }
 
+    const dataToSave = { ...formData, code: normalizedCode };
     try {
       if (editingId) {
         // 更新
-        partnerStore.updatePartner(editingId, formData);
+        partnerStore.updatePartner(editingId, dataToSave);
         showToast('success', '往来单位更新成功');
       } else {
         // 添加
-        partnerStore.addPartner(formData);
+        partnerStore.addPartner(dataToSave);
         showToast('success', '往来单位添加成功');
       }
 
@@ -780,7 +782,7 @@ export default function AuxiliaryDataPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label required className="font-semibold text-sm">单位代码</Label>
-                  <Input placeholder="如：CUS001" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))} />
+                  <Input placeholder="如：CUS001" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))} />
                 </div>
                 <div className="space-y-1.5">
                   <Label required className="font-semibold text-sm">单位名称</Label>
