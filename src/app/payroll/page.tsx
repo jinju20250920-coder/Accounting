@@ -1,5 +1,6 @@
 ﻿'use client';
 
+import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -385,6 +386,8 @@ function EmployeeSelectCell({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const cellRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -394,26 +397,35 @@ function EmployeeSelectCell({
     ).slice(0, 20);
   }, [employees, search]);
 
-  const cellRef = useRef<HTMLDivElement>(null);
+  const updatePos = () => {
+    if (cellRef.current) {
+      const rect = cellRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 2, left: rect.left });
+    }
+  };
 
   return (
-    <div className="relative" ref={cellRef}>
+    <div ref={cellRef}>
       <input
         className="w-full bg-transparent px-1 py-0.5 text-xs outline-none focus:bg-blue-50 font-mono"
         value={displayValue}
         placeholder={placeholder}
-        onFocus={() => setOpen(true)}
+        onFocus={() => { updatePos(); setOpen(true); }}
         onChange={(e) => {
           const v = e.target.value;
           setSearch(v);
           onSelect(v);
+          updatePos();
           if (!open) setOpen(true);
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         autoComplete="off"
       />
-      {open && filtered.length > 0 && (
-        <div className="absolute left-0 top-full z-50 mt-0.5 w-48 rounded-md border border-slate-200 bg-white shadow-lg">
+      {open && filtered.length > 0 && createPortal(
+        <div
+          className="fixed z-[9999] w-48 rounded-md border border-slate-200 bg-white shadow-lg"
+          style={{ top: pos.top, left: pos.left }}
+        >
           <div className="max-h-40 overflow-y-auto">
             {filtered.map((emp) => (
               <button
@@ -431,7 +443,8 @@ function EmployeeSelectCell({
               </button>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
