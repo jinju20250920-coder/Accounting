@@ -421,13 +421,17 @@ function EmployeeSelectCell({
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         autoComplete="off"
       />
-      {open && filtered.length > 0 && createPortal(
+      {open && createPortal(
         <div
           className="fixed z-[9999] w-48 rounded-md border border-slate-200 bg-white shadow-lg"
           style={{ top: pos.top, left: pos.left }}
         >
           <div className="max-h-40 overflow-y-auto">
-            {filtered.map((emp) => (
+            {filtered.length === 0 ? (
+              <div className="px-2 py-3 text-xs text-slate-400 text-center">
+                {employees.length === 0 ? '暂无雇员数据，请先在往来单位中添加雇员' : '无匹配'}
+              </div>
+            ) : filtered.map((emp) => (
               <button
                 key={emp.code}
                 className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-blue-50"
