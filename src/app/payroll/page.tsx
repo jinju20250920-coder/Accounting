@@ -368,6 +368,75 @@ function statusBadge(status?: string) {
   return <Badge className="border-slate-200 bg-slate-50 text-slate-600">草稿</Badge>;
 }
 
+function EmployeeSelectCell({
+  value,
+  displayValue,
+  employees,
+  placeholder,
+  onSelect,
+  searchField,
+}: {
+  value: string;
+  displayValue: string;
+  employees: Array<{ code: string; name: string }>;
+  placeholder: string;
+  onSelect: (value: string) => void;
+  searchField: 'code' | 'name';
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    if (!q) return employees.slice(0, 20);
+    return employees.filter(e =>
+      e.code.toLowerCase().includes(q) || e.name.toLowerCase().includes(q)
+    ).slice(0, 20);
+  }, [employees, search]);
+
+  const cellRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div className="relative" ref={cellRef}>
+      <input
+        className="w-full bg-transparent px-1 py-0.5 text-xs outline-none focus:bg-blue-50 font-mono"
+        value={displayValue}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          const v = e.target.value;
+          setSearch(v);
+          onSelect(v);
+          if (!open) setOpen(true);
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute left-0 top-full z-50 mt-0.5 w-48 rounded-md border border-slate-200 bg-white shadow-lg">
+          <div className="max-h-40 overflow-y-auto">
+            {filtered.map((emp) => (
+              <button
+                key={emp.code}
+                className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-blue-50"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelect(searchField === 'code' ? emp.code : emp.name);
+                  setOpen(false);
+                  setSearch('');
+                }}
+              >
+                <span className="font-mono text-slate-500">{emp.code}</span>
+                <span>{emp.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -778,10 +847,38 @@ export default function PayrollPage() {
     return (
       <>
         <td className={EXCEL_CELL_CLASS}>
-          <Input variant="excel" list="employee-code-options" aria-label={`${rowLabel}工号`} className={`${EXCEL_TEXT_INPUT_CLASS} font-mono`} value={input.employeeCode} onChange={(event) => onTextChange('employeeCode', event.target.value)} onKeyDown={onKeyDown} />
+          <EmployeeSelectCell
+            value={input.employeeCode}
+            displayValue={input.employeeCode}
+            employees={employeeOptions}
+            placeholder="工号"
+            onSelect={(code) => {
+              const emp = employeeOptions.find(e => e.code === code);
+              if (emp) {
+                onTextChange('employeeCode', emp.code);
+              } else {
+                onTextChange('employeeCode', code);
+              }
+            }}
+            searchField="code"
+          />
         </td>
         <td className={EXCEL_CELL_CLASS}>
-          <Input variant="excel" list="employee-name-options" aria-label={`${rowLabel}姓名`} className={EXCEL_TEXT_INPUT_CLASS} value={input.employeeName} onChange={(event) => onTextChange('employeeName', event.target.value)} onKeyDown={onKeyDown} />
+          <EmployeeSelectCell
+            value={input.employeeName}
+            displayValue={input.employeeName}
+            employees={employeeOptions}
+            placeholder="姓名"
+            onSelect={(name) => {
+              const emp = employeeOptions.find(e => e.name === name);
+              if (emp) {
+                onTextChange('employeeCode', emp.code);
+              } else {
+                onTextChange('employeeName', name);
+              }
+            }}
+            searchField="name"
+          />
         </td>
         <td className={EXCEL_CELL_CLASS}>
           <select

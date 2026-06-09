@@ -129,7 +129,7 @@ interface PartnerPopoverProps {
   value: string;
   onSelect: (name: string) => void;
   placeholder?: string;
-  filterType?: 'supplier' | 'customer' | 'all';
+  filterType?: 'supplier' | 'customer' | 'all' | 'employee';
 }
 
 export function PartnerPopover({ value, onSelect, placeholder = '选择供应商', filterType = 'supplier' }: PartnerPopoverProps) {
@@ -141,8 +141,9 @@ export function PartnerPopover({ value, onSelect, placeholder = '选择供应商
     let list = partners;
     if (filterType === 'supplier') list = list.filter(p => p.isSupplier);
     if (filterType === 'customer') list = list.filter(p => p.isCustomer);
+    if (filterType === 'employee') list = list.filter(p => p.isEmployee);
     const q = search.toLowerCase();
-    if (q) list = list.filter(p => p.name.toLowerCase().includes(q));
+    if (q) list = list.filter(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q));
     return list;
   }, [partners, search, filterType]);
 
@@ -164,7 +165,14 @@ export function PartnerPopover({ value, onSelect, placeholder = '选择供应商
             ) : filteredPartners.map((p) => (
               <button key={p.id} className={`w-full px-3 py-2.5 text-sm text-left hover:bg-zinc-50 flex items-center gap-2.5 transition-colors ${p.name === value ? 'bg-zinc-50 text-zinc-900' : ''}`}
                 onClick={() => { onSelect(p.name); setOpen(false); setSearch(''); }}>
-                <span className="flex-1">{p.name}</span>
+                {filterType === 'employee' ? (
+                  <>
+                    <span className="font-mono text-xs text-zinc-500">{p.code}</span>
+                    <span className="flex-1">{p.name}</span>
+                  </>
+                ) : (
+                  <span className="flex-1">{p.name}</span>
+                )}
                 {p.name === value && <Check className="h-3.5 w-3.5 text-zinc-600" />}
               </button>
             ))}
