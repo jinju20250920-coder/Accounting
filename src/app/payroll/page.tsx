@@ -30,6 +30,7 @@ import { Switch } from '@/components/ui/switch';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { useToast } from '@/components/ui/toast';
 import { useAccountSetStore, type AccountSet } from '@/stores/useAccountSetStore';
+import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useDepartmentStore } from '@/stores/useDepartmentStore';
 import { usePartnerStore } from '@/stores/usePartnerStore';
 import { usePayrollStore } from '@/stores/usePayrollStore';
@@ -269,7 +270,7 @@ function resolveEmployeeDepartmentName(
 function createPayrollVoucherDefaultSubjectDraft(
   accountSet: AccountSet | null,
 ): PayrollVoucherDefaultSubjectDraft {
-  return {
+  const defaults: PayrollVoucherDefaultSubjectDraft = {
     payrollSalaryExpenseSubjectCode: accountSet?.payrollSalaryExpenseSubjectCode || '',
     payrollSalaryExpenseSubjectName: accountSet?.payrollSalaryExpenseSubjectName || '',
     payrollContributionExpenseSubjectCode: accountSet?.payrollContributionExpenseSubjectCode || '',
@@ -283,6 +284,53 @@ function createPayrollVoucherDefaultSubjectDraft(
     payrollEmployerContributionPayableSubjectCode: accountSet?.payrollEmployerContributionPayableSubjectCode || '',
     payrollEmployerContributionPayableSubjectName: accountSet?.payrollEmployerContributionPayableSubjectName || '',
   };
+  return defaults;
+}
+
+function autoFillPayrollSubjectDefaults(
+  draft: PayrollVoucherDefaultSubjectDraft,
+  subjects: Array<{ code: string; name: string; direction?: string }>,
+): PayrollVoucherDefaultSubjectDraft {
+  if (draft.payrollSalaryExpenseSubjectCode) return draft;
+  const result = { ...draft };
+
+  const find = (keywords: string[], startsWith?: string, direction?: string) =>
+    subjects.find(s => {
+      if (startsWith && !s.code.startsWith(startsWith)) return false;
+      if (direction && s.direction !== direction) return false;
+      return keywords.some(kw => s.name.includes(kw));
+    });
+
+  if (!result.payrollSalaryExpenseSubjectCode) {
+    const s = find(['工资'], '6602', 'debit') || find(['管理费用'], '6602', 'debit');
+    if (s) { result.payrollSalaryExpenseSubjectCode = s.code; result.payrollSalaryExpenseSubjectName = s.name; }
+  }
+  if (!result.payrollContributionExpenseSubjectCode) {
+    const s = find(['社保'], '6602', 'debit') || find(['管理费用'], '6602', 'debit');
+    if (s && s.code !== result.payrollSalaryExpenseSubjectCode) { result.payrollContributionExpenseSubjectCode = s.code; result.payrollContributionExpenseSubjectName = s.name; }
+  }
+  if (!result.payrollSalaryPayableSubjectCode) {
+    const s = find(['应付职工薪酬'], undefined, 'credit');
+    if (s) { result.payrollSalaryPayableSubjectCode = s.code; result.payrollSalaryPayableSubjectName = s.name; }
+  }
+  if (!result.payrollTaxPayableSubjectCode) {
+    const s = find(['个人所得税'], '2221', 'credit') || find(['应交税费'], '2221', 'credit');
+    if (s) { result.payrollTaxPayableSubjectCode = s.code; result.payrollTaxPayableSubjectName = s.name; }
+  }
+  if (!result.payrollEmployeeContributionPayableSubjectCode) {
+    const s = find(['其他应付款'], undefined, 'credit');
+    if (s) { result.payrollEmployeeContributionPayableSubjectCode = s.code; result.payrollEmployeeContributionPayableSubjectName = s.name; }
+  }
+  if (!result.payrollEmployerContributionPayableSubjectCode) {
+    const s = find(['其他应付款'], undefined, 'credit');
+    if (s && s.code !== result.payrollEmployeeContributionPayableSubjectCode) {
+      result.payrollEmployerContributionPayableSubjectCode = s.code; result.payrollEmployerContributionPayableSubjectName = s.name;
+    } else if (s) {
+      result.payrollEmployerContributionPayableSubjectCode = s.code; result.payrollEmployerContributionPayableSubjectName = s.name;
+    }
+  }
+
+  return result;
 }
 
 function completeEmployeeFields(
@@ -336,9 +384,11 @@ export default function PayrollPage() {
   const [period, setPeriod] = useState(defaultPeriod);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<PayrollCalculationConfig>(createBlankPayrollCalculationConfig());
-  const [accountSetSubjectDraft, setAccountSetSubjectDraft] = useState<PayrollVoucherDefaultSubjectDraft>(
-    createPayrollVoucherDefaultSubjectDraft(currentAccountSet),
-  );
+  const [accountSetSubjectDraft, setAccountSetSubjectDraft] = useState<PayrollVoucherDefaultSubjectDraft>(() => {
+    const draft = createPayrollVoucherDefaultSubjectDraft(currentAccountSet);
+    const subjects = useSubjectStore.getState().subjects;
+    return autoFillPayrollSubjectDefaults(draft, subjects);
+  });
   const [previewRows, setPreviewRows] = useState<PayrollInput[]>([]);
   const [previewErrors, setPreviewErrors] = useState<PayrollImportError[]>([]);
   const [previewFileName, setPreviewFileName] = useState('');
@@ -353,7 +403,9 @@ export default function PayrollPage() {
   const [taxSettingsOpen, setTaxSettingsOpen] = useState(false);
   const [showOptionalFields, setShowOptionalFields] = useState(false);
   const [voucherPreviewEntries, setVoucherPreviewEntries] = useState<PayrollVoucherEntryPreview[]>([]);
-  const [settingsRegionId, setSettingsRegionId] = useState<PayrollRegionId>('generic');
+  const [settingsRegionId, setSettingsRegionId] = useState<PayrollRegionId>(
+    (currentAccountSet?.payrollRegionId as PayrollRegionId) || 'generic',
+  );
   const {
     batches,
     selectedBatch,
@@ -413,7 +465,10 @@ export default function PayrollPage() {
         })),
       },
     });
-    setAccountSetSubjectDraft(createPayrollVoucherDefaultSubjectDraft(currentAccountSet));
+    setAccountSetSubjectDraft(autoFillPayrollSubjectDefaults(
+      createPayrollVoucherDefaultSubjectDraft(currentAccountSet),
+      useSubjectStore.getState().subjects,
+    ));
   }, [config, currentAccountSet]);
 
   useEffect(() => {
@@ -1463,6 +1518,9 @@ export default function PayrollPage() {
               </div>
               <p className="mt-2 text-xs text-slate-500">
                 {PAYROLL_REGION_PRESETS.find((preset) => preset.id === settingsRegionId)?.description}
+                {currentAccountSet?.address && (
+                  <span className="ml-2 text-blue-500">（根据公司地址"{currentAccountSet.address}"自动匹配）</span>
+                )}
               </p>
             </div>
             <div>

@@ -21,6 +21,7 @@ import {
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
+import { inferRegionFromAddress } from '@/lib/payroll-defaults';
 
 interface SetupStepRulesProps {
   accountSetId: string;
@@ -223,6 +224,11 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     try {
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
       if (accountSet) {
+        const regionId = inferRegionFromAddress(accountSet.address || '');
+        useAccountSetStore.getState().updateAccountSet(accountSet.id, {
+          payrollRegionId: regionId,
+        });
+
         await sqliteService.addAuditLog({
           id: `config_social_fund_${Date.now()}`,
           type: 'create',

@@ -265,6 +265,24 @@ export function getDefaultPayrollRegionId(accountSet: unknown): PayrollRegionId 
   return ((accountSet as { payrollRegionId?: PayrollRegionId } | null | undefined)?.payrollRegionId) || 'generic';
 }
 
+const ADDRESS_REGION_KEYWORDS: Array<{ keywords: string[]; regionId: PayrollRegionId }> = [
+  { keywords: ['上海'], regionId: 'shanghai' },
+  { keywords: ['北京'], regionId: 'beijing' },
+  { keywords: ['深圳'], regionId: 'shenzhen' },
+  { keywords: ['广州'], regionId: 'guangzhou' },
+  { keywords: ['杭州'], regionId: 'hangzhou' },
+  { keywords: ['南京'], regionId: 'nanjing' },
+  { keywords: ['成都', '四川'], regionId: 'chengdu' },
+];
+
+export function inferRegionFromAddress(address: string): PayrollRegionId {
+  if (!address) return 'generic';
+  for (const { keywords, regionId } of ADDRESS_REGION_KEYWORDS) {
+    if (keywords.some(kw => address.includes(kw))) return regionId;
+  }
+  return 'generic';
+}
+
 export function applyPayrollRegionPreset(
   config: PayrollCalculationConfig,
   regionId: string,
