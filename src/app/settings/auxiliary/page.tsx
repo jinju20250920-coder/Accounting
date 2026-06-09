@@ -28,6 +28,7 @@ import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-util
 import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useSubjectStore } from '@/stores';
 import { DepartmentPopover } from '@/components/shared/subject-popover';
+import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import type { Partner } from '@/types';
 
 type PartnerTemplateSample = {
@@ -845,11 +846,13 @@ export default function AuxiliaryDataPage() {
                 <Input placeholder="电子邮箱" value={formData.email} onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))} className="flex-1" />
               </div>
 
-              {/* 横向布局：税号 */}
+              {/* 横向布局：税号（仅客户/供应商显示） */}
+              {(formData.isCustomer || formData.isSupplier) && (
               <div className="flex items-center gap-3">
                 <Label className="font-semibold text-sm w-20 shrink-0 text-right">税号</Label>
                 <Input placeholder="纳税人识别号" value={formData.taxNumber} onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))} className="flex-1" />
               </div>
+              )}
 
               {/* 横向布局：开户银行 */}
               <div className="flex items-center gap-3">
@@ -923,20 +926,18 @@ export default function AuxiliaryDataPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-sm">雇佣开始日期</Label>
-                      <input
-                        type="date"
-                        className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
-                        value={formData.employmentStartDate}
-                        onChange={e => setFormData(prev => ({ ...prev, employmentStartDate: e.target.value }))}
+                      <ChineseDatePicker
+                        value={formData.employmentStartDate || ''}
+                        onChange={(v) => setFormData(prev => ({ ...prev, employmentStartDate: v }))}
+                        placeholder="选择开始日期"
                       />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-sm">雇佣结束日期</Label>
-                      <input
-                        type="date"
-                        className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
-                        value={formData.employmentEndDate}
-                        onChange={e => setFormData(prev => ({ ...prev, employmentEndDate: e.target.value }))}
+                      <ChineseDatePicker
+                        value={formData.employmentEndDate || ''}
+                        onChange={(v) => setFormData(prev => ({ ...prev, employmentEndDate: v }))}
+                        placeholder="选择结束日期"
                       />
                     </div>
                   </div>
