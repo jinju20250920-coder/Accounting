@@ -1,5 +1,7 @@
 ﻿import initSqlJs from 'sql.js';
 
+import { buildPartnerInsert } from './services/partner-sqlite-service';
+
 // File System Access API types
 interface FileSystemHandleHelper {
   getFile(): Promise<File>;
@@ -36,6 +38,7 @@ class SQLiteManager {
   private useFileSystemAccess: boolean = false; // File System Access API support
   private HANDLE_STORAGE_KEY = 'sqlite-db-handle'; // IndexedDB storage key
   private saveInProgress: boolean = false;
+  private savePromise: Promise<void> | null = null;
   private dbHandle: FileSystemHandleHelper | null = null; // Persistent file handle
   private isBrowser: boolean = typeof window !== 'undefined';
 
@@ -74,7 +77,12 @@ class SQLiteManager {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = this._init();
-    return this.initPromise;
+    try {
+      await this.initPromise;
+    } catch (err) {
+      this.initPromise = null;
+      throw err;
+    }
   }
 
   private async _init(): Promise<void> {
@@ -188,8 +196,18 @@ class SQLiteManager {
         const uint8Array = new Uint8Array(arrayBuffer);
 
         if (uint8Array.length > 0) {
-          this.db = new SQL.Database(uint8Array);
-          console.log('SQLite database loaded from OPFS successfully');
+          try {
+            this.db = new SQL.Database(uint8Array);
+            // 健康检查：验证数据库可正常查询
+            this.db.exec('SELECT count(*) FROM sqlite_master');
+            console.log('SQLite database loaded from OPFS successfully');
+          } catch (dbError) {
+            console.error('OPFS database corrupted, recreating:', dbError);
+            this.db = new SQL.Database();
+            this.createTables();
+            console.log('SQLite database recreated (corrupted OPFS file)');
+            await this.saveOPFSDatabase(this.db.export());
+          }
         } else {
           // Empty file, create a new database.
           this.db = new SQL.Database();
@@ -215,9 +233,18 @@ class SQLiteManager {
     const savedDb = this.loadDatabase();
 
     if (savedDb) {
-      // Load existing database
-      this.db = new SQL.Database(savedDb);
-      console.log('SQLite database loaded from storage successfully');
+      try {
+        this.db = new SQL.Database(savedDb);
+        // 健康检查
+        this.db.exec('SELECT count(*) FROM sqlite_master');
+        console.log('SQLite database loaded from storage successfully');
+      } catch (dbError) {
+        console.error('localStorage database corrupted, recreating:', dbError);
+        this.clearCorruptedData();
+        this.db = new SQL.Database();
+        this.createTables();
+        console.log('SQLite database recreated (corrupted localStorage data)');
+      }
     } else {
       // Create new database
       this.db = new SQL.Database();
@@ -228,9 +255,12 @@ class SQLiteManager {
 
 
   private async saveDatabase(): Promise<void> {
-    if (this.saveInProgress) return;
+    if (this.saveInProgress && this.savePromise) {
+      await this.savePromise;
+      return this.saveDatabase();
+    }
     this.saveInProgress = true;
-    try {
+    this.savePromise = (async () => {
       if (this.db) {
         const data = this.db.export();
 
@@ -257,10 +287,16 @@ class SQLiteManager {
           }
         }
       }
+    })();
+
+    try {
+      await this.savePromise;
     } catch (error) {
       console.error('Failed to save database:', error);
+      throw error;
     } finally {
       this.saveInProgress = false;
+      this.savePromise = null;
     }
   }
 
@@ -401,13 +437,8 @@ class SQLiteManager {
   }
 
   // Manually trigger save
-  save(): void {
-    // saveDatabase is async but we call it fire-and-forget style
-    // to avoid blocking the caller. The auto-save timer provides
-    // a safety net if a fire-and-forget save gets lost.
-    this.saveDatabase().catch(err => {
-      console.error('Save failed:', err);
-    });
+  save(): Promise<void> {
+    return this.saveDatabase();
   }
 
   // Clear corrupted data
@@ -431,8 +462,14 @@ class SQLiteManager {
   }
 
   private createTables(): void {
+    // 表结构创建已统一由 sqlite-service.ts 的迁移链负责
+    // 此方法保留为空，避免与迁移链的 schema 不一致
+  }
+
+  @SuppressWarningsunused
+  private createTablesLegacy(): void {
     // Create tables with accountSetId for multi-tenancy
-    const tables = `
+    const tablesLegacy = `
       CREATE TABLE IF NOT EXISTS accountSets (
         id TEXT PRIMARY KEY,
         code TEXT,
@@ -614,8 +651,12 @@ class SQLiteManager {
         level INTEGER,
         direction TEXT,
         isLeaf INTEGER DEFAULT 0,
+        type TEXT,
+        balance REAL DEFAULT 0,
+        description TEXT,
         subjectType TEXT,
         enabled INTEGER DEFAULT 1,
+        frozen INTEGER DEFAULT 0,
         accountSetId TEXT,
         enableDept INTEGER DEFAULT 0,
         enableProject INTEGER DEFAULT 0,
@@ -1050,31 +1091,49 @@ class SQLiteManager {
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         passwordHash TEXT NOT NULL,
-        salt TEXT NOT NULL,
-        displayName TEXT,
-        role TEXT DEFAULT 'accountant',
-        enabled INTEGER DEFAULT 1,
+        displayName TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        status TEXT DEFAULT 'active',
+        lastLoginTime TEXT,
         createTime TEXT,
         updateTime TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS user_roles (
+      CREATE TABLE IF NOT EXISTS roles (
         id TEXT PRIMARY KEY,
         name TEXT UNIQUE NOT NULL,
-        displayName TEXT,
-        permissions TEXT,
+        displayName TEXT NOT NULL,
+        description TEXT,
         isSystem INTEGER DEFAULT 0,
         createTime TEXT,
         updateTime TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS account_set_users (
+      CREATE TABLE IF NOT EXISTS permissions (
         id TEXT PRIMARY KEY,
-        accountSetId TEXT,
-        userId TEXT,
-        role TEXT DEFAULT 'accountant',
-        createTime TEXT,
-        updateTime TEXT
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS role_permissions (
+        roleId TEXT NOT NULL,
+        permissionId TEXT NOT NULL,
+        PRIMARY KEY (roleId, permissionId)
+      );
+
+      CREATE TABLE IF NOT EXISTS user_roles (
+        userId TEXT NOT NULL,
+        roleId TEXT NOT NULL,
+        PRIMARY KEY (userId, roleId)
+      );
+
+      CREATE TABLE IF NOT EXISTS account_set_users (
+        accountSetId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        roleId TEXT NOT NULL,
+        PRIMARY KEY (accountSetId, userId)
       );
 
       CREATE TABLE IF NOT EXISTS invoice_subject_rules (
@@ -1130,10 +1189,10 @@ class SQLiteManager {
       );
     `;
 
-    this.db.exec(tables);
+    this.db.exec(tablesLegacy);
 
     // Create indexes for better query performance
-    const indexes = `
+    const indexesLegacy = `
       -- Vouchers indexes
       CREATE INDEX IF NOT EXISTS idx_vouchers_accountSetId ON vouchers(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(date);
@@ -1224,7 +1283,7 @@ class SQLiteManager {
       CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
     `;
 
-    this.db.exec(indexes);
+    this.db.exec(indexesLegacy);
   }
 
   setCurrentAccountSet(accountSetId: string): void {
@@ -1634,31 +1693,23 @@ class SQLiteManager {
 
       // Import partners
       if (data.partners) {
+        const now = new Date().toISOString();
         for (const partner of data.partners) {
-          const partnerWithAccountSet = { ...partner, accountSetId };
-          const stmt = db.prepare(`
-            INSERT OR REPLACE INTO partners (
-              id, code, name, type, contact, phone, email, address, taxNo,
-              bankAccount, enabled, accountSetId, createTime, updateTime
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `);
-          stmt.run([
-            partnerWithAccountSet.id,
-            partnerWithAccountSet.code,
-            partnerWithAccountSet.name,
-            partnerWithAccountSet.type || 'customer',
-            partnerWithAccountSet.contact,
-            partnerWithAccountSet.phone,
-            partnerWithAccountSet.email,
-            partnerWithAccountSet.address,
-            partnerWithAccountSet.taxNo,
-            partnerWithAccountSet.bankAccount,
-            partnerWithAccountSet.enabled !== undefined ? Number(partnerWithAccountSet.enabled) : 1,
-            partnerWithAccountSet.accountSetId,
-            partnerWithAccountSet.createTime,
-            partnerWithAccountSet.updateTime
-          ]);
-          stmt.free();
+          const insert = buildPartnerInsert(
+            {
+              ...partner,
+              taxNo: partner.taxNo ?? partner.taxNumber,
+              accountSetId,
+            },
+            accountSetId,
+            now,
+          );
+          const stmt = db.prepare(insert.sql);
+          try {
+            stmt.run(insert.params);
+          } finally {
+            stmt.free();
+          }
         }
       }
 
@@ -1891,5 +1942,3 @@ class SQLiteManager {
 }
 
 export const sqliteManager = SQLiteManager.getInstance();
-
-

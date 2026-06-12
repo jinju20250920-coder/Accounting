@@ -232,12 +232,13 @@ export interface AuditLog {
 class SQLiteService {
   private dbInstance: any = null;
   private _accountSetId: string = 'default'; // 当前账套ID
+  private _initPromise: Promise<void> | null = null; // 防止并发初始化
 
   /** 写操作后立即持久化到 OPFS/localStorage/磁盘 */
   private async persist(): Promise<void> {
     try {
       const { sqliteManager } = await import('./sqlite-manager');
-      sqliteManager.save();
+      await sqliteManager.save();
     } catch {
       // sqliteManager 不可用时静默忽略（fallback 内存库无法持久化）
     }
@@ -362,8 +363,23 @@ class SQLiteService {
     };
   }
 
-  // 确保数据库已初始化的辅助方法
+  // 确保数据库已初始化的辅助方法（带并发保护）
   private async ensureInitialized(): Promise<void> {
+    if (this._initPromise) {
+      return this._initPromise;
+    }
+
+    this._initPromise = this._doEnsureInitialized();
+    try {
+      await this._initPromise;
+    } catch (err) {
+      // 初始化失败时重置，允许下次重试
+      this._initPromise = null;
+      throw err;
+    }
+  }
+
+  private async _doEnsureInitialized(): Promise<void> {
     if (!this.dbInstance) {
       this.dbInstance = await this.getDb();
     }
@@ -403,13 +419,130 @@ class SQLiteService {
     await this.migrateCreateBankOpeningBalancesTable();
     // 迁移：创建部门和项目表
     await this.migrateCreateDepartmentProjectTables();
+    // 数据迁移：为旧凭证补全外币分录字段（仅货币性项目，从关联的银行流水或摘要解析推断）
+    await this.migrateBackfillVoucherEntryFxFields();
+  }
+
+  /**
+   * 数据迁移：扫描所有凭证分录，对货币性项目（1001/1002/1122/2202 等）补全 currencyCode/exchangeRate/originalAmount。
+   * 数据来源优先级：
+   *   1. 关联的银行流水（bankTransactions.exchangeRate/originalAmount）
+   *   2. 凭证摘要解析的 (XXX@rate) 模式
+   * 非货币性分录若残留 FX 字段则清空（CAS 19 合规）。
+   * 幂等：已存在 FX 字段的货币性分录不会被覆盖。
+   */
+  private async migrateBackfillVoucherEntryFxFields(): Promise<void> {
+    if (!this.dbInstance) return;
+    if (typeof localStorage !== 'undefined') {
+      const flag = `fx_migration_done_${this.accountSetId}`;
+      if (localStorage.getItem(flag) === '1') return;
+    }
+
+    // 健康检查：先用一个最简单的 query 探测 dbInstance 是否可用。
+    // 若 WASM 状态损坏（HMR 后常见），直接跳过本次迁移，避免连锁报错。
+    try {
+      const probe = this.dbInstance.exec('SELECT 1');
+      if (!probe || probe.length === 0) return;
+    } catch (err) {
+      console.warn('[FX migration] 数据库探测失败，跳过本次迁移。建议刷新浏览器。', err);
+      return;
+    }
+
+    try {
+      const MONETARY_PREFIXES = ['1001','1002','1012','1101','1121','1122','1123','1131','1132','1221','1231','1401','1471','1501','1502','1503','1504','2001','2002','2101','2201','2202','2203','2211','2221','2231','2232','2241','2501','2502','2701','2702'];
+      const isMonetary = (code: string) => !!code && MONETARY_PREFIXES.some(p => code.startsWith(p));
+
+      const rows = await this.getSimpleQueryService().queryAllAsync<any>(
+        `SELECT id, voucherNo, summary, date FROM vouchers WHERE accountSetId = ?`,
+        [this.accountSetId],
+      );
+
+      let patchedCount = 0;
+      for (const v of rows) {
+        const entries = await this.getSimpleQueryService().queryAllAsync<any>(
+          `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
+          [v.id, this.accountSetId],
+        );
+
+        // 查关联的银行流水
+        const linkedTx = await this.getSimpleQueryService().queryAllAsync<any>(
+          `SELECT * FROM bankTransactions WHERE accountSetId = ? AND voucherId = ? LIMIT 1`,
+          [this.accountSetId, v.id],
+        );
+        const txRate = linkedTx[0]?.exchangeRate;
+        const txOriginal = linkedTx[0]?.originalAmount;
+        const txCurrency = (linkedTx[0] as any)?.currencyCode || (linkedTx[0]?.summary?.match?.(/\(([A-Z]{3})@/)?.[1]);
+
+        // 凭证摘要中的 FX 信息
+        const summaryMatch = (v.summary || '').match(/\(([A-Z]{3})@([\d.]+)\)/);
+        const summaryCurrency = summaryMatch?.[1];
+        const summaryRate = summaryMatch ? parseFloat(summaryMatch[2]) : undefined;
+
+        const effectiveCurrency = txCurrency || summaryCurrency;
+        const effectiveRate = txRate || summaryRate;
+
+        let needsUpdate = false;
+        for (const e of entries) {
+          const monetary = isMonetary(e.subjectCode || '');
+          const hasExistingFx = !!e.currencyCode && e.currencyCode !== 'CNY';
+
+          if (monetary && !hasExistingFx && effectiveCurrency && effectiveRate && effectiveRate > 0) {
+            const cnyAmount = (e.debit || 0) + (e.credit || 0);
+            const original = txOriginal && txOriginal > 0
+              ? txOriginal
+              : Math.round((cnyAmount / effectiveRate) * 100) / 100;
+            const stmt = this.dbInstance.prepare(
+              `UPDATE entries SET currencyCode = ?, currencyName = ?, exchangeRate = ?, originalAmount = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+            );
+            try {
+              stmt.run([
+                effectiveCurrency,
+                effectiveCurrency,
+                effectiveRate,
+                original,
+                new Date().toISOString(),
+                e.id,
+                this.accountSetId,
+              ]);
+              needsUpdate = true;
+            } finally {
+              stmt.free();
+            }
+          } else if (!monetary && hasExistingFx) {
+            // 非货币性分录不应有 FX 字段（CAS 19），清掉
+            const stmt = this.dbInstance.prepare(
+              `UPDATE entries SET currencyCode = NULL, currencyName = NULL, exchangeRate = NULL, originalAmount = NULL, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+            );
+            try {
+              stmt.run([new Date().toISOString(), e.id, this.accountSetId]);
+              needsUpdate = true;
+            } finally {
+              stmt.free();
+            }
+          }
+        }
+
+        if (needsUpdate) patchedCount++;
+      }
+
+      if (patchedCount > 0) {
+        await this.persist();
+        console.log(`[FX migration] 已补全 ${patchedCount} 张凭证的外币字段`);
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`fx_migration_done_${this.accountSetId}`, '1');
+      }
+    } catch (err) {
+      console.error('[FX migration] 失败:', err);
+    }
   }
 
   private async migrateCreatePayrollTables(): Promise<void> {
     if (!this.dbInstance) return;
 
-    this.dbInstance.exec(`
-      CREATE TABLE IF NOT EXISTS payroll_batches (
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS payroll_batches (
         id TEXT PRIMARY KEY,
         accountSetId TEXT NOT NULL,
         payrollPeriod TEXT NOT NULL,
@@ -427,8 +560,8 @@ class SQLiteService {
         confirmedAt TEXT,
         accrualVoucherId TEXT,
         accrualVoucherNo TEXT
-      );
-      CREATE TABLE IF NOT EXISTS payroll_items (
+      )`,
+      `CREATE TABLE IF NOT EXISTS payroll_items (
         id TEXT PRIMARY KEY,
         batchId TEXT NOT NULL,
         accountSetId TEXT NOT NULL,
@@ -442,8 +575,8 @@ class SQLiteService {
         validationMessages TEXT NOT NULL,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS payroll_calculation_configs (
+      )`,
+      `CREATE TABLE IF NOT EXISTS payroll_calculation_configs (
         id TEXT PRIMARY KEY,
         accountSetId TEXT NOT NULL,
         effectivePeriod TEXT NOT NULL,
@@ -454,11 +587,14 @@ class SQLiteService {
         policyEffectiveDate TEXT NOT NULL,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_payroll_batches_period ON payroll_batches(accountSetId, payrollPeriod);
-      CREATE INDEX IF NOT EXISTS idx_payroll_items_batch ON payroll_items(accountSetId, batchId);
-      CREATE INDEX IF NOT EXISTS idx_payroll_config_period ON payroll_calculation_configs(accountSetId, effectivePeriod);
-    `);
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_payroll_batches_period ON payroll_batches(accountSetId, payrollPeriod)`,
+      `CREATE INDEX IF NOT EXISTS idx_payroll_items_batch ON payroll_items(accountSetId, batchId)`,
+      `CREATE INDEX IF NOT EXISTS idx_payroll_config_period ON payroll_calculation_configs(accountSetId, effectivePeriod)`,
+    ];
+    for (const sql of statements) {
+      this.dbInstance.exec(sql);
+    }
     await this.migrateAddPayrollBatchVoucherColumns();
   }
 
@@ -1806,28 +1942,30 @@ class SQLiteService {
       if (missingColumns.length > 0) {
         console.log('Migrating subjects table: adding columns', missingColumns);
 
-        const alterStatements = missingColumns.map(col => {
+        for (const col of missingColumns) {
+          let sql: string;
           if (col === 'foreignCurrency' || col === 'bankAccountNumber' || col === 'type' || col === 'description') {
-            return `ALTER TABLE subjects ADD COLUMN ${col} TEXT;`;
+            sql = `ALTER TABLE subjects ADD COLUMN ${col} TEXT`;
           } else if (col === 'balance') {
-            return `ALTER TABLE subjects ADD COLUMN ${col} REAL DEFAULT 0;`;
+            sql = `ALTER TABLE subjects ADD COLUMN ${col} REAL DEFAULT 0`;
           } else {
-            return `ALTER TABLE subjects ADD COLUMN ${col} INTEGER DEFAULT 0;`;
+            sql = `ALTER TABLE subjects ADD COLUMN ${col} INTEGER DEFAULT 0`;
           }
-        }).join('\n');
-
-        this.dbInstance.exec(alterStatements);
+          this.dbInstance.exec(sql);
+        }
         console.log('Subjects table migration completed successfully');
       }
 
-      // 无论是否添加了列，都更新默认科目的值（确保数据正确）
-      // 1122 = 应收账款 (客户), 2202 = 应付账款 (供应商)
-      this.dbInstance.exec(`
-        UPDATE subjects SET isCustomer = 1 WHERE code = '1122';
-        UPDATE subjects SET isSupplier = 1 WHERE code = '2202';
-        UPDATE subjects SET enableDept = 1 WHERE code = '1122';
-        UPDATE subjects SET enableProject = 1 WHERE code = '1122';
-      `);
+      // 更新默认科目的值
+      const updateStmts = [
+        `UPDATE subjects SET isCustomer = 1 WHERE code = '1122'`,
+        `UPDATE subjects SET isSupplier = 1 WHERE code = '2202'`,
+        `UPDATE subjects SET enableDept = 1 WHERE code = '1122'`,
+        `UPDATE subjects SET enableProject = 1 WHERE code = '1122'`,
+      ];
+      for (const sql of updateStmts) {
+        this.dbInstance.exec(sql);
+      }
       console.log('Subject default values updated');
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
@@ -2156,7 +2294,7 @@ class SQLiteService {
     if (!this.dbInstance) return;
 
     try {
-      // 创建 users 表
+      // 创建 users 表（新 schema，含 status 列）
       this.dbInstance.exec(`
         CREATE TABLE IF NOT EXISTS users (
           id TEXT PRIMARY KEY,
@@ -2171,6 +2309,22 @@ class SQLiteService {
           updateTime TEXT
         )
       `);
+
+      // 补齐旧 createTables() 创建的 users 表缺失的列
+      try {
+        const pragma = this.dbInstance.exec('PRAGMA table_info(users)');
+        const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+        const addColumns: string[] = [];
+        if (!columns.includes('status')) addColumns.push('ALTER TABLE users ADD COLUMN status TEXT DEFAULT "active"');
+        if (!columns.includes('email')) addColumns.push('ALTER TABLE users ADD COLUMN email TEXT');
+        if (!columns.includes('phone')) addColumns.push('ALTER TABLE users ADD COLUMN phone TEXT');
+        if (!columns.includes('lastLoginTime')) addColumns.push('ALTER TABLE users ADD COLUMN lastLoginTime TEXT');
+        for (const sql of addColumns) {
+          this.dbInstance.exec(sql);
+        }
+      } catch (colErr) {
+        console.warn('[User migration] column patch failed:', colErr);
+      }
 
       // 创建 roles 表
       this.dbInstance.exec(`
@@ -2204,7 +2358,20 @@ class SQLiteService {
         )
       `);
 
-      // 创建 user_roles 表
+      // 创建 user_roles 表（关联表，旧 createTables 的 user_roles 是角色定义表，schema 不同需重建）
+      try {
+        const urPragma = this.dbInstance.exec('PRAGMA table_info(user_roles)');
+        const urColumns = urPragma[0]?.values?.map((row: any[]) => row[1]) || [];
+        if (urColumns.includes('name') && !urColumns.includes('userId')) {
+          // 旧 schema：id/name/displayName → 需要重建为 userId/roleId
+          const hasData = this.dbInstance.exec('SELECT count(*) FROM user_roles');
+          const count = hasData[0]?.values?.[0]?.[0] || 0;
+          if (count === 0 || urColumns.includes('permissions')) {
+            // 空表或旧角色定义表，安全重建
+            this.dbInstance.exec('DROP TABLE IF EXISTS user_roles');
+          }
+        }
+      } catch { /* ignore */ }
       this.dbInstance.exec(`
         CREATE TABLE IF NOT EXISTS user_roles (
           userId TEXT NOT NULL,
@@ -2213,7 +2380,18 @@ class SQLiteService {
         )
       `);
 
-      // 创建 account_set_users 表
+      // 创建 account_set_users 表（旧 schema 用 id+role 列，新 schema 用复合主键）
+      try {
+        const asuPragma = this.dbInstance.exec('PRAGMA table_info(account_set_users)');
+        const asuColumns = asuPragma[0]?.values?.map((row: any[]) => row[1]) || [];
+        if (asuColumns.includes('id') && !asuColumns.includes('roleId')) {
+          const hasData = this.dbInstance.exec('SELECT count(*) FROM account_set_users');
+          const count = hasData[0]?.values?.[0]?.[0] || 0;
+          if (count === 0) {
+            this.dbInstance.exec('DROP TABLE IF EXISTS account_set_users');
+          }
+        }
+      } catch { /* ignore */ }
       this.dbInstance.exec(`
         CREATE TABLE IF NOT EXISTS account_set_users (
           accountSetId TEXT NOT NULL,

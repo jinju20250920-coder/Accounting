@@ -786,6 +786,7 @@ export default function CurrenciesPage() {
                     clearError();
                   }}
                   className="pl-10"
+                  autoComplete="off"
                 />
               </div>
             </div>
@@ -1229,6 +1230,7 @@ export default function CurrenciesPage() {
                   value={currencyFormData.code}
                   onChange={(event) => setCurrencyFormData(prev => ({ ...prev, code: event.target.value.toUpperCase() }))}
                   disabled={currencyEditingId !== null}
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-2">
@@ -1237,6 +1239,7 @@ export default function CurrenciesPage() {
                   placeholder="例如：美元、欧元"
                   value={currencyFormData.name}
                   onChange={(event) => setCurrencyFormData(prev => ({ ...prev, name: event.target.value }))}
+                  autoComplete="off"
                 />
               </div>
             </div>
@@ -1248,6 +1251,7 @@ export default function CurrenciesPage() {
                   placeholder="例如：$、€"
                   value={currencyFormData.symbol}
                   onChange={(event) => setCurrencyFormData(prev => ({ ...prev, symbol: event.target.value }))}
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-2">
@@ -1373,6 +1377,7 @@ export default function CurrenciesPage() {
                   type="date"
                   value={fxFormData.rateDate}
                   onChange={(event) => setFxFormData(prev => ({ ...prev, rateDate: event.target.value }))}
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-2">
@@ -1412,6 +1417,7 @@ export default function CurrenciesPage() {
                 placeholder="请输入中间价"
                 value={fxFormData.middleRate}
                 onChange={(event) => setFxFormData(prev => ({ ...prev, middleRate: event.target.value }))}
+                autoComplete="off"
               />
             </div>
           </div>

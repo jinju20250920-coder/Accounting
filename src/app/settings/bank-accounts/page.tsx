@@ -572,11 +572,11 @@ export default function BankAccountsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">银行账号 <span className="text-red-500">*</span></Label>
-                <Input placeholder="输入银行账号" value={formData.accountNumber} onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))} />
+                <Input placeholder="输入银行账号" autoComplete="off" value={formData.accountNumber} onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">银行账户名称</Label>
-                <Input placeholder="可手写，如：XX银行-4451 USD" value={formData.aliasName} onChange={(e) => setFormData(prev => ({ ...prev, aliasName: e.target.value }))} />
+                <Input placeholder="可手写，如：XX银行-4451 USD" autoComplete="off" value={formData.aliasName} onChange={(e) => setFormData(prev => ({ ...prev, aliasName: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">币种</Label>
