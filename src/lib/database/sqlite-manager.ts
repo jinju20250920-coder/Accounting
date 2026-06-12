@@ -462,14 +462,8 @@ class SQLiteManager {
   }
 
   private createTables(): void {
-    // 表结构创建已统一由 sqlite-service.ts 的迁移链负责
-    // 此方法保留为空，避免与迁移链的 schema 不一致
-  }
-
-  @SuppressWarningsunused
-  private createTablesLegacy(): void {
     // Create tables with accountSetId for multi-tenancy
-    const tablesLegacy = `
+    const tables = `
       CREATE TABLE IF NOT EXISTS accountSets (
         id TEXT PRIMARY KEY,
         code TEXT,
@@ -1062,29 +1056,42 @@ class SQLiteManager {
 
       CREATE TABLE IF NOT EXISTS bankTransactions (
         id TEXT PRIMARY KEY,
-        date TEXT,
+        date TEXT NOT NULL,
+        transactionTime TEXT,
+        voucherType TEXT,
         voucherNo TEXT,
-        transactionSerialNo TEXT,
+        debit REAL DEFAULT 0,
+        credit REAL DEFAULT 0,
+        balance REAL,
+        cashRemitFlag TEXT,
         counterpartyName TEXT,
         counterpartyAccount TEXT,
-        amount REAL,
-        balance REAL,
-        direction TEXT,
         summary TEXT,
-        subjectCode TEXT,
-        subjectName TEXT,
-        isReconciled INTEGER DEFAULT 0,
-        voucherId TEXT,
-        voucherGenerated INTEGER DEFAULT 0,
-        bankAccountNumber TEXT,
-        bankName TEXT,
-        source TEXT,
+        notes TEXT,
+        transactionSerialNo TEXT,
+        enterpriseSerialNo TEXT,
         ourAccount TEXT,
+        ourAccountName TEXT,
+        ourBranch TEXT,
+        rowNumber INTEGER,
+        status TEXT DEFAULT 'pending',
+        matchedSubject TEXT,
+        matchedSubjectName TEXT,
+        confidence REAL,
+        bankAccountId TEXT,
+        importBatchId TEXT,
+        voucherId TEXT,
+        generatedVoucherNo TEXT,
+        exchangeRate REAL,
+        originalAmount REAL,
+        source TEXT DEFAULT 'import',
         docNo TEXT,
         otherAccountName TEXT,
         accountSetId TEXT,
         createTime TEXT,
-        updateTime TEXT
+        updateTime TEXT,
+        FOREIGN KEY (accountSetId) REFERENCES accountSets(id),
+        FOREIGN KEY (voucherId) REFERENCES vouchers(id)
       );
 
       CREATE TABLE IF NOT EXISTS users (
@@ -1158,22 +1165,27 @@ class SQLiteManager {
 
       CREATE TABLE IF NOT EXISTS supplier_subject_mapping (
         id TEXT PRIMARY KEY,
-        supplierName TEXT,
-        groupName TEXT,
-        invoiceType TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
+        accountSetId TEXT NOT NULL,
+        groupName TEXT NOT NULL,
+        sellerName TEXT NOT NULL,
+        supplierType TEXT NOT NULL DEFAULT 'material',
+        defaultDebitSubject TEXT,
+        defaultDebitSubjectName TEXT,
+        defaultTaxSubject TEXT,
+        defaultTaxSubjectName TEXT,
+        defaultCreditSubject TEXT,
+        defaultCreditSubjectName TEXT,
+        createTime TEXT NOT NULL,
+        updateTime TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS custom_bank_configs (
         id TEXT PRIMARY KEY,
-        bankName TEXT,
-        bankId TEXT,
-        config TEXT,
-        accountSetId TEXT,
-        createTime TEXT,
-        updateTime TEXT
+        accountSetId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        config TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS monthly_closing_checks (
@@ -1189,10 +1201,10 @@ class SQLiteManager {
       );
     `;
 
-    this.db.exec(tablesLegacy);
+    this.db.exec(tables);
 
     // Create indexes for better query performance
-    const indexesLegacy = `
+    const indexes = `
       -- Vouchers indexes
       CREATE INDEX IF NOT EXISTS idx_vouchers_accountSetId ON vouchers(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(date);
@@ -1283,7 +1295,7 @@ class SQLiteManager {
       CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
     `;
 
-    this.db.exec(indexesLegacy);
+    this.db.exec(indexes);
   }
 
   setCurrentAccountSet(accountSetId: string): void {
