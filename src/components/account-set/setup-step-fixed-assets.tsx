@@ -34,7 +34,7 @@ const ASSET_IMPORT_HEADERS = [
   { key: 'categoryName' as const, label: '分类', required: false },
   { key: 'originalValue' as const, label: '原值', required: true },
   { key: 'accumulatedDepreciation' as const, label: '累计折旧', required: false },
-  { key: 'acquisitionDate' as const, label: '购置日期', required: false },
+  { key: 'acquisitionDate' as const, label: '开始折旧日期', required: false },
   { key: 'depreciationMethod' as const, label: '折旧方法', required: false },
   { key: 'usefulLifeYears' as const, label: '使用年限', required: false },
 ];
@@ -184,6 +184,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
     exportTemplate<AssetRow>(
       '固定资产导入模板',
       { assetName: '办公电脑', categoryId: '', categoryName: '电子设备', originalValue: 10000, accumulatedDepreciation: 2000, acquisitionDate: '2026-01-01', depreciationMethod: '直线法', usefulLifeYears: 5 },
+      // 注意：acquisitionDate 在模板中对应"开始折旧日期"
       ASSET_IMPORT_HEADERS,
     );
   };
@@ -269,7 +270,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
             <Input type="number" value={form.accumulatedDepreciation || ''} onChange={(event) => updateForm('accumulatedDepreciation', parseFloat(event.target.value) || 0)} placeholder="0" className="h-9 text-sm" autoComplete="off" />
           </div>
           <div>
-            <Label className="text-xs text-slate-500">购置日期</Label>
+            <Label className="text-xs text-slate-500">开始折旧日期</Label>
             <ChineseDatePicker value={form.acquisitionDate} onChange={(value) => updateForm('acquisitionDate', value)} className="w-full" />
           </div>
           <div>
@@ -316,7 +317,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">分类</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">原值</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">累计折旧</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">购置日期</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">开始折旧日期</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-16">年限</th>
                 <th className="px-3 py-2 w-10"></th>
               </tr>
