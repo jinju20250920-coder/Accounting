@@ -138,7 +138,7 @@ export async function getCashOverviewQuery(
   let openingBalance: number | null = null;
   if (ourAccount) {
     const manualBalance = await service.querySingleAsync<BalanceRow>(
-      `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
+      `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) = substr(?, 1, 7) ORDER BY periodStart DESC LIMIT 1`,
       [accountSetId, ourAccount, periodStart],
     );
     if (manualBalance?.balance != null) {

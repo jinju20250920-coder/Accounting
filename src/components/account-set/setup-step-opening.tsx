@@ -74,6 +74,8 @@ interface BankBindingForOpening {
   bankName?: string;
   aliasName?: string;
   subjectCode?: string;
+  subSubjectCode?: string;
+  subSubjectName?: string;
 }
 
 interface AccountingConfig {
@@ -438,13 +440,17 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         }
       }
 
-      // 3. Bank balances → 1002 entries (bank accounts already exist)
+      // 3. Bank balances → 银行子科目 entries (lookup sub-account from bindings)
       const validBankEntries = bankEntries.filter(e => e.accountNumber && e.balance !== 0);
+      const bankBindings = await sqliteService.getBankAccountBindings().catch(() => []) as BankBindingForOpening[];
       for (const e of validBankEntries) {
+        const binding = bankBindings.find(b => b.accountNumber === e.accountNumber);
+        const bankSubjectCode = binding?.subSubjectCode || '1002';
+        const bankSubjectName = binding?.subSubjectName || '银行存款';
         allEntries.push({
           id: `oe_b_${Date.now()}_${allEntries.length}`, voucherId: '',
           date: voucherDate, summary: `期初银行-${e.bankName || e.accountNumber}`,
-          subjectCode: '1002', subjectName: '银行存款',
+          subjectCode: bankSubjectCode, subjectName: bankSubjectName,
           debit: Math.max(e.balance, 0), credit: Math.max(-e.balance, 0),
         });
 
@@ -518,10 +524,23 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         }
       }
 
-      // Save unified voucher
+      // Save unified voucher (stable ID so re-saves replace, not duplicate)
       if (allEntries.length > 0) {
-        const voucherId = `opening_${Date.now()}`;
+        const voucherId = `opening_balance_${accountSetId}`;
         for (const entry of allEntries) entry.voucherId = voucherId;
+
+        // Clean up orphan opening vouchers from older saves that used timestamp-based IDs
+        try {
+          const db = (sqliteService as any).dbInstance;
+          if (db) {
+            const orphans = db.exec(`SELECT id FROM vouchers WHERE id LIKE 'opening_%' AND id != '${voucherId}' AND accountSetId = '${accountSetId}'`);
+            const orphanIds = (orphans[0]?.values || []).map((r: any[]) => r[0]) as string[];
+            for (const oid of orphanIds) {
+              const d1 = db.prepare('DELETE FROM entries WHERE voucherId = ?'); d1.run([oid]); d1.free();
+              const d2 = db.prepare('DELETE FROM vouchers WHERE id = ?'); d2.run([oid]); d2.free();
+            }
+          }
+        } catch (err) { console.warn('Cleanup orphan opening vouchers failed:', err); }
 
         await sqliteService.saveVoucher({
           id: voucherId, voucherNo: '记-期初-0001', date: voucherDate,
@@ -529,6 +548,18 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           createdBy: 'system', createTime: now, updateTime: now,
           entries: allEntries,
         });
+      } else {
+        // No entries — also clean up any prior opening voucher for this account set
+        try {
+          const db = (sqliteService as any).dbInstance;
+          if (db) {
+            const orphanIds = (db.exec(`SELECT id FROM vouchers WHERE id LIKE 'opening_%' AND accountSetId = '${accountSetId}'`)[0]?.values || []).map((r: any[]) => r[0]) as string[];
+            for (const oid of orphanIds) {
+              const d1 = db.prepare('DELETE FROM entries WHERE voucherId = ?'); d1.run([oid]); d1.free();
+              const d2 = db.prepare('DELETE FROM vouchers WHERE id = ?'); d2.run([oid]); d2.free();
+            }
+          }
+        } catch (err) { console.warn('Cleanup opening voucher failed:', err); }
       }
 
       const totalItems = subjectEntriesForVoucher.length + validPartnerEntries.length + validBankEntries.length + includedAssets.length + (!isBalanced && adjustmentSubject.code ? 1 : 0);
