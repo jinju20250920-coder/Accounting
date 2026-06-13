@@ -2598,6 +2598,9 @@ class SQLiteService {
       if (!columns.includes('attachmentCount')) addColumns.push('ALTER TABLE vouchers ADD COLUMN attachmentCount INTEGER DEFAULT 0');
       if (!columns.includes('totalDebit')) addColumns.push('ALTER TABLE vouchers ADD COLUMN totalDebit REAL DEFAULT 0');
       if (!columns.includes('totalCredit')) addColumns.push('ALTER TABLE vouchers ADD COLUMN totalCredit REAL DEFAULT 0');
+      if (!columns.includes('createTime')) addColumns.push('ALTER TABLE vouchers ADD COLUMN createTime TEXT');
+      if (!columns.includes('updateTime')) addColumns.push('ALTER TABLE vouchers ADD COLUMN updateTime TEXT');
+      if (!columns.includes('voucherType')) addColumns.push('ALTER TABLE vouchers ADD COLUMN voucherType TEXT');
       for (const sql of addColumns) {
         this.dbInstance.exec(sql);
       }

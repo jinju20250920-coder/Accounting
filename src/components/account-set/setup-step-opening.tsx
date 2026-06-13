@@ -215,6 +215,15 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     accumulated_depreciation: '来自资产折旧',
   };
 
+  const hasAdjustment = !isBalanced && Boolean(adjustmentSubject.code) && diff > 0;
+  const effectiveTotalDebit = hasAdjustment && openingAnalysis.adjustmentSide === 'debit'
+    ? totalDebit + diff
+    : totalDebit;
+  const effectiveTotalCredit = hasAdjustment && openingAnalysis.adjustmentSide === 'credit'
+    ? totalCredit + diff
+    : totalCredit;
+  const effectiveBalanced = isBalanced || hasAdjustment;
+
   const balancedRef = React.useRef(onBalancedChange);
   balancedRef.current = onBalancedChange;
   useEffect(() => { balancedRef.current(canSaveOpening); }, [canSaveOpening]);
@@ -573,18 +582,22 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           <div className="flex items-center gap-4 p-4 rounded-lg bg-slate-50 border">
             <div className="flex-1 text-center">
               <p className="text-sm text-slate-500">借方合计</p>
-              <p className="text-lg font-semibold">{totalDebit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
+              <p className="text-lg font-semibold">{effectiveTotalDebit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
             </div>
             <div className="text-2xl text-slate-300">=</div>
             <div className="flex-1 text-center">
               <p className="text-sm text-slate-500">贷方合计</p>
-              <p className="text-lg font-semibold">{totalCredit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
+              <p className="text-lg font-semibold">{effectiveTotalCredit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
             </div>
             <div className="ml-4">
-              {entries.length === 0 ? (
+              {entries.length === 0 && bankEntries.length === 0 && partnerEntries.length === 0 && assetEntries.filter(a => a.included).length === 0 ? (
                 <Badge variant="outline" className="bg-slate-100">未录入</Badge>
-              ) : isBalanced ? (
-                <Badge className="bg-green-100 text-green-700"><CheckCircle2 className="h-3 w-3 mr-1" /> 平衡</Badge>
+              ) : effectiveBalanced ? (
+                hasAdjustment ? (
+                  <Badge className="bg-amber-100 text-amber-700"><CheckCircle2 className="h-3 w-3 mr-1" /> 通过补平科目平衡</Badge>
+                ) : (
+                  <Badge className="bg-green-100 text-green-700"><CheckCircle2 className="h-3 w-3 mr-1" /> 平衡</Badge>
+                )
               ) : (
                 <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" /> 差额 {diff.toFixed(2)}</Badge>
               )}
