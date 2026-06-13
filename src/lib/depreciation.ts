@@ -73,7 +73,10 @@ export function roundToTwoDecimals(value: number): number {
 
 /**
  * 直线法折旧计算
- * 公式：月折旧额 = (原值 - 残值) / 使用月数
+ * 公式：月折旧额 = (原值 - 累计折旧 - 残值) / 剩余月数
+ *
+ * 对新购资产（累计折旧=0、已过月数=0）等价于 (原值 - 残值) / 总月数。
+ * 对期初导入资产（已有累计折旧）使用剩余应计折旧额和剩余月数，避免超额折旧。
  *
  * @param input 折旧计算输入参数
  * @returns 折旧计算结果
@@ -91,12 +94,19 @@ export function calculateStraightLineDepreciation(
   } = input;
 
   const depreciableValue = originalValue - salvageValue;
-  const monthlyDepreciation = usefulLifeMonths > 0 ? depreciableValue / usefulLifeMonths : 0;
 
   // 计算已过月数
   const monthsElapsed = depreciationStartDate
     ? calculateMonthsBetween(depreciationStartDate, asOfDate)
     : 0;
+
+  // 剩余应计折旧额（原值 - 已计提累计折旧 - 残值）
+  const remainingDepreciableValue = Math.max(0, depreciableValue - accumulatedDepreciation);
+  // 剩余月数
+  const remainingMonths = Math.max(0, usefulLifeMonths - monthsElapsed);
+
+  // 月折旧额 = 剩余应计折旧额 / 剩余月数
+  const monthlyDepreciation = remainingMonths > 0 ? remainingDepreciableValue / remainingMonths : 0;
 
   // 本期折旧额（一个月）
   const periodDepreciation = roundToTwoDecimals(monthlyDepreciation);
@@ -123,7 +133,7 @@ export function calculateStraightLineDepreciation(
     netValue,
     remainingLife,
     isFullyDepreciated,
-    calculationDetails: `直线法: (${(originalValue ?? 0).toLocaleString()} - ${(salvageValue ?? 0).toLocaleString()}) / ${usefulLifeMonths}月 = ${monthlyDepreciation.toFixed(2)}/月`,
+    calculationDetails: `直线法: (${(originalValue ?? 0).toLocaleString()} - ${(accumulatedDepreciation ?? 0).toLocaleString()} - ${(salvageValue ?? 0).toLocaleString()}) / ${remainingMonths}月 = ${monthlyDepreciation.toFixed(2)}/月`,
   };
 }
 

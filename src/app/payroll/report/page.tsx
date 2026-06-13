@@ -35,6 +35,7 @@ import {
   type PayrollReportStatusFilter,
 } from '@/lib/payroll-report';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { isMonetarySubject } from '@/lib/fx-monetary';
 
 type ReportTab = 'batch' | 'detail';
 
@@ -164,6 +165,22 @@ function VoucherDetailDialog({
   const debitTotal = entries.reduce((sum, entry) => sum + (entry.debit || 0), 0);
   const creditTotal = entries.reduce((sum, entry) => sum + (entry.credit || 0), 0);
   const status = displayVoucher?.status ? voucherStatusConfig[displayVoucher.status] : null;
+  const showFxColumns = entries.some(e => !!e.currencyCode && e.currencyCode !== 'CNY');
+  const fxCellStyle = (entry: { subjectCode: string; currencyCode?: string }) => {
+    const isMonetary = isMonetarySubject(entry.subjectCode);
+    const hasFx = !!entry.currencyCode && entry.currencyCode !== 'CNY';
+    return isMonetary && hasFx ? 'text-slate-600' : 'text-slate-300';
+  };
+  const fmtOriginal = (entry: { subjectCode: string; currencyCode?: string; originalAmount?: number }) => {
+    if (!isMonetarySubject(entry.subjectCode)) return '-';
+    if (!entry.currencyCode || entry.currencyCode === 'CNY') return '-';
+    return entry.originalAmount && entry.originalAmount > 0 ? formatMoney(entry.originalAmount) : '-';
+  };
+  const fmtRate = (entry: { subjectCode: string; currencyCode?: string; exchangeRate?: number }) => {
+    if (!isMonetarySubject(entry.subjectCode)) return '-';
+    if (!entry.currencyCode || entry.currencyCode === 'CNY') return '-';
+    return entry.exchangeRate && entry.exchangeRate > 0 ? entry.exchangeRate.toFixed(4) : '-';
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -231,6 +248,9 @@ function VoucherDetailDialog({
                         <TableHead>往来/辅助</TableHead>
                         <TableHead className="text-right">借方</TableHead>
                         <TableHead className="text-right">贷方</TableHead>
+                        {showFxColumns && <TableHead className="text-right">币别</TableHead>}
+                        {showFxColumns && <TableHead className="text-right">原币金额</TableHead>}
+                        {showFxColumns && <TableHead className="text-right">汇率</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -249,11 +269,27 @@ function VoucherDetailDialog({
                               </TableCell>
                               <TableCell className="text-right tabular-nums">{entry.debit ? formatMoney(entry.debit) : '-'}</TableCell>
                               <TableCell className="text-right tabular-nums">{entry.credit ? formatMoney(entry.credit) : '-'}</TableCell>
+                              {showFxColumns && (
+                                <TableCell className={`text-right tabular-nums ${fxCellStyle(entry)}`}>
+                                  {isMonetarySubject(entry.subjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY'
+                                    ? entry.currencyCode : '-'}
+                                </TableCell>
+                              )}
+                              {showFxColumns && (
+                                <TableCell className={`text-right tabular-nums ${fxCellStyle(entry)}`}>
+                                  {fmtOriginal(entry)}
+                                </TableCell>
+                              )}
+                              {showFxColumns && (
+                                <TableCell className={`text-right tabular-nums ${fxCellStyle(entry)}`}>
+                                  {fmtRate(entry)}
+                                </TableCell>
+                              )}
                             </TableRow>
                           ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={5} className="py-10 text-center text-slate-400">
+                          <TableCell colSpan={showFxColumns ? 8 : 5} className="py-10 text-center text-slate-400">
                             当前凭证没有可展示的分录
                           </TableCell>
                         </TableRow>

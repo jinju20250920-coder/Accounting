@@ -102,6 +102,9 @@ function SubjectSearchPopover({ onSelect, placeholder }: {
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input
                 autoFocus
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 placeholder="搜索科目代码或名称..."
                 value={searchText}
                 onChange={e => setSearchText(e.target.value)}
@@ -225,7 +228,7 @@ export default function AuxiliaryDataPage() {
     }
   };
 
-  const handleAddPartner = () => {
+  const handleAddPartner = async () => {
     if (!formData.code || !formData.name) {
       showToast('error', '请填写必填字段：往来单位代码、名称');
       return;
@@ -249,18 +252,18 @@ export default function AuxiliaryDataPage() {
     try {
       if (editingId) {
         // 更新
-        partnerStore.updatePartner(editingId, dataToSave);
+        await partnerStore.updatePartner(editingId, dataToSave);
         showToast('success', '往来单位更新成功');
       } else {
         // 添加
-        partnerStore.addPartner(dataToSave);
+        await partnerStore.addPartner(dataToSave);
         showToast('success', '往来单位添加成功');
       }
 
       setShowDialog(false);
       resetFormData();
       setEditingId(null);
-      setPartners(partnerStore.partners);
+      setPartners(usePartnerStore.getState().partners);
     } catch (error) {
       showToast('error', error instanceof Error ? error.message : '操作失败');
     }
@@ -310,19 +313,23 @@ export default function AuxiliaryDataPage() {
       open: true,
       title: '确认删除',
       description: `确定要删除往来单位 ${partner.code} - ${partner.name} 吗？`,
-      onConfirm: () => {
-        partnerStore.deletePartner(id);
-        setPartners(partnerStore.partners);
+      onConfirm: async () => {
+        await partnerStore.deletePartner(id);
+        setPartners(usePartnerStore.getState().partners);
         showToast('success', '往来单位删除成功');
         setConfirmDialog(null);
       }
     });
   };
 
-  const handleToggleFrozen = (id: string) => {
-    partnerStore.toggleFrozen(id);
-    setPartners(partnerStore.partners);
-    showToast('success', '冻结状态已更新');
+  const handleToggleFrozen = async (id: string) => {
+    try {
+      await partnerStore.toggleFrozen(id);
+      setPartners(usePartnerStore.getState().partners);
+      showToast('success', '冻结状态已更新');
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '操作失败');
+    }
   };
 
   const handleImport = async () => {
@@ -365,8 +372,8 @@ export default function AuxiliaryDataPage() {
           createdAt: new Date().toISOString().split('T')[0]
         }));
 
-        partnerStore.importPartners(newItems);
-        setPartners(partnerStore.partners);
+        await partnerStore.importPartners(newItems);
+        setPartners(usePartnerStore.getState().partners);
         showToast('success', `成功导入 ${newItems.length} 条往来单位数据`);
 
         fileInputRef.current.value = '';
@@ -567,6 +574,9 @@ export default function AuxiliaryDataPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                 />
               </div>
             </div>
@@ -768,11 +778,12 @@ export default function AuxiliaryDataPage() {
       {/* 新增/编辑往来单位对话框 */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingId ? '编辑往来单位' : '新增往来单位'}
-            </DialogTitle>
-          </DialogHeader>
+          <form autoComplete="off" onSubmit={(event) => event.preventDefault()}>
+            <DialogHeader>
+              <DialogTitle>
+                {editingId ? '编辑往来单位' : '新增往来单位'}
+              </DialogTitle>
+            </DialogHeader>
 
           {/* 左右双栏布局：左侧灰底基本信息 + 右侧白底账务设置 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 py-2">
@@ -783,11 +794,11 @@ export default function AuxiliaryDataPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label required className="font-semibold text-sm">单位代码</Label>
-                  <Input placeholder="如：CUS001" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))} />
+                  <Input placeholder="如：CUS001" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
                 </div>
                 <div className="space-y-1.5">
                   <Label required className="font-semibold text-sm">单位名称</Label>
-                  <Input placeholder="输入单位名称" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} />
+                  <Input placeholder="输入单位名称" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
                 </div>
               </div>
 
@@ -796,15 +807,15 @@ export default function AuxiliaryDataPage() {
                 <Label className="font-semibold text-sm">身份（至少勾选一项）</Label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input type="checkbox" checked={formData.isCustomer} onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))} className="rounded" />
+                    <input type="checkbox" checked={formData.isCustomer} onChange={e => setFormData(prev => ({ ...prev, isCustomer: e.target.checked }))} className="rounded" autoComplete="off" />
                     <span className="text-sm">客户</span>
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input type="checkbox" checked={formData.isSupplier} onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))} className="rounded" />
+                    <input type="checkbox" checked={formData.isSupplier} onChange={e => setFormData(prev => ({ ...prev, isSupplier: e.target.checked }))} className="rounded" autoComplete="off" />
                     <span className="text-sm">供应商</span>
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input type="checkbox" checked={formData.isEmployee} onChange={e => setFormData(prev => ({ ...prev, isEmployee: e.target.checked }))} className="rounded" />
+                    <input type="checkbox" checked={formData.isEmployee} onChange={e => setFormData(prev => ({ ...prev, isEmployee: e.target.checked }))} className="rounded" autoComplete="off" />
                     <span className="text-sm">雇员</span>
                   </label>
                 </div>
@@ -813,17 +824,17 @@ export default function AuxiliaryDataPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label className="font-semibold text-sm">联系人</Label>
-                  <Input placeholder="联系人姓名" value={formData.contact} onChange={e => setFormData(prev => ({ ...prev, contact: e.target.value }))} />
+                  <Input placeholder="联系人姓名" value={formData.contact} onChange={e => setFormData(prev => ({ ...prev, contact: e.target.value }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="font-semibold text-sm">联系电话</Label>
-                  <Input placeholder="联系电话" value={formData.phone} onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))} />
+                  <Input placeholder="联系电话" value={formData.phone} onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <Label className="font-semibold text-sm">地址</Label>
-                <Input placeholder="单位地址" value={formData.address} onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))} />
+                <Input placeholder="单位地址" value={formData.address} onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
               </div>
 
               <div className="space-y-1.5">
@@ -843,27 +854,27 @@ export default function AuxiliaryDataPage() {
               {/* 横向布局：邮箱 */}
               <div className="flex items-center gap-3">
                 <Label className="font-semibold text-sm w-20 shrink-0 text-right">电子邮箱</Label>
-                <Input placeholder="电子邮箱" value={formData.email} onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))} className="flex-1" />
+                <Input placeholder="电子邮箱" name="partner-contact-channel" value={formData.email} onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))} className="flex-1" autoComplete="new-password" autoCapitalize="none" spellCheck={false} />
               </div>
 
               {/* 横向布局：税号（仅客户/供应商显示） */}
               {(formData.isCustomer || formData.isSupplier) && (
               <div className="flex items-center gap-3">
                 <Label className="font-semibold text-sm w-20 shrink-0 text-right">税号</Label>
-                <Input placeholder="纳税人识别号" value={formData.taxNumber} onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))} className="flex-1" />
+                <Input placeholder="纳税人识别号" value={formData.taxNumber} onChange={e => setFormData(prev => ({ ...prev, taxNumber: e.target.value }))} className="flex-1" autoComplete="off" autoCapitalize="none" spellCheck={false} />
               </div>
               )}
 
               {/* 横向布局：开户银行 */}
               <div className="flex items-center gap-3">
                 <Label className="font-semibold text-sm w-20 shrink-0 text-right">开户银行</Label>
-                <Input placeholder="开户银行" value={formData.bankName} onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))} className="flex-1" />
+                <Input placeholder="开户银行" value={formData.bankName} onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))} className="flex-1" autoComplete="off" autoCapitalize="none" spellCheck={false} />
               </div>
 
               {/* 横向布局：银行账号 */}
               <div className="flex items-center gap-3">
                 <Label className="font-semibold text-sm w-20 shrink-0 text-right">银行账号</Label>
-                <Input placeholder="银行账号" value={formData.bankAccount} onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))} className="flex-1" />
+                <Input placeholder="银行账号" value={formData.bankAccount} onChange={e => setFormData(prev => ({ ...prev, bankAccount: e.target.value }))} className="flex-1" autoComplete="off" autoCapitalize="none" spellCheck={false} />
               </div>
 
               {/* 默认科目 - Popover 风格 */}
@@ -903,6 +914,7 @@ export default function AuxiliaryDataPage() {
                         className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
                         value={formData.idType}
                         onChange={e => setFormData(prev => ({ ...prev, idType: e.target.value }))}
+                        autoComplete="off"
                       >
                         <option value="">--</option>
                         <option value="居民身份证">居民身份证</option>
@@ -920,6 +932,8 @@ export default function AuxiliaryDataPage() {
                         value={formData.idNumber}
                         onChange={e => setFormData(prev => ({ ...prev, idNumber: e.target.value }))}
                         autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
                       />
                     </div>
                   </div>
@@ -958,26 +972,29 @@ export default function AuxiliaryDataPage() {
               )}
 
               {/* 账期天数 */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold text-slate-600">账期天数</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    max={999}
-                    value={formData.paymentTermDays ?? ''}
-                    onChange={e => setFormData(prev => ({ ...prev, paymentTermDays: parseInt(e.target.value) || 0 }))}
-                    className="w-20 px-2 py-1 border border-slate-200 rounded text-sm"
-                    placeholder="30"
-                  />
-                  <span className="text-xs text-slate-400">天（入账日期 + 账期 = 到期日）</span>
+              {!formData.isEmployee && (
+                <div className="space-y-1">
+                  <Label className="text-sm font-semibold text-slate-600">账期天数</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={999}
+                      value={formData.paymentTermDays ?? ''}
+                      onChange={e => setFormData(prev => ({ ...prev, paymentTermDays: parseInt(e.target.value) || 0 }))}
+                      className="w-20 px-2 py-1 border border-slate-200 rounded text-sm"
+                      placeholder="30"
+                      autoComplete="off"
+                    />
+                    <span className="text-xs text-slate-400">天（入账日期 + 账期 = 到期日）</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* 冻结 */}
               <div className="pt-3 space-y-1">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="frozen" checked={formData.frozen} onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))} className="rounded" />
+                  <input type="checkbox" id="frozen" checked={formData.frozen} onChange={e => setFormData(prev => ({ ...prev, frozen: e.target.checked }))} className="rounded" autoComplete="off" />
                   <Label htmlFor="frozen" className="font-semibold text-sm cursor-pointer">冻结往来单位</Label>
                 </div>
                 <p className="text-xs text-slate-400 pl-5">冻结后无法删除</p>
@@ -985,17 +1002,18 @@ export default function AuxiliaryDataPage() {
             </div>
           </div>
 
-          <DialogFooter className="pt-2">
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>
-                取消
-              </Button>
-              <Button onClick={handleAddPartner}>
-                <Save className="h-4 w-4 mr-2" />
-                保存
-              </Button>
-            </div>
-          </DialogFooter>
+            <DialogFooter className="pt-2">
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => { setShowDialog(false); resetFormData(); setEditingId(null); }}>
+                  取消
+                </Button>
+                <Button type="button" onClick={handleAddPartner}>
+                  <Save className="h-4 w-4 mr-2" />
+                  保存
+                </Button>
+              </div>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

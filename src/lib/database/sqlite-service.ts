@@ -127,6 +127,7 @@ import {
 } from './services/export-import-sqlite-service';
 import {
   getBankOpeningBalanceQuery,
+  getBankOpeningBalanceDetailQuery,
   getAllBankOpeningBalancesQuery,
   getCashOverviewQuery,
   getJournalEntriesQuery,
@@ -2267,6 +2268,14 @@ class SQLiteService {
       const columns = this.dbInstance.exec("PRAGMA table_info(bankTransactions)");
       if (columns.length > 0) {
         const columnNames = columns[0].values?.map((row: any[]) => row[1]) || [];
+        if (!columnNames.includes('credit')) {
+          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN credit REAL DEFAULT 0');
+          console.log('Migration: Added credit column to bankTransactions');
+        }
+        if (!columnNames.includes('debit')) {
+          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN debit REAL DEFAULT 0');
+          console.log('Migration: Added debit column to bankTransactions');
+        }
         if (!columnNames.includes('source')) {
           this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN source TEXT DEFAULT \'import\'');
           console.log('Migration: Added source column to bankTransactions');
@@ -2624,6 +2633,19 @@ class SQLiteService {
         this.dbInstance.exec(`CREATE INDEX IF NOT EXISTS idx_bank_opening_balances_lookup ON bank_opening_balances (accountSetId, accountNumber, periodStart)`);
         console.log('Migration: Created bank_opening_balances table');
       }
+      // Ensure exchangeRate and foreignBalance columns exist for foreign currency support
+      const columnInfo = this.dbInstance.exec("PRAGMA table_info(bank_opening_balances)");
+      if (columnInfo.length > 0) {
+        const columnNames = columnInfo[0].values?.map((row: any[]) => row[1]) || [];
+        if (!columnNames.includes('exchangeRate')) {
+          this.dbInstance.run('ALTER TABLE bank_opening_balances ADD COLUMN exchangeRate REAL');
+          console.log('Migration: Added exchangeRate column to bank_opening_balances');
+        }
+        if (!columnNames.includes('foreignBalance')) {
+          this.dbInstance.run('ALTER TABLE bank_opening_balances ADD COLUMN foreignBalance REAL');
+          console.log('Migration: Added foreignBalance column to bank_opening_balances');
+        }
+      }
     } catch (error) {
       console.error('Migration: Failed to create bank_opening_balances table', error);
     }
@@ -2671,6 +2693,11 @@ class SQLiteService {
     return getBankOpeningBalanceQuery(this.getSimpleQueryService(), this.accountSetId, accountNumber, periodStart);
   }
 
+  async getBankOpeningBalanceDetail(accountNumber: string, periodStart: string) {
+    await this.ensureInitialized();
+    return getBankOpeningBalanceDetailQuery(this.getSimpleQueryService(), this.accountSetId, accountNumber, periodStart);
+  }
+
   async getAllBankOpeningBalances() {
     await this.ensureInitialized();
     return getAllBankOpeningBalancesQuery(this.getSimpleQueryService(), this.accountSetId);
@@ -2680,6 +2707,8 @@ class SQLiteService {
     accountNumber: string;
     periodStart: string;
     balance: number;
+    foreignBalance?: number | null;
+    exchangeRate?: number | null;
     generateVoucher?: boolean;
     createdBy?: string;
   }): Promise<void> {

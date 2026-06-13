@@ -29,6 +29,7 @@ import type { PreviewEntry } from '@/components/voucher-preview-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { BankAccountSelector, getDefaultBankAccounts } from '@/components/bank-account-selector';
 import type { BankStatementParseResult, BankTransaction } from '@/types';
+import { isMonetarySubject } from '@/lib/fx-monetary';
 
 export default function ImportPage() {
   const { showToast } = useToast();
@@ -371,6 +372,13 @@ export default function ImportPage() {
     const { usePartnerStore } = await import('@/stores/usePartnerStore');
     const existingPartners = usePartnerStore.getState().partners;
 
+    // 预加载银行账户绑定，用于推断外币币别
+    const bankBindings = (await service.getBankAccountBindings?.()) || [];
+    const bindingsByAccount = new Map<string, any>();
+    for (const b of bankBindings) {
+      if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
+    }
+
     const entries = sourceEntries.map((tx: any) => {
       const isDebit = !!tx.debit;
       const amount = tx.debit || tx.credit || 0;
@@ -380,6 +388,44 @@ export default function ImportPage() {
         ));
       const originalSummary = tx.summary || tx.notes || '银行交易';
       const counterpartSubjectName = tx.matchedSubjectName || '财务费用';
+
+      // 外币字段：优先绑定币别 → 交易 FX 字段 → 摘要解析 (USD@rate) 兜底
+      const txBinding = tx.ourAccount ? bindingsByAccount.get(tx.ourAccount) : null;
+      const bindingCurrency = txBinding?.currency || txBinding?.currencyCode || 'CNY';
+      const txOriginal = tx.originalAmount as number | undefined;
+      const txRate = tx.exchangeRate as number | undefined;
+      const summaryFxMatch = (tx.summary || '').match(/\(([A-Z]{3})@([\d.]+)\)/);
+      const summaryCurrency = summaryFxMatch ? summaryFxMatch[1] : undefined;
+      const summaryRate = summaryFxMatch ? parseFloat(summaryFxMatch[2]) : undefined;
+
+      const effectiveCurrency =
+        (bindingCurrency && bindingCurrency !== 'CNY')
+          ? bindingCurrency
+          : ((txOriginal && txOriginal > 0) || (txRate && txRate > 0)
+              ? (summaryCurrency || 'USD')
+              : summaryCurrency);
+
+      const isForeign = !!effectiveCurrency && effectiveCurrency !== 'CNY'
+        && ((txOriginal && txOriginal > 0) || (txRate && txRate > 0) || (summaryRate && summaryRate > 0));
+
+      const originalAmount = isForeign
+        ? (txOriginal && txOriginal > 0
+            ? txOriginal
+            : (summaryRate && summaryRate > 0
+                ? Math.round((amount / summaryRate) * 100) / 100
+                : 0))
+        : undefined;
+      const exchangeRate = isForeign
+        ? (txRate && txRate > 0
+            ? txRate
+            : (summaryRate && summaryRate > 0
+                ? summaryRate
+                : (originalAmount && originalAmount > 0
+                    ? Math.round((amount / originalAmount) * 10000) / 10000
+                    : 0)))
+        : undefined;
+      const currencyCode = isForeign ? effectiveCurrency : undefined;
+      const currencyName = isForeign ? effectiveCurrency : undefined;
 
       return {
         transactionId: tx.id,
@@ -396,6 +442,10 @@ export default function ImportPage() {
         amount,
         isDebit,
         willCreatePartner,
+        currencyCode,
+        currencyName,
+        exchangeRate,
+        originalAmount,
       };
     });
 
@@ -480,6 +530,18 @@ export default function ImportPage() {
           }
 
           const tx = await service.getBankTransaction(pe.transactionId);
+          // 外币字段：仅货币性项目（1001/1002/应收/应付等）写入；非货币性项目（库存、收入等）保持本币
+          const fxFields = (subjectCode: string) => {
+            if (!(pe.currencyCode && pe.currencyCode !== 'CNY')) return {};
+            if (!isMonetarySubject(subjectCode)) return {};
+            return {
+              currencyCode: pe.currencyCode,
+              currencyName: pe.currencyName || pe.currencyCode,
+              exchangeRate: pe.exchangeRate || 0,
+              originalAmount: pe.originalAmount || 0,
+            };
+          };
+
           const entries = [
             {
               id: `entry_${voucherId}_0`, voucherId, date: postingDate, summary: pe.summary,
@@ -487,11 +549,13 @@ export default function ImportPage() {
               debit: isDebit ? amount : 0, credit: isDebit ? 0 : amount,
               customerName, supplierName, auxiliary: {},
               docNo: `${tx?.voucherNo || ''}-${tx?.transactionSerialNo || ''}`,
+              ...fxFields(counterpartSubjectCode),
             },
             {
               id: `entry_${voucherId}_1`, voucherId, date: postingDate, summary: pe.summary,
               subjectCode: pe.bankSubjectCode, subjectName: pe.bankSubjectName,
               debit: isDebit ? 0 : amount, credit: isDebit ? amount : 0,
+              ...fxFields(pe.bankSubjectCode),
             },
           ];
 

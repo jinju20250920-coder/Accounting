@@ -76,6 +76,56 @@ export default function ExchangePage() {
     initializeRevaluationRuns();
   }, [accountSetId]);
 
+  // TEMP DEBUG HOOK: 在浏览器控制台调用
+  // 用法1: await window.__fixVoucherFx('收-202606-003', 'USD', 6.8109)
+  //   仅写入货币性项目分录（1001/1002/1122/2202 等），非货币性（库存/收入/费用）跳过
+  // 用法2: await window.__fixVoucherFx('收-202606-003', 'USD', 6.8109, { clearNonMonetary: true })
+  //   同时清掉非货币性分录上残留的 FX 字段
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    (window as any).__fixVoucherFx = async (
+      voucherNo: string,
+      currency: string,
+      rate: number,
+      opts?: { clearNonMonetary?: boolean },
+    ) => {
+      const isMonetary = (code: string) => {
+        if (!code) return false;
+        const prefixes = ['1001','1002','1012','1101','1121','1122','1123','1131','1132','1221','1231','1401','1471','1501','1502','1503','1504','2001','2002','2101','2201','2202','2203','2211','2221','2231','2232','2241','2501','2502','2701','2702'];
+        return prefixes.some(p => code.startsWith(p));
+      };
+      const service = getCurrentService() as any;
+      const all = await service.getAllVouchers();
+      const target = all.find((v: any) => (v.voucherNo || v.no) === voucherNo);
+      if (!target) {
+        console.error(`[fixVoucherFx] 凭证号 ${voucherNo} 未找到。现有凭证号:`, all.map((v: any) => v.voucherNo));
+        return { ok: false, error: 'not-found' };
+      }
+      const updatedEntries = (target.entries || []).map((e: any) => {
+        if (!isMonetary(e.subjectCode)) {
+          if (!opts?.clearNonMonetary) return e;
+          const { currencyCode, currencyName, exchangeRate, originalAmount, ...rest } = e;
+          return rest;
+        }
+        const cnyAmount = (e.debit || 0) + (e.credit || 0);
+        const originalAmount = cnyAmount > 0 ? Math.round((cnyAmount / rate) * 100) / 100 : 0;
+        return {
+          ...e,
+          currencyCode: currency,
+          currencyName: currency === 'USD' ? '美元' : currency,
+          exchangeRate: rate,
+          originalAmount,
+        };
+      });
+      const updated = { ...target, entries: updatedEntries };
+      await service.saveVoucher(updated);
+      const monetary = updatedEntries.filter((e: any) => isMonetary(e.subjectCode));
+      console.log(`[fixVoucherFx] 已修复 ${voucherNo}。货币性分录 ${monetary.length} 条写入 FX，其他 ${updatedEntries.length - monetary.length} 条保持不变。`, updatedEntries);
+      return { ok: true, fixed: monetary.length, total: updatedEntries.length };
+    };
+    return () => { delete (window as any).__fixVoucherFx; };
+  }, []);
+
   // ─── 预览计算 ───
 
   const handlePreview = useCallback(async () => {
@@ -561,65 +611,79 @@ function formatDateTime(iso?: string): string {
 
 /**
  * 加载外币银行账户余额
- * 从 bank_account_bindings 中找有 currency 的绑定，
- * 然后从 bankTransactions 计算各账户余额
+ *
+ * 单一数据源：凭证分录（1001 库存现金 / 1002 银行存款 + currencyCode≠CNY）
+ *
+ * 银行账户绑定（bank_account_bindings）仅用于元数据反查：
+ * 通过 subSubjectCode 关联到对应银行户，补全 accountNumber/bankName 让预览行更直观。
+ *
+ * 优势：
+ * - 用户无论是用银行流水导入还是手工录入凭证，只要分录带了币别，都会被识别
+ * - 不会出现"流水来源 + 凭证来源"双重计数
  */
 async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxRevaluationBankBalance[]> {
   const service = getCurrentService() as any;
-  if (!service.getAllBankAccountBindings) return [];
+  const periodEnd = getMonthEndDate(period);
 
-  const bindings = await service.getAllBankAccountBindings();
-  // 过滤外币账户
-  const fxBindings = (bindings || []).filter((b: any) => b.currency && b.currency !== 'CNY');
-  if (fxBindings.length === 0) return [];
-
-  const [yearStr, monthStr] = period.split('-');
-  const startDate = `${yearStr}-${monthStr}-01`;
-  const endDate = getMonthEndDate(period);
+  // 预加载银行账户绑定，按 subSubjectCode 索引，用于元数据反查
+  const bindingsBySubject = new Map<string, any>();
+  try {
+    const bindings = service.getBankAccountBindings ? await service.getBankAccountBindings() : [];
+    for (const b of bindings || []) {
+      if (b.subSubjectCode) bindingsBySubject.set(b.subSubjectCode, b);
+    }
+  } catch (e) {
+    console.warn('loadBankBalances: 银行绑定加载失败', e);
+  }
 
   const results: FxRevaluationBankBalance[] = [];
+  const agg = new Map<string, { subjectCode: string; subjectName: string; currencyCode: string; totalOriginal: number; totalBase: number }>();
 
-  for (const binding of fxBindings) {
-    const rate = rates.find((r) => r.currencyCode === binding.currency);
-    if (!rate) continue;
+  try {
+    const allVouchers = service.getAllVouchers ? await service.getAllVouchers() : [];
 
-    // 从 bankTransactions 获取该账户余额
-    const txns = service.getBankTransactionsByDateRange
-      ? await service.getBankTransactionsByDateRange(startDate, endDate)
-      : await (service.getAllBankTransactions?.() || []);
+    for (const voucher of allVouchers) {
+      const voucherDate = (voucher.date || '').slice(0, 10);
+      if (!voucherDate || voucherDate > periodEnd) continue;
+      const entries = voucher.entries || [];
+      for (const entry of entries) {
+        if (!entry.currencyCode || entry.currencyCode === 'CNY') continue;
+        const code = (entry.subjectCode || '');
+        if (!code.startsWith('1001') && !code.startsWith('1002')) continue;
 
-    const accountTxns = (txns || []).filter((t: any) =>
-      t.ourAccount === binding.accountNumber || t.accountNumber === binding.accountNumber
-    );
+        const key = `${code}-${entry.currencyCode}`;
+        const existing = agg.get(key) || {
+          subjectCode: code,
+          subjectName: entry.subjectName || '银行存款',
+          currencyCode: entry.currencyCode,
+          totalOriginal: 0,
+          totalBase: 0,
+        };
+        const debit = entry.debit || 0;
+        const credit = entry.credit || 0;
+        const sign = debit > 0 ? 1 : -1;
+        existing.totalOriginal += (entry.originalAmount || 0) * sign;
+        existing.totalBase += (debit - credit);
+        agg.set(key, existing);
+      }
+    }
 
-    if (accountTxns.length === 0) continue;
-
-    const totalIncome = accountTxns.reduce((s: number, t: any) => s + (t.income || 0), 0);
-    const totalExpense = accountTxns.reduce((s: number, t: any) => s + (t.expense || 0), 0);
-    const balance = totalIncome - totalExpense;
-
-    if (Math.abs(balance) < 0.005) continue;
-
-    // Use originalAmount if available, otherwise treat debit/credit as original
-    const totalOriginalIncome = accountTxns.reduce((s: number, t: any) =>
-      s + (t.originalAmount && (t.income || 0) > 0 ? t.originalAmount : (t.income || 0)), 0);
-    const totalOriginalExpense = accountTxns.reduce((s: number, t: any) =>
-      s + (t.originalAmount && (t.expense || 0) > 0 ? t.originalAmount : (t.expense || 0)), 0);
-    const originalBalance = totalOriginalIncome - totalOriginalExpense;
-
-    // bookValueBase = sum of local currency amounts (debit/credit already converted)
-    const bookValueBase = Math.round((totalIncome - totalExpense) * 100) / 100;
-
-    results.push({
-      accountId: binding.id,
-      accountNumber: binding.accountNumber,
-      bankName: binding.bankName || binding.aliasName || binding.accountNumber,
-      currencyCode: binding.currency,
-      originalAmount: Math.abs(originalBalance) >= 0.005 ? originalBalance : balance,
-      bookValueBase,
-      subjectCode: binding.subSubjectCode || '1002',
-      subjectName: binding.subSubjectName || '银行存款',
-    });
+    for (const [key, data] of agg) {
+      if (Math.abs(data.totalOriginal) < 0.005 && Math.abs(data.totalBase) < 0.005) continue;
+      const binding = bindingsBySubject.get(data.subjectCode);
+      results.push({
+        accountId: binding?.id || `voucher-${key}`,
+        accountNumber: binding?.accountNumber || data.subjectCode,
+        bankName: binding?.bankName || binding?.aliasName || data.subjectName,
+        currencyCode: data.currencyCode,
+        originalAmount: Math.abs(data.totalOriginal) >= 0.005 ? data.totalOriginal : data.totalBase,
+        bookValueBase: Math.round(data.totalBase * 100) / 100,
+        subjectCode: data.subjectCode,
+        subjectName: data.subjectName,
+      });
+    }
+  } catch (e) {
+    console.error('loadBankBalances: 凭证聚合失败', e);
   }
 
   return results;

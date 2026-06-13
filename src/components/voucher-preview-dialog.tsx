@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Loader2, UserPlus } from 'lucide-react';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
+import { isMonetarySubject } from '@/lib/fx-monetary';
 
 /** 格式化日期为中文：2026-04-10 → 2026年04月10日 */
 const fmtDate = (d: string) => {
@@ -30,6 +31,10 @@ export interface PreviewEntry {
   amount: number;
   isDebit: boolean;           // true=银行流水借方(付款/流出), false=银行流水贷方(收款/流入)
   willCreatePartner?: boolean;
+  currencyCode?: string;      // 币别代码（如 USD）；空或 CNY 表示本位币
+  currencyName?: string;      // 币别中文名
+  exchangeRate?: number;      // 汇率
+  originalAmount?: number;    // 原币金额
 }
 
 interface VoucherPreviewDialogProps {
@@ -81,6 +86,7 @@ export function VoucherPreviewDialog({
   const totalReceipt = editedEntries.filter(e => !e.isDebit).reduce((s, e) => s + e.amount, 0);
   const totalAmount = editedEntries.reduce((s, e) => s + e.amount, 0);
   const newPartnerCount = editedEntries.filter(e => e.willCreatePartner).length;
+  const hasForeignCurrency = editedEntries.some(e => e.currencyCode && e.currencyCode !== 'CNY');
 
   const updateEntry = (index: number, updates: Partial<PreviewEntry>) => {
     setEditedEntries(prev => prev.map((e, i) => i === index ? { ...e, ...updates } : e));
@@ -160,6 +166,9 @@ export function VoucherPreviewDialog({
                     <th className="text-left py-1 font-medium">科目</th>
                     <th className="text-right py-1 font-medium w-28">借方</th>
                     <th className="text-right py-1 font-medium w-28">贷方</th>
+                    {hasForeignCurrency && <th className="text-right py-1 font-medium w-20">币别</th>}
+                    {hasForeignCurrency && <th className="text-right py-1 font-medium w-24">原币金额</th>}
+                    {hasForeignCurrency && <th className="text-right py-1 font-medium w-20">汇率</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -175,6 +184,24 @@ export function VoucherPreviewDialog({
                     <td className="text-right py-1.5">
                       {entry.isDebit ? '' : fmt(entry.amount)}
                     </td>
+                    {hasForeignCurrency && (
+                      <td className="text-right py-1.5 text-slate-500">
+                        {isMonetarySubject(entry.counterpartSubjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY'
+                          ? entry.currencyCode : '—'}
+                      </td>
+                    )}
+                    {hasForeignCurrency && (
+                      <td className="text-right py-1.5 text-slate-600">
+                        {isMonetarySubject(entry.counterpartSubjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY' && entry.originalAmount
+                          ? fmt(entry.originalAmount) : '—'}
+                      </td>
+                    )}
+                    {hasForeignCurrency && (
+                      <td className="text-right py-1.5 text-slate-500">
+                        {isMonetarySubject(entry.counterpartSubjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY' && entry.exchangeRate
+                          ? entry.exchangeRate.toFixed(4) : '—'}
+                      </td>
+                    )}
                   </tr>
                   <tr>
                     <td className="py-1.5">
@@ -188,6 +215,24 @@ export function VoucherPreviewDialog({
                     <td className="text-right py-1.5">
                       {entry.isDebit ? fmt(entry.amount) : ''}
                     </td>
+                    {hasForeignCurrency && (
+                      <td className="text-right py-1.5 text-slate-500">
+                        {isMonetarySubject(entry.bankSubjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY'
+                          ? entry.currencyCode : '—'}
+                      </td>
+                    )}
+                    {hasForeignCurrency && (
+                      <td className="text-right py-1.5 text-slate-600">
+                        {isMonetarySubject(entry.bankSubjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY' && entry.originalAmount
+                          ? fmt(entry.originalAmount) : '—'}
+                      </td>
+                    )}
+                    {hasForeignCurrency && (
+                      <td className="text-right py-1.5 text-slate-500">
+                        {isMonetarySubject(entry.bankSubjectCode) && entry.currencyCode && entry.currencyCode !== 'CNY' && entry.exchangeRate
+                          ? entry.exchangeRate.toFixed(4) : '—'}
+                      </td>
+                    )}
                   </tr>
                 </tbody>
               </table>

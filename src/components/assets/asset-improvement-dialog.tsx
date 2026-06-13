@@ -52,10 +52,9 @@ export function AssetChangeDialog({
   const [newCategoryId, setNewCategoryId] = useState('');
   const [newDepartmentCode, setNewDepartmentCode] = useState('');
 
-  if (!asset) return null;
-
-  // 计算变动后的值
+  // 计算变动后的值（must be called before any early return to satisfy rules of hooks）
   const preview = useMemo(() => {
+    if (!asset) return null;
     if (changeType === 'reclassify') {
       return {
         origChange: 0,
@@ -79,6 +78,8 @@ export function AssetChangeDialog({
       newNetBal,
     };
   }, [changeType, changeAmount, asset]);
+
+  if (!asset || !preview) return null;
 
   const handleSubmit = async () => {
     if (changeType === 'reclassify') {

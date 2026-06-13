@@ -559,6 +559,16 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
     const bankSubjectCode = bankAccount?.subjectCode || '1002';
     const bankSubjectName = bankAccount?.name || '银行存款';
 
+    // 预加载银行账户绑定，用于推断外币币别/汇率/原币金额
+    const service = getCurrentService();
+    const bankBindings = (await service.getBankAccountBindings?.()) || [];
+    const bindingsByAccount = new Map<string, any>();
+    for (const b of bankBindings) {
+      if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
+    }
+    const txBinding = bankInfo?.accountNumber ? bindingsByAccount.get(bankInfo.accountNumber) : null;
+    const bindingCurrency = txBinding?.currency || txBinding?.currencyCode || 'CNY';
+
     // 检查往来单位是否存在
     const { usePartnerStore } = await import('@/stores/usePartnerStore');
     const existingPartners = usePartnerStore.getState().partners;
@@ -574,6 +584,42 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
         ));
       const originalSummary = transaction.summary || transaction.notes || '银行交易';
       const counterpartSubjectName = transaction.matchedSubjectName || '财务费用';
+
+      // 外币字段：优先从交易自带 FX 字段推断；其次从银行账户绑定的币别推断；最后从摘要解析 (USD@rate) 兜底
+      const txOriginal = (transaction as any).originalAmount as number | undefined;
+      const txRate = (transaction as any).exchangeRate as number | undefined;
+      const summaryFxMatch = (transaction.summary || '').match(/\(([A-Z]{3})@([\d.]+)\)/);
+      const summaryCurrency = summaryFxMatch ? summaryFxMatch[1] : undefined;
+      const summaryRate = summaryFxMatch ? parseFloat(summaryFxMatch[2]) : undefined;
+
+      const effectiveCurrency =
+        (bindingCurrency && bindingCurrency !== 'CNY')
+          ? bindingCurrency
+          : ((txOriginal && txOriginal > 0) || (txRate && txRate > 0)
+              ? (summaryCurrency || 'USD')
+              : summaryCurrency);
+
+      const isForeign = !!effectiveCurrency && effectiveCurrency !== 'CNY'
+        && ((txOriginal && txOriginal > 0) || (txRate && txRate > 0) || (summaryRate && summaryRate > 0));
+
+      const originalAmount = isForeign
+        ? (txOriginal && txOriginal > 0
+            ? txOriginal
+            : (summaryRate && summaryRate > 0
+                ? Math.round((amount / summaryRate) * 100) / 100
+                : 0))
+        : undefined;
+      const exchangeRate = isForeign
+        ? (txRate && txRate > 0
+            ? txRate
+            : (summaryRate && summaryRate > 0
+                ? summaryRate
+                : (originalAmount && originalAmount > 0
+                    ? Math.round((amount / originalAmount) * 10000) / 10000
+                    : 0)))
+        : undefined;
+      const currencyCode = isForeign ? effectiveCurrency : undefined;
+      const currencyName = isForeign ? effectiveCurrency : undefined;
 
       return {
         transactionId: transaction.id,
@@ -595,6 +641,10 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
         amount,
         isDebit,
         willCreatePartner,
+        currencyCode,
+        currencyName,
+        exchangeRate,
+        originalAmount,
       };
     });
 
@@ -615,6 +665,13 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
       // 获取当前账套的往来核算方式
       const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
       const partnerTrackingMethod = currentAccountSet?.accounting?.partnerTrackingMethod || 'card';
+
+      // 预加载银行账户绑定，用于外币凭证分录的币别/汇率/原币金额透传
+      const bankBindings = (await service.getBankAccountBindings?.()) || [];
+      const bindingsByAccount = new Map<string, any>();
+      for (const b of bankBindings) {
+        if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
+      }
 
       // 1. 根据往来核算方式处理往来单位
       const createdPartnerNames = new Set<string>();
@@ -698,6 +755,33 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
           // isDebit=false: 银行流水贷方=收款(钱流入)
           //   → 银行存款增加(借方), 对方科目减少(贷方,如应收账款)
 
+          // 外币判定：银行卡片币别非 CNY 即为外币交易
+          // 优先级：流水自带 originalAmount/exchangeRate > 银行卡片币别反推
+          const binding = tx.ourAccount ? bindingsByAccount.get(tx.ourAccount) : null;
+          const bindingCurrency = binding?.currency || binding?.currencyCode || 'CNY';
+          const txOriginalAmount = (tx as any).originalAmount as number | undefined;
+          const txExchangeRate = (tx as any).exchangeRate as number | undefined;
+          const isForeignCurrency = bindingCurrency !== 'CNY'
+            && ((txOriginalAmount && txOriginalAmount > 0) || (txExchangeRate && txExchangeRate > 0));
+          const fxOriginal = isForeignCurrency && txOriginalAmount && txOriginalAmount > 0
+            ? txOriginalAmount
+            : (isForeignCurrency && txExchangeRate && txExchangeRate > 0
+                ? Math.round((amount / txExchangeRate) * 100) / 100
+                : 0);
+          const fxRate = isForeignCurrency
+            ? (txExchangeRate && txExchangeRate > 0
+                ? txExchangeRate
+                : (fxOriginal > 0 ? Math.round((amount / fxOriginal) * 10000) / 10000 : 0))
+            : 0;
+          const fxFields = isForeignCurrency
+            ? {
+                currencyCode: bindingCurrency,
+                currencyName: bindingCurrency,
+                exchangeRate: fxRate,
+                originalAmount: fxOriginal,
+              }
+            : {};
+
           let counterpartSubjectCode = previewEntry.counterpartSubjectCode;
           let counterpartSubjectName = previewEntry.counterpartSubjectName;
           let customerName = previewEntry.counterpartyName;
@@ -757,6 +841,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
             supplierName,
             auxiliary: {},
             docNo: `${tx.voucherNo || ''}-${tx.transactionSerialNo || ''}`,
+            ...fxFields,
           });
 
           // 银行存款分录（平衡分录）
@@ -769,6 +854,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
             subjectName: previewEntry.bankSubjectName,
             debit: isDebit ? 0 : amount,
             credit: isDebit ? amount : 0,
+            ...fxFields,
           });
 
           // 创建并保存凭证

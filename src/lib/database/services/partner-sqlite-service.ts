@@ -128,7 +128,13 @@ function text(value: string | undefined): string {
 }
 
 function resolvePartnerType(partner: PartnerInsertInput): string {
-  if (partner.type) return partner.type;
+  const hasExplicitRoles =
+    partner.isCustomer !== undefined ||
+    partner.isSupplier !== undefined ||
+    partner.isEmployee !== undefined;
+
+  if (partner.type && !hasExplicitRoles) return partner.type;
+
   const roles: string[] = [];
   if (partner.isCustomer) roles.push('customer');
   if (partner.isSupplier) roles.push('supplier');
@@ -297,6 +303,13 @@ export async function savePartnersRecord(input: {
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
+  const deleteStmt = input.db.prepare(`DELETE FROM partners WHERE accountSetId = ?`);
+  try {
+    deleteStmt.run([input.accountSetId]);
+  } finally {
+    deleteStmt.free();
+  }
+
   for (const partner of input.partners) {
     const insertInput: PartnerInsertInput = {
       id: partner.id,

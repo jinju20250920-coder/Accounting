@@ -13,6 +13,7 @@ import {
 import { CodeRuleManager, generateCode } from '@/lib/code-generator';
 import { ACCOUNT_CODES } from '@/lib/accounting';
 import { getDefaultAssetTypeSubjectConfig, refreshVoucherStore } from '@/lib/utils';
+import { getAssetDatePeriod, normalizeAssetDate } from '@/lib/asset-date';
 import type {
   FixedAsset,
   DepreciationRecord,
@@ -1294,10 +1295,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         depreciatedMonths: row[44] ?? 0,
         totalUnits: row[16],
         unitsUsed: row[17],
-        acquisitionDate: row[18],
-        depreciationStartDate: row[19],
-        lastDepreciationDate: row[20],
-        disposalDate: row[21],
+        acquisitionDate: normalizeAssetDate(row[18]) || '',
+        depreciationStartDate: normalizeAssetDate(row[19]),
+        lastDepreciationDate: normalizeAssetDate(row[20]),
+        disposalDate: normalizeAssetDate(row[21]),
         status: row[22],
         location: row[23],
         departmentCode: row[24],
@@ -1329,7 +1330,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         accountingStatus: row[54] || 'accounted',
         acquisitionVoucherId: row[55],
         acquisitionVoucherNo: row[56],
-        acquisitionAccountingDate: row[65],
+        acquisitionAccountingDate: normalizeAssetDate(row[65]),
         isOpeningBalance: row[57] === 1,
         initialAccumulatedDepreciation: row[58] ?? 0,
         creditSubjectCode: row[59],
@@ -1445,7 +1446,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
         for (const asset of intangibleAssets) {
           // 正确的折旧开始日期应该是入账当月1日
-          const correctStartDate = asset.acquisitionAccountingDate!.substring(0, 8) + '01';
+          const correctStartDate = normalizeAssetDate(asset.acquisitionAccountingDate)!.substring(0, 8) + '01';
 
           if (asset.depreciationStartDate !== correctStartDate) {
             // 更新数据库
@@ -1474,8 +1475,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             [asset.id]
           );
           if (changeResult[0]?.values?.length > 0) {
-            const recordDate = changeResult[0].values[0][0] as string;
-            const correctAccountingDate = recordDate?.substring(0, 10);
+            const recordDate = changeResult[0].values[0][0];
+            const correctAccountingDate = normalizeAssetDate(recordDate);
             if (correctAccountingDate && asset.acquisitionAccountingDate !== correctAccountingDate) {
               console.log(`修复资产 ${asset.assetCode} 的入账日期: ${asset.acquisitionAccountingDate} -> ${correctAccountingDate}`);
               const updateStmt = db.prepare(`UPDATE fixedAssets SET acquisitionAccountingDate = ? WHERE id = ?`);
@@ -1958,8 +1959,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       (category?.assetType === 'intangible' ? 'current_month' : 'next_month');
 
     // 使用入账日期判断（优先使用 acquisitionAccountingDate）
-    const accountingPeriod = asset.acquisitionAccountingDate?.substring(0, 7) ||
-      asset.acquisitionDate?.substring(0, 7);
+    const accountingPeriod = getAssetDatePeriod(asset.acquisitionAccountingDate) ||
+      getAssetDatePeriod(asset.acquisitionDate);
 
     // 入账日期在当前账期之后，不计提
     if (accountingPeriod && period < accountingPeriod) return false;
@@ -1980,7 +1981,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     }
 
     // 使用年限是否已满
-    const [acqYear, acqMonth] = (accountingPeriod || asset.acquisitionDate?.substring(0, 7) || period).split('-').map(Number);
+    const [acqYear, acqMonth] = (accountingPeriod || getAssetDatePeriod(asset.acquisitionDate) || period).split('-').map(Number);
     const [curYear, curMonth] = period.split('-').map(Number);
     const monthsSinceAcquisition = (curYear - acqYear) * 12 + (curMonth - acqMonth);
     // 无形资产当月计提，固定资产下月计提，所以已计提月数计算方式不同

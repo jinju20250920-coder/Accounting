@@ -197,24 +197,26 @@ export function ManualEntryDialog({
     }
   }, [baseCurrency]);
 
-  const handleCurrencyChange = useCallback(async (newCurrency: string) => {
+  const handleCurrencyChange = useCallback((newCurrency: string) => {
     setCurrency(newCurrency);
-    if (newCurrency !== baseCurrency) {
-      await lookupRate(newCurrency, date);
-    } else {
+    if (newCurrency === baseCurrency) {
       setExchangeRate('');
       setRateSource('auto');
+    } else {
+      setRateSource('auto');
     }
-  }, [baseCurrency, date, lookupRate]);
+  }, [baseCurrency]);
 
-  const handleDateChange = useCallback(async (newDate: string) => {
+  const handleDateChange = useCallback((newDate: string) => {
     setDate(newDate);
-    if (isForeignCurrency || (currency && currency !== baseCurrency)) {
-      if (rateSource === 'auto') {
-        await lookupRate(currency, newDate);
-      }
-    }
-  }, [currency, isForeignCurrency, rateSource, lookupRate]);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isForeignCurrency || !date) return;
+    if (rateSource !== 'auto') return;
+    lookupRate(currency, date);
+  }, [open, isForeignCurrency, date, currency, rateSource, lookupRate]);
 
   const resetForm = () => {
     setDate('');

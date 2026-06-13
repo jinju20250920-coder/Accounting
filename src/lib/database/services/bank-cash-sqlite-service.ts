@@ -19,6 +19,25 @@ export async function getBankOpeningBalanceQuery(
   return result?.balance ?? null;
 }
 
+export interface BankOpeningBalanceDetail {
+  balance: number;
+  foreignBalance: number | null;
+  exchangeRate: number | null;
+}
+
+export async function getBankOpeningBalanceDetailQuery(
+  service: SimpleQueryService,
+  accountSetId: string,
+  accountNumber: string,
+  periodStart: string,
+): Promise<BankOpeningBalanceDetail | null> {
+  const result = await service.querySingleAsync<BankOpeningBalanceDetail>(
+    `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
+    [accountSetId, accountNumber, periodStart],
+  );
+  return result ?? null;
+}
+
 export interface BankOpeningBalanceRow {
   accountNumber: string;
   periodStart: string;
@@ -41,17 +60,31 @@ export async function saveBankOpeningBalanceRecord(input: {
   accountNumber: string;
   periodStart: string;
   balance: number;
+  foreignBalance?: number | null;
+  exchangeRate?: number | null;
   generateVoucher?: boolean;
   createdBy?: string;
 }): Promise<void> {
   const now = new Date().toISOString();
   const id = `${input.accountSetId}-${input.accountNumber}-${input.periodStart}`;
   const stmt = input.db.prepare(`
-    INSERT OR REPLACE INTO bank_opening_balances (id, accountSetId, accountNumber, periodStart, balance, generateVoucher, createdBy, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO bank_opening_balances (id, accountSetId, accountNumber, periodStart, balance, foreignBalance, exchangeRate, generateVoucher, createdBy, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   try {
-    stmt.run([id, input.accountSetId, input.accountNumber, input.periodStart, input.balance, input.generateVoucher ? 1 : 0, input.createdBy || null, now, now]);
+    stmt.run([
+      id,
+      input.accountSetId,
+      input.accountNumber,
+      input.periodStart,
+      input.balance,
+      input.foreignBalance ?? null,
+      input.exchangeRate ?? null,
+      input.generateVoucher ? 1 : 0,
+      input.createdBy || null,
+      now,
+      now,
+    ]);
   } finally {
     stmt.free();
   }

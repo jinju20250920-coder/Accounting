@@ -30,7 +30,12 @@ export function Popover({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
-  const [position, setPosition] = React.useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [position, setPosition] = React.useState<{ top: number; left: number; width: number; maxHeight: number }>({
+    top: 0,
+    left: 0,
+    width: 0,
+    maxHeight: 420,
+  });
 
   const open = controlledOpen ?? uncontrolledOpen;
 
@@ -43,36 +48,50 @@ export function Popover({
     [disabled, onOpenChange]
   );
 
-  // 计算浮层位置（相对于视口）
   const updatePosition = React.useCallback(() => {
     if (!triggerRef.current) return;
+
     const rect = triggerRef.current.getBoundingClientRect();
     const scrollY = window.scrollY;
     const scrollX = window.scrollX;
+    const viewportMargin = 8;
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const renderedHeight = contentRef.current?.offsetHeight || 360;
+    const renderedWidth = contentRef.current?.offsetWidth || 256;
+    const availableBelow = viewportHeight - rect.bottom - sideOffset - viewportMargin;
+    const availableAbove = rect.top - sideOffset - viewportMargin;
+    const openAbove = side === 'top' || (side === 'bottom' && availableBelow < renderedHeight && availableAbove > availableBelow);
+    const availableHeight = Math.max(160, Math.min(420, openAbove ? availableAbove : availableBelow));
 
-    let top = rect.bottom + scrollY + sideOffset;
+    let top = openAbove
+      ? rect.top + scrollY - sideOffset - Math.min(renderedHeight, availableHeight)
+      : rect.bottom + scrollY + sideOffset;
     let left = rect.left + scrollX + alignOffset;
 
-    if (side === 'top') {
-      top = rect.top + scrollY - sideOffset;
-    }
-
     if (align === 'center') {
-      left = rect.left + scrollX + rect.width / 2 - 128; // 128 = half of typical 256px width
+      left = rect.left + scrollX + rect.width / 2 - renderedWidth / 2;
     } else if (align === 'end') {
-      left = rect.right + scrollX - 256 + alignOffset;
+      left = rect.right + scrollX - renderedWidth + alignOffset;
     }
 
-    setPosition({ top, left, width: rect.width });
+    top = Math.max(scrollY + viewportMargin, top);
+    left = Math.max(
+      scrollX + viewportMargin,
+      Math.min(left, scrollX + viewportWidth - renderedWidth - viewportMargin)
+    );
+
+    setPosition({ top, left, width: rect.width, maxHeight: availableHeight });
   }, [side, sideOffset, align, alignOffset]);
 
   React.useEffect(() => {
-    if (open) {
-      updatePosition();
-    }
+    if (!open) return;
+
+    updatePosition();
+    const animationFrame = window.requestAnimationFrame(updatePosition);
+    return () => window.cancelAnimationFrame(animationFrame);
   }, [open, updatePosition]);
 
-  // 点击外部关闭
   React.useEffect(() => {
     if (!open) return;
 
@@ -91,7 +110,6 @@ export function Popover({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open, handleOpenChange]);
 
-  // ESC 键关闭
   React.useEffect(() => {
     if (!open) return;
 
@@ -105,7 +123,6 @@ export function Popover({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [open, handleOpenChange]);
 
-  // Portal 内容
   const portalContent = open ? (
     createPortal(
       <div
@@ -115,7 +132,9 @@ export function Popover({
           top: position.top,
           left: position.left,
           minWidth: position.width,
-        }}
+          maxHeight: position.maxHeight,
+          '--popover-available-height': `${position.maxHeight}px`,
+        } as React.CSSProperties}
       >
         {content}
       </div>,

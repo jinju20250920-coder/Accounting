@@ -14,6 +14,7 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
 import { Search, X, ChevronLeft, ChevronRight, FileText, Lock, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { isMonetarySubject } from '@/lib/fx-monetary';
 
 interface JournalTableProps {
   accountNumber: string;
@@ -181,7 +182,16 @@ interface VoucherDetail {
   date: string;
   summary: string;
   status: string;
-  entries: { subjectCode: string; subjectName: string; debit: number; credit: number; summary: string }[];
+  entries: {
+    subjectCode: string;
+    subjectName: string;
+    debit: number;
+    credit: number;
+    summary: string;
+    currencyCode?: string;
+    originalAmount?: number;
+    exchangeRate?: number;
+  }[];
 }
 
 function VoucherDetailDialog({
@@ -224,6 +234,9 @@ function VoucherDetailDialog({
           debit: e.debit || 0,
           credit: e.credit || 0,
           summary: e.summary || '',
+          currencyCode: e.currencyCode || '',
+          originalAmount: e.originalAmount || 0,
+          exchangeRate: e.exchangeRate || 0,
         })),
       });
     } catch (e) {
@@ -250,34 +263,69 @@ function VoucherDetailDialog({
               <span>日期: {detail.date}</span>
               {detail.summary && <span>摘要: {detail.summary}</span>}
             </div>
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500 text-xs">
-                  <th className="py-1.5 text-left font-medium">科目</th>
-                  <th className="py-1.5 text-right font-medium">借方</th>
-                  <th className="py-1.5 text-right font-medium">贷方</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.entries.map((e, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-1.5">
-                      <span className="font-mono text-slate-600">{e.subjectCode}</span>
-                      <span className="ml-1">{e.subjectName}</span>
-                    </td>
-                    <td className="py-1.5 text-right text-red-600">{e.debit ? formatMoney(e.debit) : '-'}</td>
-                    <td className="py-1.5 text-right text-green-600">{e.credit ? formatMoney(e.credit) : '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-slate-300 font-medium">
-                  <td className="py-1.5">合计</td>
-                  <td className="py-1.5 text-right">{formatMoney(detail.entries.reduce((s, e) => s + e.debit, 0))}</td>
-                  <td className="py-1.5 text-right">{formatMoney(detail.entries.reduce((s, e) => s + e.credit, 0))}</td>
-                </tr>
-              </tfoot>
-            </table>
+            {(() => {
+              const showFxColumns = detail.entries.some(e => e.currencyCode && e.currencyCode !== 'CNY');
+              const fmtRate = (r?: number) => r && r > 0 ? r.toFixed(4) : '-';
+              const fmtOriginal = (e: { subjectCode?: string; currencyCode?: string; originalAmount?: number; exchangeRate?: number }) => {
+                if (!isMonetarySubject(e.subjectCode)) return '-';
+                if (!e.currencyCode || e.currencyCode === 'CNY') return '-';
+                return e.originalAmount && e.originalAmount > 0 ? formatMoney(e.originalAmount) : '-';
+              };
+              const fxCellStyle = (e: { subjectCode: string; currencyCode?: string }) => {
+                const isMonetary = isMonetarySubject(e.subjectCode);
+                const hasFx = !!e.currencyCode && e.currencyCode !== 'CNY';
+                return isMonetary && hasFx ? 'text-slate-600' : 'text-slate-300';
+              };
+              return (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs">
+                      <th className="py-1.5 text-left font-medium">科目</th>
+                      <th className="py-1.5 text-right font-medium">借方</th>
+                      <th className="py-1.5 text-right font-medium">贷方</th>
+                      {showFxColumns && <th className="py-1.5 text-right font-medium">币别</th>}
+                      {showFxColumns && <th className="py-1.5 text-right font-medium">原币金额</th>}
+                      {showFxColumns && <th className="py-1.5 text-right font-medium">汇率</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.entries.map((e, i) => (
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="py-1.5">
+                          <span className="font-mono text-slate-600">{e.subjectCode}</span>
+                          <span className="ml-1">{e.subjectName}</span>
+                        </td>
+                        <td className="py-1.5 text-right text-red-600">{e.debit ? formatMoney(e.debit) : '-'}</td>
+                        <td className="py-1.5 text-right text-green-600">{e.credit ? formatMoney(e.credit) : '-'}</td>
+                        {showFxColumns && (
+                          <td className={`py-1.5 text-right ${fxCellStyle(e)}`}>
+                            {isMonetarySubject(e.subjectCode) && e.currencyCode && e.currencyCode !== 'CNY'
+                              ? e.currencyCode : '-'}
+                          </td>
+                        )}
+                        {showFxColumns && (
+                          <td className={`py-1.5 text-right ${fxCellStyle(e)}`}>{fmtOriginal(e)}</td>
+                        )}
+                        {showFxColumns && (
+                          <td className={`py-1.5 text-right ${fxCellStyle(e)}`}>
+                            {isMonetarySubject(e.subjectCode) && e.currencyCode && e.currencyCode !== 'CNY'
+                              ? fmtRate(e.exchangeRate) : '-'}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-slate-300 font-medium">
+                      <td className="py-1.5">合计</td>
+                      <td className="py-1.5 text-right">{formatMoney(detail.entries.reduce((s, e) => s + e.debit, 0))}</td>
+                      <td className="py-1.5 text-right">{formatMoney(detail.entries.reduce((s, e) => s + e.credit, 0))}</td>
+                      {showFxColumns && <td colSpan={3} />}
+                    </tr>
+                  </tfoot>
+                </table>
+              );
+            })()}
           </div>
         ) : (
           <div className="py-8 text-center text-slate-400 text-sm">加载中...</div>

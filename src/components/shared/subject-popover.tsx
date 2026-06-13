@@ -59,14 +59,14 @@ export function SubjectPopover({ value, onSelect, placeholder = '选择科目' }
       open={open}
       onOpenChange={(v) => { setOpen(v); if (!v) { setShowAdd(false); setSearch(''); } }}
       content={
-        <div className="w-64 bg-white border border-zinc-200/80 rounded-xl shadow-2xl">
-          <div className="p-2.5 border-b border-zinc-100">
+        <div className="w-64 bg-white border border-zinc-200/80 rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ maxHeight: 'var(--popover-available-height, 420px)' }}>
+          <div className="p-2.5 border-b border-zinc-100 shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索科目代码或名称..." className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-zinc-50/50" autoFocus />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索科目代码或名称..." className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-zinc-50/50" autoFocus autoComplete="off" autoCapitalize="none" spellCheck={false} />
             </div>
           </div>
-          <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {filteredSubjects.length === 0 && !showAdd ? (
               <div className="px-3 py-6 text-sm text-zinc-400 text-center">无匹配科目</div>
             ) : filteredSubjects.map((s) => (
@@ -79,7 +79,7 @@ export function SubjectPopover({ value, onSelect, placeholder = '选择科目' }
             ))}
           </div>
           {showAdd ? (
-            <div className="p-2.5 border-t border-zinc-100 space-y-2">
+            <div className="p-2.5 border-t border-zinc-100 space-y-2 shrink-0">
               <Input value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="科目代码" className="h-8 text-xs bg-zinc-50/50 border-zinc-200" autoComplete="off" />
               <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="科目名称" className="h-8 text-xs bg-zinc-50/50 border-zinc-200" autoComplete="off" />
               <div className="flex gap-1.5">
@@ -88,7 +88,7 @@ export function SubjectPopover({ value, onSelect, placeholder = '选择科目' }
               </div>
             </div>
           ) : (
-            <div className="p-2.5 border-t border-zinc-100">
+            <div className="p-2.5 border-t border-zinc-100 shrink-0">
               <button className="w-full px-2.5 py-2 text-xs text-zinc-500 hover:bg-zinc-50 rounded-lg flex items-center gap-1.5 transition-colors"
                 onClick={() => { setShowAdd(true); setNewCode(search.trim()); setNewName(''); }}>
                 <Plus className="h-3 w-3" /> 新增科目
@@ -156,7 +156,7 @@ export function PartnerPopover({ value, onSelect, placeholder = '选择供应商
           <div className="p-2.5 border-b border-zinc-100">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索名称..." className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-zinc-50/50" autoFocus />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索名称..." className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-zinc-50/50" autoFocus autoComplete="off" autoCapitalize="none" spellCheck={false} />
             </div>
           </div>
           <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
@@ -235,7 +235,7 @@ export function DepartmentPopover({ value, onSelect, placeholder = '选择部门
           <div className="p-2.5 border-b border-zinc-100">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索部门..." className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-zinc-50/50" autoFocus />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索部门..." className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-zinc-50/50" autoFocus autoComplete="off" autoCapitalize="none" spellCheck={false} />
             </div>
           </div>
           <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>

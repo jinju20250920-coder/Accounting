@@ -5,6 +5,7 @@ export interface FixedAssetSetupRow {
   categoryId: string;
   categoryName: string;
   originalValue: number;
+  salvageValue?: number;
   accumulatedDepreciation: number;
   acquisitionDate: string;
   depreciationMethod: string;
@@ -66,7 +67,12 @@ export function buildFixedAssetSetupPayload(input: {
   const accumulatedDepreciation = roundMoney(input.row.accumulatedDepreciation);
   const usefulLifeYears = Number(input.row.usefulLifeYears) > 0 ? Number(input.row.usefulLifeYears) : 10;
   const usefulLifeMonths = usefulLifeYears * 12;
-  const salvageValue = roundMoney(originalValue * 0.05);
+  const inputSalvage = Number(input.row.salvageValue);
+  const salvageValue = roundMoney(
+    Number.isFinite(inputSalvage) && inputSalvage > 0
+      ? inputSalvage
+      : originalValue * 0.05
+  );
   const depreciableValue = roundMoney(originalValue - salvageValue);
 
   return {

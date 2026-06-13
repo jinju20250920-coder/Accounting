@@ -57,6 +57,7 @@ import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTem
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule } from '@/lib/depreciation';
 import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
+import { getAssetDatePeriod } from '@/lib/asset-date';
 import { formatNumber, refreshVoucherStore, generateId } from '@/lib/utils';
 import type { FixedAsset, AssetCategory } from '@/types';
 
@@ -1136,7 +1137,7 @@ export default function FixedAssetsPage() {
           notRequired++;
         } else {
           // 检查购置月份与当前账期的关系
-          const acquisitionMonth = asset.acquisitionDate?.substring(0, 7);
+          const acquisitionMonth = getAssetDatePeriod(asset.acquisitionDate);
 
           // 购置月份在当前账期之后，资产在当前账期还不存在
           if (acquisitionMonth && acquisitionMonth > currentPeriod) {
@@ -1185,8 +1186,8 @@ export default function FixedAssetsPage() {
 
       if (accumulatedDepreciation < depreciableValue) {
         // 检查入账日期
-        const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
-        const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
+        const acquisitionAccountingMonth = getAssetDatePeriod(asset.acquisitionAccountingDate);
+        const acquisitionMonth = acquisitionAccountingMonth || getAssetDatePeriod(asset.acquisitionDate);
 
         // 入账月份在当前账期之后，不计提
         if (acquisitionMonth && acquisitionMonth > currentPeriod) {
@@ -1240,8 +1241,8 @@ export default function FixedAssetsPage() {
     if (accumulatedDepreciation >= depreciableValue) return 'not_required';
 
     // 使用入账日期来判断是否本月入账（而非购置日期）
-    const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
-    const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
+    const acquisitionAccountingMonth = getAssetDatePeriod(asset.acquisitionAccountingDate);
+    const acquisitionMonth = acquisitionAccountingMonth || getAssetDatePeriod(asset.acquisitionDate);
 
     // 入账月份在当前账期之后，资产在当前账期还不存在
     if (acquisitionMonth && acquisitionMonth > currentPeriod) {

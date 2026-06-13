@@ -237,7 +237,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex flex-col">
       {/* Header */}
       <div className="bg-white border-b px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <Settings className="h-4 w-4 text-white" />
@@ -255,7 +255,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
 
       {/* Stepper — free navigation via click */}
       <div className="bg-white border-b">
-        <div className="max-w-4xl mx-auto px-6 py-3">
+        <div className="max-w-6xl mx-auto px-6 py-3">
           <div className="flex items-center justify-between">
             {STEPS.map((s, i) => {
               const isCompleted = progress.completed.includes(s.id);
@@ -308,7 +308,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
 
       {/* Step Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-6 py-8">
+        <div className="max-w-6xl mx-auto px-6 py-8">
           <Card>
             <CardContent className="p-6">
               {step.id === 'company' && (
@@ -382,7 +382,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
 
       {/* Footer */}
       <div className="bg-white border-t px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between">
           <Button
             variant="outline"
             onClick={handleBack}

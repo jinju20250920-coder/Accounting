@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import { refreshVoucherStore } from '@/lib/utils';
+import { getAssetDatePeriod } from '@/lib/asset-date';
 import {
   Search,
   Calculator,
@@ -518,9 +519,9 @@ export function DepreciationDialog({
                   filteredAssets.map((asset) => {
                     const isDepreciated = depreciatedAssetIdsThisPeriod.has(asset.id);
                     const rule = getCategoryDepreciationRule(asset.categoryId);
-                    const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
-                    const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
-                    const depreciationStartMonth = asset.depreciationStartDate?.substring(0, 7);
+                    const acquisitionAccountingMonth = getAssetDatePeriod(asset.acquisitionAccountingDate);
+                    const acquisitionMonth = acquisitionAccountingMonth || getAssetDatePeriod(asset.acquisitionDate);
+                    const depreciationStartMonth = getAssetDatePeriod(asset.depreciationStartDate);
 
                     // 判断本月是否需要计提折旧
                     const shouldDepreciateThisMonth = (() => {
@@ -554,8 +555,8 @@ export function DepreciationDialog({
                         <td className="p-3 text-sm">
                           {(() => {
                             const rule = getCategoryDepreciationRule(asset.categoryId);
-                            const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
-                            const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
+                            const acquisitionAccountingMonth = getAssetDatePeriod(asset.acquisitionAccountingDate);
+                            const acquisitionMonth = acquisitionAccountingMonth || getAssetDatePeriod(asset.acquisitionDate);
 
                             // 入账日期在当前账期之后，本月不计提
                             if (acquisitionMonth && acquisitionMonth > period) {
@@ -579,8 +580,8 @@ export function DepreciationDialog({
                         </td>
                         <td className="p-3">
                           {(() => {
-                            const acquisitionAccountingMonth = asset.acquisitionAccountingDate?.substring(0, 7);
-                            const acquisitionMonth = acquisitionAccountingMonth || asset.acquisitionDate?.substring(0, 7);
+                            const acquisitionAccountingMonth = getAssetDatePeriod(asset.acquisitionAccountingDate);
+                            const acquisitionMonth = acquisitionAccountingMonth || getAssetDatePeriod(asset.acquisitionDate);
                             const rule = getCategoryDepreciationRule(asset.categoryId);
 
                             // 入账日期在当前账期之后，本月不计提

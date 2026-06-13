@@ -9,8 +9,11 @@ import {
   Copy,
   Download,
   BarChart3,
+  ChevronDown,
   FileDown,
+  FileText,
   Eraser,
+  MoreHorizontal,
   ReceiptText,
   Pencil,
   Plus,
@@ -28,6 +31,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverItem } from '@/components/ui/popover';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { useToast } from '@/components/ui/toast';
 import { useAccountSetStore, type AccountSet } from '@/stores/useAccountSetStore';
@@ -51,7 +55,7 @@ import {
 import {
   exportPayrollResults,
   exportToTaxSystem,
-  generateTaxSystemImportTemplate,
+  generatePayrollImportTemplate,
   parsePayrollFileWithTaxSupport,
   type PayrollImportError,
 } from '@/lib/payroll-import';
@@ -74,6 +78,9 @@ import {
 import type { Department } from '@/lib/database/service';
 import type { Partner } from '@/types';
 import { SubjectPopover } from '@/components/shared/subject-popover';
+import { VoucherStamp } from '@/components/shared/voucher-stamp';
+import { sqliteService } from '@/lib/database';
+import { isMonetarySubject } from '@/lib/fx-monetary';
 
 interface PayrollVoucherDefaultSubjectDraft {
   payrollSalaryExpenseSubjectCode: string;
@@ -151,10 +158,6 @@ const INSURANCE_ROWS: { key: InsuranceKey; label: string }[] = [
 const PAYROLL_AMOUNT_FIELDS: { key: keyof PayrollInput; label: string }[] = [
   { key: 'basicSalary', label: '本期收入' },
   { key: 'taxExemptIncome', label: '本期免税收入' },
-  { key: 'pensionInsurance', label: '基本养老保险费' },
-  { key: 'medicalInsurance', label: '基本医疗保险费' },
-  { key: 'unemploymentInsurance', label: '失业保险费' },
-  { key: 'housingFund', label: '住房公积金' },
   { key: 'childEducation', label: '累计子女教育' },
   { key: 'continuingEducation', label: '累计继续教育' },
   { key: 'housingLoanInterest', label: '累计住房贷款利息' },
@@ -177,6 +180,8 @@ const EXCEL_CELL_CLASS = 'border border-slate-300 bg-white px-1 py-0.5 align-mid
 const EXCEL_READONLY_CELL_CLASS = 'border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-right tabular-nums text-slate-700';
 const EXCEL_HEADER_CELL_CLASS = 'border border-slate-300 bg-slate-100 px-2 py-1 text-left font-medium text-slate-700';
 const EXCEL_SELECT_CLASS = 'h-7 w-full border-0 bg-transparent px-1.5 text-xs outline-none';
+const STICKY_EMPLOYEE_CODE_CELL_CLASS = 'sticky left-12 z-[2] border border-slate-300 bg-inherit px-1 py-0.5 font-mono text-xs';
+const STICKY_EMPLOYEE_NAME_CELL_CLASS = 'sticky left-36 z-[2] border border-slate-300 bg-inherit px-1 py-0.5';
 const OPTIONAL_AMOUNT_FIELD_KEYS = new Set<keyof PayrollInput>([
   'taxExemptIncome',
   'corporateAnnuity',
@@ -369,6 +374,181 @@ function statusBadge(status?: string) {
   return <Badge className="border-slate-200 bg-slate-50 text-slate-600">草稿</Badge>;
 }
 
+interface VoucherDetail {
+  id: string;
+  voucherNo: string;
+  date: string;
+  summary: string;
+  status: string;
+  entries: {
+    subjectCode: string;
+    subjectName: string;
+    debit: number;
+    credit: number;
+    summary: string;
+    department?: string;
+    partner?: string;
+    project?: string;
+    currencyCode?: string;
+    originalAmount?: number;
+    exchangeRate?: number;
+  }[];
+}
+
+function VoucherDetailDialog({
+  open,
+  onOpenChange,
+  voucherNo,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  voucherNo: string | null;
+}) {
+  const [detail, setDetail] = useState<VoucherDetail | null>(null);
+  const subjects = useSubjectStore((s) => s.subjects);
+
+  useEffect(() => {
+    if (open && voucherNo) {
+      void loadVoucher(voucherNo);
+    } else {
+      setDetail(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, voucherNo]);
+
+  const loadVoucher = async (vNo: string) => {
+    try {
+      const vouchers = await sqliteService.getAllVouchers();
+      const voucher = vouchers.find((v) => v.voucherNo === vNo);
+      if (!voucher) { setDetail(null); return; }
+      const subjectMap = new Map(subjects.map((s) => [s.code, s.name]));
+      setDetail({
+        id: voucher.id,
+        voucherNo: voucher.voucherNo,
+        date: voucher.date,
+        summary: voucher.summary || '',
+        status: voucher.status || 'draft',
+        entries: (voucher.entries || []).map((e) => ({
+          subjectCode: e.subjectCode || '',
+          subjectName: subjectMap.get(e.subjectCode) || e.subjectName || '',
+          debit: e.debit || 0,
+          credit: e.credit || 0,
+          summary: e.summary || '',
+          department: e.auxiliary?.department || e.deptCode || '',
+          partner: e.auxiliary?.customer || e.auxiliary?.supplier || e.customerName || e.supplierName || '',
+          project: e.auxiliary?.project || e.projectCode || '',
+          currencyCode: e.currencyCode || '',
+          originalAmount: e.originalAmount || 0,
+          exchangeRate: e.exchangeRate || 0,
+        })),
+      });
+    } catch {
+      setDetail(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-green-600" />
+            {detail?.voucherNo || voucherNo}
+          </DialogTitle>
+        </DialogHeader>
+        {detail ? (
+          <div className="relative space-y-3">
+            <VoucherStamp status={detail.status} />
+            <div className="flex items-center gap-4 text-sm text-slate-500">
+              <span>日期: {detail.date}</span>
+              {detail.summary && <span>摘要: {detail.summary}</span>}
+            </div>
+            {(() => {
+              const showDepartment = detail.entries.some((e) => e.department);
+              const showPartner = detail.entries.some((e) => e.partner);
+              const showProject = detail.entries.some((e) => e.project);
+              const showFxColumns = detail.entries.some((e) => e.currencyCode && e.currencyCode !== 'CNY');
+              const leadingColCount = 1
+                + (showDepartment ? 1 : 0)
+                + (showPartner ? 1 : 0)
+                + (showProject ? 1 : 0);
+              const fxCellStyle = (e: { subjectCode: string; currencyCode?: string }) => {
+                const isMonetary = isMonetarySubject(e.subjectCode);
+                const hasFx = !!e.currencyCode && e.currencyCode !== 'CNY';
+                return isMonetary && hasFx ? 'text-slate-600' : 'text-slate-300';
+              };
+              const fmtOriginal = (e: { subjectCode: string; currencyCode?: string; originalAmount?: number }) => {
+                if (!isMonetarySubject(e.subjectCode)) return '-';
+                if (!e.currencyCode || e.currencyCode === 'CNY') return '-';
+                return e.originalAmount && e.originalAmount > 0 ? formatMoney(e.originalAmount) : '-';
+              };
+              const fmtRate = (e: { subjectCode: string; currencyCode?: string; exchangeRate?: number }) => {
+                if (!isMonetarySubject(e.subjectCode)) return '-';
+                if (!e.currencyCode || e.currencyCode === 'CNY') return '-';
+                return e.exchangeRate && e.exchangeRate > 0 ? e.exchangeRate.toFixed(4) : '-';
+              };
+              return (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-xs text-slate-500">
+                      <th className="py-1.5 text-left font-medium">科目</th>
+                      {showDepartment && <th className="py-1.5 text-left font-medium">部门</th>}
+                      {showPartner && <th className="py-1.5 text-left font-medium">往来</th>}
+                      {showProject && <th className="py-1.5 text-left font-medium">项目</th>}
+                      <th className="py-1.5 text-right font-medium">借方</th>
+                      <th className="py-1.5 text-right font-medium">贷方</th>
+                      {showFxColumns && <th className="py-1.5 text-right font-medium">币别</th>}
+                      {showFxColumns && <th className="py-1.5 text-right font-medium">原币金额</th>}
+                      {showFxColumns && <th className="py-1.5 text-right font-medium">汇率</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.entries.map((e, i) => (
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="py-1.5">
+                          <span className="font-mono text-slate-600">{e.subjectCode}</span>
+                          <span className="ml-1">{e.subjectName}</span>
+                        </td>
+                        {showDepartment && <td className="py-1.5 text-slate-600">{e.department || '-'}</td>}
+                        {showPartner && <td className="py-1.5 text-slate-600">{e.partner || '-'}</td>}
+                        {showProject && <td className="py-1.5 text-slate-600">{e.project || '-'}</td>}
+                        <td className="py-1.5 text-right text-red-600">{e.debit ? formatMoney(e.debit) : '-'}</td>
+                        <td className="py-1.5 text-right text-green-600">{e.credit ? formatMoney(e.credit) : '-'}</td>
+                        {showFxColumns && (
+                          <td className={`py-1.5 text-right ${fxCellStyle(e)}`}>
+                            {isMonetarySubject(e.subjectCode) && e.currencyCode && e.currencyCode !== 'CNY'
+                              ? e.currencyCode : '-'}
+                          </td>
+                        )}
+                        {showFxColumns && (
+                          <td className={`py-1.5 text-right ${fxCellStyle(e)}`}>{fmtOriginal(e)}</td>
+                        )}
+                        {showFxColumns && (
+                          <td className={`py-1.5 text-right ${fxCellStyle(e)}`}>{fmtRate(e)}</td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-slate-300 font-medium">
+                      <td className="py-1.5" colSpan={leadingColCount}>合计</td>
+                      <td className="py-1.5 text-right">{formatMoney(detail.entries.reduce((s, e) => s + e.debit, 0))}</td>
+                      <td className="py-1.5 text-right">{formatMoney(detail.entries.reduce((s, e) => s + e.credit, 0))}</td>
+                      {showFxColumns && <td colSpan={3} />}
+                    </tr>
+                  </tfoot>
+                </table>
+              );
+            })()}
+          </div>
+        ) : (
+          <div className="py-8 text-center text-sm text-slate-400">加载中...</div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EmployeeSelectCell({
   value,
   displayValue,
@@ -459,6 +639,7 @@ export default function PayrollPage() {
   const { showToast } = useToast();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const taxSystemFileInputRef = useRef<HTMLInputElement>(null);
   const { departments, initializeDepartments } = useDepartmentStore();
   const initializePartners = usePartnerStore((state) => state.initializePartners);
   const partners = usePartnerStore((state) => state.partners);
@@ -478,6 +659,7 @@ export default function PayrollPage() {
   const [previewRows, setPreviewRows] = useState<PayrollInput[]>([]);
   const [previewErrors, setPreviewErrors] = useState<PayrollImportError[]>([]);
   const [previewFileName, setPreviewFileName] = useState('');
+  const [previewImportSource, setPreviewImportSource] = useState<'payroll' | 'tax-system'>('payroll');
   const [showDraftRows, setShowDraftRows] = useState(true);
   const [draftRows, setDraftRows] = useState<PayrollInput[]>(createBlankPayrollRows);
   const [draftErrors, setDraftErrors] = useState<string[]>([]);
@@ -489,6 +671,9 @@ export default function PayrollPage() {
   const [taxSettingsOpen, setTaxSettingsOpen] = useState(false);
   const [showOptionalFields, setShowOptionalFields] = useState(false);
   const [voucherPreviewEntries, setVoucherPreviewEntries] = useState<PayrollVoucherEntryPreview[]>([]);
+  const [voucherDetailNo, setVoucherDetailNo] = useState<string | null>(null);
+  const [payrollSearchQuery, setPayrollSearchQuery] = useState('');
+  const [payrollDepartmentFilter, setPayrollDepartmentFilter] = useState('');
   const [settingsRegionId, setSettingsRegionId] = useState<PayrollRegionId>(
     (currentAccountSet?.payrollRegionId as PayrollRegionId) || 'generic',
   );
@@ -629,6 +814,22 @@ export default function PayrollPage() {
       value: (calculation: PayrollCalculationResult) => calculation.employerTotalCost,
     },
   ], [employeeContributionColumns]);
+  const payrollDepartmentFilterOptions = useMemo(
+    () => Array.from(new Set(items.map((item) => item.departmentName || item.inputData.departmentName || '').filter(Boolean))).sort(),
+    [items],
+  );
+  const filteredPayrollItems = useMemo(() => {
+    const keyword = payrollSearchQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      const matchesKeyword = !keyword
+        || item.employeeCode.toLowerCase().includes(keyword)
+        || item.employeeName.toLowerCase().includes(keyword)
+        || (item.inputData.idNumber || '').toLowerCase().includes(keyword);
+      const departmentName = item.departmentName || item.inputData.departmentName || '';
+      const matchesDepartment = !payrollDepartmentFilter || departmentName === payrollDepartmentFilter;
+      return matchesKeyword && matchesDepartment;
+    });
+  }, [items, payrollDepartmentFilter, payrollSearchQuery]);
   const editable = selectedBatch?.status !== 'confirmed';
 
   useEffect(() => {
@@ -641,7 +842,7 @@ export default function PayrollPage() {
       : input);
   }, [departmentOptions, editingItemId, employeeOptions]);
 
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function parseImportFile(event: React.ChangeEvent<HTMLInputElement>, source: 'payroll' | 'tax-system') {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
@@ -649,6 +850,7 @@ export default function PayrollPage() {
       setPreviewRows(result.validRows);
       setPreviewErrors(result.errors);
       setPreviewFileName(file.name);
+      setPreviewImportSource(source);
       showToast(
         result.errors.length ? 'warning' : 'success',
         `解析完成：有效 ${result.validRows.length} 行，错误 ${result.errors.length} 行`,
@@ -658,6 +860,14 @@ export default function PayrollPage() {
     } finally {
       event.target.value = '';
     }
+  }
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    await parseImportFile(event, 'payroll');
+  }
+
+  async function handleTaxSystemFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    await parseImportFile(event, 'tax-system');
   }
 
   async function persistSettings(options?: { closeDialog?: boolean; showToast?: boolean }) {
@@ -701,11 +911,33 @@ export default function PayrollPage() {
   }
 
   async function confirmImport() {
+    const source = previewImportSource;
     try {
-      await importDraft(period, previewFileName, previewRows);
+      const batch = await importDraft(period, previewFileName, previewRows);
       setPreviewRows([]);
       setPreviewErrors([]);
       setPreviewFileName('');
+      setPreviewImportSource('payroll');
+
+      if (source === 'tax-system') {
+        try {
+          const importedItems = usePayrollStore.getState().items;
+          const entries = buildPayrollAccrualVoucherPreview(
+            importedItems,
+            batch.payrollPeriod,
+            partners.filter((partner) => partner.isEmployee),
+            accountSetSubjectDraft,
+          );
+          const voucher = await createAccrualVoucher(batch.id, entries);
+          showToast('success', `个税系统工资表已导入并生成计提凭证：${voucher.voucherNo}`);
+        } catch (voucherError) {
+          showToast('error', voucherError instanceof Error
+            ? `工资明细已生成，计提凭证生成失败：${voucherError.message}`
+            : '工资明细已生成，计提凭证生成失败');
+        }
+        return;
+      }
+
       showToast('success', '工资批次已导入并完成计算');
     } catch (importError) {
       showToast('error', importError instanceof Error ? importError.message : '工资导入失败');
@@ -861,9 +1093,13 @@ export default function PayrollPage() {
     onAmountChange: (field: keyof PayrollInput, value: string) => void,
     onKeyDown?: React.KeyboardEventHandler<HTMLElement>,
   ) {
+    const quietSelectClass = (value?: string) => value
+      ? EXCEL_SELECT_CLASS
+      : `${EXCEL_SELECT_CLASS} appearance-none text-transparent hover:text-slate-400 focus:text-slate-700 focus:appearance-auto`;
+
     return (
       <>
-        <td className={EXCEL_CELL_CLASS}>
+        <td className={STICKY_EMPLOYEE_CODE_CELL_CLASS}>
           <EmployeeSelectCell
             value={input.employeeCode}
             displayValue={input.employeeCode}
@@ -880,7 +1116,7 @@ export default function PayrollPage() {
             searchField="code"
           />
         </td>
-        <td className={EXCEL_CELL_CLASS}>
+        <td className={STICKY_EMPLOYEE_NAME_CELL_CLASS}>
           <EmployeeSelectCell
             value={input.employeeName}
             displayValue={input.employeeName}
@@ -900,7 +1136,7 @@ export default function PayrollPage() {
         <td className={EXCEL_CELL_CLASS}>
           <select
             aria-label={`${rowLabel}证件类型`}
-            className={EXCEL_SELECT_CLASS}
+            className={quietSelectClass(input.idType)}
             value={input.idType || ''}
             onChange={(event) => onTextChange('idType', event.target.value)}
             onKeyDown={onKeyDown}
@@ -922,7 +1158,7 @@ export default function PayrollPage() {
         <td className={EXCEL_CELL_CLASS}>
           <select
             aria-label={`${rowLabel}收入类型`}
-            className={EXCEL_SELECT_CLASS}
+            className={quietSelectClass(input.incomeType)}
             value={input.incomeType || ''}
             onChange={(event) => onTextChange('incomeType', event.target.value)}
             onKeyDown={onKeyDown}
@@ -935,7 +1171,7 @@ export default function PayrollPage() {
         <td className={EXCEL_CELL_CLASS}>
           <select
             aria-label={`${rowLabel}年终奖计税方式`}
-            className={EXCEL_SELECT_CLASS}
+            className={quietSelectClass(input.annualBonusTaxMethod)}
             value={input.annualBonusTaxMethod || ''}
             onChange={(event) => onTextChange('annualBonusTaxMethod', event.target.value)}
             onKeyDown={onKeyDown}
@@ -974,12 +1210,12 @@ export default function PayrollPage() {
   function renderSavedRow(item: PayrollItem) {
     const isEditing = editingItemId === item.id;
     return (
-      <tr key={item.id} className={isEditing ? 'bg-blue-50/40' : ''}>
-        <td className="sticky left-0 z-[1] border border-slate-300 bg-white px-1 py-0.5 text-center text-slate-400">-</td>
+      <tr key={item.id} className={isEditing ? 'bg-blue-50/40' : 'bg-white'}>
+        <td className="sticky left-0 z-[3] border border-slate-300 bg-inherit px-1 py-0.5 text-center text-slate-400">-</td>
         {isEditing ? renderEditableCells(editingInput, '编辑行', updateEditingText, updateEditingAmount) : (
           <>
-            <td className="border border-slate-300 bg-white px-1 py-0.5 font-mono text-xs">{item.employeeCode}</td>
-            <td className="border border-slate-300 bg-white px-1 py-0.5">{item.employeeName}</td>
+            <td className={STICKY_EMPLOYEE_CODE_CELL_CLASS}>{item.employeeCode}</td>
+            <td className={STICKY_EMPLOYEE_NAME_CELL_CLASS}>{item.employeeName}</td>
             <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.inputData.idType || '居民身份证'}</td>
             <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.inputData.idNumber || ''}</td>
             <td className="border border-slate-300 bg-white px-1 py-0.5 text-slate-500">{item.departmentName || ''}</td>
@@ -993,7 +1229,25 @@ export default function PayrollPage() {
           </>
         )}
         {renderCalculatedCells(item.calculationResult)}
-        <td className="border border-slate-300 bg-white px-1 py-0.5">{statusBadge(selectedBatch?.status)}</td>
+        <td className="border border-slate-300 bg-white px-1 py-0.5">
+          {hasAccrualVoucher ? (
+            <div className="flex flex-col gap-0.5">
+              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">已入账</Badge>
+              {selectedBatch?.accrualVoucherNo && (
+                <button
+                  type="button"
+                  className="text-left font-mono text-[10px] text-blue-600 underline-offset-2 hover:underline"
+                  title="点击查看凭证明细"
+                  onClick={() => setVoucherDetailNo(selectedBatch.accrualVoucherNo!)}
+                >
+                  {selectedBatch.accrualVoucherNo}
+                </button>
+              )}
+            </div>
+          ) : (
+            statusBadge(selectedBatch?.status)
+          )}
+        </td>
         <td className="border border-slate-300 bg-white px-1 py-0.5">
           {isEditing ? (
             <div className="flex items-center gap-1">
@@ -1158,6 +1412,29 @@ export default function PayrollPage() {
     setVoucherDialogOpen(true);
   }
 
+  function renderActionMenuItem(
+    children: React.ReactNode,
+    onClick: () => void,
+    disabled = false,
+  ) {
+    return (
+      <PopoverItem disabled={disabled} onClick={onClick} className="flex items-center gap-2 text-slate-700">
+        {children}
+      </PopoverItem>
+    );
+  }
+
+  function renderStatusBadge() {
+    if (!selectedBatch) return <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-500">暂无批次</Badge>;
+    if (selectedBatch.status === 'confirmed') {
+      return <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">已确认</Badge>;
+    }
+    if (selectedBatch.status === 'calculated') {
+      return <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">已计算</Badge>;
+    }
+    return <Badge className="border border-amber-200 bg-amber-50 text-amber-700">草稿</Badge>;
+  }
+
   async function savePayrollVoucher() {
     if (!selectedBatch) return;
     try {
@@ -1188,7 +1465,7 @@ export default function PayrollPage() {
               <p className="mt-1 text-xs text-slate-500">{currentAccountSet.name} / 工资计算与月结依据</p>
             </div>
             <ChineseMonthPicker value={period} onChange={setPeriod} className="w-36" />
-            {selectedBatch ? statusBadge(selectedBatch.status) : <Badge variant="outline">暂无批次</Badge>}
+            {renderStatusBadge()}
             {hasAccrualVoucher && (
               <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">
                 已入账：{selectedBatch?.accrualVoucherNo}
@@ -1196,48 +1473,67 @@ export default function PayrollPage() {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={generateTaxSystemImportTemplate}>
-              <Download />下载模板
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-              <Upload />导入工资表
-            </Button>
-            <Button variant="outline" size="sm" onClick={openCopyPreviousPayroll}>
-              <Copy />复制上月
-            </Button>
             <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
               <Settings2 />计算设置
             </Button>
-            <Button variant="outline" size="sm" onClick={() => router.push('/payroll/report')}>
-              <BarChart3 />工资报表
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!selectedBatch || items.length === 0 || hasAccrualVoucher}
-              onClick={openVoucherPreview}
+            <Popover
+              align="end"
+              content={(
+                <PopoverContent className="w-56">
+                  {renderActionMenuItem(<><Upload className="h-4 w-4" />导入工资表</>, () => fileInputRef.current?.click())}
+                  {renderActionMenuItem(<><Download className="h-4 w-4" />下载工资导入模板</>, generatePayrollImportTemplate)}
+                  {renderActionMenuItem(<><Upload className="h-4 w-4" />导入个税系统工资表</>, () => taxSystemFileInputRef.current?.click())}
+                </PopoverContent>
+              )}
             >
-              <ReceiptText />生成计提凭证
-            </Button>
-            <Button
-              size="sm"
-              disabled={calculatedItems.length === 0}
-              onClick={() => exportPayrollResults(calculatedItems, period)}
+              <Button variant="outline" size="sm">
+                导入/下载模板 <ChevronDown className="h-4 w-4" />
+              </Button>
+            </Popover>
+            <Popover
+              align="end"
+              content={(
+                <PopoverContent className="w-52">
+                  {renderActionMenuItem(<><FileDown className="h-4 w-4" />导出结果</>, () => exportPayrollResults(calculatedItems, period), calculatedItems.length === 0)}
+                  {renderActionMenuItem(<><FileDown className="h-4 w-4" />导出到个税系统</>, () => exportToTaxSystem(items.map(it => ({
+                    ...it.inputData,
+                    grossSalary: it.calculationResult.grossSalary,
+                    individualIncomeTax: it.calculationResult.individualIncomeTax,
+                    pensionInsurance: displayConfig.socialInsurance.pension.enabled
+                      ? Math.round(it.calculationResult.socialInsuranceBase * displayConfig.socialInsurance.pension.employeeRate * 100) / 100
+                      : 0,
+                    medicalInsurance: displayConfig.socialInsurance.medical.enabled
+                      ? Math.round(it.calculationResult.socialInsuranceBase * displayConfig.socialInsurance.medical.employeeRate * 100) / 100
+                      : 0,
+                    unemploymentInsurance: displayConfig.socialInsurance.unemployment.enabled
+                      ? Math.round(it.calculationResult.socialInsuranceBase * displayConfig.socialInsurance.unemployment.employeeRate * 100) / 100
+                      : 0,
+                    housingFund: it.calculationResult.employeeHousingFund,
+                  })), period), items.length === 0)}
+                </PopoverContent>
+              )}
             >
-              <FileDown />导出结果
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={items.length === 0}
-              onClick={() => exportToTaxSystem(items.map(it => ({
-                ...it.inputData,
-                grossSalary: it.calculationResult.grossSalary,
-                individualIncomeTax: it.calculationResult.individualIncomeTax,
-              })), period)}
+              <Button variant="outline" size="sm">
+                导出报表 <ChevronDown className="h-4 w-4" />
+              </Button>
+            </Popover>
+            <Popover
+              align="end"
+              content={(
+                <PopoverContent className="w-52">
+                  {renderActionMenuItem(<><Copy className="h-4 w-4" />复制上月</>, openCopyPreviousPayroll)}
+                  {renderActionMenuItem(<><BarChart3 className="h-4 w-4" />工资报表</>, () => router.push('/payroll/report'))}
+                  {renderActionMenuItem(<><ReceiptText className="h-4 w-4" />生成计提凭证</>, openVoucherPreview, !selectedBatch || items.length === 0 || hasAccrualVoucher)}
+                  {selectedBatch && selectedBatch.status !== 'confirmed'
+                    ? renderActionMenuItem(<><Trash2 className="h-4 w-4" />删除草稿</>, () => runAction(() => deleteDraftBatch(selectedBatch.id), '草稿批次已删除'))
+                    : null}
+                </PopoverContent>
+              )}
             >
-              <FileDown />导出到个税系统
-            </Button>
+              <Button variant="outline" size="sm" aria-label="更多操作">
+                更多操作 <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </Popover>
             <input
               ref={fileInputRef}
               type="file"
@@ -1245,10 +1541,17 @@ export default function PayrollPage() {
               className="hidden"
               onChange={handleFileChange}
             />
+            <input
+              ref={taxSystemFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleTaxSystemFileChange}
+            />
           </div>
           <p className="w-full text-xs text-slate-500">
-            模板中“基本工资、奖金、津贴补贴、其他应发、请假扣款、其他税前/税后扣减、专项附加扣除、其他依法扣除”填当月金额；
-            “前期累计收入、前期累计个人社保公积金、前期累计专项附加扣除、前期累计其他依法扣除、前期累计已预扣税额”填本纳税年度截至上月的累计金额。
+            工资导入模板与“导入工资表”完全一致，用于系统内计算，填写收入拆分、社保/公积金基数和前期累计数；
+            个税系统模板用于导入个税系统工资表，填写本期收入及个人当月基本养老、医疗、失业、公积金金额，导入后会生成工资明细并尝试生成计提凭证。两种模板差异在于：工资导入模板按基数和配置比例计算五险一金，个税系统模板直接填写申报口径金额。
           </p>
         </div>
       </header>
@@ -1287,15 +1590,15 @@ export default function PayrollPage() {
 
         <section className="grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            ['员工人数', selectedBatch?.employeeCount || 0],
-            ['应发合计', formatMoney(selectedBatch?.grossTotal || 0)],
-            ['企业成本', formatMoney(selectedBatch?.employerCostTotal || 0)],
-            ['个税合计', formatMoney(selectedBatch?.taxTotal || 0)],
-            ['实发合计', formatMoney(selectedBatch?.netTotal || 0)],
-          ].map(([label, value]) => (
-            <div key={label} className="bg-white px-4 py-3">
-              <p className="text-xs text-slate-500">{label}</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{value}</p>
+            { label: '员工人数', value: selectedBatch?.employeeCount || 0, className: 'bg-white', valueClassName: 'text-lg text-slate-900' },
+            { label: '应发合计', value: formatMoney(selectedBatch?.grossTotal || 0), className: 'bg-white', valueClassName: 'text-lg text-slate-900' },
+            { label: '企业成本', value: formatMoney(selectedBatch?.employerCostTotal || 0), className: 'bg-slate-50', valueClassName: 'text-xl text-slate-950' },
+            { label: '个税合计', value: formatMoney(selectedBatch?.taxTotal || 0), className: 'bg-white', valueClassName: 'text-lg text-slate-900' },
+            { label: '实发合计', value: formatMoney(selectedBatch?.netTotal || 0), className: 'bg-blue-50', valueClassName: 'text-2xl text-blue-700' },
+          ].map((item) => (
+            <div key={item.label} className={`${item.className} px-4 py-3`}>
+              <p className="text-xs text-slate-500">{item.label}</p>
+              <p className={`mt-1 font-semibold tabular-nums ${item.valueClassName}`}>{item.value}</p>
             </div>
           ))}
         </section>
@@ -1309,6 +1612,7 @@ export default function PayrollPage() {
               </div>
                 <Button size="sm" disabled={previewRows.length === 0 || previewErrors.length > 0} onClick={confirmImport}>
                 <Calculator />计算并保存批次
+                  {previewImportSource === 'tax-system' ? '并生成凭证' : ''}
                 </Button>
             </div>
             {previewErrors.length > 0 && (
@@ -1349,41 +1653,29 @@ export default function PayrollPage() {
               <h2 className="text-sm font-medium text-slate-900">工资计算明细</h2>
               <p className="text-xs text-slate-500">计算完成不等同于工资已发放或社保、个税已缴纳。</p>
             </div>
-              <div className="flex items-center gap-1.5">
-                <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => setShowOptionalFields((value) => !value)}>
-                  {showOptionalFields ? '隐藏扩展字段' : '显示扩展字段'}
-                </Button>
-                <span className="text-xs text-slate-500">
-                  扩展字段包含社保公积金基数、前期累计值和税后扣减等高级录入项
-                </span>
-                {editable && !showDraftRows && editingItemId === null && (
-                  <Button variant="outline" size="sm" className="h-8 px-3" onClick={startAddRows}>
-                    <Plus />新增行
-                  </Button>
-                )}
-                {selectedBatch?.status === 'confirmed' && (
-                  <span className="text-xs text-slate-500">退回草稿后可修改明细</span>
-                )}
-                {selectedBatch && (
-                  <>
-                    <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => runAction(() => recalculateBatch(selectedBatch.id), '工资数据已重新计算')}>
-                      <RotateCcw />重新计算
-                    </Button>
-                    {selectedBatch.status === 'confirmed' ? (
-                      <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => runAction(() => revertBatchToDraft(selectedBatch.id), '批次已退回草稿')}>
-                        <RotateCcw />退回草稿
-                      </Button>
-                    ) : (
-                      <>
-                        <Button size="sm" className="h-8 px-3" onClick={() => runAction(() => confirmBatch(selectedBatch.id), '本月工资批次已确认')}>
-                          <CheckCircle2 />确认本月工资
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runAction(() => deleteDraftBatch(selectedBatch.id), '草稿批次已删除')} title="删除草稿">
-                          <Trash2 />
-                        </Button>
-                      </>
-                  )}
-                </>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                className="h-8 w-52"
+                placeholder="搜索员工..."
+                value={payrollSearchQuery}
+                onChange={(event) => setPayrollSearchQuery(event.target.value)}
+                autoComplete="off"
+              />
+              <select
+                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600"
+                value={payrollDepartmentFilter}
+                onChange={(event) => setPayrollDepartmentFilter(event.target.value)}
+              >
+                <option value="">全部部门</option>
+                {payrollDepartmentFilterOptions.map((departmentName) => (
+                  <option key={departmentName} value={departmentName}>{departmentName}</option>
+                ))}
+              </select>
+              <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => setShowOptionalFields((value) => !value)}>
+                {showOptionalFields ? '隐藏扩展字段' : '显示扩展字段'}
+              </Button>
+              {selectedBatch?.status === 'confirmed' && (
+                <span className="text-xs text-slate-500">退回草稿后可修改明细</span>
               )}
             </div>
           </div>
@@ -1414,9 +1706,9 @@ export default function PayrollPage() {
             <table className="min-w-[3200px] border-collapse text-xs">
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-10 w-12 border border-slate-300 bg-slate-100 px-2 py-1 text-center font-medium text-slate-700">序号</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>工号</th>
-                  <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>姓名</th>
+                  <th className="sticky left-0 z-20 w-12 border border-slate-300 bg-slate-100 px-2 py-1 text-center font-medium text-slate-700">序号</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} sticky left-12 z-20 w-24 bg-slate-100`}>工号</th>
+                  <th className={`${EXCEL_HEADER_CELL_CLASS} sticky left-36 z-20 w-24 bg-slate-100`}>姓名</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-28`}>证件类型</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-36`}>证件号码</th>
                   <th className={`${EXCEL_HEADER_CELL_CLASS} w-24`}>部门</th>
@@ -1437,10 +1729,10 @@ export default function PayrollPage() {
                   <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 10} className="border border-slate-300 px-4 py-14 text-center text-sm text-slate-400">加载中...</td></tr>
                 ) : (
                   <>
-                    {items.map(renderSavedRow)}
+                    {filteredPayrollItems.map(renderSavedRow)}
                     {editable && showDraftRows && draftRows.map((row, index) => (
                       <tr key={`draft-${index}`} className="bg-slate-50/70">
-                        <td className="sticky left-0 z-[1] border border-slate-300 bg-white px-1 py-0.5 text-center text-slate-400">{index + 1}</td>
+                        <td className="sticky left-0 z-[3] border border-slate-300 bg-inherit px-1 py-0.5 text-center text-slate-400">{index + 1}</td>
                         {renderEditableCells(
                           row,
                           `第 ${index + 1} 行`,
@@ -1459,6 +1751,9 @@ export default function PayrollPage() {
                         </td>
                       </tr>
                     ))}
+                    {filteredPayrollItems.length === 0 && items.length > 0 && (
+                      <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 10} className="border border-slate-300 px-4 py-8 text-center text-sm text-slate-400">没有匹配的工资明细。</td></tr>
+                    )}
                     {items.length === 0 && (!editable || !showDraftRows) && (
                       <tr><td colSpan={visibleAmountFields.length + resultColumns.length + 10} className="border border-slate-300 px-4 py-8 text-center text-sm text-slate-400">暂无工资明细。</td></tr>
                     )}
@@ -1472,20 +1767,27 @@ export default function PayrollPage() {
               {editingErrors.map((message) => <p key={message}>{message}</p>)}
             </div>
           )}
-          {!loading && editable && showDraftRows && (
-            <div className="border-t border-slate-100 px-4 py-3">
+          {!loading && (
+            <div className="sticky bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_20px_rgba(15,23,42,0.06)] backdrop-blur">
               {draftErrors.length > 0 && (
                 <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                   {draftErrors.map((message) => <p key={message}>{message}</p>)}
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                  <Button variant="outline" size="sm" onClick={addDraftRow}>
-                  <Plus />新增一行
-                </Button>
+                {editable ? (
+                  <Button variant="outline" size="sm" onClick={() => {
+                    if (!showDraftRows) startAddRows();
+                    else addDraftRow();
+                  }}>
+                    <Plus />新增一行
+                  </Button>
+                ) : (
+                  <span className="text-xs text-slate-500">已确认批次需要退回草稿后修改</span>
+                )}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">在录入单元格按 Enter 可快速新增一行</span>
-                  {items.length > 0 && (
+                  {editable && <span className="hidden text-xs text-slate-400 md:inline">在录入单元格按 Enter 可快速新增一行</span>}
+                  {editable && items.length > 0 && showDraftRows && (
                     <Button variant="outline" size="sm" onClick={() => {
                       setDraftRows(createBlankPayrollRows());
                       setDraftErrors([]);
@@ -1494,9 +1796,20 @@ export default function PayrollPage() {
                       <X />取消
                     </Button>
                   )}
+                  {editable && showDraftRows && (
                   <Button size="sm" onClick={() => void saveDraftRows()}>
                     <Save />保存并计算
                   </Button>
+                  )}
+                  {selectedBatch?.status === 'confirmed' ? (
+                    <Button variant="outline" size="sm" onClick={() => runAction(() => revertBatchToDraft(selectedBatch.id), '批次已退回草稿')}>
+                      <RotateCcw />退回草稿
+                    </Button>
+                  ) : selectedBatch ? (
+                    <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => runAction(() => confirmBatch(selectedBatch.id), '本月工资批次已确认')}>
+                      <CheckCircle2 />确认提交本月工资
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1833,6 +2146,12 @@ export default function PayrollPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <VoucherDetailDialog
+        open={!!voucherDetailNo}
+        onOpenChange={(open) => { if (!open) setVoucherDetailNo(null); }}
+        voucherNo={voucherDetailNo}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@
  */
 
 import { sqliteService } from './sqlite-service';
+import { buildPartnerInsert } from './services/partner-sqlite-service';
 
 export interface AccountSetInfo {
   id: string;
@@ -361,7 +362,6 @@ class AccountSetDbManager {
         { name: 'departments', cols: 'id, code, name, parentId, level, enabled, description, accountSetId, createTime, updateTime' },
         { name: 'projects', cols: 'id, code, name, description, enabled, accountSetId, createTime, updateTime' },
         { name: 'currencies', cols: 'id, code, name, symbol, exchangeRate, enabled, accountSetId, createTime, updateTime' },
-        { name: 'partners', cols: 'id, code, name, type, contact, phone, email, address, taxNo, bankAccount, enabled, accountSetId, createTime, updateTime' },
       ];
 
       for (const table of simpleTables) {
@@ -381,6 +381,27 @@ class AccountSetDbManager {
             stmt.free();
           } catch {
             // Skip records that fail
+          }
+        }
+      }
+
+      if (data.partners) {
+        const now = new Date().toISOString();
+        for (const partner of data.partners) {
+          const insert = buildPartnerInsert(
+            {
+              ...partner,
+              taxNo: partner.taxNo ?? partner.taxNumber,
+              accountSetId,
+            },
+            accountSetId,
+            now,
+          );
+          const stmt = db.prepare(insert.sql);
+          try {
+            stmt.run(insert.params);
+          } finally {
+            stmt.free();
           }
         }
       }

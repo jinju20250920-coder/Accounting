@@ -296,6 +296,8 @@ const TAX_SYSTEM_EXPORT_HEADERS = [
   '减免税额', '协定减免', '减除费用标准', '已缴税额', '备注',
 ] as const;
 
+type TaxSystemHeaderIndex = Map<string, number>;
+
 function textVal(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -303,6 +305,22 @@ function textVal(value: unknown): string {
 function numVal(value: unknown): number {
   const n = Number(String(value ?? '').trim());
   return Number.isFinite(n) ? n : 0;
+}
+
+function getTaxSystemText(row: unknown[], headerIndex: TaxSystemHeaderIndex, ...names: string[]): string {
+  for (const name of names) {
+    const index = headerIndex.get(name);
+    if (index !== undefined) return textVal(row[index]);
+  }
+  return '';
+}
+
+function getTaxSystemNumber(row: unknown[], headerIndex: TaxSystemHeaderIndex, ...names: string[]): number {
+  for (const name of names) {
+    const index = headerIndex.get(name);
+    if (index !== undefined) return numVal(row[index]);
+  }
+  return 0;
 }
 
 /** 导出到个税系统导入模板格式（29列） */
@@ -368,6 +386,81 @@ export function exportToTaxSystem(
   ]);
   XLSX.utils.book_append_sheet(wb, guideSheet, '填表说明');
   XLSX.writeFile(wb, `正常工资薪金所得_${period}.xls`);
+}
+
+/** 从个税系统导入模板导入（29列格式） */
+export function parseTaxSystemImportRows(rows: unknown[][]): PayrollImportResult {
+  const headerRow = rows[0] || [];
+  const headerIndex = new Map<string, number>(
+    headerRow.map((value, index) => [textVal(value), index]),
+  );
+  const errors: PayrollImportError[] = [];
+  const validRows: PayrollInput[] = [];
+  const seenCodes = new Set<string>();
+
+  rows.slice(1).forEach((row, offset) => {
+    if (row.every((cell) => !textVal(cell))) return;
+    const rowNumber = offset + 2;
+    const messages: string[] = [];
+
+    const employeeCode = getTaxSystemText(row, headerIndex, '工号');
+    const employeeName = getTaxSystemText(row, headerIndex, '*姓名', '姓名');
+    const idType = getTaxSystemText(row, headerIndex, '*证件类型', '证件类型') || undefined;
+    const idNumber = getTaxSystemText(row, headerIndex, '*证件号码', '证件号码') || undefined;
+    const currentIncome = getTaxSystemNumber(row, headerIndex, '本期收入');
+
+    if (!employeeName) messages.push('姓名不能为空');
+    if (!idType) messages.push('证件类型不能为空');
+    if (!idNumber) messages.push('证件号码不能为空');
+    if (employeeCode && seenCodes.has(employeeCode)) messages.push('重复工号');
+
+    if (employeeCode) seenCodes.add(employeeCode);
+    if (messages.length > 0) {
+      errors.push({ rowNumber, message: messages.join('；') });
+      return;
+    }
+
+    validRows.push({
+      employeeCode: employeeCode || `EMP${String(validRows.length + 1).padStart(3, '0')}`,
+      employeeName,
+      idType,
+      idNumber,
+      basicSalary: currentIncome,
+      bonus: 0,
+      allowance: 0,
+      otherEarnings: 0,
+      leaveDeduction: 0,
+      otherPreTaxDeduction: 0,
+      specialAdditionalDeduction: 0,
+      otherLegalDeduction: getTaxSystemNumber(row, headerIndex, '其他'),
+      priorCumulativeIncome: 0,
+      priorCumulativeEmployeeContributions: 0,
+      priorCumulativeSpecialAdditionalDeduction: 0,
+      priorCumulativeOtherLegalDeduction: 0,
+      priorCumulativeTaxWithheld: 0,
+      pensionInsurance: getTaxSystemNumber(row, headerIndex, '基本养老保险费'),
+      medicalInsurance: getTaxSystemNumber(row, headerIndex, '基本医疗保险费'),
+      unemploymentInsurance: getTaxSystemNumber(row, headerIndex, '失业保险费'),
+      housingFund: getTaxSystemNumber(row, headerIndex, '住房公积金'),
+      childEducation: getTaxSystemNumber(row, headerIndex, '累计子女教育'),
+      continuingEducation: getTaxSystemNumber(row, headerIndex, '累计继续教育'),
+      housingLoanInterest: getTaxSystemNumber(row, headerIndex, '累计住房贷款利息'),
+      housingRent: getTaxSystemNumber(row, headerIndex, '累计住房租金'),
+      elderlyCare: getTaxSystemNumber(row, headerIndex, '累计赡养老人'),
+      infantCare: getTaxSystemNumber(row, headerIndex, '累计3岁以下婴幼儿照护'),
+      privatePension: getTaxSystemNumber(row, headerIndex, '累计个人养老金'),
+      taxExemptIncome: getTaxSystemNumber(row, headerIndex, '本期免税收入'),
+      corporateAnnuity: getTaxSystemNumber(row, headerIndex, '企业(职业)年金'),
+      commercialHealthInsurance: getTaxSystemNumber(row, headerIndex, '商业健康保险'),
+      taxDeferredPension: getTaxSystemNumber(row, headerIndex, '税延养老保险'),
+      donation: getTaxSystemNumber(row, headerIndex, '准予扣除的捐赠额'),
+      taxReduction: getTaxSystemNumber(row, headerIndex, '减免税额'),
+      remark: getTaxSystemText(row, headerIndex, '备注') || undefined,
+      otherPostTaxDeduction: 0,
+    });
+  });
+
+  return { validRows, errors };
 }
 
 /** 从个税系统导出文件导入（32列格式） */
@@ -450,7 +543,16 @@ function isTaxSystemExport(headers: unknown[]): boolean {
   return headerTexts.includes('证件号码') && headerTexts.includes('所得期间起');
 }
 
-/** 增强版文件解析：自动识别个税系统导出格式 vs 自有格式 */
+/** 检测文件是否为个税系统导入模板格式 */
+function isTaxSystemImport(headers: unknown[]): boolean {
+  const headerTexts = headers.map(h => textVal(h));
+  return headerTexts.includes('*姓名')
+    && headerTexts.includes('*证件类型')
+    && headerTexts.includes('*证件号码')
+    && headerTexts.includes('本期收入');
+}
+
+/** 增强版文件解析：自动识别个税系统导入/导出格式 vs 自有格式 */
 export async function parsePayrollFileWithTaxSupport(file: File): Promise<PayrollImportResult> {
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -460,6 +562,9 @@ export async function parsePayrollFileWithTaxSupport(file: File): Promise<Payrol
   const headerRow = rows[0] || [];
   if (isTaxSystemExport(headerRow)) {
     return parseTaxSystemExportRows(rows);
+  }
+  if (isTaxSystemImport(headerRow)) {
+    return parseTaxSystemImportRows(rows);
   }
   return parsePayrollRows(rows);
 }
