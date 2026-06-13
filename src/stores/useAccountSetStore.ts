@@ -309,7 +309,7 @@ const defaultPlanFeatureConfigs: PlanFeatureConfig[] = defaultPricingPlans.map(p
 const useAccountSetStoreBase = create<AccountSetStore>()(
   persist(
     (set, get) => ({
-      // 初始状态（首次使用由 FirstTimeWizard 创建账套）
+      // 初始状态（首次使用由 FirstTimeWrapper 自动创建并跳转到 /setup）
       accountSets: [],
       currentAccountSetId: null as string | null,
 
