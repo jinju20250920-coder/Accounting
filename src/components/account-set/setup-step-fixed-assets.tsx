@@ -84,6 +84,20 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
         await initializeDefaultCategories();
         await initialize();
       }
+      // Load existing assets from store into local state
+      const storeAssets = useFixedAssetStore.getState().assets;
+      if (storeAssets.length > 0) {
+        setAssets(storeAssets.map(a => ({
+          assetName: a.assetName,
+          categoryId: a.categoryId || '',
+          categoryName: a.categoryName || '',
+          originalValue: a.originalValue,
+          accumulatedDepreciation: a.accumulatedDepreciation,
+          acquisitionDate: a.acquisitionDate || '',
+          depreciationMethod: a.depreciationMethod || 'straight_line',
+          usefulLifeYears: a.usefulLifeYears || 10,
+        })));
+      }
     };
     initializeAssetData();
   }, [initialize, initializeDefaultCategories]);
