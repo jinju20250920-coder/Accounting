@@ -2270,29 +2270,45 @@ class SQLiteService {
       const columns = this.dbInstance.exec("PRAGMA table_info(bankTransactions)");
       if (columns.length > 0) {
         const columnNames = columns[0].values?.map((row: any[]) => row[1]) || [];
-        if (!columnNames.includes('credit')) {
-          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN credit REAL DEFAULT 0');
-          console.log('Migration: Added credit column to bankTransactions');
-        }
-        if (!columnNames.includes('debit')) {
-          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN debit REAL DEFAULT 0');
-          console.log('Migration: Added debit column to bankTransactions');
-        }
-        if (!columnNames.includes('source')) {
-          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN source TEXT DEFAULT \'import\'');
-          console.log('Migration: Added source column to bankTransactions');
-        }
-        if (!columnNames.includes('exchangeRate')) {
-          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN exchangeRate REAL');
-          console.log('Migration: Added exchangeRate column to bankTransactions');
-        }
-        if (!columnNames.includes('originalAmount')) {
-          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN originalAmount REAL');
-          console.log('Migration: Added originalAmount column to bankTransactions');
-        }
-        if (!columnNames.includes('transactionTime')) {
-          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN transactionTime TEXT');
-          console.log('Migration: Added transactionTime column to bankTransactions');
+        // Every column the INSERT statement writes — add any that are missing on legacy schemas.
+        const expectedColumns: Array<{ name: string; def: string }> = [
+          { name: 'credit', def: 'REAL DEFAULT 0' },
+          { name: 'debit', def: 'REAL DEFAULT 0' },
+          { name: 'source', def: 'TEXT DEFAULT \'import\'' },
+          { name: 'exchangeRate', def: 'REAL' },
+          { name: 'originalAmount', def: 'REAL' },
+          { name: 'transactionTime', def: 'TEXT' },
+          { name: 'voucherType', def: 'TEXT' },
+          { name: 'voucherNo', def: 'TEXT' },
+          { name: 'balance', def: 'REAL' },
+          { name: 'cashRemitFlag', def: 'TEXT' },
+          { name: 'counterpartyName', def: 'TEXT' },
+          { name: 'counterpartyAccount', def: 'TEXT' },
+          { name: 'summary', def: 'TEXT' },
+          { name: 'notes', def: 'TEXT' },
+          { name: 'transactionSerialNo', def: 'TEXT' },
+          { name: 'enterpriseSerialNo', def: 'TEXT' },
+          { name: 'ourAccount', def: 'TEXT' },
+          { name: 'ourAccountName', def: 'TEXT' },
+          { name: 'ourBranch', def: 'TEXT' },
+          { name: 'rowNumber', def: 'INTEGER' },
+          { name: 'status', def: 'TEXT DEFAULT \'pending\'' },
+          { name: 'matchedSubject', def: 'TEXT' },
+          { name: 'matchedSubjectName', def: 'TEXT' },
+          { name: 'confidence', def: 'REAL' },
+          { name: 'bankAccountId', def: 'TEXT' },
+          { name: 'importBatchId', def: 'TEXT' },
+          { name: 'voucherId', def: 'TEXT' },
+          { name: 'generatedVoucherNo', def: 'TEXT' },
+          { name: 'accountSetId', def: 'TEXT' },
+          { name: 'createTime', def: 'TEXT' },
+          { name: 'updateTime', def: 'TEXT' },
+        ];
+        for (const col of expectedColumns) {
+          if (!columnNames.includes(col.name)) {
+            this.dbInstance.run(`ALTER TABLE bankTransactions ADD COLUMN ${col.name} ${col.def}`);
+            console.log(`Migration: Added ${col.name} column to bankTransactions`);
+          }
         }
       }
       // Add index for ourAccount filtering
