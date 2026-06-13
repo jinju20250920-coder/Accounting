@@ -358,6 +358,7 @@ export function JournalTable({
   const [voucherDialogNo, setVoucherDialogNo] = useState<string | null>(null);
   const [bankNameMap, setBankNameMap] = useState<Record<string, string>>({});
   const [accountCurrencyMap, setAccountCurrencyMap] = useState<Record<string, string>>({});
+  const [openingFx, setOpeningFx] = useState<{ foreignBalance: number | null; exchangeRate: number | null }>({ foreignBalance: null, exchangeRate: null });
   const pageSize = 50;
 
   const isForeignAccount = !!accountNumber && !!accountCurrencyMap[accountNumber] && accountCurrencyMap[accountNumber] !== baseCurrency;
@@ -386,6 +387,26 @@ export function JournalTable({
       setAccountCurrencyMap(currencyMap);
     } catch { /* ignore */ }
   };
+
+  // Load foreign-balance info for the opening row when the account is foreign currency
+  useEffect(() => {
+    if (!accountNumber || !periodStart) {
+      setOpeningFx({ foreignBalance: null, exchangeRate: null });
+      return;
+    }
+    (async () => {
+      try {
+        const detail = await sqliteService.getBankOpeningBalanceDetail(accountNumber, periodStart.substring(0, 7));
+        if (detail && (detail.foreignBalance != null || detail.exchangeRate != null)) {
+          setOpeningFx({ foreignBalance: detail.foreignBalance ?? null, exchangeRate: detail.exchangeRate ?? null });
+        } else {
+          setOpeningFx({ foreignBalance: null, exchangeRate: null });
+        }
+      } catch {
+        setOpeningFx({ foreignBalance: null, exchangeRate: null });
+      }
+    })();
+  }, [accountNumber, periodStart]);
 
   useEffect(() => {
     loadEntries();
@@ -668,7 +689,20 @@ export function JournalTable({
           <span className="w-24 text-right shrink-0">-</span>
           <span className="w-28 text-right font-medium text-slate-700 shrink-0">{formatMoney(openingBalance)}</span>
           <span className="w-20 flex justify-center shrink-0"><Lock className="h-3 w-3 text-slate-400" /></span>
-          {isForeignAccount && <span className="w-14 text-center shrink-0" />}
+          {isForeignAccount && (
+            <span
+              className="w-14 text-center shrink-0"
+              title={openingFx.exchangeRate ? `原币: ${openingFx.foreignBalance != null ? formatMoney(openingFx.foreignBalance) : '-'} 汇率: ${openingFx.exchangeRate}` : undefined}
+            >
+              <div className="font-medium">
+                {accountCurrencyMap[accountNumber!] || ''}
+                {openingFx.exchangeRate ? `@${openingFx.exchangeRate}` : ''}
+              </div>
+              {openingFx.foreignBalance != null ? (
+                <div className="text-[10px] text-slate-400 mt-0.5">{formatMoney(openingFx.foreignBalance)}</div>
+              ) : null}
+            </span>
+          )}
           <span className="w-20 shrink-0" />
           <span className="w-24 shrink-0" />
           <span className="w-24 shrink-0" />

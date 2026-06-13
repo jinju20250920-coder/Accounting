@@ -1373,11 +1373,11 @@ export default function CurrenciesPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label required>日期</Label>
-                <Input
-                  type="date"
+                <ChineseDatePicker
                   value={fxFormData.rateDate}
-                  onChange={(event) => setFxFormData(prev => ({ ...prev, rateDate: event.target.value }))}
-                  autoComplete="off"
+                  onChange={(value) => setFxFormData(prev => ({ ...prev, rateDate: value }))}
+                  className="w-full"
+                  placeholder="选择日期"
                 />
               </div>
               <div className="space-y-2">

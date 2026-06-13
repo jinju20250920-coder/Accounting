@@ -58,6 +58,9 @@ interface BankBalanceEntry {
   accountNumber: string;
   bankName: string;
   balance: number;
+  currency?: string;
+  foreignBalance?: number | null;
+  exchangeRate?: number | null;
 }
 
 interface AssetBalanceEntry {
@@ -76,6 +79,7 @@ interface BankBindingForOpening {
   subjectCode?: string;
   subSubjectCode?: string;
   subSubjectName?: string;
+  currency?: string | null;
 }
 
 interface AccountingConfig {
@@ -158,20 +162,29 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         const bindings = await sqliteService.getBankAccountBindings();
         if (bindings && bindings.length > 0) {
           // Fetch any opening balances already saved in the bank step
-          let savedBalances: Record<string, number> = {};
+          let savedRows: Array<{ accountNumber: string; balance: number; foreignBalance?: number | null; exchangeRate?: number | null }> = [];
           try {
             const rows = await sqliteService.getAllBankOpeningBalances();
-            savedBalances = (rows || []).reduce<Record<string, number>>((acc, row) => {
-              acc[row.accountNumber] = row.balance;
-              return acc;
-            }, {});
+            savedRows = (rows || []).map((row: any) => ({
+              accountNumber: row.accountNumber,
+              balance: row.balance,
+              foreignBalance: row.foreignBalance ?? null,
+              exchangeRate: row.exchangeRate ?? null,
+            }));
           } catch { /* table may not exist yet */ }
+          const savedByAccount = new Map(savedRows.map(r => [r.accountNumber, r]));
 
-          setBankEntries((bindings as BankBindingForOpening[]).map((b) => ({
-            accountNumber: b.accountNumber || '',
-            bankName: b.bankName || b.aliasName || '',
-            balance: savedBalances[b.accountNumber] ?? 0,
-          })));
+          setBankEntries((bindings as BankBindingForOpening[]).map((b) => {
+            const saved = savedByAccount.get(b.accountNumber || '');
+            return {
+              accountNumber: b.accountNumber || '',
+              bankName: b.bankName || b.aliasName || '',
+              balance: saved?.balance ?? 0,
+              currency: b.currency || 'CNY',
+              foreignBalance: saved?.foreignBalance ?? null,
+              exchangeRate: saved?.exchangeRate ?? null,
+            };
+          }));
         }
       } catch { /* Bank accounts may not exist yet */ }
     };
@@ -447,12 +460,19 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         const binding = bankBindings.find(b => b.accountNumber === e.accountNumber);
         const bankSubjectCode = binding?.subSubjectCode || '1002';
         const bankSubjectName = binding?.subSubjectName || '银行存款';
+        const isForeign = !!e.currency && e.currency !== 'CNY' && (e.foreignBalance ?? 0) !== 0 && (e.exchangeRate ?? 0) > 0;
         allEntries.push({
           id: `oe_b_${Date.now()}_${allEntries.length}`, voucherId: '',
           date: voucherDate, summary: `期初银行-${e.bankName || e.accountNumber}`,
           subjectCode: bankSubjectCode, subjectName: bankSubjectName,
           debit: Math.max(e.balance, 0), credit: Math.max(-e.balance, 0),
           auxiliary: { bankAccount: e.accountNumber },
+          ...(isForeign ? {
+            currencyCode: e.currency,
+            currencyName: e.currency,
+            exchangeRate: e.exchangeRate!,
+            originalAmount: Math.abs(e.foreignBalance!),
+          } : {}),
         });
 
         try {
