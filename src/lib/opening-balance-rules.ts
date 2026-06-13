@@ -43,6 +43,17 @@ export interface SubledgerDifference {
   source: 'bank' | 'customer' | 'supplier' | 'fixed_asset' | 'accumulated_depreciation';
 }
 
+export interface ControlledSubjectSummary {
+  subjectCode: string;
+  subjectName: string;
+  detailBalance: number;
+  userEnteredBalance: number;
+  difference: number;
+  source: 'bank' | 'customer' | 'supplier' | 'fixed_asset' | 'accumulated_depreciation';
+  direction: 'debit' | 'credit';
+  hasDetail: boolean;
+}
+
 export interface OpeningBalanceAnalysis {
   totalDebit: number;
   totalCredit: number;
@@ -50,6 +61,7 @@ export interface OpeningBalanceAnalysis {
   isBalanced: boolean;
   adjustmentSide: 'debit' | 'credit' | null;
   subledgerDifferences: SubledgerDifference[];
+  controlledSubjects: ControlledSubjectSummary[];
 }
 
 export interface OpeningAdjustmentEntryInput {
@@ -132,43 +144,70 @@ export function analyzeOpeningBalance(input: {
   const signedDifference = roundMoney(totalDebit - totalCredit);
   const balanceDifference = Math.abs(signedDifference);
 
-  const candidates = [
-    differenceOrNull({
+  const controlledInputs = [
+    {
       subjectCode: '1002',
       subjectName: '银行存款',
-      subjectBalance: getSubjectBalance(input.subjectEntries, '1002'),
       detailBalance: bankDetail,
-      source: 'bank',
-    }),
-    differenceOrNull({
+      userEnteredBalance: getSubjectBalance(input.subjectEntries, '1002'),
+      source: 'bank' as const,
+      direction: 'debit' as const,
+    },
+    {
       subjectCode: '1122',
       subjectName: '应收账款',
-      subjectBalance: getSubjectBalance(input.subjectEntries, '1122'),
       detailBalance: customerDetail,
-      source: 'customer',
-    }),
-    differenceOrNull({
+      userEnteredBalance: getSubjectBalance(input.subjectEntries, '1122'),
+      source: 'customer' as const,
+      direction: 'debit' as const,
+    },
+    {
       subjectCode: '2202',
       subjectName: '应付账款',
-      subjectBalance: Math.abs(getSubjectBalance(input.subjectEntries, '2202')),
       detailBalance: supplierDetail,
-      source: 'supplier',
-    }),
-    differenceOrNull({
+      userEnteredBalance: Math.abs(getSubjectBalance(input.subjectEntries, '2202')),
+      source: 'supplier' as const,
+      direction: 'credit' as const,
+    },
+    {
       subjectCode: '1601',
       subjectName: '固定资产',
-      subjectBalance: getSubjectBalance(input.subjectEntries, '1601'),
       detailBalance: assetOriginalDetail,
-      source: 'fixed_asset',
-    }),
-    differenceOrNull({
+      userEnteredBalance: getSubjectBalance(input.subjectEntries, '1601'),
+      source: 'fixed_asset' as const,
+      direction: 'debit' as const,
+    },
+    {
       subjectCode: '1602',
       subjectName: '累计折旧',
-      subjectBalance: Math.abs(getSubjectBalance(input.subjectEntries, '1602')),
       detailBalance: accumulatedDepreciationDetail,
-      source: 'accumulated_depreciation',
-    }),
+      userEnteredBalance: Math.abs(getSubjectBalance(input.subjectEntries, '1602')),
+      source: 'accumulated_depreciation' as const,
+      direction: 'credit' as const,
+    },
   ];
+
+  const controlledSubjects: ControlledSubjectSummary[] = controlledInputs.map(item => ({
+    subjectCode: item.subjectCode,
+    subjectName: item.subjectName,
+    detailBalance: item.detailBalance,
+    userEnteredBalance: item.userEnteredBalance,
+    difference: roundMoney(item.userEnteredBalance - item.detailBalance),
+    source: item.source,
+    direction: item.direction,
+    hasDetail: item.detailBalance >= MONEY_EPSILON,
+  }));
+
+  const subledgerDifferences: SubledgerDifference[] = controlledSubjects
+    .filter(item => Math.abs(item.difference) >= MONEY_EPSILON)
+    .map(item => ({
+      subjectCode: item.subjectCode,
+      subjectName: item.subjectName,
+      subjectBalance: item.userEnteredBalance,
+      detailBalance: item.detailBalance,
+      difference: item.difference,
+      source: item.source,
+    }));
 
   return {
     totalDebit,
@@ -176,7 +215,8 @@ export function analyzeOpeningBalance(input: {
     balanceDifference,
     isBalanced: balanceDifference < MONEY_EPSILON,
     adjustmentSide: balanceDifference < MONEY_EPSILON ? null : signedDifference > 0 ? 'credit' : 'debit',
-    subledgerDifferences: candidates.filter((item): item is SubledgerDifference => item !== null),
+    subledgerDifferences,
+    controlledSubjects,
   };
 }
 

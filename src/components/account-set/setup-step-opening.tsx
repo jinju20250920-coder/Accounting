@@ -19,6 +19,7 @@ import {
   Landmark,
   Building2,
   FileText,
+  Lock,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -205,6 +206,14 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const canBalanceWithAdjustment = !isBalanced && Boolean(adjustmentSubject.code);
   const canSaveOpening = isBalanced || canBalanceWithAdjustment;
   const subledgerDifferences = openingAnalysis.subledgerDifferences;
+  const controlledSubjects = openingAnalysis.controlledSubjects;
+  const SOURCE_LABELS: Record<string, string> = {
+    bank: '来自银行期初',
+    customer: '来自客户期初',
+    supplier: '来自供应商期初',
+    fixed_asset: '来自资产卡片',
+    accumulated_depreciation: '来自资产折旧',
+  };
 
   const balancedRef = React.useRef(onBalancedChange);
   balancedRef.current = onBalancedChange;
@@ -627,24 +636,81 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry, index) => (
-                  <tr key={index} className="border-t hover:bg-slate-50">
+                {controlledSubjects.filter(c => c.hasDetail).map(item => (
+                  <tr key={`auto-${item.subjectCode}`} className="border-t bg-slate-50/70 text-slate-500">
                     <td className="px-2 py-1">
-                      <SubjectPopover value={entry.subjectCode} onSelect={(code, name) => handleSubjectSelect(index, code, name)} placeholder="选择科目" />
+                      <div className="flex items-start gap-2">
+                        <Lock className="h-3 w-3 text-slate-400 mt-1 shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="font-mono text-xs text-slate-500">{item.subjectCode}</span>
+                          <span className="text-sm text-slate-600">{item.subjectName}</span>
+                          <span className="text-[10px] text-slate-400 mt-0.5">{SOURCE_LABELS[item.source]}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
+                      {item.direction === 'debit' ? item.detailBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
+                    </td>
+                    <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
+                      {item.direction === 'credit' ? item.detailBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
                     </td>
                     <td className="px-3 py-1">
-                      <Input type="number" value={entry.debit || ''} onChange={(e) => updateEntry(index, 'debit', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
-                    </td>
-                    <td className="px-3 py-1">
-                      <Input type="number" value={entry.credit || ''} onChange={(e) => updateEntry(index, 'credit', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
-                    </td>
-                    <td className="px-3 py-1">
-                      <Button variant="ghost" size="sm" onClick={() => removeEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 bg-slate-200 text-slate-500">来自明细账</Badge>
                     </td>
                   </tr>
                 ))}
+                {entries.map((entry, index) => {
+                  const overlapsControlled = entry.subjectCode && controlledSubjects.some(c => c.hasDetail && entry.subjectCode.startsWith(c.subjectCode));
+                  return (
+                    <tr key={`manual-${index}`} className="border-t hover:bg-slate-50">
+                      <td className="px-2 py-1">
+                        <SubjectPopover value={entry.subjectCode} onSelect={(code, name) => handleSubjectSelect(index, code, name)} placeholder="选择科目" />
+                        {overlapsControlled && (
+                          <div className="text-[10px] text-amber-600 mt-1 flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            与上方自动行重复，将被忽略
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-1">
+                        <Input type="number" value={entry.debit || ''} onChange={(e) => updateEntry(index, 'debit', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
+                      </td>
+                      <td className="px-3 py-1">
+                        <Input type="number" value={entry.credit || ''} onChange={(e) => updateEntry(index, 'credit', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
+                      </td>
+                      <td className="px-3 py-1">
+                        <Button variant="ghost" size="sm" onClick={() => removeEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!isBalanced && adjustmentSubject.code && (
+                  <tr key="adjustment-preview" className="border-t bg-amber-50/70">
+                    <td className="px-2 py-1">
+                      <div className="flex items-start gap-2">
+                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] px-1 py-0 h-5 shrink-0 mt-0.5">补平</Badge>
+                        <div className="flex flex-col">
+                          <span className="font-mono text-xs text-amber-700">{adjustmentSubject.code}</span>
+                          <span className="text-sm text-amber-800">{adjustmentSubject.name || '—'}</span>
+                          <span className="text-[10px] text-amber-600 mt-0.5">
+                            自动填入 {openingAnalysis.adjustmentSide === 'debit' ? '借方' : '贷方'} 以平衡差额
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1 text-right text-sm tabular-nums font-medium text-amber-700">
+                      {openingAnalysis.adjustmentSide === 'debit' ? diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
+                    </td>
+                    <td className="px-3 py-1 text-right text-sm tabular-nums font-medium text-amber-700">
+                      {openingAnalysis.adjustmentSide === 'credit' ? diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
+                    </td>
+                    <td className="px-3 py-1">
+                      <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1 py-0 h-5">预览</Badge>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
             <div className="border-t p-2 bg-slate-50">
@@ -838,26 +904,11 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       </Tabs>
 
       {subledgerDifferences.length > 0 && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-medium text-blue-800">
-            <AlertTriangle className="h-4 w-4" />
-            子账明细与总账余额存在差异
-          </div>
-          <div className="space-y-1 text-sm text-blue-700">
-            {subledgerDifferences.map(item => (
-              <div key={`${item.source}-${item.subjectCode}`} className="flex items-center justify-between gap-3">
-                <span>{item.subjectCode} {item.subjectName}</span>
-                <span>
-                  总账 {item.subjectBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                  {' / '}
-                  明细 {item.detailBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                  {' / '}
-                  差异 {item.difference.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-blue-600">这类差异不会用补平科目自动处理，请补齐银行、往来或固定资产明细。</p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 flex items-center gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            上方灰色行的金额来自银行/往来/资产明细账，已自动带入借方或贷方，请勿在手动区再录相同科目。
+          </span>
         </div>
       )}
 
