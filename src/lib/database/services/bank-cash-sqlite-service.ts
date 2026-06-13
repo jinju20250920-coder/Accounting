@@ -19,6 +19,22 @@ export async function getBankOpeningBalanceQuery(
   return result?.balance ?? null;
 }
 
+export interface BankOpeningBalanceRow {
+  accountNumber: string;
+  periodStart: string;
+  balance: number;
+}
+
+export async function getAllBankOpeningBalancesQuery(
+  service: SimpleQueryService,
+  accountSetId: string,
+): Promise<BankOpeningBalanceRow[]> {
+  return await service.queryAllAsync<BankOpeningBalanceRow>(
+    `SELECT accountNumber, periodStart, balance FROM bank_opening_balances WHERE accountSetId = ?`,
+    [accountSetId],
+  ) || [];
+}
+
 export async function saveBankOpeningBalanceRecord(input: {
   db: SqliteDatabaseLike;
   accountSetId: string;

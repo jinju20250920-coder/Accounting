@@ -127,6 +127,7 @@ import {
 } from './services/export-import-sqlite-service';
 import {
   getBankOpeningBalanceQuery,
+  getAllBankOpeningBalancesQuery,
   getCashOverviewQuery,
   getJournalEntriesQuery,
   getTransactionStatusCountsQuery,
@@ -2668,6 +2669,11 @@ class SQLiteService {
   async getBankOpeningBalance(accountNumber: string, periodStart: string): Promise<number | null> {
     await this.ensureInitialized();
     return getBankOpeningBalanceQuery(this.getSimpleQueryService(), this.accountSetId, accountNumber, periodStart);
+  }
+
+  async getAllBankOpeningBalances() {
+    await this.ensureInitialized();
+    return getAllBankOpeningBalancesQuery(this.getSimpleQueryService(), this.accountSetId);
   }
 
   async saveBankOpeningBalance(data: {
