@@ -469,7 +469,6 @@ class SQLiteManager {
         code TEXT,
         name TEXT,
         description TEXT,
-        unifiedSocialCreditCode TEXT,
         taxNo TEXT,
         address TEXT,
         baseCurrency TEXT,

@@ -45,7 +45,6 @@ import initSqlJs from 'sql.js';
 interface AccountSetFormData {
   code: string;
   name: string;
-  unifiedSocialCreditCode: string;
   taxNo: string;
   address: string;
   baseCurrency: string;
@@ -97,7 +96,6 @@ export default function SetsPage() {
   const [formData, setFormData] = useState<AccountSetFormData>({
     code: '',
     name: '',
-    unifiedSocialCreditCode: '',
     taxNo: '',
     address: '',
     baseCurrency: '人民币',
@@ -121,7 +119,6 @@ export default function SetsPage() {
     setFormData({
       code: '',
       name: '',
-      unifiedSocialCreditCode: '',
       taxNo: '',
       address: '',
       baseCurrency: '人民币',
@@ -142,8 +139,7 @@ export default function SetsPage() {
     setFormData({
       code: accountSet.code,
       name: accountSet.name,
-      unifiedSocialCreditCode: accountSet.unifiedSocialCreditCode,
-      taxNo: accountSet.taxNo || accountSet.unifiedSocialCreditCode,
+      taxNo: accountSet.taxNo,
       address: accountSet.address,
       baseCurrency: accountSet.baseCurrency,
       startDate: accountSet.startDate,

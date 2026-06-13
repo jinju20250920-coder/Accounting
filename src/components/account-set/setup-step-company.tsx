@@ -11,7 +11,6 @@ interface SetupStepCompanyProps {
   data: {
     name: string;
     code: string;
-    unifiedSocialCreditCode: string;
     taxNo: string;
     address: string;
     baseCurrency: string;
@@ -83,11 +82,11 @@ export function SetupStepCompany({ data, onChange, lastVoucherFullNo }: SetupSte
           <span className="text-sm font-medium text-slate-700">税务信息</span>
         </div>
         <div className="space-y-2 max-w-md">
-          <Label>统一社会信用代码</Label>
+          <Label>纳税人识别号</Label>
             <Input
-              value={data.unifiedSocialCreditCode}
-              onChange={(e) => onChange({ ...data, unifiedSocialCreditCode: e.target.value, taxNo: e.target.value })}
-              placeholder="91110000XXXXXXXXXX"
+              value={data.taxNo}
+              onChange={(e) => onChange({ ...data, taxNo: e.target.value })}
+              placeholder="纳税人识别号"
               autoComplete="off"
             />
         </div>

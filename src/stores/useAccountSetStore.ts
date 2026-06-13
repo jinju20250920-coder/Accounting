@@ -44,7 +44,6 @@ export interface AccountSet {
   id: string; // 系统自动生成的唯一标识符
   code: string; // 用户自定义编码
   name: string; // 账套名称
-  unifiedSocialCreditCode: string; // 统一社会信用代码
   taxNo: string; // 纳税人识别号
   address: string; // 公司地址
   baseCurrency: string;

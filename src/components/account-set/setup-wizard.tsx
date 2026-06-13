@@ -50,7 +50,6 @@ interface SetupWizardProps {
   initialData?: {
     name: string;
     code: string;
-    unifiedSocialCreditCode: string;
     taxNo: string;
     address: string;
     baseCurrency: string;
@@ -112,7 +111,6 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   const [companyData, setCompanyData] = useState(initialData || {
     name: '',
     code: '',
-    unifiedSocialCreditCode: '',
     taxNo: '',
     address: '',
     baseCurrency: '人民币',
@@ -153,8 +151,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
       store.updateAccountSet(accountSetId, {
         name: companyData.name,
         code: companyData.code,
-        unifiedSocialCreditCode: companyData.unifiedSocialCreditCode,
-        taxNo: companyData.taxNo || companyData.unifiedSocialCreditCode,
+        taxNo: companyData.taxNo,
         address: companyData.address,
         baseCurrency: companyData.baseCurrency,
         accountingStandard: companyData.accountingStandard,

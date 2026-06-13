@@ -46,7 +46,6 @@ export function FirstTimeWrapper({ children }: FirstTimeWrapperProps) {
         const newSet = await store.addAccountSet({
           code: 'SET001',
           name: '我的公司',
-          unifiedSocialCreditCode: '',
           taxNo: '',
           address: '',
           currentPeriod: enableDate,

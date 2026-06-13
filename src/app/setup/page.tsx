@@ -49,8 +49,7 @@ export default function SetupPage() {
     initialData = {
       name: accountSet?.name || accountSetName,
       code: accountSet?.code || accountSetCode,
-      unifiedSocialCreditCode: accountSet?.unifiedSocialCreditCode || '',
-      taxNo: accountSet?.taxNo || accountSet?.unifiedSocialCreditCode || '',
+      taxNo: accountSet?.taxNo || '',
       address: accountSet?.address || '',
       baseCurrency: accountSet?.baseCurrency || '人民币',
       accountingStandard: accountSet?.accountingStandard || 'small-enterprise',
@@ -67,7 +66,6 @@ export default function SetupPage() {
     initialData = {
       name: accountSetName,
       code: accountSetCode,
-      unifiedSocialCreditCode: '',
       taxNo: '',
       address: '',
       baseCurrency: '人民币',
