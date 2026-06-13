@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { loadOpeningBalanceLockKeys } from '@/lib/opening-balance-rules';
 import { BANK_BRANDS } from '@/lib/bank-parsers/bank-registry';
 import { useToast } from '@/components/ui/toast';
 import {
@@ -82,6 +83,7 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
   const [saved, setSaved] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BankAccountEntry>(emptyForm());
+  const [lockedBankKeys, setLockedBankKeys] = useState<Set<string>>(new Set());
 
   const bankOptions = useMemo(() => Object.entries(BANK_BRANDS).map(([id, brand]) => ({
     id,
@@ -128,6 +130,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
         }));
         setEntries(loadedEntries);
         setSaved(loadedEntries.length > 0);
+        const lockKeys = await loadOpeningBalanceLockKeys(accountSetId, { sqliteService });
+        setLockedBankKeys(lockKeys.bankKeys);
       } catch (error) {
         console.warn('Load bank accounts failed:', error);
       }
@@ -551,6 +555,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
               {entries.map((entry, index) => {
                 const isEditing = editingId === entry.id;
                 const isForeign = isForeignCurrency(entry.currency);
+                const lockKey = entry.bankName || entry.accountNumber;
+                const isPosted = lockedBankKeys.has(lockKey);
                 return (
                   <tr key={entry.id} className="border-t hover:bg-slate-50">
                     <td className="px-2 py-1">
@@ -604,7 +610,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
                         <select
                           value={entry.currency}
                           onChange={(e) => updateEditedCell(entry.id, 'currency', e.target.value)}
-                          className="h-8 w-full text-xs rounded-md border px-2"
+                          disabled={isPosted}
+                          className="h-8 w-full text-xs rounded-md border px-2 disabled:bg-slate-100 disabled:text-slate-500"
                         >
                           {CURRENCIES.map(c => (
                             <option key={c.code} value={c.code}>{c.name}</option>
@@ -622,7 +629,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
                             step="0.0001"
                             value={entry.exchangeRate}
                             onChange={(e) => updateEditedCell(entry.id, 'exchangeRate', e.target.value)}
-                            className="h-8 text-sm text-right"
+                            disabled={isPosted}
+                            className="h-8 text-sm text-right disabled:bg-slate-100"
                             autoComplete="off"
                             placeholder="汇率"
                           />
@@ -637,7 +645,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
                           type="number"
                           value={entry.openingBalance}
                           onChange={(e) => updateEditedCell(entry.id, 'openingBalance', e.target.value)}
-                          className="h-8 text-sm text-right"
+                          disabled={isPosted}
+                          className="h-8 text-sm text-right disabled:bg-slate-100"
                           autoComplete="off"
                         />
                       ) : (
@@ -661,7 +670,14 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
                             <Edit className="h-3 w-3" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => removeEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => !isPosted && removeEntry(index)}
+                          disabled={isPosted}
+                          title={isPosted ? '已入账期初凭证，无法删除。如需调整请先冲销期初凭证' : '删除'}
+                          className={`h-7 w-7 p-0 ${isPosted ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
+                        >
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>

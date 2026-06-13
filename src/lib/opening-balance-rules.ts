@@ -277,3 +277,69 @@ export function hasSubledgerSourceForSubject(
 
   return false;
 }
+
+// ════════════════════════════════════════════
+// Posted-row lock detection
+// ════════════════════════════════════════════
+
+export interface OpeningLockKeys {
+  hasOpeningVoucher: boolean;
+  bankKeys: Set<string>;     // bankName || accountNumber
+  partnerKeys: Set<string>;  // partner name
+  assetKeys: Set<string>;    // asset name
+}
+
+const EMPTY_LOCK_KEYS: OpeningLockKeys = {
+  hasOpeningVoucher: false,
+  bankKeys: new Set(),
+  partnerKeys: new Set(),
+  assetKeys: new Set(),
+};
+
+/**
+ * Reads the opening balance voucher's entry summaries to figure out which
+ * bank accounts / partners / assets have already been posted. Each step
+ * (bank/partners/fixed-assets) uses these sets to lock amount fields and
+ * the delete button on rows that have already entered the ledger, so users
+ * must reverse the opening voucher rather than silently edit posted numbers.
+ */
+export async function loadOpeningBalanceLockKeys(
+  accountSetId: string,
+  options?: { dbInstance?: any; sqliteService?: any },
+): Promise<OpeningLockKeys> {
+  const db = options?.dbInstance ?? options?.sqliteService?.dbInstance;
+  if (!db) return EMPTY_LOCK_KEYS;
+
+  try {
+    const voucherId = `opening_balance_${accountSetId}`;
+    const result = db.exec(`SELECT summary FROM entries WHERE voucherId = '${voucherId}'`);
+    if (!result || !result[0] || !result[0].values || result[0].values.length === 0) {
+      return EMPTY_LOCK_KEYS;
+    }
+
+    const bankKeys = new Set<string>();
+    const partnerKeys = new Set<string>();
+    const assetKeys = new Set<string>();
+
+    for (const row of result[0].values) {
+      const summary = typeof row[0] === 'string' ? row[0] : '';
+      if (!summary) continue;
+      if (summary.startsWith('期初银行-')) {
+        bankKeys.add(summary.substring('期初银行-'.length));
+      } else if (summary.startsWith('期初应收-')) {
+        partnerKeys.add(summary.substring('期初应收-'.length));
+      } else if (summary.startsWith('期初应付-')) {
+        partnerKeys.add(summary.substring('期初应付-'.length));
+      } else if (summary.startsWith('期初资产-')) {
+        assetKeys.add(summary.substring('期初资产-'.length));
+      } else if (summary.startsWith('期初累计折旧-')) {
+        assetKeys.add(summary.substring('期初累计折旧-'.length));
+      }
+    }
+
+    return { hasOpeningVoucher: true, bankKeys, partnerKeys, assetKeys };
+  } catch (err) {
+    console.warn('loadOpeningBalanceLockKeys failed:', err);
+    return EMPTY_LOCK_KEYS;
+  }
+}

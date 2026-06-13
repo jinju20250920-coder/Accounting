@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { loadOpeningBalanceLockKeys } from '@/lib/opening-balance-rules';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useToast } from '@/components/ui/toast';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
@@ -79,6 +80,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
   const [form, setForm] = useState<AssetRow>(emptyAssetRow);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AssetRow>(emptyAssetRow);
+  const [lockedAssetKeys, setLockedAssetKeys] = useState<Set<string>>(new Set());
 
   const fixedAssetCategories = useMemo(
     () => getFixedAssetSetupCategories(categories),
@@ -115,9 +117,11 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
           usefulLifeYears: a.usefulLifeYears || 10,
         })));
       }
+      const lockKeys = await loadOpeningBalanceLockKeys(accountSetId, { sqliteService });
+      setLockedAssetKeys(lockKeys.assetKeys);
     };
     initializeAssetData();
-  }, [initialize, initializeDefaultCategories]);
+  }, [initialize, initializeDefaultCategories, accountSetId]);
 
   const totalOriginal = assets.reduce((sum, asset) => sum + asset.originalValue, 0);
   const totalDepreciation = assets.reduce((sum, asset) => sum + asset.accumulatedDepreciation, 0);
@@ -477,6 +481,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
             </thead>
             <tbody>
               {assets.map((asset) => {
+                const isPosted = lockedAssetKeys.has(asset.assetName);
                 if (editingId === asset.id) {
                   return (
                     <tr key={asset.id} className="border-t bg-blue-50/40">
@@ -496,13 +501,13 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                         </select>
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" value={editForm.originalValue || ''} onChange={(e) => updateEditForm('originalValue', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" autoComplete="off" />
+                        <Input type="number" value={editForm.originalValue || ''} onChange={(e) => updateEditForm('originalValue', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-8 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
                       </td>
                       <td className="px-2 py-1">
                         <Input type="number" value={editForm.salvageValue || ''} onChange={(e) => updateEditForm('salvageValue', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" autoComplete="off" />
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" value={editForm.accumulatedDepreciation || ''} onChange={(e) => updateEditForm('accumulatedDepreciation', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" autoComplete="off" />
+                        <Input type="number" value={editForm.accumulatedDepreciation || ''} onChange={(e) => updateEditForm('accumulatedDepreciation', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-8 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
                       </td>
                       <td className="px-2 py-1 text-right text-xs text-slate-500">
                         {Math.round((editForm.originalValue - editForm.accumulatedDepreciation) * 100) / 100}
@@ -559,7 +564,14 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                         <Button variant="ghost" size="sm" onClick={() => startEdit(asset)} className="h-7 w-7 p-0">
                           <Edit className="h-3 w-3" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => removeAsset(asset.id)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => !isPosted && removeAsset(asset.id)}
+                          disabled={isPosted}
+                          title={isPosted ? '已入账期初凭证，无法删除。如需调整请先冲销期初凭证' : '删除'}
+                          className={`h-7 w-7 p-0 ${isPosted ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
+                        >
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>

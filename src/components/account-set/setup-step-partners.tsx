@@ -14,6 +14,8 @@ import {
   Save,
 } from 'lucide-react';
 import { usePartnerStore } from '@/stores/usePartnerStore';
+import { loadOpeningBalanceLockKeys } from '@/lib/opening-balance-rules';
+import { sqliteService } from '@/lib/database/sqlite-service';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { DepartmentPopover } from '@/components/shared/subject-popover';
@@ -147,7 +149,6 @@ function parseBool(value: unknown): boolean {
 }
 
 export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
-  void accountSetId;
   const { showToast } = useToast();
   const {
     partners,
@@ -161,11 +162,16 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
   const [form, setForm] = useState<PartnerFormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<PartnerFormState>(emptyForm);
+  const [lockedPartnerKeys, setLockedPartnerKeys] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     initializePartners();
   }, [initializePartners]);
+
+  useEffect(() => {
+    loadOpeningBalanceLockKeys(accountSetId, { sqliteService }).then(keys => setLockedPartnerKeys(keys.partnerKeys));
+  }, [accountSetId]);
 
   const updateForm = <K extends keyof PartnerFormState>(field: K, value: PartnerFormState[K]) => {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -481,6 +487,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
             <tbody>
               {partners.map(p => {
                 const isEditing = editingId === p.id;
+                const isPosted = lockedPartnerKeys.has(p.name);
                 if (isEditing) {
                   return (
                     <tr key={p.id} className="border-t bg-blue-50/40">
@@ -498,7 +505,14 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                         </div>
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" value={editForm.openingBalance || ''} onChange={(e) => updateEditForm('openingBalance', parseFloat(e.target.value) || 0)} className="h-8 text-xs text-right" autoComplete="off" />
+                        <Input
+                          type="number"
+                          value={editForm.openingBalance || ''}
+                          onChange={(e) => updateEditForm('openingBalance', parseFloat(e.target.value) || 0)}
+                          disabled={isPosted}
+                          className="h-8 text-xs text-right disabled:bg-slate-100"
+                          autoComplete="off"
+                        />
                       </td>
                       <td className="px-2 py-1">
                         <Input value={editForm.contact} onChange={(e) => updateEditForm('contact', e.target.value)} className="h-8 text-xs" autoComplete="off" />
@@ -545,7 +559,14 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                         <Button variant="ghost" size="sm" onClick={() => startEdit(p)} className="h-7 w-7 p-0">
                           <Edit className="h-3 w-3" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => !isPosted && handleDelete(p.id)}
+                          disabled={isPosted}
+                          title={isPosted ? '已入账期初凭证，无法删除。如需调整请先冲销期初凭证' : '删除'}
+                          className={`h-7 w-7 p-0 ${isPosted ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
+                        >
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
