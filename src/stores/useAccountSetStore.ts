@@ -309,53 +309,12 @@ const defaultPlanFeatureConfigs: PlanFeatureConfig[] = defaultPricingPlans.map(p
 const useAccountSetStoreBase = create<AccountSetStore>()(
   persist(
     (set, get) => ({
-      // 初始状态
-      accountSets: [
-        {
-          id: 'set_001',
-          code: 'SET001',
-          name: '上海乐茜信息技术有限公司',
-          unifiedSocialCreditCode: '91310000MA1FL3XG12',
-          taxNo: '91310000MA1FL3XG12', // 纳税人识别号（与统一社会信用代码相同）
-          address: '上海市浦东新区张江高科技园区博云路2号',
-          baseCurrency: '人民币',
-          currentPeriod: '2026-03',
-          startDate: '2024-01-01',
-          accountingStandard: 'small-enterprise',
-          enableDate: '2024-01',
-          status: 'active',
-          createdDate: '2024-01-01',
-          lastModifiedDate: '2026-03-10',
-          isInitialized: true,
-          lastVoucherNo: 0,  // 最后一个凭证号（序号部分）
-          lastVoucherFullNo: '记-202603-000',  // 完整的最后一个凭证号
-          accounting: {
-            partnerTrackingMethod: 'card',
-            bankTrackingMethod: 'card',
-            assetTrackingMethod: 'card',
-            hasForeignCurrency: false,
-          },
-          accountingPeriods: generateDefaultPeriods()
-        }
-      ],
-      currentAccountSetId: 'set_001',
+      // 初始状态（首次使用由 FirstTimeWizard 创建账套）
+      accountSets: [],
+      currentAccountSetId: null as string | null,
 
       // 授权信息
-      licenses: [
-        {
-          id: 'license_001',
-          accountSetId: 'set_001',
-          licenseKey: 'LIVE-299-SET1',
-          licenseType: 'basic',
-          status: 'active',
-          validFrom: '2024-01-01',
-          validTo: '2025-01-01',
-          maxVoucherCount: 1000,
-          features: ['voucher-entry', 'balance-report', 'subject-management', 'basic-reports'],
-          activatedDate: '2024-01-01',
-          activationToken: 'ACT-20240101-SET001'
-        }
-      ],
+      licenses: [] as AccountLicense[],
 
       // 支付套餐信息
       pricingPlans: defaultPricingPlans,

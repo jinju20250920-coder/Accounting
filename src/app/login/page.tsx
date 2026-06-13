@@ -107,7 +107,7 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           {mode === 'login' ? (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
               <div className="space-y-2">
                 <Label htmlFor="username">用户名</Label>
                 <Input
@@ -116,7 +116,7 @@ export default function LoginPage() {
                   placeholder="请输入用户名"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   disabled={isLoading}
                 />
               </div>
@@ -128,7 +128,7 @@ export default function LoginPage() {
                   placeholder="请输入密码"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   disabled={isLoading}
                 />
               </div>
@@ -164,12 +164,14 @@ export default function LoginPage() {
                   没有账号？注册新账号
                 </button>
               </div>
-              <div className="text-center text-xs text-slate-400">
-                默认管理员账号: admin / admin123
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
+                <p className="text-sm text-blue-700 font-medium">首次使用？</p>
+                <p className="text-xs text-blue-600 mt-1">默认管理员账号: <span className="font-mono">admin</span> / <span className="font-mono">admin123</span></p>
+                <p className="text-xs text-blue-500 mt-1">登录后可创建您的第一个账套</p>
               </div>
             </form>
           ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
+            <form onSubmit={handleRegister} className="space-y-4" autoComplete="off">
               <div className="space-y-2">
                 <Label htmlFor="reg-username">用户名</Label>
                 <Input
@@ -178,7 +180,7 @@ export default function LoginPage() {
                   placeholder="请输入用户名"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   disabled={isLoading}
                 />
               </div>
@@ -190,7 +192,7 @@ export default function LoginPage() {
                   placeholder="请输入密码（至少6位）"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   disabled={isLoading}
                 />
               </div>
@@ -202,7 +204,7 @@ export default function LoginPage() {
                   placeholder="请再次输入密码"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   disabled={isLoading}
                 />
               </div>

@@ -110,6 +110,12 @@ export function useDatabaseSync() {
         if (currentAccountSet) {
           sqliteService.setAccountSetId(currentAccountSet.id);
           console.log('Database sync: Set account set ID to', currentAccountSet.id);
+        } else {
+          console.log('Database sync: No account set yet, skipping store initialization');
+          setIsInitialized(true);
+          _initDone = true;
+          _initResolve?.();
+          return;
         }
 
         // 3. 从 SQLite 加载数据到各个 store

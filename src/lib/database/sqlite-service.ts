@@ -434,46 +434,52 @@ class SQLiteService {
   private async migrateBackfillVoucherEntryFxFields(): Promise<void> {
     if (!this.dbInstance) return;
     if (typeof localStorage !== 'undefined') {
-      const flag = `fx_migration_done_${this.accountSetId}`;
+      const flag = 'fx_migration_done_' + this.accountSetId;
       if (localStorage.getItem(flag) === '1') return;
     }
 
     // 健康检查：先用一个最简单的 query 探测 dbInstance 是否可用。
-    // 若 WASM 状态损坏（HMR 后常见），直接跳过本次迁移，避免连锁报错。
     try {
       const probe = this.dbInstance.exec('SELECT 1');
       if (!probe || probe.length === 0) return;
     } catch (err) {
-      console.warn('[FX migration] 数据库探测失败，跳过本次迁移。建议刷新浏览器。', err);
+      console.warn('[FX migration] 数据库探测失败，跳过本次迁移。', err);
       return;
     }
+
+    // NOTE: 此方法在 _doEnsureInitialized() 内部被调用，不能使用 queryAllAsync（会触发 ensureInitialized 导致死锁）。
+    // 直接使用 this.dbInstance 进行查询。
+    const db = this.dbInstance;
+    const asId = this.accountSetId || '';
 
     try {
       const MONETARY_PREFIXES = ['1001','1002','1012','1101','1121','1122','1123','1131','1132','1221','1231','1401','1471','1501','1502','1503','1504','2001','2002','2101','2201','2202','2203','2211','2221','2231','2232','2241','2501','2502','2701','2702'];
       const isMonetary = (code: string) => !!code && MONETARY_PREFIXES.some(p => code.startsWith(p));
 
-      const rows = await this.getSimpleQueryService().queryAllAsync<any>(
-        `SELECT id, voucherNo, summary, date FROM vouchers WHERE accountSetId = ?`,
-        [this.accountSetId],
-      );
+      const vStmt = db.prepare(`SELECT id, voucherNo, summary, date FROM vouchers WHERE accountSetId = ?`);
+      vStmt.bind([asId]);
+      const rows: any[] = [];
+      while (vStmt.step()) rows.push(vStmt.getAsObject());
+      vStmt.free();
 
       let patchedCount = 0;
       for (const v of rows) {
-        const entries = await this.getSimpleQueryService().queryAllAsync<any>(
-          `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
-          [v.id, this.accountSetId],
-        );
+        const eStmt = db.prepare(`SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`);
+        eStmt.bind([v.id, asId]);
+        const entries: any[] = [];
+        while (eStmt.step()) entries.push(eStmt.getAsObject());
+        eStmt.free();
 
-        // 查关联的银行流水
-        const linkedTx = await this.getSimpleQueryService().queryAllAsync<any>(
-          `SELECT * FROM bankTransactions WHERE accountSetId = ? AND voucherId = ? LIMIT 1`,
-          [this.accountSetId, v.id],
-        );
+        const tStmt = db.prepare(`SELECT * FROM bankTransactions WHERE accountSetId = ? AND voucherId = ? LIMIT 1`);
+        tStmt.bind([asId, v.id]);
+        const linkedTx: any[] = [];
+        while (tStmt.step()) linkedTx.push(tStmt.getAsObject());
+        tStmt.free();
+
         const txRate = linkedTx[0]?.exchangeRate;
         const txOriginal = linkedTx[0]?.originalAmount;
         const txCurrency = (linkedTx[0] as any)?.currencyCode || (linkedTx[0]?.summary?.match?.(/\(([A-Z]{3})@/)?.[1]);
 
-        // 凭证摘要中的 FX 信息
         const summaryMatch = (v.summary || '').match(/\(([A-Z]{3})@([\d.]+)\)/);
         const summaryCurrency = summaryMatch?.[1];
         const summaryRate = summaryMatch ? parseFloat(summaryMatch[2]) : undefined;
@@ -491,30 +497,21 @@ class SQLiteService {
             const original = txOriginal && txOriginal > 0
               ? txOriginal
               : Math.round((cnyAmount / effectiveRate) * 100) / 100;
-            const stmt = this.dbInstance.prepare(
+            const stmt = db.prepare(
               `UPDATE entries SET currencyCode = ?, currencyName = ?, exchangeRate = ?, originalAmount = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
             );
             try {
-              stmt.run([
-                effectiveCurrency,
-                effectiveCurrency,
-                effectiveRate,
-                original,
-                new Date().toISOString(),
-                e.id,
-                this.accountSetId,
-              ]);
+              stmt.run([effectiveCurrency, effectiveCurrency, effectiveRate, original, new Date().toISOString(), e.id, asId]);
               needsUpdate = true;
             } finally {
               stmt.free();
             }
           } else if (!monetary && hasExistingFx) {
-            // 非货币性分录不应有 FX 字段（CAS 19），清掉
-            const stmt = this.dbInstance.prepare(
+            const stmt = db.prepare(
               `UPDATE entries SET currencyCode = NULL, currencyName = NULL, exchangeRate = NULL, originalAmount = NULL, updateTime = ? WHERE id = ? AND accountSetId = ?`,
             );
             try {
-              stmt.run([new Date().toISOString(), e.id, this.accountSetId]);
+              stmt.run([new Date().toISOString(), e.id, asId]);
               needsUpdate = true;
             } finally {
               stmt.free();
@@ -531,7 +528,7 @@ class SQLiteService {
       }
 
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(`fx_migration_done_${this.accountSetId}`, '1');
+        localStorage.setItem('fx_migration_done_' + this.accountSetId, '1');
       }
     } catch (err) {
       console.error('[FX migration] 失败:', err);
@@ -2517,11 +2514,30 @@ class SQLiteService {
       // 创建默认管理员用户（密码: admin123）
       // SHA-256 hash of 'admin123' with salt 'default'
       const defaultPasswordHash = 'sha256:default:8938e28d00cc4d0b087f84900e8b17bb489132fb161466446704226cdc4ca338';
-      const userStmt = this.dbInstance.prepare(
-        `INSERT OR IGNORE INTO users (id, username, passwordHash, displayName, status, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      );
-      userStmt.run(['user_admin', 'admin', defaultPasswordHash, '管理员', 'active', now, now]);
-      userStmt.free();
+
+      // 检测 users 表实际列，兼容不同 schema（旧数据库可能有 salt 列）
+      const userPragma = this.dbInstance.exec('PRAGMA table_info(users)');
+      const userColumns = userPragma[0]?.values?.map((row: any[]) => row[1]) || [];
+
+      // 先删除旧的 admin 用户再插入，避免 INSERT OR REPLACE 与额外 NOT NULL 列冲突
+      const delStmt = this.dbInstance.prepare('DELETE FROM users WHERE username = ?');
+      delStmt.run(['admin']);
+      delStmt.free();
+
+      const hasSalt = userColumns.includes('salt');
+      if (hasSalt) {
+        const insStmt = this.dbInstance.prepare(
+          `INSERT INTO users (id, username, passwordHash, displayName, status, salt, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        insStmt.run(['user_admin', 'admin', defaultPasswordHash, '管理员', 'active', 'default', now, now]);
+        insStmt.free();
+      } else {
+        const insStmt = this.dbInstance.prepare(
+          `INSERT INTO users (id, username, passwordHash, displayName, status, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        insStmt.run(['user_admin', 'admin', defaultPasswordHash, '管理员', 'active', now, now]);
+        insStmt.free();
+      }
 
       // 分配管理员角色给默认用户
       const urStmt = this.dbInstance.prepare(

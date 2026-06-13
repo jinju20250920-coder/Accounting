@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccountSetStore } from '@/stores';
 import { FirstTimeWizard } from './first-time-wizard';
 import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
 
@@ -16,7 +15,6 @@ interface FirstTimeWrapperProps {
  * - 向导完成后才能访问主应用
  */
 export function FirstTimeWrapper({ children }: FirstTimeWrapperProps) {
-  const { accountSets } = useAccountSetStore();
   const [isLoading, setIsLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
 
@@ -25,31 +23,27 @@ export function FirstTimeWrapper({ children }: FirstTimeWrapperProps) {
       setIsLoading(true);
 
       try {
-        // 检查全局数据库中是否有账套记录
-        const dbAccountSets = await accountSetDbManager.getAllAccountSets();
-
-        // 检查 localStorage 是否有首次使用标记
+        // 检查 localStorage 是否已完成向导
         const hasCompletedWizard = localStorage.getItem('hasCompletedWizard');
+        if (hasCompletedWizard) {
+          setIsLoading(false);
+          return;
+        }
 
-        // 判断是否需要显示向导
-        const needsWizard =
-          accountSets.length === 0 &&
-          dbAccountSets.length === 0 &&
-          !hasCompletedWizard;
-
-        if (needsWizard) {
+        // 检查数据库中是否有账套记录（权威数据源）
+        const dbAccountSets = await accountSetDbManager.getAllAccountSets();
+        if (dbAccountSets.length === 0) {
           setShowWizard(true);
         }
       } catch (error) {
         console.error('Failed to check first-time status:', error);
-        // 出错时不阻止用户使用
       } finally {
         setIsLoading(false);
       }
     };
 
     checkFirstTime();
-  }, [accountSets.length]);
+  }, []);
 
   const handleWizardComplete = () => {
     // 标记已完成向导
