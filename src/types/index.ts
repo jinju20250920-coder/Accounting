@@ -89,6 +89,7 @@ export interface VoucherEntry {
     project?: string;
     customer?: string;
     supplier?: string;
+    bankAccount?: string;
   };
   accountSetId?: string; // 新增字段：所属账套ID
   docNo?: string; // 业务单据号（发票号、银行流水号等）

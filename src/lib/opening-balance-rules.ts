@@ -284,7 +284,7 @@ export function hasSubledgerSourceForSubject(
 
 export interface OpeningLockKeys {
   hasOpeningVoucher: boolean;
-  bankKeys: Set<string>;     // bankName || accountNumber
+  bankKeys: Set<string>;     // accountNumber (unique) — preferred matching key
   partnerKeys: Set<string>;  // partner name
   assetKeys: Set<string>;    // asset name
 }
@@ -318,8 +318,12 @@ export async function loadOpeningBalanceLockKeys(
     // stable ID (opening_balance_<accountSetId>) and legacy timestamp-based IDs
     // (opening_<timestamp>). The setup wizard's cleanup only runs on re-save,
     // so older test data may still have the old format.
+    //
+    // For banks we read auxiliary.bankAccount (unique accountNumber). Falling back
+    // to bankName would falsely lock any new row added at the same bank, since the
+    // summary only carries the bank name (建行 has many accounts).
     const result = db.exec(
-      `SELECT e.summary FROM entries e
+      `SELECT e.summary, e.auxiliary FROM entries e
        INNER JOIN vouchers v ON e.voucherId = v.id
        WHERE e.accountSetId = '${accountSetId}'
        AND e.voucherId LIKE 'opening_%'
@@ -337,7 +341,18 @@ export async function loadOpeningBalanceLockKeys(
       const summary = typeof row[0] === 'string' ? row[0] : '';
       if (!summary) continue;
       if (summary.startsWith('期初银行-')) {
-        bankKeys.add(summary.substring('期初银行-'.length));
+        // Prefer auxiliary.bankAccount (unique). Legacy entries without it are skipped —
+        // the user can re-save opening to migrate.
+        const auxiliaryRaw = typeof row[1] === 'string' ? row[1] : '';
+        if (auxiliaryRaw) {
+          try {
+            const auxiliary = JSON.parse(auxiliaryRaw);
+            const accountNumber = auxiliary?.bankAccount;
+            if (typeof accountNumber === 'string' && accountNumber) {
+              bankKeys.add(accountNumber);
+            }
+          } catch { /* skip malformed auxiliary */ }
+        }
       } else if (summary.startsWith('期初应收-')) {
         partnerKeys.add(summary.substring('期初应收-'.length));
       } else if (summary.startsWith('期初应付-')) {

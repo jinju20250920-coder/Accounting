@@ -555,8 +555,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
               {entries.map((entry, index) => {
                 const isEditing = editingId === entry.id;
                 const isForeign = isForeignCurrency(entry.currency);
-                const lockKey = entry.bankName || entry.accountNumber;
-                const isPosted = lockedBankKeys.has(lockKey);
+                // Match by accountNumber (unique) — bankName is not unique across accounts at the same bank
+                const isPosted = lockedBankKeys.has(entry.accountNumber);
                 return (
                   <tr key={entry.id} className="border-t hover:bg-slate-50">
                     <td className="px-2 py-1">

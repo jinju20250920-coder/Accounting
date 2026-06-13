@@ -452,6 +452,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           date: voucherDate, summary: `期初银行-${e.bankName || e.accountNumber}`,
           subjectCode: bankSubjectCode, subjectName: bankSubjectName,
           debit: Math.max(e.balance, 0), credit: Math.max(-e.balance, 0),
+          auxiliary: { bankAccount: e.accountNumber },
         });
 
         try {

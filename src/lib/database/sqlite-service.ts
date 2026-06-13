@@ -2290,6 +2290,10 @@ class SQLiteService {
           this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN originalAmount REAL');
           console.log('Migration: Added originalAmount column to bankTransactions');
         }
+        if (!columnNames.includes('transactionTime')) {
+          this.dbInstance.run('ALTER TABLE bankTransactions ADD COLUMN transactionTime TEXT');
+          console.log('Migration: Added transactionTime column to bankTransactions');
+        }
       }
       // Add index for ourAccount filtering
       this.dbInstance.run('CREATE INDEX IF NOT EXISTS idx_bankTransactions_ourAccount ON bankTransactions(ourAccount)');
