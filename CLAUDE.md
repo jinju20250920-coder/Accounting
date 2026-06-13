@@ -134,7 +134,7 @@ src/
 │   │   ├── TemplateSelector.tsx    # 模板选择器
 │   │   └── ...
 │   ├── reports/                    # 报表组件（5个）
-│   ├── database/                   # 数据库管理组件（7个）
+│   ├── database/                   # 数据库管理组件（6个，含 FirstTimeWrapper）
 │   ├── account-set/                # 账套管理组件（14个）
 │   │   ├── account-set-members-dialog.tsx # 账套成员管理对话框
 │   │   ├── setup-wizard.tsx         # 设置向导（9步条件流程，自由导航）
@@ -646,6 +646,11 @@ npm run lint
 - ✅ 核算方式配置 - 往来/银行/固定资产三个维度可选卡片管理或明细科目管理
 - ✅ sqlite-service 类型化重构 - 14个域提取到 services/ 模块，`any` 从 169 降到 53，文件从 4634 行降到 3427 行
 - ✅ 部门/项目核算开关 - 业务规则步骤可选启用部门核算（含内联部门列表）和项目核算（条件步骤），项目核算启用后新增项目维护步骤
+- ✅ 登录死锁修复 - migrateBackfillVoucherEntryFxFields 中 queryAllAsync 调用 ensureInitialized 造成循环依赖，改为直接使用 dbInstance 查询
+- ✅ 数据库迁移健壮性 - vouchers 表自动补齐 creator/reviewer/poster 等列；users 表兼容有无 salt 列的 schema；admin 用户使用 DELETE+INSERT 确保 hash 正确
+- ✅ 首次使用体验重构 - 移除硬编码默认 set_001 账套，FirstTimeWrapper 检测无账套时自动创建最小记录并跳转到完整 SetupWizard（/setup?mode=create），删除旧的 FirstTimeWizard（4步对话框）
+- ✅ 登录页优化 - 首次使用提示（蓝色信息框）、关闭浏览器自动填充（autoComplete="new-password"）
+- ✅ AccountSet 字段精简 - 移除 unifiedSocialCreditCode 字段，税务信息仅保留 taxNo（纳税人识别号）
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
