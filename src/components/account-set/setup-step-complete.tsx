@@ -95,8 +95,8 @@ export function SetupStepComplete({ progress, companyData, selectedTemplate }: S
           <h3 className="font-medium text-slate-900 mb-3">设置进度</h3>
           <div className="space-y-2">
             {STEP_CONFIG.map((step) => {
-              const isCompleted = progress.completed.includes(step.id);
               const isSkipped = progress.skippedOptional.includes(step.id);
+              const isCompleted = !isSkipped;
               const Icon = step.icon;
 
               return (
