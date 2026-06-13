@@ -137,12 +137,27 @@ export async function getCashOverviewQuery(
 
   let openingBalance: number | null = null;
   if (ourAccount) {
-    const manualBalance = await service.querySingleAsync<BalanceRow>(
-      `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) = substr(?, 1, 7) ORDER BY periodStart DESC LIMIT 1`,
+    // Pick the latest manual opening balance at or before the queried period —
+    // setup saves it for the enable month (e.g. '2026-04'), but the cash console
+    // may be viewed in a later month (e.g. '2026-06'). Strict equality misses
+    // that case. We then layer in any transactions between the manual period
+    // and the queried period so the opening stays correct after imports.
+    interface ManualRow { balance: number; periodStart: string }
+    const manualBalance = await service.querySingleAsync<ManualRow>(
+      `SELECT balance, periodStart FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7) ORDER BY periodStart DESC LIMIT 1`,
       [accountSetId, ourAccount, periodStart],
     );
     if (manualBalance?.balance != null) {
-      openingBalance = manualBalance.balance;
+      const manualPeriodStart = manualBalance.periodStart.length >= 7
+        ? `${manualBalance.periodStart.substring(0, 7)}-01`
+        : manualBalance.periodStart;
+      const sinceResult = await service.querySingleAsync<SumsRow>(
+        `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
+        [accountSetId, ourAccount, manualPeriodStart, periodStart],
+      );
+      const sinceCredit = sinceResult?.totalCredit || 0;
+      const sinceDebit = sinceResult?.totalDebit || 0;
+      openingBalance = Math.round((manualBalance.balance + sinceCredit - sinceDebit) * 100) / 100;
     }
   }
 
