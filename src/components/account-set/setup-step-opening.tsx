@@ -148,16 +148,26 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     });
   }, [partners]);
 
-  // Load bank accounts from previous step
+  // Load bank accounts from previous step, pre-filling saved opening balances
   useEffect(() => {
     const loadBankAccounts = async () => {
       try {
         const bindings = await sqliteService.getBankAccountBindings();
         if (bindings && bindings.length > 0) {
+          // Fetch any opening balances already saved in the bank step
+          let savedBalances: Record<string, number> = {};
+          try {
+            const rows = await sqliteService.getAllBankOpeningBalances();
+            savedBalances = (rows || []).reduce<Record<string, number>>((acc, row) => {
+              acc[row.accountNumber] = row.balance;
+              return acc;
+            }, {});
+          } catch { /* table may not exist yet */ }
+
           setBankEntries((bindings as BankBindingForOpening[]).map((b) => ({
             accountNumber: b.accountNumber || '',
             bankName: b.bankName || b.aliasName || '',
-            balance: 0,
+            balance: savedBalances[b.accountNumber] ?? 0,
           })));
         }
       } catch { /* Bank accounts may not exist yet */ }
@@ -421,10 +431,14 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         });
 
         try {
+          // Preserve foreign currency details saved in the bank step
+          const existing = await sqliteService.getBankOpeningBalanceDetail(e.accountNumber, voucherDate.substring(0, 7));
           await sqliteService.saveBankOpeningBalance({
             accountNumber: e.accountNumber,
             periodStart: voucherDate.substring(0, 7),
             balance: e.balance,
+            foreignBalance: existing?.foreignBalance ?? null,
+            exchangeRate: existing?.exchangeRate ?? null,
             createdBy: 'system',
           });
         } catch (err) { console.warn('Bank opening balance save failed:', err); }
@@ -438,10 +452,13 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           for (const entry of bankSubjectEntries) {
             const binding = (bindings as BankBindingForOpening[]).find((b) => b.subjectCode === entry.subjectCode);
             if (binding?.accountNumber) {
+              const existing = await sqliteService.getBankOpeningBalanceDetail(binding.accountNumber, voucherDate.substring(0, 7));
               await sqliteService.saveBankOpeningBalance({
                 accountNumber: binding.accountNumber,
                 periodStart: voucherDate.substring(0, 7),
                 balance: (entry.debit || 0) - (entry.credit || 0),
+                foreignBalance: existing?.foreignBalance ?? null,
+                exchangeRate: existing?.exchangeRate ?? null,
                 createdBy: 'system',
               });
             }

@@ -468,6 +468,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">原值</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">残值</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">累计折旧金额</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">账面价值</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-36">开始折旧日期</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-16">年限</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">折旧方法</th>
@@ -502,6 +503,9 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                       </td>
                       <td className="px-2 py-1">
                         <Input type="number" value={editForm.accumulatedDepreciation || ''} onChange={(e) => updateEditForm('accumulatedDepreciation', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" autoComplete="off" />
+                      </td>
+                      <td className="px-2 py-1 text-right text-xs text-slate-500">
+                        {Math.round((editForm.originalValue - editForm.accumulatedDepreciation) * 100) / 100}
                       </td>
                       <td className="px-2 py-1">
                         <ChineseDatePicker
@@ -544,6 +548,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                     <td className="px-3 py-2 text-right text-slate-600">{asset.originalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right text-slate-500">{(asset.salvageValue || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right text-slate-600">{asset.accumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 text-right font-medium text-blue-700">{(asset.originalValue - asset.accumulatedDepreciation).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-slate-600">{asset.acquisitionDate || '-'}</td>
                     <td className="px-3 py-2 text-right text-slate-600">{asset.usefulLifeYears}</td>
                     <td className="px-3 py-2 text-slate-600">
