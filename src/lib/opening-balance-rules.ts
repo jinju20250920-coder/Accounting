@@ -308,11 +308,23 @@ export async function loadOpeningBalanceLockKeys(
   options?: { dbInstance?: any; sqliteService?: any },
 ): Promise<OpeningLockKeys> {
   const db = options?.dbInstance ?? options?.sqliteService?.dbInstance;
-  if (!db) return EMPTY_LOCK_KEYS;
+  if (!db) {
+    console.warn('[loadOpeningBalanceLockKeys] db not ready for', accountSetId);
+    return EMPTY_LOCK_KEYS;
+  }
 
   try {
-    const voucherId = `opening_balance_${accountSetId}`;
-    const result = db.exec(`SELECT summary FROM entries WHERE voucherId = '${voucherId}'`);
+    // Scan entries from ALL opening vouchers for this account set — both the new
+    // stable ID (opening_balance_<accountSetId>) and legacy timestamp-based IDs
+    // (opening_<timestamp>). The setup wizard's cleanup only runs on re-save,
+    // so older test data may still have the old format.
+    const result = db.exec(
+      `SELECT e.summary FROM entries e
+       INNER JOIN vouchers v ON e.voucherId = v.id
+       WHERE e.accountSetId = '${accountSetId}'
+       AND e.voucherId LIKE 'opening_%'
+       AND v.id LIKE 'opening_%'`,
+    );
     if (!result || !result[0] || !result[0].values || result[0].values.length === 0) {
       return EMPTY_LOCK_KEYS;
     }
