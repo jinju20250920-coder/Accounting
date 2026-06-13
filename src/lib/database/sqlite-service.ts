@@ -417,6 +417,8 @@ class SQLiteService {
     await this.migrateFxRatesCreatedBy();
     // 迁移：创建银行账户期初余额表
     await this.migrateCreateBankOpeningBalancesTable();
+    // 迁移：vouchers 表补齐 creator/reviewer/poster 等列
+    await this.migrateAddVoucherColumns();
     // 迁移：创建部门和项目表
     await this.migrateCreateDepartmentProjectTables();
     // 数据迁移：为旧凭证补全外币分录字段（仅货币性项目，从关联的银行流水或摘要解析推断）
@@ -2566,6 +2568,31 @@ class SQLiteService {
       }
     } catch (error) {
       console.error('Migration: Failed to add createdBy to fxRates', error);
+    }
+  }
+
+  /**
+   * 迁移：vouchers 表补齐 creator/reviewer/poster/reverseVoucherId 等列
+   */
+  private async migrateAddVoucherColumns(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const pragma = this.dbInstance.exec('PRAGMA table_info(vouchers)');
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+      const addColumns: string[] = [];
+      if (!columns.includes('creator')) addColumns.push('ALTER TABLE vouchers ADD COLUMN creator TEXT');
+      if (!columns.includes('reviewer')) addColumns.push('ALTER TABLE vouchers ADD COLUMN reviewer TEXT');
+      if (!columns.includes('poster')) addColumns.push('ALTER TABLE vouchers ADD COLUMN poster TEXT');
+      if (!columns.includes('reverseVoucherId')) addColumns.push('ALTER TABLE vouchers ADD COLUMN reverseVoucherId TEXT');
+      if (!columns.includes('referenceNumber')) addColumns.push('ALTER TABLE vouchers ADD COLUMN referenceNumber TEXT');
+      if (!columns.includes('attachmentCount')) addColumns.push('ALTER TABLE vouchers ADD COLUMN attachmentCount INTEGER DEFAULT 0');
+      if (!columns.includes('totalDebit')) addColumns.push('ALTER TABLE vouchers ADD COLUMN totalDebit REAL DEFAULT 0');
+      if (!columns.includes('totalCredit')) addColumns.push('ALTER TABLE vouchers ADD COLUMN totalCredit REAL DEFAULT 0');
+      for (const sql of addColumns) {
+        this.dbInstance.exec(sql);
+      }
+    } catch (error) {
+      console.error('Migration: Failed to add voucher columns', error);
     }
   }
 
