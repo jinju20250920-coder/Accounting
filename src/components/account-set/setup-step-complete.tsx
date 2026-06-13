@@ -139,10 +139,6 @@ export function SetupStepComplete({ progress, companyData, selectedTemplate }: S
           {!progress.invoiceRulesConfigured && (
             <li>在「设置 → 发票规则」中配置发票业务组和税金科目</li>
           )}
-          {!progress.payrollConfigured && (
-            <li>在「工资管理」中配置社保公积金费率</li>
-          )}
-          <li>在「设置 → 往来单位」中导入客户和供应商</li>
           <li>开始录入凭证，或导入银行流水自动生成凭证</li>
         </ul>
       </div>
