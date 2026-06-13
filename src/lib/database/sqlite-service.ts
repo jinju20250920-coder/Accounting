@@ -421,6 +421,8 @@ class SQLiteService {
     await this.migrateCreateBankOpeningBalancesTable();
     // 迁移：vouchers 表补齐 creator/reviewer/poster 等列
     await this.migrateAddVoucherColumns();
+    // 迁移：entries 表补齐 direction/auxiliary/department/project/currency 等列
+    await this.migrateAddEntryColumns();
     // 迁移：创建部门和项目表
     await this.migrateCreateDepartmentProjectTables();
     // 数据迁移：为旧凭证补全外币分录字段（仅货币性项目，从关联的银行流水或摘要解析推断）
@@ -2606,6 +2608,41 @@ class SQLiteService {
       }
     } catch (error) {
       console.error('Migration: Failed to add voucher columns', error);
+    }
+  }
+
+  /**
+   * 迁移：entries 表补齐 direction/auxiliary/department/project/currency/createTime 等列
+   */
+  private async migrateAddEntryColumns(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const pragma = this.dbInstance.exec('PRAGMA table_info(entries)');
+      const columns = pragma[0]?.values?.map((row: any[]) => row[1]) || [];
+      if (columns.length === 0) return;
+      const addColumns: string[] = [];
+      if (!columns.includes('direction')) addColumns.push('ALTER TABLE entries ADD COLUMN direction TEXT');
+      if (!columns.includes('customerName')) addColumns.push('ALTER TABLE entries ADD COLUMN customerName TEXT');
+      if (!columns.includes('supplierName')) addColumns.push('ALTER TABLE entries ADD COLUMN supplierName TEXT');
+      if (!columns.includes('auxiliary')) addColumns.push('ALTER TABLE entries ADD COLUMN auxiliary TEXT');
+      if (!columns.includes('recRefNo')) addColumns.push('ALTER TABLE entries ADD COLUMN recRefNo TEXT');
+      if (!columns.includes('departmentCode')) addColumns.push('ALTER TABLE entries ADD COLUMN departmentCode TEXT');
+      if (!columns.includes('departmentName')) addColumns.push('ALTER TABLE entries ADD COLUMN departmentName TEXT');
+      if (!columns.includes('projectCode')) addColumns.push('ALTER TABLE entries ADD COLUMN projectCode TEXT');
+      if (!columns.includes('projectName')) addColumns.push('ALTER TABLE entries ADD COLUMN projectName TEXT');
+      if (!columns.includes('currencyCode')) addColumns.push('ALTER TABLE entries ADD COLUMN currencyCode TEXT');
+      if (!columns.includes('currencyName')) addColumns.push('ALTER TABLE entries ADD COLUMN currencyName TEXT');
+      if (!columns.includes('exchangeRate')) addColumns.push('ALTER TABLE entries ADD COLUMN exchangeRate REAL');
+      if (!columns.includes('originalAmount')) addColumns.push('ALTER TABLE entries ADD COLUMN originalAmount REAL');
+      if (!columns.includes('date')) addColumns.push('ALTER TABLE entries ADD COLUMN date TEXT');
+      if (!columns.includes('accountSetId')) addColumns.push('ALTER TABLE entries ADD COLUMN accountSetId TEXT');
+      if (!columns.includes('createTime')) addColumns.push('ALTER TABLE entries ADD COLUMN createTime TEXT');
+      if (!columns.includes('updateTime')) addColumns.push('ALTER TABLE entries ADD COLUMN updateTime TEXT');
+      for (const sql of addColumns) {
+        this.dbInstance.exec(sql);
+      }
+    } catch (error) {
+      console.error('Migration: Failed to add entry columns', error);
     }
   }
 
