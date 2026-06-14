@@ -76,56 +76,6 @@ export default function ExchangePage() {
     initializeRevaluationRuns();
   }, [accountSetId]);
 
-  // TEMP DEBUG HOOK: 在浏览器控制台调用
-  // 用法1: await window.__fixVoucherFx('收-202606-003', 'USD', 6.8109)
-  //   仅写入货币性项目分录（1001/1002/1122/2202 等），非货币性（库存/收入/费用）跳过
-  // 用法2: await window.__fixVoucherFx('收-202606-003', 'USD', 6.8109, { clearNonMonetary: true })
-  //   同时清掉非货币性分录上残留的 FX 字段
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    (window as any).__fixVoucherFx = async (
-      voucherNo: string,
-      currency: string,
-      rate: number,
-      opts?: { clearNonMonetary?: boolean },
-    ) => {
-      const isMonetary = (code: string) => {
-        if (!code) return false;
-        const prefixes = ['1001','1002','1012','1101','1121','1122','1123','1131','1132','1221','1231','1401','1471','1501','1502','1503','1504','2001','2002','2101','2201','2202','2203','2211','2221','2231','2232','2241','2501','2502','2701','2702'];
-        return prefixes.some(p => code.startsWith(p));
-      };
-      const service = getCurrentService() as any;
-      const all = await service.getAllVouchers();
-      const target = all.find((v: any) => (v.voucherNo || v.no) === voucherNo);
-      if (!target) {
-        console.error(`[fixVoucherFx] 凭证号 ${voucherNo} 未找到。现有凭证号:`, all.map((v: any) => v.voucherNo));
-        return { ok: false, error: 'not-found' };
-      }
-      const updatedEntries = (target.entries || []).map((e: any) => {
-        if (!isMonetary(e.subjectCode)) {
-          if (!opts?.clearNonMonetary) return e;
-          const { currencyCode, currencyName, exchangeRate, originalAmount, ...rest } = e;
-          return rest;
-        }
-        const cnyAmount = (e.debit || 0) + (e.credit || 0);
-        const originalAmount = cnyAmount > 0 ? Math.round((cnyAmount / rate) * 100) / 100 : 0;
-        return {
-          ...e,
-          currencyCode: currency,
-          currencyName: currency === 'USD' ? '美元' : currency,
-          exchangeRate: rate,
-          originalAmount,
-        };
-      });
-      const updated = { ...target, entries: updatedEntries };
-      await service.saveVoucher(updated);
-      const monetary = updatedEntries.filter((e: any) => isMonetary(e.subjectCode));
-      console.log(`[fixVoucherFx] 已修复 ${voucherNo}。货币性分录 ${monetary.length} 条写入 FX，其他 ${updatedEntries.length - monetary.length} 条保持不变。`, updatedEntries);
-      return { ok: true, fixed: monetary.length, total: updatedEntries.length };
-    };
-    return () => { delete (window as any).__fixVoucherFx; };
-  }, []);
-
   // ─── 预览计算 ───
 
   const handlePreview = useCallback(async () => {
@@ -625,12 +575,14 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
   const service = getCurrentService() as any;
   const periodEnd = getMonthEndDate(period);
 
-  // 预加载银行账户绑定，按 subSubjectCode 索引，用于元数据反查
+  // 预加载银行账户绑定，按 subSubjectCode 和 accountNumber 索引，用于元数据反查
   const bindingsBySubject = new Map<string, any>();
+  const bindingsByAccount = new Map<string, any>();
   try {
     const bindings = service.getBankAccountBindings ? await service.getBankAccountBindings() : [];
     for (const b of bindings || []) {
       if (b.subSubjectCode) bindingsBySubject.set(b.subSubjectCode, b);
+      if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
     }
   } catch (e) {
     console.warn('loadBankBalances: 银行绑定加载失败', e);
@@ -666,6 +618,40 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
         existing.totalBase += (debit - credit);
         agg.set(key, existing);
       }
+    }
+
+    // Fallback: bank_opening_balances 表里存了外币明细但凭证分录未写入 currencyCode 的旧数据
+    // 用 bank_opening_balances 的 foreignBalance/exchangeRate 补齐，避免漏掉期初外币余额
+    try {
+      const openingRows: Array<{ accountNumber: string; periodStart: string; balance: number; foreignBalance?: number | null; exchangeRate?: number | null }> =
+        service.getAllBankOpeningBalances ? await service.getAllBankOpeningBalances() : [];
+      for (const row of openingRows || []) {
+        if (!row.accountNumber || row.periodStart > period) {
+          continue;
+        }
+        if (!row.foreignBalance || !row.exchangeRate) {
+          continue;
+        }
+        const binding = bindingsByAccount.get(row.accountNumber);
+        const code = binding?.subSubjectCode || '1002';
+        const currency = binding?.currency || '';
+        if (!currency || currency === 'CNY') {
+          continue;
+        }
+        const key = `${code}-${currency}`;
+        const existing = agg.get(key) || {
+          subjectCode: code,
+          subjectName: binding?.subSubjectName || '银行存款',
+          currencyCode: currency,
+          totalOriginal: 0,
+          totalBase: 0,
+        };
+        if (Math.abs(existing.totalOriginal) < 0.005) existing.totalOriginal = row.foreignBalance;
+        if (Math.abs(existing.totalBase) < 0.005) existing.totalBase = row.balance;
+        agg.set(key, existing);
+      }
+    } catch (e) {
+      console.warn('loadBankBalances: 期初外币余额回退失败', e);
     }
 
     for (const [key, data] of agg) {

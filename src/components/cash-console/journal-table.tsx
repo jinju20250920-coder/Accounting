@@ -703,7 +703,9 @@ export function JournalTable({
               ) : null}
             </span>
           )}
-          <span className="w-20 shrink-0" />
+          <span className="w-20 truncate text-slate-500 shrink-0" title={accountNumber ? (bankNameMap[accountNumber] || '') : ''}>
+            {accountNumber ? (bankNameMap[accountNumber] || '') : ''}
+          </span>
           <span className="w-24 shrink-0" />
           <span className="w-24 shrink-0" />
         </div>

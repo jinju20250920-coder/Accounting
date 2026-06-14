@@ -42,6 +42,8 @@ export interface BankOpeningBalanceRow {
   accountNumber: string;
   periodStart: string;
   balance: number;
+  foreignBalance?: number | null;
+  exchangeRate?: number | null;
 }
 
 export async function getAllBankOpeningBalancesQuery(
@@ -49,7 +51,7 @@ export async function getAllBankOpeningBalancesQuery(
   accountSetId: string,
 ): Promise<BankOpeningBalanceRow[]> {
   return await service.queryAllAsync<BankOpeningBalanceRow>(
-    `SELECT accountNumber, periodStart, balance FROM bank_opening_balances WHERE accountSetId = ?`,
+    `SELECT accountNumber, periodStart, balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE accountSetId = ?`,
     [accountSetId],
   ) || [];
 }
