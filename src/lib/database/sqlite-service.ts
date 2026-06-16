@@ -129,6 +129,7 @@ import {
   getBankOpeningBalanceQuery,
   getBankOpeningBalanceDetailQuery,
   getAllBankOpeningBalancesQuery,
+  deleteBankOpeningBalanceRecord,
   getCashOverviewQuery,
   getJournalEntriesQuery,
   getTransactionStatusCountsQuery,
@@ -161,6 +162,7 @@ import {
   listSmartRules,
   listSupplierMappings,
   listSupplierMappingsByGroup,
+  ensureSupplierSubjectMappingSchema,
   findSupplierMappingBySellerName,
   saveAssetCategoryMappingRecord,
   saveAuxiliaryStrategyRecord,
@@ -403,6 +405,8 @@ class SQLiteService {
     await this.migrateCreateBankRulesTable();
     // 迁移：智能规则引擎相关表（替代 invoice_subject_rules）
     await this.migrateSmartRuleEngine();
+    // 迁移：兼容旧 supplier_subject_mapping 表结构（supplierName/supplierType -> sellerName）
+    await this.migrateSupplierSubjectMappingSchema();
     // 迁移：创建采购发票规则配置表
     await this.migratePurchaseInvoiceRuleConfig();
     // 迁移：从 supplier_subject_mapping 表移除 supplierType 列
@@ -681,6 +685,44 @@ class SQLiteService {
         UPDATE fixedAssets SET depreciationMethod = 'straight_line' WHERE depreciationMethod IS NULL;
         UPDATE fixedAssets SET depreciatedMonths = 0 WHERE depreciatedMonths IS NULL;
       `);
+
+      // 修复存量 depreciationStartDate/EndDate 的 toISOString 时区偏移（之前月初被存成上月末）
+      // 基于 acquisitionDate + usefulLifeMonths + assetType 重新计算
+      try {
+        const rows = this.dbInstance.exec(
+          "SELECT id, acquisitionDate, depreciationStartDate, depreciationEndDate, usefulLifeMonths, assetType FROM fixedAssets WHERE acquisitionDate IS NOT NULL"
+        );
+        if (rows.length > 0 && rows[0].values && rows[0].values.length > 0) {
+          const updateStmt = this.dbInstance.prepare(
+            "UPDATE fixedAssets SET depreciationStartDate = ?, depreciationEndDate = ? WHERE id = ?"
+          );
+          let dirty = false;
+          for (const row of rows[0].values) {
+            const [id, acquisitionDateRaw, currentStart, currentEnd, usefulLifeMonthsRaw, assetType] = row as any[];
+            if (!acquisitionDateRaw) continue;
+            // acquisitionDate 通常是 'YYYY-MM-DD'，按本地时区解析
+            const [yy, mm, dd] = String(acquisitionDateRaw).slice(0, 10).split('-').map(Number);
+            if (!yy || !mm) continue;
+            const offset = assetType === 'intangible' ? 0 : 1;
+            const start = new Date(yy, mm - 1 + offset, 1);
+            const months = Number(usefulLifeMonthsRaw) || 60;
+            const end = new Date(start.getFullYear(), start.getMonth() + months, 0);
+            const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`;
+            const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+            if (startStr !== currentStart || endStr !== currentEnd) {
+              updateStmt.run([startStr, endStr, id]);
+              dirty = true;
+            }
+          }
+          updateStmt.free();
+          if (dirty) {
+            console.log('FixedAssets: 修正了 depreciationStartDate/EndDate 时区偏移');
+            await this.persist();
+          }
+        }
+      } catch (error: any) {
+        console.warn('Fix depreciationDate offset migration warning:', error?.message || error);
+      }
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
         console.warn('FixedAsset lifecycle migration warning:', error);
@@ -1480,6 +1522,19 @@ class SQLiteService {
       }
     } catch (error) {
       console.warn('Migration warning: Failed to remove supplierType column from supplier_subject_mapping', error);
+    }
+  }
+
+  private async migrateSupplierSubjectMappingSchema(): Promise<void> {
+    if (!this.dbInstance) return;
+
+    try {
+      await ensureSupplierSubjectMappingSchema({
+        db: this.dbInstance,
+        persist: () => this.persist(),
+      });
+    } catch (error) {
+      console.warn('Migration warning: Failed to normalize supplier_subject_mapping schema', error);
     }
   }
 
@@ -2779,6 +2834,18 @@ class SQLiteService {
       accountSetId: this.accountSetId,
       ...data,
     });
+  }
+
+  async deleteBankOpeningBalance(accountNumber: string, periodStart?: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    await deleteBankOpeningBalanceRecord({
+      db: this.dbInstance,
+      accountSetId: this.accountSetId,
+      accountNumber,
+      periodStart,
+    });
+    await this.persist();
   }
 
   async getCashOverview(ourAccount: string, periodStart: string, periodEnd: string): Promise<{

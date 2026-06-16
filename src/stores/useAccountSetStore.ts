@@ -135,7 +135,7 @@ export interface PricingPlan {
   description: string;
   accountSetLimit: number; // 最大账套数量
   featureIds: string[]; // 功能ID列表
-  duration: 'monthly' | 'yearly';
+  duration: 'monthly' | 'yearly' | 'lifetime';
   trialPeriodDays?: number; // 试用期天数
   isPopular?: boolean; // 是否推荐套餐
 }
@@ -271,30 +271,30 @@ const defaultPricingPlans: PricingPlan[] = [
   {
     id: 'plan_basic',
     name: '基础版',
-    price: 29.9,
-    description: '适合小微企业，支持1个账套，基础功能',
+    price: 199,
+    description: '适合个人/小微企业，1 个账套，一次付费永久使用',
     accountSetLimit: 1,
-    featureIds: ['voucher-entry', 'balance-report', 'subject-management', 'basic-reports', 'department-management', 'project-management', 'customer-supplier', 'currency-management', 'summary-library', 'voucher-templates'],
-    duration: 'monthly'
+    featureIds: ['voucher-entry', 'balance-report', 'subject-management', 'basic-reports', 'advanced-reports', 'multi-currency', 'import-export', 'audit-trail', 'custom-templates', 'department-management', 'project-management', 'customer-supplier', 'currency-management', 'summary-library', 'voucher-templates'],
+    duration: 'lifetime'
   },
   {
     id: 'plan_pro',
     name: '专业版',
-    price: 59.9,
-    description: '适合中小型企业，支持5个账套，高级功能',
+    price: 299,
+    description: '适合中小型企业，5 个账套，一次付费永久使用',
     accountSetLimit: 5,
-    featureIds: ['voucher-entry', 'balance-report', 'subject-management', 'basic-reports', 'advanced-reports', 'multi-currency', 'import-export', 'department-management', 'project-management', 'customer-supplier', 'currency-management', 'summary-library', 'voucher-templates'],
-    duration: 'monthly',
+    featureIds: ['voucher-entry', 'balance-report', 'subject-management', 'basic-reports', 'advanced-reports', 'multi-currency', 'import-export', 'audit-trail', 'custom-templates', 'department-management', 'project-management', 'customer-supplier', 'currency-management', 'summary-library', 'voucher-templates'],
+    duration: 'lifetime',
     isPopular: true
   },
   {
     id: 'plan_enterprise',
     name: '企业版',
-    price: 99.9,
-    description: '适合大型企业，支持无限账套，所有功能',
-    accountSetLimit: -1, // -1 表示无限制
+    price: 399,
+    description: '适合大型企业/代理记账，账套数量不限，一次付费永久使用',
+    accountSetLimit: -1,
     featureIds: ['voucher-entry', 'balance-report', 'subject-management', 'basic-reports', 'advanced-reports', 'multi-currency', 'import-export', 'audit-trail', 'custom-templates', 'department-management', 'project-management', 'customer-supplier', 'currency-management', 'summary-library', 'voucher-templates'],
-    duration: 'monthly'
+    duration: 'lifetime'
   }
 ];
 
@@ -840,11 +840,24 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
     }),
     {
       name: 'finance-account-sets',
+      version: 2,
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState as Record<string, unknown>) || {};
+        // 始终丢弃持久化的 pricingPlans，保证使用代码里的 defaultPricingPlans
+        delete persisted.pricingPlans;
+        return { ...currentState, ...persisted };
+      },
+      migrate: (persistedState: unknown, version: number) => {
+        // 处理老版本数据迁移；当前 v2，主要清理 pricingPlans 旧缓存
+        const persisted = (persistedState as Record<string, unknown>) || {};
+        delete persisted.pricingPlans;
+        return Promise.resolve(persisted);
+      },
       partialize: (state) => ({
         accountSets: state.accountSets,
         currentAccountSetId: state.currentAccountSetId,
         licenses: state.licenses,
-        pricingPlans: state.pricingPlans,
+        // NOTE: pricingPlans 不持久化，永远以代码中的 defaultPricingPlans 为准
         currentPricingPlanId: state.currentPricingPlanId,
         isLicenseValid: state.isLicenseValid,
         availableAccountSetCount: state.availableAccountSetCount,
@@ -868,6 +881,17 @@ const useAccountSetStoreBase = create<AccountSetStore>()(
             if (needsFix) {
               useAccountSetStoreBase.getState().updateAccountSet(accountSet.id, { accountingPeriods: fixedPeriods });
             }
+          }
+          // Pricing plans are source-of-truth: override any persisted copy so
+          // changes to defaultPricingPlans always reach existing users.
+          const current = useAccountSetStoreBase.getState();
+          const latestBasic = defaultPricingPlans.find(p => p.id === 'plan_basic');
+          const persistedBasic = current.pricingPlans?.find(p => p.id === 'plan_basic');
+          const isStale = !persistedBasic
+            || persistedBasic.price !== latestBasic?.price
+            || persistedBasic.duration !== latestBasic?.duration;
+          if (isStale) {
+            useAccountSetStoreBase.setState({ pricingPlans: defaultPricingPlans });
           }
         };
       }

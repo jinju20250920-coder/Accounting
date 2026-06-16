@@ -1,4 +1,4 @@
-import type { BankAccountInfo } from '@/types';
+import type { BankAccountInfo } from '../../types';
 
 export type { BankAccountInfo };
 

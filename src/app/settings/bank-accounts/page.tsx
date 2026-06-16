@@ -323,6 +323,8 @@ export default function BankAccountsPage() {
       onConfirm: async () => {
         const subject = subjects.find(s => s.code === binding.subSubjectCode);
         if (subject) await deleteSubject(subject.id);
+        const currentPeriod = currentAccountSet?.startDate || currentAccountSet?.enableDate || new Date().toISOString().substring(0, 7);
+        await sqliteService.deleteBankOpeningBalance(binding.accountNumber, currentPeriod.substring(0, 7));
         await deleteBinding(binding.id);
         showToast('success', '已删除');
         setConfirmDialog(null);
@@ -700,6 +702,7 @@ export default function BankAccountsPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">银行名称</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">账户别名</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">账号</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-700">科目代码</th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-slate-700">币种</th>
@@ -720,6 +723,13 @@ export default function BankAccountsPage() {
                             <span className="font-medium text-sm">{binding.bankName}</span>
                             {binding.isDefault && <Badge className="bg-green-50 text-green-700 text-xs">默认</Badge>}
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {binding.aliasName ? (
+                            <span className="text-sm text-slate-700">{binding.aliasName}</span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-3"><span className="font-mono text-sm text-slate-700">{binding.accountNumber}</span></td>
                         <td className="px-4 py-3">

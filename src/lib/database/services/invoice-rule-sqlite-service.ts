@@ -15,6 +15,10 @@ export interface InvoiceRuleQueryService extends SimpleQueryService {
   runAsync(sql: string, params?: SqliteBindable[]): Promise<void>;
 }
 
+type SupplierMappingSchemaDatabase = SqliteDatabaseLike & {
+  exec(sql: string): Array<{ values?: unknown[][] }>;
+};
+
 // ════════════════════════════════════════════
 // Custom Bank Configs
 // ════════════════════════════════════════════
@@ -181,6 +185,97 @@ export async function deleteSmartRuleRecord(
 // ════════════════════════════════════════════
 // Supplier Subject Mapping
 // ════════════════════════════════════════════
+
+const SUPPLIER_MAPPING_COLUMNS = [
+  'id',
+  'accountSetId',
+  'groupName',
+  'sellerName',
+  'defaultDebitSubject',
+  'defaultDebitSubjectName',
+  'defaultTaxSubject',
+  'defaultTaxSubjectName',
+  'defaultCreditSubject',
+  'defaultCreditSubjectName',
+  'createTime',
+  'updateTime',
+] as const;
+
+function supplierMappingSelectExpression(columns: string[], column: typeof SUPPLIER_MAPPING_COLUMNS[number]): string {
+  if (column === 'sellerName' && columns.includes('sellerName') && columns.includes('supplierName')) return "COALESCE(sellerName, supplierName, '')";
+  if (column === 'sellerName' && columns.includes('supplierName')) return "COALESCE(supplierName, '')";
+  if (columns.includes(column)) return column;
+  if (column === 'createTime' || column === 'updateTime') return "datetime('now')";
+  return "''";
+}
+
+export async function ensureSupplierSubjectMappingSchema(input: {
+  db: SupplierMappingSchemaDatabase;
+  persist: () => Promise<void>;
+}): Promise<void> {
+  const tableCheck = input.db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='supplier_subject_mapping'");
+  if (!tableCheck[0]?.values?.length) {
+    input.db.exec(`
+      CREATE TABLE IF NOT EXISTS supplier_subject_mapping (
+        id TEXT PRIMARY KEY,
+        accountSetId TEXT NOT NULL,
+        groupName TEXT NOT NULL,
+        sellerName TEXT NOT NULL,
+        defaultDebitSubject TEXT,
+        defaultDebitSubjectName TEXT,
+        defaultTaxSubject TEXT,
+        defaultTaxSubjectName TEXT,
+        defaultCreditSubject TEXT,
+        defaultCreditSubjectName TEXT,
+        createTime TEXT NOT NULL,
+        updateTime TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
+      CREATE INDEX IF NOT EXISTS idx_ssm_sellerName ON supplier_subject_mapping(sellerName);
+    `);
+    await input.persist();
+    return;
+  }
+
+  const pragma = input.db.exec('PRAGMA table_info(supplier_subject_mapping)');
+  const columns = (pragma[0]?.values || []).map((row: any[]) => String(row[1]));
+  const expectedColumns = [...SUPPLIER_MAPPING_COLUMNS];
+  const needsRebuild = (
+    !columns.includes('sellerName') ||
+    columns.includes('supplierType') ||
+    expectedColumns.some(column => !columns.includes(column))
+  );
+  if (!needsRebuild) return;
+
+  const selectExpressions = expectedColumns.map(column => supplierMappingSelectExpression(columns, column));
+  input.db.exec(`
+    DROP TABLE IF EXISTS supplier_subject_mapping_temp;
+    CREATE TABLE supplier_subject_mapping_temp (
+      id TEXT PRIMARY KEY,
+      accountSetId TEXT NOT NULL,
+      groupName TEXT NOT NULL,
+      sellerName TEXT NOT NULL,
+      defaultDebitSubject TEXT,
+      defaultDebitSubjectName TEXT,
+      defaultTaxSubject TEXT,
+      defaultTaxSubjectName TEXT,
+      defaultCreditSubject TEXT,
+      defaultCreditSubjectName TEXT,
+      createTime TEXT NOT NULL,
+      updateTime TEXT NOT NULL
+    );
+    INSERT INTO supplier_subject_mapping_temp (${expectedColumns.join(', ')})
+    SELECT ${selectExpressions.join(', ')}
+    FROM supplier_subject_mapping;
+    DROP TABLE supplier_subject_mapping;
+    ALTER TABLE supplier_subject_mapping_temp RENAME TO supplier_subject_mapping;
+    CREATE INDEX IF NOT EXISTS idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+    CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
+    CREATE INDEX IF NOT EXISTS idx_ssm_sellerName ON supplier_subject_mapping(sellerName);
+  `);
+  await input.persist();
+}
 
 export async function listSupplierMappings(
   service: SimpleQueryService,

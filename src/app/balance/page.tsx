@@ -15,31 +15,22 @@ import {
   TrendingDown,
   RefreshCw,
   Printer,
-  X,
   ArrowLeft
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores';
 import { useSubjectStore } from '@/stores';
+import { useAccountSetStore } from '@/stores';
 import { formatMoney } from '@/lib/accounting';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { sqliteService } from '@/lib/database';
+import { calculateBalanceReportRows, type SubjectBalanceRow } from '@/lib/balance-report';
+import { formatVoucherNoForDisplay } from '@/lib/voucher-numbering';
 import * as XLSX from 'xlsx';
 
-interface SubjectBalanceRow {
-  subjectCode: string;
-  subjectName: string;
-  direction: 'debit' | 'credit';
-  openingDebit: number;
-  openingCredit: number;
-  debitTotal: number;
-  creditTotal: number;
-  closingDebit: number;
-  closingCredit: number;
-}
-
 export default function BalancePage() {
-  const { vouchers, calculateSubjectBalances, initialize: initVouchers } = useVoucherStore();
-  const { subjects, getSubjectByCode, initializeSubjects } = useSubjectStore();
+  const { vouchers, initialize: initVouchers } = useVoucherStore();
+  const { subjects, initializeSubjects } = useSubjectStore();
+  const currentAccountSet = useAccountSetStore(s => s.getCurrentAccountSet());
   const [dataLoaded, setDataLoaded] = useState(false);
   const [bankOpeningBalances, setBankOpeningBalances] = useState<Array<{ accountNumber: string; periodStart: string; balance: number }>>([]);
   const [bankBindings, setBankBindings] = useState<Array<{ accountNumber: string; subSubjectCode: string }>>([]);
@@ -91,135 +82,17 @@ export default function BalancePage() {
     }
   };
 
-  // 调试日志
-  useEffect(() => {
-    if (dataLoaded) {
-      console.log('[BalancePage] vouchers:', vouchers.length, 'subjects:', subjects.length);
-      console.log('[BalancePage] posted vouchers:', vouchers.filter(v => v.status === 'posted').length);
-      if (vouchers.length > 0) {
-        const v = vouchers[0];
-        console.log('[BalancePage] first voucher:', v.voucherNo, 'status:', v.status, 'entries:', v.entries?.length);
-        if (v.entries?.[0]) {
-          console.log('[BalancePage] first entry subjectCode:', v.entries[0].subjectCode);
-          console.log('[BalancePage] subject found:', !!getSubjectByCode(v.entries[0].subjectCode));
-        }
-      }
-    }
-  }, [dataLoaded, vouchers.length, subjects.length]);
-
   // 计算科目余额
   const subjectBalances = useMemo(() => {
-    // 按科目汇总借贷发生额
-    const balanceMap = new Map<string, SubjectBalanceRow>();
-
-    // Phase 1: 开户前的已记账凭证 → 期初余额
-    vouchers.forEach(voucher => {
-      if (voucher.status !== 'posted') return;
-      const voucherMonth = voucher.date.slice(0, 7);
-      if (voucherMonth >= startMonth) return;
-
-      voucher.entries.forEach(entry => {
-        const subject = getSubjectByCode(entry.subjectCode);
-        if (!subject) return;
-        const debit = entry.debit || 0;
-        const credit = entry.credit || 0;
-        const existing = balanceMap.get(entry.subjectCode);
-        if (existing) {
-          existing.openingDebit += debit;
-          existing.openingCredit += credit;
-        } else {
-          balanceMap.set(entry.subjectCode, {
-            subjectCode: entry.subjectCode, subjectName: entry.subjectName,
-            direction: subject.direction, openingDebit: debit, openingCredit: credit,
-            debitTotal: 0, creditTotal: 0, closingDebit: 0, closingCredit: 0,
-          });
-        }
-      });
+    return calculateBalanceReportRows({
+      vouchers,
+      subjects,
+      startMonth,
+      endMonth,
+      bankOpeningBalances,
+      bankBindings,
     });
-
-    // Phase 2: bank_opening_balances → 银行科目期初
-    bankOpeningBalances.forEach(bob => {
-      const binding = bankBindings.find(b => b.accountNumber === bob.accountNumber);
-      const subjectCode = binding?.subSubjectCode;
-      if (!subjectCode) return;
-      const subject = getSubjectByCode(subjectCode);
-      if (!subject) return;
-      const balance = bob.balance || 0;
-      const od = balance > 0 ? balance : 0;
-      const oc = balance < 0 ? Math.abs(balance) : 0;
-      const existing = balanceMap.get(subjectCode);
-      if (existing) {
-        existing.openingDebit += od;
-        existing.openingCredit += oc;
-      } else {
-        balanceMap.set(subjectCode, {
-          subjectCode, subjectName: subject.name,
-          direction: subject.direction, openingDebit: od, openingCredit: oc,
-          debitTotal: 0, creditTotal: 0, closingDebit: 0, closingCredit: 0,
-        });
-      }
-    });
-
-    // Phase 3: 本期发生额 [startMonth, endMonth]
-    vouchers.forEach(voucher => {
-      if (voucher.status !== 'posted') return;
-      const voucherMonth = voucher.date.slice(0, 7);
-      if ((!startMonth || !endMonth) || voucherMonth < startMonth || voucherMonth > endMonth) return;
-
-      voucher.entries.forEach(entry => {
-        const subject = getSubjectByCode(entry.subjectCode);
-        if (!subject) return;
-        const debitAmount = entry.debit || 0;
-        const creditAmount = entry.credit || 0;
-        const existing = balanceMap.get(entry.subjectCode);
-        if (existing) {
-          existing.debitTotal += debitAmount;
-          existing.creditTotal += creditAmount;
-        } else {
-          balanceMap.set(entry.subjectCode, {
-            subjectCode: entry.subjectCode, subjectName: entry.subjectName,
-            direction: subject.direction, openingDebit: 0, openingCredit: 0,
-            debitTotal: debitAmount, creditTotal: creditAmount,
-            closingDebit: 0, closingCredit: 0,
-          });
-        }
-      });
-    });
-
-    // 计算期末余额
-    balanceMap.forEach((balance, code) => {
-      // 计算期末余额
-      let closingDebit = 0;
-      let closingCredit = 0;
-
-      if (balance.direction === 'debit') {
-        // 借方科目：余额 = 期初借方 + 借方 - 贷方
-        const closingBalance = balance.openingDebit - balance.openingCredit + balance.debitTotal - balance.creditTotal;
-        if (closingBalance >= 0) {
-          closingDebit = closingBalance;
-          closingCredit = 0;
-        } else {
-          closingDebit = 0;
-          closingCredit = Math.abs(closingBalance);
-        }
-      } else {
-        // 贷方科目：余额 = 期初贷方 + 贷方 - 借方
-        const closingBalance = balance.openingCredit - balance.openingDebit + balance.creditTotal - balance.debitTotal;
-        if (closingBalance >= 0) {
-          closingDebit = 0;
-          closingCredit = closingBalance;
-        } else {
-          closingDebit = Math.abs(closingBalance);
-          closingCredit = 0;
-        }
-      }
-
-      balance.closingDebit = closingDebit;
-      balance.closingCredit = closingCredit;
-    });
-
-    return Array.from(balanceMap.values());
-  }, [vouchers, getSubjectByCode, startMonth, endMonth, bankOpeningBalances, bankBindings]);
+  }, [vouchers, subjects, startMonth, endMonth, bankOpeningBalances, bankBindings]);
 
   // 过滤后的科目余额
   const filteredBalances = useMemo(() => {
@@ -247,7 +120,8 @@ export default function BalancePage() {
       totalOpeningCredit,
       totalClosingDebit,
       totalClosingCredit,
-      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01
+      balanceDifference: Math.abs((totalOpeningDebit + totalDebit) - (totalOpeningCredit + totalCredit)),
+      isBalanced: Math.abs((totalOpeningDebit + totalDebit) - (totalOpeningCredit + totalCredit)) < 0.01
     };
   }, [subjectBalances]);
 
@@ -269,6 +143,7 @@ export default function BalancePage() {
 
     const subjectCode = selectedSubject.code;
     const direction = selectedSubject.direction;
+    const voucherNumbering = currentAccountSet?.voucherNumbering;
 
     // 收集该科目的所有分录，按日期排序
     const entries: Array<{
@@ -316,7 +191,14 @@ export default function BalancePage() {
           entries.push({
             id: entry.id,
             date: entry.date,
-            voucherNo: voucher.voucherNo || '',
+            voucherNo: formatVoucherNoForDisplay(
+              {
+                voucherNo: voucher.voucherNo || '',
+                date: voucher.date,
+                voucherType: voucher.voucherType,
+              },
+              voucherNumbering
+            ),
             summary: entry.summary || '',
             debit,
             credit,
@@ -328,7 +210,7 @@ export default function BalancePage() {
     });
 
     return entries;
-  }, [selectedSubject, vouchers, startMonth, endMonth]);
+  }, [selectedSubject, vouchers, startMonth, endMonth, currentAccountSet]);
 
   // 点击科目行显示明细账
   const handleSubjectClick = (subjectCode: string, subjectName: string, direction: 'debit' | 'credit') => {
@@ -504,7 +386,7 @@ export default function BalancePage() {
             <div className="flex items-center gap-2 text-orange-700">
               <RefreshCw className="h-5 w-5" />
               <span>
-                借贷不平衡！借方合计与贷方合计相差 {formatCurrency(Math.abs(stats.totalDebit - stats.totalCredit))}
+                借贷不平衡！借方合计与贷方合计相差 {formatCurrency(stats.balanceDifference)}
               </span>
             </div>
           </CardContent>
@@ -677,7 +559,7 @@ export default function BalancePage() {
           <p>• <strong>本期借方/贷方</strong>：本期已记账凭证中该科目的借方或贷方发生额合计</p>
           <p>• <strong>期末借方/贷方</strong>：根据科目方向计算的期末余额，借方科目余额显示在借方列，贷方科目余额显示在贷方列</p>
           <p>• <strong>借贷平衡</strong>：所有科目的借方合计应等于贷方合计，系统会自动验证平衡状态</p>
-          <p>• <strong>数据来源</strong>：数据来源于已记账（状态为"记账"）的凭证</p>
+          <p>• <strong>数据来源</strong>：数据来源于已记账（状态为&quot;记账&quot;）的凭证</p>
         </CardContent>
       </Card>
 
@@ -712,13 +594,6 @@ export default function BalancePage() {
               >
                 <Printer className="h-4 w-4 mr-2" />
                 打印
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCloseLedgerDialog}
-              >
-                <X className="h-4 w-4" />
               </Button>
             </div>
           </DialogHeader>

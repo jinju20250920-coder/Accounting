@@ -31,9 +31,23 @@ import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { SubjectPopover } from '@/components/shared/subject-popover';
 import {
   analyzeOpeningBalance,
+  collectPostedOpeningDetailIndex,
+  buildAssetOpeningEntriesFromAssets,
+  buildBankOpeningEntriesFromBindings,
   buildOpeningAdjustmentEntry,
-  buildPartnerOpeningEntriesFromPartners,
   hasSubledgerSourceForSubject,
+  deriveAssetOpeningRowStates,
+  deriveBankOpeningRowStates,
+  derivePartnerOpeningRowStates,
+  mergeOpeningEntriesByKey,
+  mergePartnerOpeningEntriesFromPartners,
+  resolvePostedOpeningVoucher,
+  type AssetOpeningRowState,
+  type BankOpeningRowState,
+  type OpeningPostingStatus,
+  type OpeningVoucherLike,
+  type OpeningPostedVoucherEntryLike,
+  type PartnerOpeningRowState,
 } from '@/lib/opening-balance-rules';
 import type { VoucherEntry } from '@/types';
 import { MonthlyClosingWizard } from './monthly-closing-wizard';
@@ -94,6 +108,34 @@ interface SetupStepOpeningProps {
   accounting?: AccountingConfig;
 }
 
+interface PostedOpeningVoucherSnapshot {
+  voucherNo: string;
+  entries: OpeningEntry[];
+  rawEntries: OpeningPostedVoucherEntryLike[];
+  totalDebit: number;
+  totalCredit: number;
+  isBalanced: boolean;
+}
+
+interface BankOpeningBalanceRow {
+  accountNumber: string;
+  balance: number;
+  foreignBalance?: number | null;
+  exchangeRate?: number | null;
+}
+
+interface SqliteExecResult {
+  values?: unknown[][];
+}
+
+interface SqliteDbLike {
+  exec: (sql: string) => SqliteExecResult[];
+  prepare: (sql: string) => {
+    run: (params?: unknown[]) => void;
+    free: () => void;
+  };
+}
+
 // ==================== Import Headers ====================
 
 const SUBJECT_IMPORT_HEADERS = [
@@ -132,6 +174,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const [saved, setSaved] = useState(false);
   const [showClosingWizard, setShowClosingWizard] = useState(false);
   const [adjustmentSubject, setAdjustmentSubject] = useState({ code: '', name: '' });
+  const [postedOpeningVoucher, setPostedOpeningVoucher] = useState<PostedOpeningVoucherSnapshot | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importTarget, setImportTarget] = useState<string>('subject');
@@ -142,6 +185,70 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     }
   }, [accountSetId]);
 
+  useEffect(() => {
+    const loadPostedOpeningVoucher = async () => {
+      try {
+        const vouchers = await sqliteService.getAllVouchers();
+        const voucher = resolvePostedOpeningVoucher(vouchers as OpeningVoucherLike[], accountSetId);
+        if (!voucher) {
+          setPostedOpeningVoucher(null);
+          return;
+        }
+
+        const postedEntries = (voucher.entries || [])
+          .filter(entry => (entry.debit || 0) > 0 || (entry.credit || 0) > 0)
+          .map(entry => ({
+            subjectCode: entry.subjectCode,
+            subjectName: entry.subjectName,
+            debit: entry.debit || 0,
+            credit: entry.credit || 0,
+          }));
+        const subjectEntries = (voucher.entries || [])
+          .filter(entry => entry.summary === '期初余额' || entry.summary === '期初平衡调整')
+          .map(entry => ({
+            subjectCode: entry.subjectCode,
+            subjectName: entry.subjectName,
+            debit: entry.debit || 0,
+            credit: entry.credit || 0,
+          }));
+        const rawEntries = (voucher.entries || []).map(entry => ({
+          summary: entry.summary,
+          debit: entry.debit || 0,
+          credit: entry.credit || 0,
+          auxiliary: entry.auxiliary,
+        }));
+        const shouldHydrateSubjectEntries = (current: OpeningEntry[]) => (
+          current.length === 0
+          || current.every(entry => !entry.subjectCode && !entry.subjectName && Math.abs(entry.debit || 0) < 0.01 && Math.abs(entry.credit || 0) < 0.01)
+        );
+        const totalDebit = postedEntries.reduce((sum, entry) => sum + entry.debit, 0);
+        const totalCredit = postedEntries.reduce((sum, entry) => sum + entry.credit, 0);
+
+        setPostedOpeningVoucher({
+          voucherNo: voucher.voucherNo || '期初-0001',
+          entries: postedEntries,
+          rawEntries,
+          totalDebit,
+          totalCredit,
+          isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
+        });
+        setEntries(prev => {
+          const current = shouldHydrateSubjectEntries(prev) ? [] : prev.filter(entry => (
+            Boolean(entry.subjectCode || entry.subjectName)
+            || Math.abs(entry.debit || 0) > 0.01
+            || Math.abs(entry.credit || 0) > 0.01
+          ));
+          return mergeOpeningEntriesByKey(subjectEntries, current, entry => entry.subjectCode);
+        });
+        setSaved(true);
+      } catch {
+        setPostedOpeningVoucher(null);
+      }
+    };
+
+    loadPostedOpeningVoucher();
+  }, [accountSetId]);
+
   const fixedAssets = useFixedAssetStore(s => s.assets);
 
   useEffect(() => {
@@ -149,10 +256,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   }, [initializePartners]);
 
   useEffect(() => {
-    setPartnerEntries(prev => {
-      if (prev.length > 0) return prev;
-      return buildPartnerOpeningEntriesFromPartners(partners);
-    });
+    setPartnerEntries(prev => mergePartnerOpeningEntriesFromPartners(prev, partners));
   }, [partners]);
 
   // Load bank accounts from previous step, pre-filling saved opening balances
@@ -164,8 +268,8 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           // Fetch any opening balances already saved in the bank step
           let savedRows: Array<{ accountNumber: string; balance: number; foreignBalance?: number | null; exchangeRate?: number | null }> = [];
           try {
-            const rows = await sqliteService.getAllBankOpeningBalances();
-            savedRows = (rows || []).map((row: any) => ({
+            const rows = await sqliteService.getAllBankOpeningBalances() as BankOpeningBalanceRow[];
+            savedRows = (rows || []).map((row) => ({
               accountNumber: row.accountNumber,
               balance: row.balance,
               foreignBalance: row.foreignBalance ?? null,
@@ -174,50 +278,143 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           } catch { /* table may not exist yet */ }
           const savedByAccount = new Map(savedRows.map(r => [r.accountNumber, r]));
 
-          setBankEntries((bindings as BankBindingForOpening[]).map((b) => {
-            const saved = savedByAccount.get(b.accountNumber || '');
-            return {
-              accountNumber: b.accountNumber || '',
-              bankName: b.bankName || b.aliasName || '',
-              balance: saved?.balance ?? 0,
-              currency: b.currency || 'CNY',
-              foreignBalance: saved?.foreignBalance ?? null,
-              exchangeRate: saved?.exchangeRate ?? null,
-            };
-          }));
+          const incoming = buildBankOpeningEntriesFromBindings(bindings as BankBindingForOpening[], savedByAccount);
+          setBankEntries(prev => mergeOpeningEntriesByKey(prev, incoming, entry => entry.accountNumber));
         }
       } catch { /* Bank accounts may not exist yet */ }
     };
     loadBankAccounts();
-  }, []);
+  }, [accountSetId]);
 
   // Load fixed asset cards from previous step
   useEffect(() => {
     if (fixedAssets.length > 0) {
-      setAssetEntries(fixedAssets.map(a => ({
-        assetCode: a.assetCode,
-        assetName: a.assetName,
-        originalValue: a.originalValue,
-        accumulatedDepreciation: a.accumulatedDepreciation,
-        netValue: a.netValue,
-        included: true,
-      })));
+      setAssetEntries(prev => mergeOpeningEntriesByKey(
+        prev,
+        buildAssetOpeningEntriesFromAssets(fixedAssets),
+        entry => entry.assetCode,
+      ));
     }
   }, [fixedAssets]);
 
   const validSubjects = useMemo(() => subjects.filter(s => !s.disabled && !s.block), [subjects]);
 
-  // Balance check
-  const openingAnalysis = useMemo(() => analyzeOpeningBalance({
+  const postedOpeningDetailIndex = useMemo(
+    () => collectPostedOpeningDetailIndex(postedOpeningVoucher?.rawEntries ?? []),
+    [postedOpeningVoucher],
+  );
+
+  const partnerRowStates = useMemo<PartnerOpeningRowState[]>(
+    () => derivePartnerOpeningRowStates(partnerEntries, postedOpeningDetailIndex),
+    [partnerEntries, postedOpeningDetailIndex],
+  );
+  const bankRowStates = useMemo<BankOpeningRowState[]>(
+    () => deriveBankOpeningRowStates(bankEntries, postedOpeningDetailIndex),
+    [bankEntries, postedOpeningDetailIndex],
+  );
+  const assetRowStates = useMemo<AssetOpeningRowState[]>(
+    () => deriveAssetOpeningRowStates(assetEntries, postedOpeningDetailIndex),
+    [assetEntries, postedOpeningDetailIndex],
+  );
+
+  const roundAmount = (value: number) => Math.round(value * 100) / 100;
+
+  const controlledSubjectRows = useMemo(() => {
+    const receivableRows = partnerRowStates.filter(row => row.type === 'receivable');
+    const payableRows = partnerRowStates.filter(row => row.type === 'payable');
+    const includedAssetRows = assetRowStates.filter(row => row.included);
+
+    const bankRows = bankRowStates.map(row => ({
+      subjectCode: row.subjectCode || '1002',
+      subjectName: row.subjectName || row.bankName || '银行存款',
+      source: 'bank' as const,
+      direction: 'debit' as const,
+      currentAmount: roundAmount(row.balance || 0),
+      postedAmount: roundAmount(row.postedAmount || 0),
+      unpostedAmount: roundAmount(row.unpostedAmount || 0),
+    }));
+    const customerCurrent = roundAmount(receivableRows.reduce((sum, row) => sum + (row.amount || 0), 0));
+    const customerPosted = roundAmount(receivableRows.reduce((sum, row) => sum + row.postedAmount, 0));
+    const supplierCurrent = roundAmount(payableRows.reduce((sum, row) => sum + (row.amount || 0), 0));
+    const supplierPosted = roundAmount(payableRows.reduce((sum, row) => sum + row.postedAmount, 0));
+    const assetOriginalCurrent = roundAmount(includedAssetRows.reduce((sum, row) => sum + (row.originalValue || 0), 0));
+    const assetOriginalPosted = roundAmount(includedAssetRows.reduce((sum, row) => sum + row.postedOriginalValue, 0));
+    const assetDepCurrent = roundAmount(includedAssetRows.reduce((sum, row) => sum + (row.accumulatedDepreciation || 0), 0));
+    const assetDepPosted = roundAmount(includedAssetRows.reduce((sum, row) => sum + row.postedAccumulatedDepreciation, 0));
+
+    return [
+      ...bankRows,
+      {
+        subjectCode: '1122',
+        subjectName: '应收账款',
+        source: 'customer' as const,
+        direction: 'debit' as const,
+        currentAmount: customerCurrent,
+        postedAmount: customerPosted,
+        unpostedAmount: roundAmount(customerCurrent - customerPosted),
+      },
+      {
+        subjectCode: '2202',
+        subjectName: '应付账款',
+        source: 'supplier' as const,
+        direction: 'credit' as const,
+        currentAmount: supplierCurrent,
+        postedAmount: supplierPosted,
+        unpostedAmount: roundAmount(supplierCurrent - supplierPosted),
+      },
+      {
+        subjectCode: '1601',
+        subjectName: '固定资产',
+        source: 'fixed_asset' as const,
+        direction: 'debit' as const,
+        currentAmount: assetOriginalCurrent,
+        postedAmount: assetOriginalPosted,
+        unpostedAmount: roundAmount(assetOriginalCurrent - assetOriginalPosted),
+      },
+      {
+        subjectCode: '1602',
+        subjectName: '累计折旧',
+        source: 'accumulated_depreciation' as const,
+        direction: 'credit' as const,
+        currentAmount: assetDepCurrent,
+        postedAmount: assetDepPosted,
+        unpostedAmount: roundAmount(assetDepCurrent - assetDepPosted),
+      },
+    ];
+  }, [assetRowStates, bankRowStates, partnerRowStates]);
+
+  const postedSubjectEntryIndex = useMemo(() => {
+    const index = new Map<string, { subjectName: string; debit: number; credit: number }>();
+    for (const entry of postedOpeningVoucher?.entries ?? []) {
+      if (!entry.subjectCode) continue;
+      const current = index.get(entry.subjectCode) || { subjectName: entry.subjectName || '', debit: 0, credit: 0 };
+      current.subjectName = current.subjectName || entry.subjectName || '';
+      current.debit = roundAmount(current.debit + (entry.debit || 0));
+      current.credit = roundAmount(current.credit + (entry.credit || 0));
+      index.set(entry.subjectCode, current);
+    }
+    return index;
+  }, [postedOpeningVoucher]);
+
+  const fullOpeningAnalysis = useMemo(() => analyzeOpeningBalance({
     subjectEntries: entries,
     partnerEntries,
     bankEntries,
     assetEntries,
   }), [entries, partnerEntries, bankEntries, assetEntries]);
-  const totalDebit = openingAnalysis.totalDebit;
-  const totalCredit = openingAnalysis.totalCredit;
-  const diff = openingAnalysis.balanceDifference;
-  const isBalanced = openingAnalysis.isBalanced;
+  const openingAnalysis = fullOpeningAnalysis;
+
+  const postedOpeningVoucherIsCurrent = Boolean(postedOpeningVoucher)
+    && Math.abs((postedOpeningVoucher?.totalDebit ?? 0) - fullOpeningAnalysis.totalDebit) < 0.01
+    && Math.abs((postedOpeningVoucher?.totalCredit ?? 0) - fullOpeningAnalysis.totalCredit) < 0.01;
+  const lockedOpeningVoucher = postedOpeningVoucherIsCurrent ? postedOpeningVoucher : null;
+  const hasPendingOpeningSupplement = Boolean(postedOpeningVoucher && !postedOpeningVoucherIsCurrent);
+  const totalDebit = lockedOpeningVoucher?.totalDebit ?? openingAnalysis.totalDebit;
+  const totalCredit = lockedOpeningVoucher?.totalCredit ?? openingAnalysis.totalCredit;
+  const diff = lockedOpeningVoucher
+    ? Math.abs(lockedOpeningVoucher.totalDebit - lockedOpeningVoucher.totalCredit)
+    : openingAnalysis.balanceDifference;
+  const isBalanced = lockedOpeningVoucher?.isBalanced ?? openingAnalysis.isBalanced;
   const canBalanceWithAdjustment = !isBalanced && Boolean(adjustmentSubject.code);
   const canSaveOpening = isBalanced || canBalanceWithAdjustment;
   const subledgerDifferences = openingAnalysis.subledgerDifferences;
@@ -229,19 +426,36 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     fixed_asset: '来自资产卡片',
     accumulated_depreciation: '来自资产折旧',
   };
+  const getPostingStatusLabel = (status: OpeningPostingStatus) => {
+    if (status === 'posted') return '已入账';
+    if (status === 'partial') return '部分入账';
+    return '未入账';
+  };
+  const getPostingStatusClass = (status: OpeningPostingStatus) => {
+    if (status === 'posted') return 'bg-green-100 text-green-700';
+    if (status === 'partial') return 'bg-amber-100 text-amber-700';
+    return 'bg-slate-100 text-slate-600';
+  };
 
-  const hasAdjustment = !isBalanced && Boolean(adjustmentSubject.code) && diff > 0;
+  const getControlledSubjectStatus = (currentAmount: number, postedAmount: number): OpeningPostingStatus => {
+    if (Math.abs(currentAmount) < 0.01) return 'posted';
+    if (Math.abs(postedAmount) < 0.01) return 'unposted';
+    if (Math.abs(currentAmount - postedAmount) < 0.01) return 'posted';
+    return 'partial';
+  };
+
+  const hasAdjustment = !lockedOpeningVoucher && !isBalanced && Boolean(adjustmentSubject.code) && diff > 0;
   const effectiveTotalDebit = hasAdjustment && openingAnalysis.adjustmentSide === 'debit'
     ? totalDebit + diff
     : totalDebit;
   const effectiveTotalCredit = hasAdjustment && openingAnalysis.adjustmentSide === 'credit'
     ? totalCredit + diff
     : totalCredit;
-  const effectiveBalanced = isBalanced || hasAdjustment;
+  const effectiveBalanced = Boolean(lockedOpeningVoucher?.isBalanced) || isBalanced || hasAdjustment;
 
   const balancedRef = React.useRef(onBalancedChange);
   balancedRef.current = onBalancedChange;
-  useEffect(() => { balancedRef.current(canSaveOpening); }, [canSaveOpening]);
+  useEffect(() => { balancedRef.current(Boolean(lockedOpeningVoucher?.isBalanced) || canSaveOpening); }, [canSaveOpening, lockedOpeningVoucher]);
 
   // Get the opening period for monthly closing
   const openingPeriod = useMemo(() => {
@@ -292,34 +506,6 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     setEntries(prev => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
-      return next;
-    });
-  }, []);
-
-  // ==================== Partner Opening Handlers ====================
-
-  const addPartnerEntry = useCallback(() => {
-    setPartnerEntries(prev => [...prev, { name: '', type: 'receivable', amount: 0, remark: '' }]);
-  }, []);
-
-  const removePartnerEntry = useCallback((index: number) => {
-    setPartnerEntries(prev => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const updatePartnerEntry = useCallback((index: number, field: keyof PartnerOpeningEntry, value: PartnerOpeningEntry[keyof PartnerOpeningEntry]) => {
-    setPartnerEntries(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
-      return next;
-    });
-  }, []);
-
-  // ==================== Bank Balance Handlers ====================
-
-  const updateBankBalance = useCallback((index: number, balance: number) => {
-    setBankEntries(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], balance };
       return next;
     });
   }, []);
@@ -400,7 +586,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const bankTotalBalance = bankEntries.reduce((s, e) => s + e.balance, 0);
   const assetTotalOriginal = assetEntries.filter(e => e.included).reduce((s, e) => s + e.originalValue, 0);
   const assetTotalDep = assetEntries.filter(e => e.included).reduce((s, e) => s + e.accumulatedDepreciation, 0);
-  const hasAnyData = entries.length > 0 || partnerEntries.length > 0 || bankEntries.some(b => b.balance !== 0) || assetEntries.some(a => a.included);
+  const hasAnyData = Boolean(postedOpeningVoucher) || entries.length > 0 || partnerEntries.length > 0 || bankEntries.some(b => b.balance !== 0) || assetEntries.some(a => a.included);
 
   // ==================== Unified Save ====================
 
@@ -520,6 +706,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           date: voucherDate, summary: `期初资产-${e.assetName}`,
           subjectCode: '1601', subjectName: '固定资产',
           debit: e.originalValue, credit: 0,
+          auxiliary: { assetCode: e.assetCode, assetName: e.assetName },
         });
         // 1602 贷方（累计折旧）
         if (e.accumulatedDepreciation > 0) {
@@ -528,6 +715,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             date: voucherDate, summary: `期初累计折旧-${e.assetName}`,
             subjectCode: '1602', subjectName: '累计折旧',
             debit: 0, credit: e.accumulatedDepreciation,
+            auxiliary: { assetCode: e.assetCode, assetName: e.assetName },
           });
         }
       }
@@ -552,10 +740,10 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
 
         // Clean up orphan opening vouchers from older saves that used timestamp-based IDs
         try {
-          const db = (sqliteService as any).dbInstance;
+          const db = (sqliteService as unknown as { dbInstance?: SqliteDbLike }).dbInstance;
           if (db) {
             const orphans = db.exec(`SELECT id FROM vouchers WHERE id LIKE 'opening_%' AND id != '${voucherId}' AND accountSetId = '${accountSetId}'`);
-            const orphanIds = (orphans[0]?.values || []).map((r: any[]) => r[0]) as string[];
+            const orphanIds = (orphans[0]?.values || []).map((r) => String(r[0]));
             for (const oid of orphanIds) {
               const d1 = db.prepare('DELETE FROM entries WHERE voucherId = ?'); d1.run([oid]); d1.free();
               const d2 = db.prepare('DELETE FROM vouchers WHERE id = ?'); d2.run([oid]); d2.free();
@@ -569,18 +757,40 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           createdBy: 'system', createTime: now, updateTime: now,
           entries: allEntries,
         });
+        const postedEntries = allEntries.map(entry => ({
+          subjectCode: entry.subjectCode,
+          subjectName: entry.subjectName,
+          debit: entry.debit || 0,
+          credit: entry.credit || 0,
+        }));
+        const postedTotalDebit = postedEntries.reduce((sum, entry) => sum + entry.debit, 0);
+        const postedTotalCredit = postedEntries.reduce((sum, entry) => sum + entry.credit, 0);
+        setPostedOpeningVoucher({
+          voucherNo: '记-期初-0001',
+          entries: postedEntries,
+          rawEntries: allEntries.map(entry => ({
+            summary: entry.summary,
+            debit: entry.debit,
+            credit: entry.credit,
+            auxiliary: entry.auxiliary,
+          })),
+          totalDebit: postedTotalDebit,
+          totalCredit: postedTotalCredit,
+          isBalanced: Math.abs(postedTotalDebit - postedTotalCredit) < 0.01,
+        });
       } else {
         // No entries — also clean up any prior opening voucher for this account set
         try {
-          const db = (sqliteService as any).dbInstance;
+          const db = (sqliteService as unknown as { dbInstance?: SqliteDbLike }).dbInstance;
           if (db) {
-            const orphanIds = (db.exec(`SELECT id FROM vouchers WHERE id LIKE 'opening_%' AND accountSetId = '${accountSetId}'`)[0]?.values || []).map((r: any[]) => r[0]) as string[];
+            const orphanIds = (db.exec(`SELECT id FROM vouchers WHERE id LIKE 'opening_%' AND accountSetId = '${accountSetId}'`)[0]?.values || []).map((r) => String(r[0]));
             for (const oid of orphanIds) {
               const d1 = db.prepare('DELETE FROM entries WHERE voucherId = ?'); d1.run([oid]); d1.free();
               const d2 = db.prepare('DELETE FROM vouchers WHERE id = ?'); d2.run([oid]); d2.free();
             }
           }
         } catch (err) { console.warn('Cleanup opening voucher failed:', err); }
+        setPostedOpeningVoucher(null);
       }
 
       const totalItems = subjectEntriesForVoucher.length + validPartnerEntries.length + validBankEntries.length + includedAssets.length + (!isBalanced && adjustmentSubject.code ? 1 : 0);
@@ -635,6 +845,12 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             <div className="flex-1 text-center">
               <p className="text-sm text-slate-500">借方合计</p>
               <p className="text-lg font-semibold">{effectiveTotalDebit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
+              {lockedOpeningVoucher && (
+                <p className="mt-1 text-xs text-green-700">已入账凭证：{lockedOpeningVoucher.voucherNo}</p>
+              )}
+              {hasPendingOpeningSupplement && (
+                <p className="mt-1 text-xs text-amber-700">检测到补入明细，请重新保存期初凭证</p>
+              )}
             </div>
             <div className="text-2xl text-slate-300">=</div>
             <div className="flex-1 text-center">
@@ -642,7 +858,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               <p className="text-lg font-semibold">{effectiveTotalCredit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
             </div>
             <div className="ml-4">
-              {entries.length === 0 && bankEntries.length === 0 && partnerEntries.length === 0 && assetEntries.filter(a => a.included).length === 0 ? (
+              {!lockedOpeningVoucher && entries.length === 0 && bankEntries.length === 0 && partnerEntries.length === 0 && assetEntries.filter(a => a.included).length === 0 ? (
                 <Badge variant="outline" className="bg-slate-100">未录入</Badge>
               ) : effectiveBalanced ? (
                 hasAdjustment ? (
@@ -656,7 +872,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             </div>
           </div>
 
-          {!isBalanced && (
+          {!lockedOpeningVoucher && !isBalanced && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
               <div className="flex items-start gap-2 text-sm text-amber-800">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -677,13 +893,13 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           )}
 
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => triggerImport('subject')}>
+            <Button variant="outline" size="sm" onClick={() => triggerImport('subject')} disabled={Boolean(lockedOpeningVoucher)}>
               <Upload className="h-4 w-4 mr-1" /> 导入Excel
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { setImportTarget('subject'); handleDownloadTemplate(); }}>
               <Download className="h-4 w-4 mr-1" /> 下载模板
             </Button>
-            {entries.length > 0 && (
+            {!lockedOpeningVoucher && entries.length > 0 && (
               <Button variant="ghost" size="sm" onClick={() => setEntries([])} className="text-red-500 hover:text-red-700 ml-auto">
                 <Trash2 className="h-4 w-4 mr-1" /> 清空
               </Button>
@@ -697,40 +913,68 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                   <th className="px-3 py-2 text-left font-medium text-slate-600 w-48">科目</th>
                   <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">借方金额</th>
                   <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">贷方金额</th>
+                  <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
+                  <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">未入账金额</th>
                   <th className="px-3 py-2 w-10"></th>
                 </tr>
               </thead>
               <tbody>
-                {controlledSubjects.filter(c => c.hasDetail).map(item => (
-                  <tr key={`auto-${item.subjectCode}`} className="border-t bg-slate-50/70 text-slate-500">
-                    <td className="px-2 py-1">
-                      <div className="flex items-start gap-2">
-                        <Lock className="h-3 w-3 text-slate-400 mt-1 shrink-0" />
-                        <div className="flex flex-col">
-                          <span className="font-mono text-xs text-slate-500">{item.subjectCode}</span>
-                          <span className="text-sm text-slate-600">{item.subjectName}</span>
-                          <span className="text-[10px] text-slate-400 mt-0.5">{SOURCE_LABELS[item.source]}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
-                      {item.direction === 'debit' ? item.detailBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
-                    </td>
-                    <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
-                      {item.direction === 'credit' ? item.detailBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
-                    </td>
-                    <td className="px-3 py-1">
-                      <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 bg-slate-200 text-slate-500">来自明细账</Badge>
-                    </td>
-                  </tr>
-                ))}
-                {entries.map((entry, index) => {
-                  const overlapsControlled = entry.subjectCode && controlledSubjects.some(c => c.hasDetail && entry.subjectCode.startsWith(c.subjectCode));
+                {controlledSubjectRows.map(item => {
+                  const status = getControlledSubjectStatus(item.currentAmount, item.postedAmount);
+                  const unpostedAmount = Math.abs(item.unpostedAmount);
                   return (
-                    <tr key={`manual-${index}`} className="border-t hover:bg-slate-50">
+                    <tr key={`auto-${item.subjectCode}`} className="border-t bg-slate-50/70 text-slate-500">
                       <td className="px-2 py-1">
-                        <SubjectPopover value={entry.subjectCode} onSelect={(code, name) => handleSubjectSelect(index, code, name)} placeholder="选择科目" />
-                        {overlapsControlled && (
+                        <div className="flex items-start gap-2">
+                          <Lock className="h-3 w-3 text-slate-400 mt-1 shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="font-mono text-xs text-slate-500">{item.subjectCode}</span>
+                            <span className="text-sm text-slate-600">{item.subjectName}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5">{SOURCE_LABELS[item.source]}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
+                        {item.direction === 'debit' ? item.currentAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
+                      </td>
+                      <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
+                        {item.direction === 'credit' ? item.currentAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}
+                      </td>
+                      <td className="px-3 py-1 text-center">
+                        <Badge variant="outline" className={`text-[10px] px-1 py-0 h-5 ${getPostingStatusClass(status)}`}>
+                          {getPostingStatusLabel(status)}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-500">
+                        {unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-3 py-1">
+                        <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 bg-slate-200 text-slate-500">来自明细</Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {entries.map((entry, index) => {
+                  const posted = entry.subjectCode ? postedSubjectEntryIndex.get(entry.subjectCode) : undefined;
+                  const currentAmount = roundAmount((entry.debit || 0) - (entry.credit || 0));
+                  const postedAmount = posted ? roundAmount((posted.debit || 0) - (posted.credit || 0)) : 0;
+                  const hasPosted = Boolean(posted);
+                  const postedExact = hasPosted && Math.abs(currentAmount - postedAmount) < 0.01;
+                  const status: OpeningPostingStatus = postedExact ? 'posted' : hasPosted ? 'partial' : 'unposted';
+                  const overlapsControlled = entry.subjectCode && controlledSubjects.some(c => c.hasDetail && entry.subjectCode.startsWith(c.subjectCode));
+                  const readOnly = postedExact;
+                  return (
+                    <tr key={`manual-${index}`} className={`border-t ${readOnly ? 'bg-slate-50 text-slate-500' : 'hover:bg-slate-50'}`}>
+                      <td className="px-2 py-1">
+                        {readOnly ? (
+                          <div className="flex flex-col">
+                            <span className="font-mono text-xs text-slate-500">{entry.subjectCode}</span>
+                            <span className="text-sm text-slate-600">{entry.subjectName}</span>
+                          </div>
+                        ) : (
+                          <SubjectPopover value={entry.subjectCode} onSelect={(code, name) => handleSubjectSelect(index, code, name)} placeholder="选择科目" />
+                        )}
+                        {!readOnly && overlapsControlled && (
                           <div className="text-[10px] text-amber-600 mt-1 flex items-center gap-1">
                             <AlertTriangle className="h-2.5 w-2.5" />
                             与上方自动行重复，将被忽略
@@ -738,20 +982,30 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                         )}
                       </td>
                       <td className="px-3 py-1">
-                        <Input type="number" value={entry.debit || ''} onChange={(e) => updateEntry(index, 'debit', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
+                        <Input type="number" value={entry.debit || ''} onChange={(e) => updateEntry(index, 'debit', parseFloat(e.target.value) || 0)} disabled={readOnly} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
                       </td>
                       <td className="px-3 py-1">
-                        <Input type="number" value={entry.credit || ''} onChange={(e) => updateEntry(index, 'credit', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
+                        <Input type="number" value={entry.credit || ''} onChange={(e) => updateEntry(index, 'credit', parseFloat(e.target.value) || 0)} disabled={readOnly} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
+                      </td>
+                      <td className="px-3 py-1 text-center">
+                        <Badge variant="outline" className={`text-[10px] px-1 py-0 h-5 ${getPostingStatusClass(status)}`}>
+                          {getPostingStatusLabel(status)}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-1 text-right text-sm tabular-nums font-medium">
+                        {(hasPosted ? Math.abs(currentAmount - postedAmount) : Math.abs(currentAmount)).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-1">
-                        <Button variant="ghost" size="sm" onClick={() => removeEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        {!readOnly && (
+                          <Button variant="ghost" size="sm" onClick={() => removeEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
-                {!isBalanced && adjustmentSubject.code && (
+                {!lockedOpeningVoucher && !isBalanced && adjustmentSubject.code && (
                   <tr key="adjustment-preview" className="border-t bg-amber-50/70">
                     <td className="px-2 py-1">
                       <div className="flex items-start gap-2">
@@ -779,7 +1033,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               </tbody>
             </table>
             <div className="border-t p-2 bg-slate-50">
-              <Button variant="outline" size="sm" onClick={addEntry} className="w-full">
+              <Button variant="outline" size="sm" onClick={addEntry} disabled={Boolean(lockedOpeningVoucher)} className="w-full">
                 <Plus className="h-4 w-4 mr-1" /> 添加科目
               </Button>
             </div>
@@ -801,14 +1055,14 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => triggerImport('partner-opening')}>
+              <Button variant="outline" size="sm" onClick={() => triggerImport('partner-opening')} disabled>
                 <Upload className="h-4 w-4 mr-1" /> 导入Excel
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setImportTarget('partner-opening'); handleDownloadTemplate(); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setImportTarget('partner-opening'); handleDownloadTemplate(); }} disabled>
                 <Download className="h-4 w-4 mr-1" /> 下载模板
               </Button>
               {partnerEntries.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setPartnerEntries([])} className="text-red-500 hover:text-red-700 ml-auto">
+                <Button variant="ghost" size="sm" onClick={() => setPartnerEntries([])} disabled className="text-red-500 hover:text-red-700 ml-auto">
                   <Trash2 className="h-4 w-4 mr-1" /> 清空
                 </Button>
               )}
@@ -822,38 +1076,31 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">类型</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">金额</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">备注</th>
-                    <th className="px-3 py-2 w-10"></th>
+                    <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">未入账金额</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {partnerEntries.map((entry, index) => (
+                  {partnerRowStates.map((entry, index) => (
                     <tr key={index} className="border-t hover:bg-slate-50">
-                      <td className="px-2 py-1">
-                        <Input value={entry.name} onChange={(e) => updatePartnerEntry(index, 'name', e.target.value)} className="h-8 text-sm" placeholder="往来单位名称" autoComplete="off" />
+                      <td className="px-3 py-2 font-medium">{entry.name || '-'}</td>
+                      <td className="px-3 py-2 text-slate-600">{entry.type === 'receivable' ? '应收' : '应付'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{entry.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-slate-600">{entry.remark || '-'}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
+                          {getPostingStatusLabel(entry.status)}
+                        </Badge>
                       </td>
-                      <td className="px-2 py-1">
-                        <select value={entry.type} onChange={(e) => updatePartnerEntry(index, 'type', e.target.value)} className="h-8 text-sm border rounded px-2 w-full">
-                          <option value="receivable">应收</option>
-                          <option value="payable">应付</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-1">
-                        <Input type="number" value={entry.amount || ''} onChange={(e) => updatePartnerEntry(index, 'amount', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input value={entry.remark} onChange={(e) => updatePartnerEntry(index, 'remark', e.target.value)} className="h-8 text-sm" placeholder="备注" autoComplete="off" />
-                      </td>
-                      <td className="px-3 py-1">
-                        <Button variant="ghost" size="sm" onClick={() => removePartnerEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">
+                        {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="border-t p-2 bg-slate-50">
-                <Button variant="outline" size="sm" onClick={addPartnerEntry} className="w-full">
+                <Button variant="outline" size="sm" disabled className="w-full">
                   <Plus className="h-4 w-4 mr-1" /> 添加往来余额
                 </Button>
               </div>
@@ -881,20 +1128,37 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             ) : (
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">银行</th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">账号</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-40">期初余额</th>
-                    </tr>
-                  </thead>
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">科目</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">银行</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">账号</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-40">期初余额</th>
+                    <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">未入账金额</th>
+                  </tr>
+                </thead>
                   <tbody>
-                    {bankEntries.map((entry, index) => (
+                    {bankRowStates.map((entry, index) => (
                       <tr key={index} className="border-t hover:bg-slate-50">
+                        <td className="px-3 py-2">
+                          <div className="font-mono text-xs text-slate-600">{entry.subjectCode || '1002'}</div>
+                          <div className="text-sm font-medium">{entry.subjectName || '银行存款'}</div>
+                        </td>
                         <td className="px-3 py-2 font-medium">{entry.bankName || '-'}</td>
                         <td className="px-3 py-2 text-slate-600 font-mono text-xs">{entry.accountNumber}</td>
                         <td className="px-3 py-1">
-                          <Input type="number" value={entry.balance || ''} onChange={(e) => updateBankBalance(index, parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" placeholder="0.00" autoComplete="off" />
+                          <div className="h-8 flex items-center justify-end text-sm text-slate-700 tabular-nums">
+                            {entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
+                            {getPostingStatusLabel(entry.status)}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
                     ))}
@@ -932,18 +1196,22 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             ) : (
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-3 py-2 w-10"></th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">编码</th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-600">资产名称</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">原值</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">累计折旧</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">净值</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assetEntries.map((entry, index) => (
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 w-10"></th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">编码</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">资产名称</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">原值</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">累计折旧</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">净值</th>
+                    <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">未入账原值</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">未入账折旧</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">未入账净值</th>
+                  </tr>
+                </thead>
+                <tbody>
+                    {assetRowStates.map((entry, index) => (
                       <tr key={index} className={`border-t ${entry.included ? 'hover:bg-slate-50' : 'opacity-50 line-through'}`}>
                         <td className="px-3 py-2 text-center">
                           <input
@@ -958,6 +1226,20 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                         <td className="px-3 py-2 text-right">{entry.originalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-right text-slate-600">{entry.accumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-right font-medium">{entry.netValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2 text-center">
+                          <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
+                            {getPostingStatusLabel(entry.status)}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {entry.unpostedOriginalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {entry.unpostedAccumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {entry.unpostedNetValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -980,14 +1262,16 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       {/* Save & Monthly Closing */}
       {hasAnyData && (
         <div className="flex items-center justify-between">
-          {saved && isBalanced && (
+          {(lockedOpeningVoucher?.isBalanced || (saved && isBalanced && !hasPendingOpeningSupplement)) && (
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-green-600" />
-              <span className="text-sm text-green-700">期初数据已保存</span>
+              <span className="text-sm text-green-700">
+                {lockedOpeningVoucher ? `期初数据已入账：${lockedOpeningVoucher.voucherNo}` : '期初数据已保存'}
+              </span>
             </div>
           )}
           <div className="flex items-center gap-2 ml-auto">
-            {!saved ? (
+            {(!saved || hasPendingOpeningSupplement) ? (
               <Button onClick={handleSave} disabled={loading || (entries.length > 0 && !canSaveOpening)} className="bg-blue-600 hover:bg-blue-700">
                 {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 保存中...</> : '保存期初数据'}
               </Button>

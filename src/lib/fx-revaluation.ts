@@ -5,7 +5,7 @@
  * 按期末中间价重估，产生预览行和平衡凭证。
  */
 
-import type { FxRate, FxRevaluationRun, FxRevaluationRunLine, Voucher, VoucherEntry } from '@/types';
+import type { FxRate, FxRevaluationRun, FxRevaluationRunLine, Voucher, VoucherEntry } from '../types';
 
 // ─── 输入类型 ───
 
@@ -78,6 +78,35 @@ export interface FxRevaluationPreview {
   totalGain: number;
   totalLoss: number;
   netDifference: number;
+}
+
+export function hasFinalizedFxRevaluationRun(
+  runs: FxRevaluationRun[],
+  period: string,
+): boolean {
+  return runs.some(run => run.period === period && (run.status === 'confirmed' || run.status === 'posted'));
+}
+
+export function getFxRevaluationRunNetAmount(run: Pick<FxRevaluationRun, 'previewData'>): number {
+  const { gain, loss } = getFxRevaluationRunGainLoss(run);
+  return round2(gain - loss);
+}
+
+export function getFxRevaluationRunGainLoss(run: Pick<FxRevaluationRun, 'previewData'>): { gain: number; loss: number } {
+  if (!run.previewData) return { gain: 0, loss: 0 };
+  try {
+    const preview = JSON.parse(run.previewData) as { totalGain?: number; totalLoss?: number; netDifference?: number };
+    const totalGain = typeof preview.totalGain === 'number' ? preview.totalGain : 0;
+    const totalLoss = typeof preview.totalLoss === 'number' ? preview.totalLoss : 0;
+    if (typeof preview.netDifference === 'number' && totalGain === 0 && totalLoss === 0) {
+      return preview.netDifference >= 0
+        ? { gain: round2(preview.netDifference), loss: 0 }
+        : { gain: 0, loss: round2(Math.abs(preview.netDifference)) };
+    }
+    return { gain: round2(totalGain), loss: round2(totalLoss) };
+  } catch {
+    return { gain: 0, loss: 0 };
+  }
 }
 
 // ─── 核心计算 ───

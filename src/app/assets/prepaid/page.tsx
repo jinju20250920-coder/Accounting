@@ -13,10 +13,11 @@ import { SubjectPopover, PartnerPopover, DepartmentPopover } from '@/components/
 import { VoucherStamp } from '@/components/shared/voucher-stamp';
 import { AmortizationDialog } from '@/components/assets/amortization-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Calculator, History, Pencil, Trash2, FileText, RotateCcw } from 'lucide-react';
+import { Search, Plus, Calculator, History, Pencil, Trash2, FileText, RotateCcw, Upload, Download } from 'lucide-react';
 import { sqliteService } from '@/lib/database';
 import { formatNumber } from '@/lib/utils';
 import { getPrepaidExpenseTypeName } from '@/lib/amortization';
+import { parsePrepaidExpensesExcel, generateAssetImportTemplate } from '@/lib/parser';
 import type { PrepaidExpense, PrepaidExpenseType, AmortizationMethod, AmortizationRecord } from '@/types';
 
 // Voucher detail dialog
@@ -180,7 +181,7 @@ const formatAmount = formatNumber;
 
 export default function PrepaidExpensePage() {
   const { expenses, amortizationRecords, addExpense, updateExpense, deleteExpense, initialize,
-          getAmortizationHistory, correctAmortizationRecord } = usePrepaidExpenseStore();
+          getAmortizationHistory, correctAmortizationRecord, importFromExcel } = usePrepaidExpenseStore();
   const { initializeSubjects } = useSubjectStore();
   const { showToast } = useToast();
 
@@ -200,6 +201,8 @@ export default function PrepaidExpensePage() {
   const [correctTarget, setCorrectTarget] = useState<AmortizationRecord | null>(null);
   const [correctDate, setCorrectDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [correcting, setCorrecting] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     if (formData.startDate && formData.amortizationPeriods > 0) {
@@ -288,6 +291,52 @@ export default function PrepaidExpensePage() {
     setShowAddDialog(true);
   };
 
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    try {
+      const result = await parsePrepaidExpensesExcel(file);
+      if (result.data.length === 0) {
+        showToast('warning', '未解析到有效数据，请检查文件格式');
+        setImporting(false);
+        return;
+      }
+
+      const importData = result.data.map(item => ({
+        expenseCode: item.expenseCode,
+        expenseName: item.expenseName!,
+        expenseType: (item.expenseType as PrepaidExpenseType) || 'other',
+        originalAmount: item.originalAmount!,
+        paymentDate: item.paymentDate,
+        startDate: item.startDate!,
+        endDate: item.endDate,
+        amortizationPeriods: item.amortizationPeriods,
+        prepaidSubjectCode: item.prepaidSubjectCode,
+        expenseSubjectCode: item.expenseSubjectCode,
+        supplierName: item.supplierName,
+        invoiceNo: item.invoiceNo,
+        departmentCode: item.departmentCode,
+        notes: item.notes,
+      }));
+
+      const importResult = await importFromExcel(importData);
+      const errMsg = result.errors.length > 0 ? `（解析时${result.errors.length}个错误）` : '';
+      showToast(
+        importResult.errors.length > 0 ? 'warning' : 'success',
+        `成功导入 ${importResult.success} 条${importResult.errors.length > 0 ? `，${importResult.errors.length} 条失败` : ''}${errMsg}`,
+      );
+      setShowImportDialog(false);
+    } catch (error: any) {
+      showToast('error', error.message || '导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    generateAssetImportTemplate('prepaid');
+    showToast('success', '模板下载成功');
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -360,6 +409,10 @@ export default function PrepaidExpensePage() {
           <Button variant="outline" onClick={() => setShowAmortizationDialog(true)}>
             <Calculator className="h-4 w-4 mr-2" />
             摊销计算
+          </Button>
+          <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            导入
           </Button>
           <Button onClick={() => { setFormData(INITIAL_FORM); setEditingExpense(null); setShowAddDialog(true); }}>
             <Plus className="h-4 w-4 mr-2" />
@@ -701,6 +754,57 @@ export default function PrepaidExpensePage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>取消</Button>
             <Button variant="destructive" onClick={handleDelete}>确认删除</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导入对话框 */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>导入待摊费用</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+              <div>
+                <div className="text-sm font-medium">下载导入模板</div>
+                <div className="text-xs text-muted-foreground">Excel 格式，含字段示例</div>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+                <Download className="h-4 w-4 mr-2" />
+                下载模板
+              </Button>
+            </div>
+            <div className="rounded-md border border-dashed border-slate-300 px-4 py-6 text-center">
+              <Upload className="h-8 w-8 mx-auto mb-2 text-slate-400" />
+              <p className="text-sm text-slate-600 mb-2">点击选择或拖入 Excel 文件</p>
+              <p className="text-xs text-muted-foreground mb-3">支持 .xlsx / .xls 格式</p>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                id="prepaid-import-input"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImport(file);
+                  e.target.value = '';
+                }}
+              />
+              <label
+                htmlFor="prepaid-import-input"
+                className={`inline-flex items-center justify-center rounded-md border border-input bg-background h-8 px-3 text-xs font-medium cursor-pointer hover:bg-accent ${importing ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                {importing ? '导入中...' : '选择文件'}
+              </label>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p>· 必填字段：费用名称、原值、摊销开始日期、摊销期数</p>
+              <p>· 费用类型支持：rent（租金）/insurance（保险）/advertising（广告）/subscription（订阅）/other（其他）</p>
+              <p>· 科目代码、供应商名称等可选填</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowImportDialog(false)}>关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

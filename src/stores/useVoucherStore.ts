@@ -9,6 +9,7 @@ import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { Voucher } from '@/lib/database/service';
 import { useAccountSetStore } from './useAccountSetStore';
 import { assertAccountingDateEditable } from '@/lib/period-closing';
+import { resolveVoucherWord } from '@/lib/voucher-numbering';
 
 // 凭证状态
 type VoucherStatus = 'draft' | 'review' | 'posted' | 'reversed';
@@ -140,20 +141,6 @@ const createDefaultEntry = (voucherId: string, index?: number): any => ({
   docNo: '',
   recRefNo: ''
 });
-
-// 根据 voucherType 选取凭证字
-export function resolveVoucherWord(
-  cfg: { word?: string; useClassified?: boolean; classifiedWords?: { receipt: string; payment: string; general: string } } | undefined,
-  voucherType?: string
-): string {
-  if (cfg?.useClassified && voucherType) {
-    const cw = cfg.classifiedWords || { receipt: '收', payment: '付', general: '记' };
-    if (voucherType === 'receipt') return cw.receipt;
-    if (voucherType === 'payment') return cw.payment;
-    return cw.general;
-  }
-  return cfg?.word || '记';
-}
 
 // 辅助函数：生成凭证字号（读取账套编号配置）
 export const generateVoucherNo = async (date: string, voucherType?: string): Promise<string> => {
@@ -590,6 +577,15 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   addVoucherFromBankTransactions: async (bankTransactions: any[], bankAccountId: string) => {
     const state = get();
     const now = new Date().toISOString();
+    const bankBindings = await getCurrentService().getBankAccountBindings().catch(() => []);
+    const matchedBinding = bankBindings.find((binding: any) =>
+      binding.id === bankAccountId
+      || binding.accountNumber === bankAccountId
+      || binding.accountNumber === bankTransactions?.[0]?.ourAccount
+    );
+    const bankSubjectCode = matchedBinding?.subSubjectCode || '1002';
+    const bankSubjectName = matchedBinding?.subSubjectName || matchedBinding?.aliasName || '银行存款';
+    const bankAccountNumber = matchedBinding?.accountNumber || bankTransactions?.[0]?.ourAccount || '';
 
     // 为每个银行交易生成一个凭证
     for (const transaction of bankTransactions) {
@@ -602,11 +598,6 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         const amount = transaction.debit || transaction.credit || 0;
         const voucherType = isDebit ? 'receipt' as const : 'payment' as const;
         const voucherNo = await generateVoucherNo(transaction.date, voucherType);
-
-        // 获取银行科目信息（简化版）
-        // 在实际应用中，应从 bankAccountId 获取真实的科目代码和名称
-        const bankSubjectCode = '1002';
-        const bankSubjectName = '银行存款';
 
         // 创建凭证分录
         const entries: any[] = [];
@@ -641,7 +632,8 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
           subjectCode: bankSubjectCode,
           subjectName: bankSubjectName,
           debit: isDebit ? amount : 0,
-          credit: isDebit ? 0 : amount
+          credit: isDebit ? 0 : amount,
+          auxiliary: bankAccountNumber ? { bankAccount: bankAccountNumber } : {},
         };
         entries.push(bankEntry);
 

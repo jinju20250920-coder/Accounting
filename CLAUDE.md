@@ -651,6 +651,13 @@ npm run lint
 - ✅ 首次使用体验重构 - 移除硬编码默认 set_001 账套，FirstTimeWrapper 检测无账套时自动创建最小记录并跳转到完整 SetupWizard（/setup?mode=create），删除旧的 FirstTimeWizard（4步对话框）
 - ✅ 登录页优化 - 首次使用提示（蓝色信息框）、关闭浏览器自动填充（autoComplete="new-password"）
 - ✅ AccountSet 字段精简 - 移除 unifiedSocialCreditCode 字段，税务信息仅保留 taxNo（纳税人识别号）
+- ✅ 待摊费用导入 - prepaid/page.tsx 增加导入按钮 + Dialog，调用 parsePrepaidExpensesExcel 解析 Excel，走 usePrepaidExpenseStore.importFromExcel 入库
+- ✅ 资金管理汇总卡片优化 - CashOverview 增加聚合范围徽章（全部账户合计/当前账户）+ 期间范围；"全部账户"时不再显示对账差异；getCashOverviewQuery 在 ourAccount='' 时聚合所有银行手动期初 + 期内流水
+- ✅ 银行账户选择器显示账户别名+币种 - account-selector.tsx 优先用 aliasName 作为显示名，非 CNY 账户右侧显示橙色币种徽章
+- ✅ 银行账户列表新增"账户别名"列 - settings/bank-accounts/page.tsx 在银行名称和账号之间增加 aliasName 列
+- ✅ 授权管理对话框 UI 重构 - 白色系统风格 DialogHeader + 图标徽章 + 输入框 h-11 + "可选" Badge + 套餐卡片含 CheckCircle2 功能列表 + 永久授权后缀
+- ✅ 永久授权套餐 - defaultPricingPlans 改为 ¥199/1账套、¥299/5账套、¥399/不限账套（永久）；PricingPlan.duration 增加 'lifetime' 类型；UI 按 duration 显示 / 永久 | / 年 | / 月
+- ✅ pricingPlans 不持久化 - partialize 移除 pricingPlans + merge/migrate 丢弃旧缓存，保证套餐配置永远以代码 defaultPricingPlans 为准（version: 2）
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
@@ -802,6 +809,27 @@ draft → review → posted → reversed
 - 类型安全：完整的TypeScript类型定义
 - 组件复用：shadcn/ui组件库保证UI一致性
 - 科目树组件：SubjectTreeNode 组件递归渲染层级结构，使用内联样式动态计算缩进
+
+---
+
+## 期初余额与银行明细口径
+
+### 1. 期初余额录入页
+- 期初页保留所有明细行，包括未入账、部分入账和已入账。
+- 银行明细必须按真实银行账户逐行展示，不要把所有银行汇总成单一 `1002` 行。
+- 银行明细的科目编码/名称必须来自银行绑定配置，不能硬编码为同一个子科目。
+- 往来余额、固定资产余额页也要保留行级入账状态与未入账金额，方便继续补录。
+
+### 2. 科目余额表
+- 科目余额表只显示已经入账的数据。
+- 还停留在期初页、未入账的银行明细不得进入科目余额表。
+- `bank_opening_balances` 只能作为已入账期初数据的回填来源，不能把未入账的期初银行余额直接带入 `/balance`。
+- 余额表里若没有对应的已入账期初凭证，不要兜底展示期初银行明细。
+
+### 3. 设计原则
+- 期初页负责“准备入账的数据”。
+- 余额表负责“已经入账的数据”。
+- 两者不能混用，否则会把未入账明细提前算进余额表，导致科目余额不一致。
 
 ## Skill routing
 

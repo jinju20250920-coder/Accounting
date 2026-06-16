@@ -22,7 +22,27 @@ export interface PartnerOpeningSource {
 export interface BankOpeningEntry {
   accountNumber: string;
   bankName: string;
+  subjectCode?: string;
+  subjectName?: string;
   balance: number;
+  currency?: string;
+  foreignBalance?: number | null;
+  exchangeRate?: number | null;
+}
+
+export interface BankOpeningSource {
+  accountNumber?: string;
+  bankName?: string;
+  aliasName?: string;
+  currency?: string | null;
+  subSubjectCode?: string;
+  subSubjectName?: string;
+}
+
+export interface BankOpeningSavedBalance {
+  balance?: number | null;
+  foreignBalance?: number | null;
+  exchangeRate?: number | null;
 }
 
 export interface AssetOpeningEntry {
@@ -32,6 +52,71 @@ export interface AssetOpeningEntry {
   accumulatedDepreciation: number;
   netValue: number;
   included: boolean;
+}
+
+export interface AssetOpeningSource {
+  assetCode: string;
+  assetName: string;
+  originalValue: number;
+  accumulatedDepreciation: number;
+  netValue: number;
+}
+
+export interface OpeningPostedVoucherEntryLike {
+  summary?: string;
+  subjectCode?: string;
+  subjectName?: string;
+  debit?: number;
+  credit?: number;
+  auxiliary?: {
+    bankAccount?: string;
+    customer?: string;
+    supplier?: string;
+    assetCode?: string;
+    assetName?: string;
+  };
+}
+
+export interface OpeningVoucherLike {
+  id: string;
+  voucherNo?: string;
+  status?: 'draft' | 'review' | 'posted' | 'reversed' | string;
+  date?: string;
+  createTime?: string;
+  updateTime?: string;
+  entries?: OpeningPostedVoucherEntryLike[];
+}
+
+export interface OpeningPostedDetailIndex {
+  bankBalances: Map<string, number>;
+  partnerReceivables: Map<string, number>;
+  partnerPayables: Map<string, number>;
+  assetOriginalValues: Map<string, number>;
+  assetAccumulatedDepreciation: Map<string, number>;
+}
+
+export type OpeningPostingStatus = 'posted' | 'partial' | 'unposted';
+
+export interface BankOpeningRowState extends BankOpeningEntry {
+  status: OpeningPostingStatus;
+  postedAmount: number;
+  unpostedAmount: number;
+}
+
+export interface PartnerOpeningRowState extends PartnerOpeningEntry {
+  status: OpeningPostingStatus;
+  postedAmount: number;
+  unpostedAmount: number;
+}
+
+export interface AssetOpeningRowState extends AssetOpeningEntry {
+  status: OpeningPostingStatus;
+  postedOriginalValue: number;
+  unpostedOriginalValue: number;
+  postedAccumulatedDepreciation: number;
+  unpostedAccumulatedDepreciation: number;
+  postedNetValue: number;
+  unpostedNetValue: number;
 }
 
 export interface SubledgerDifference {
@@ -104,10 +189,63 @@ function getSubjectBalance(entries: OpeningSubjectEntry[], subjectCode: string):
   );
 }
 
-function differenceOrNull(input: Omit<SubledgerDifference, 'difference'>): SubledgerDifference | null {
-  const difference = roundMoney(input.subjectBalance - input.detailBalance);
-  if (Math.abs(difference) < MONEY_EPSILON) return null;
-  return { ...input, difference };
+function approxEqual(left: number, right: number): boolean {
+  return Math.abs(roundMoney(left - right)) < MONEY_EPSILON;
+}
+
+function getEntryAmount(entry: OpeningPostedVoucherEntryLike): number {
+  return roundMoney((entry.debit || 0) - (entry.credit || 0));
+}
+
+function getOpeningEntryNameFromSummary(summary?: string, prefix?: string): string {
+  if (!summary || !prefix || !summary.startsWith(prefix)) return '';
+  return summary.substring(prefix.length);
+}
+
+function getPostedAssetKeys(entry: OpeningPostedVoucherEntryLike): string[] {
+  const summary = entry.summary || '';
+  const code = entry.auxiliary?.assetCode || '';
+  const name = entry.auxiliary?.assetName || '';
+  const summaryName = summary.startsWith('期初资产-')
+    ? getOpeningEntryNameFromSummary(summary, '期初资产-')
+    : summary.startsWith('期初累计折旧-')
+      ? getOpeningEntryNameFromSummary(summary, '期初累计折旧-')
+      : '';
+  const keys = new Set<string>();
+  const add = (value?: string) => {
+    if (!value) return;
+    keys.add(value);
+    keys.add(`name:${value}`);
+  };
+
+  add(code);
+  add(name);
+  add(summaryName);
+
+  return Array.from(keys);
+}
+
+function getAssetLookupKeys(row: AssetOpeningEntry): string[] {
+  const keys = new Set<string>();
+  const add = (value?: string) => {
+    if (!value) return;
+    keys.add(value);
+    keys.add(`name:${value}`);
+  };
+
+  add(row.assetCode);
+  add(row.assetName);
+  return Array.from(keys);
+}
+
+function getPostedAssetAmount(map: Map<string, number>, row: AssetOpeningEntry): number {
+  for (const key of getAssetLookupKeys(row)) {
+    const amount = map.get(key);
+    if (typeof amount === 'number' && Math.abs(amount) >= MONEY_EPSILON) {
+      return amount;
+    }
+  }
+  return 0;
 }
 
 export function analyzeOpeningBalance(input: {
@@ -250,6 +388,225 @@ export function buildPartnerOpeningEntriesFromPartners(partners: PartnerOpeningS
     .filter((entry): entry is PartnerOpeningEntry => entry !== null);
 }
 
+export function mergeOpeningEntriesByKey<T>(
+  current: T[],
+  incoming: T[],
+  getKey: (entry: T) => string,
+): T[] {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+
+  for (const entry of current) {
+    const key = getKey(entry);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+
+  for (const entry of incoming) {
+    const key = getKey(entry);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+
+  return merged;
+}
+
+export function mergePartnerOpeningEntriesFromPartners(
+  current: PartnerOpeningEntry[],
+  partners: PartnerOpeningSource[],
+): PartnerOpeningEntry[] {
+  return mergeOpeningEntriesByKey(
+    current,
+    buildPartnerOpeningEntriesFromPartners(partners),
+    entry => `${entry.type}:${entry.name}`,
+  );
+}
+
+export function buildBankOpeningEntriesFromBindings(
+  bindings: BankOpeningSource[],
+  savedByAccount: Map<string, BankOpeningSavedBalance>,
+): BankOpeningEntry[] {
+  return bindings
+    .map((binding): BankOpeningEntry | null => {
+      const accountNumber = binding.accountNumber || '';
+      if (!accountNumber) return null;
+      const saved = savedByAccount.get(accountNumber);
+      return {
+        accountNumber,
+        bankName: binding.bankName || binding.aliasName || '',
+        subjectCode: binding.subSubjectCode || '1002',
+        subjectName: binding.subSubjectName || '银行存款',
+        balance: saved?.balance ?? 0,
+        currency: binding.currency || 'CNY',
+        foreignBalance: saved?.foreignBalance ?? null,
+        exchangeRate: saved?.exchangeRate ?? null,
+      };
+    })
+    .filter((entry): entry is BankOpeningEntry => entry !== null);
+}
+
+export function buildAssetOpeningEntriesFromAssets(assets: AssetOpeningSource[]): AssetOpeningEntry[] {
+  return assets.map(asset => ({
+    assetCode: asset.assetCode,
+    assetName: asset.assetName,
+    originalValue: asset.originalValue,
+    accumulatedDepreciation: asset.accumulatedDepreciation,
+    netValue: asset.netValue,
+    included: true,
+  }));
+}
+
+export function collectPostedOpeningDetailIndex(
+  entries: OpeningPostedVoucherEntryLike[],
+): OpeningPostedDetailIndex {
+  const bankBalances = new Map<string, number>();
+  const partnerReceivables = new Map<string, number>();
+  const partnerPayables = new Map<string, number>();
+  const assetOriginalValues = new Map<string, number>();
+  const assetAccumulatedDepreciation = new Map<string, number>();
+
+  for (const entry of entries) {
+    const summary = entry.summary || '';
+    const amount = getEntryAmount(entry);
+
+    if (summary.startsWith('期初银行-')) {
+      const accountNumber = entry.auxiliary?.bankAccount || '';
+      if (!accountNumber) continue;
+      bankBalances.set(accountNumber, roundMoney((bankBalances.get(accountNumber) || 0) + amount));
+      continue;
+    }
+
+    if (summary.startsWith('期初应收-')) {
+      const customer = entry.auxiliary?.customer || getOpeningEntryNameFromSummary(summary, '期初应收-');
+      if (!customer) continue;
+      partnerReceivables.set(customer, roundMoney((partnerReceivables.get(customer) || 0) + amount));
+      continue;
+    }
+
+    if (summary.startsWith('期初应付-')) {
+      const supplier = entry.auxiliary?.supplier || getOpeningEntryNameFromSummary(summary, '期初应付-');
+      if (!supplier) continue;
+      partnerPayables.set(supplier, roundMoney((partnerPayables.get(supplier) || 0) + Math.abs(amount)));
+      continue;
+    }
+
+    if (summary.startsWith('期初资产-')) {
+      const keys = getPostedAssetKeys(entry);
+      if (keys.length === 0) continue;
+      const postedAmount = roundMoney(Math.max(amount, 0));
+      for (const key of keys) {
+        assetOriginalValues.set(key, roundMoney((assetOriginalValues.get(key) || 0) + postedAmount));
+      }
+      continue;
+    }
+
+    if (summary.startsWith('期初累计折旧-')) {
+      const keys = getPostedAssetKeys(entry);
+      if (keys.length === 0) continue;
+      const postedAmount = roundMoney(Math.abs(Math.min(amount, 0)));
+      for (const key of keys) {
+        assetAccumulatedDepreciation.set(key, roundMoney((assetAccumulatedDepreciation.get(key) || 0) + postedAmount));
+      }
+    }
+  }
+
+  return {
+    bankBalances,
+    partnerReceivables,
+    partnerPayables,
+    assetOriginalValues,
+    assetAccumulatedDepreciation,
+  };
+}
+
+export function deriveBankOpeningRowStates(
+  rows: BankOpeningEntry[],
+  index: OpeningPostedDetailIndex,
+): BankOpeningRowState[] {
+  return rows.map(row => {
+    const current = roundMoney(row.balance || 0);
+    const posted = roundMoney(index.bankBalances.get(row.accountNumber) || 0);
+    const unposted = roundMoney(current - posted);
+    return {
+      ...row,
+      status: approxEqual(current, posted) ? 'posted' : approxEqual(posted, 0) ? 'unposted' : 'partial',
+      postedAmount: posted,
+      unpostedAmount: unposted,
+    };
+  });
+}
+
+export function derivePartnerOpeningRowStates(
+  rows: PartnerOpeningEntry[],
+  index: OpeningPostedDetailIndex,
+): PartnerOpeningRowState[] {
+  return rows.map(row => {
+    const key = row.type === 'receivable' ? index.partnerReceivables.get(row.name) : index.partnerPayables.get(row.name);
+    const posted = roundMoney(key || 0);
+    const current = roundMoney(row.amount || 0);
+    const unposted = roundMoney(current - posted);
+    return {
+      ...row,
+      status: approxEqual(current, posted) ? 'posted' : approxEqual(posted, 0) ? 'unposted' : 'partial',
+      postedAmount: posted,
+      unpostedAmount: unposted,
+    };
+  });
+}
+
+export function deriveAssetOpeningRowStates(
+  rows: AssetOpeningEntry[],
+  index: OpeningPostedDetailIndex,
+): AssetOpeningRowState[] {
+  return rows.map(row => {
+    const postedOriginalValue = roundMoney(getPostedAssetAmount(index.assetOriginalValues, row));
+    const postedAccumulatedDepreciation = roundMoney(getPostedAssetAmount(index.assetAccumulatedDepreciation, row));
+    const currentOriginalValue = roundMoney(row.originalValue || 0);
+    const currentAccumulatedDepreciation = roundMoney(row.accumulatedDepreciation || 0);
+    const unpostedOriginalValue = roundMoney(currentOriginalValue - postedOriginalValue);
+    const unpostedAccumulatedDepreciation = roundMoney(currentAccumulatedDepreciation - postedAccumulatedDepreciation);
+    const currentNetValue = roundMoney(row.netValue || (currentOriginalValue - currentAccumulatedDepreciation));
+    const postedNetValue = roundMoney(postedOriginalValue - postedAccumulatedDepreciation);
+    const unpostedNetValue = roundMoney(currentNetValue - postedNetValue);
+    const fullyPosted = approxEqual(currentOriginalValue, postedOriginalValue)
+      && approxEqual(currentAccumulatedDepreciation, postedAccumulatedDepreciation);
+    const hasAnyPosted = !approxEqual(postedOriginalValue, 0) || !approxEqual(postedAccumulatedDepreciation, 0);
+
+    return {
+      ...row,
+      status: fullyPosted ? 'posted' : hasAnyPosted ? 'partial' : 'unposted',
+      postedOriginalValue,
+      unpostedOriginalValue,
+      postedAccumulatedDepreciation,
+      unpostedAccumulatedDepreciation,
+      postedNetValue,
+      unpostedNetValue,
+    };
+  });
+}
+
+export function resolvePostedOpeningVoucher(
+  vouchers: OpeningVoucherLike[],
+  accountSetId: string,
+): OpeningVoucherLike | null {
+  const stableId = `opening_balance_${accountSetId}`;
+  const exactStablePosted = vouchers.find(voucher => voucher.id === stableId && voucher.status === 'posted');
+  if (exactStablePosted) return exactStablePosted;
+
+  const openingPosted = vouchers
+    .filter(voucher => voucher.id.startsWith('opening_') && voucher.status === 'posted')
+    .sort((left, right) => {
+      const leftTime = new Date(left.updateTime || left.createTime || left.date || 0).getTime();
+      const rightTime = new Date(right.updateTime || right.createTime || right.date || 0).getTime();
+      if (rightTime !== leftTime) return rightTime - leftTime;
+      return right.id.localeCompare(left.id);
+    });
+
+  return openingPosted[0] || null;
+}
+
 export function hasSubledgerSourceForSubject(
   subjectCode: string,
   input: {
@@ -289,6 +646,10 @@ export interface OpeningLockKeys {
   assetKeys: Set<string>;    // asset name
 }
 
+interface OpeningLockDbLike {
+  exec: (sql: string) => Array<{ values?: unknown[][] }>;
+}
+
 const EMPTY_LOCK_KEYS: OpeningLockKeys = {
   hasOpeningVoucher: false,
   bankKeys: new Set(),
@@ -305,9 +666,10 @@ const EMPTY_LOCK_KEYS: OpeningLockKeys = {
  */
 export async function loadOpeningBalanceLockKeys(
   accountSetId: string,
-  options?: { dbInstance?: any; sqliteService?: any },
+  options?: { dbInstance?: OpeningLockDbLike; sqliteService?: unknown },
 ): Promise<OpeningLockKeys> {
-  const db = options?.dbInstance ?? options?.sqliteService?.dbInstance;
+  const db = options?.dbInstance
+    ?? (options?.sqliteService as { dbInstance?: OpeningLockDbLike } | undefined)?.dbInstance;
   if (!db) {
     console.warn('[loadOpeningBalanceLockKeys] db not ready for', accountSetId);
     return EMPTY_LOCK_KEYS;

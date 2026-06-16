@@ -56,10 +56,17 @@ export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountS
       for (const binding of bindings) {
         const brand = BANK_BRANDS[binding.bankId];
         const lastFour = binding.accountNumber?.slice(-4) || '';
+        const bankShort = brand?.short || binding.bankName || '银行';
+        const alias = binding.aliasName?.trim();
+        // 统一格式：银行简称 + 账户别名 + 账号后四位
+        const parts = [bankShort];
+        if (alias) parts.push(alias);
+        if (lastFour) parts.push(`****${lastFour}`);
+        const label = parts.join(' ');
         options.push({
           id: binding.id || binding.bankId,
-          label: `${brand?.short || binding.bankName || '银行'} ${lastFour ? `****${lastFour}` : ''}`,
-          bankName: brand?.short || binding.bankName || '银行',
+          label,
+          bankName: bankShort,
           accountNumber: binding.accountNumber || '',
           brandColor: brand?.color,
           icon: '🏦',
@@ -111,6 +118,11 @@ export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountS
               <span className="flex items-center gap-2">
                 <span>{account.icon || (account.isCash ? '💴' : '🏦')}</span>
                 <span>{account.label}</span>
+                {account.currency && account.currency !== 'CNY' && (
+                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">
+                    {account.currency}
+                  </span>
+                )}
               </span>
             </SelectItem>
           ))}

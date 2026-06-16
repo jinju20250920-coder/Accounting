@@ -421,7 +421,28 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
             }} placeholder="10000" className="h-9 text-sm" autoComplete="off" />
           </div>
           <div>
-            <Label className="text-xs text-slate-500">残值 <span className="text-slate-400">(默认5%)</span></Label>
+            <Label className="text-xs text-slate-500">残值率 (%)</Label>
+            <Input
+              type="number"
+              value={(() => {
+                const original = form.originalValue || 0;
+                const salvage = form.salvageValue || 0;
+                if (original > 0) return Math.round((salvage / original) * 10000) / 100;
+                return 0;
+              })()}
+              onChange={(event) => {
+                const rate = parseFloat(event.target.value) || 0;
+                const original = form.originalValue || 0;
+                const salvage = Math.round(original * rate * 100) / 10000;
+                updateForm('salvageValue', salvage);
+              }}
+              placeholder="0"
+              className="h-9 text-sm"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-slate-500">残值金额 (¥)</Label>
             <Input type="number" value={form.salvageValue || ''} onChange={(event) => updateForm('salvageValue', parseFloat(event.target.value) || 0)} placeholder="0.00" className="h-9 text-sm" autoComplete="off" />
           </div>
           <div>
@@ -504,7 +525,32 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                         <Input type="number" value={editForm.originalValue || ''} onChange={(e) => updateEditForm('originalValue', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-8 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" value={editForm.salvageValue || ''} onChange={(e) => updateEditForm('salvageValue', parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" autoComplete="off" />
+                        <div className="space-y-1">
+                          <Input
+                            type="number"
+                            value={(() => {
+                              const original = editForm.originalValue || 0;
+                              const salvage = editForm.salvageValue || 0;
+                              if (original > 0) return Math.round((salvage / original) * 10000) / 100;
+                              return 0;
+                            })()}
+                            onChange={(e) => {
+                              const rate = parseFloat(e.target.value) || 0;
+                              const original = editForm.originalValue || 0;
+                              const salvage = Math.round(original * rate * 100) / 10000;
+                              updateEditForm('salvageValue', salvage);
+                            }}
+                            className="h-8 text-sm text-right"
+                            autoComplete="off"
+                          />
+                          <Input
+                            type="number"
+                            value={editForm.salvageValue || ''}
+                            onChange={(e) => updateEditForm('salvageValue', parseFloat(e.target.value) || 0)}
+                            className="h-8 text-sm text-right"
+                            autoComplete="off"
+                          />
+                        </div>
                       </td>
                       <td className="px-2 py-1">
                         <Input type="number" value={editForm.accumulatedDepreciation || ''} onChange={(e) => updateEditForm('accumulatedDepreciation', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-8 text-sm text-right disabled:bg-slate-100" autoComplete="off" />

@@ -54,7 +54,7 @@ import { AssetChangeDialog } from '@/components/assets/asset-improvement-dialog'
 import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
 import { DepreciationDialog } from '@/components/assets/depreciation-dialog';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
-import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule } from '@/lib/depreciation';
+import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule, calculateMonthsBetween } from '@/lib/depreciation';
 import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
 import { getAssetDatePeriod } from '@/lib/asset-date';
@@ -197,7 +197,9 @@ function AssetCardDialog({
       acquisitionType: acquisitionType as FixedAsset['acquisitionType'],
       isOpeningBalance: isOpening,
       // 已入账资产保持已入账状态，新增资产设为待入账
-      accountingStatus: asset?.acquisitionVoucherId || asset?.acquisitionVoucherNo
+      accountingStatus: asset?.accountingStatus === 'accounted'
+        || asset?.acquisitionVoucherId
+        || asset?.acquisitionVoucherNo
         ? 'accounted'
         : 'pending',
     }));
@@ -247,13 +249,16 @@ function AssetCardDialog({
       // 固定资产：当月增加，下月开始折旧
       depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth() + 1, 1);
     }
-    const depreciationStartStr = depreciationStartDate.toISOString().split('T')[0];
+    // 用本地日期格式化（避免 toISOString 时区错位，月初/月末会变成前一天）
+    const formatLocalDate = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const depreciationStartStr = formatLocalDate(depreciationStartDate);
 
-    // 计算折旧结束日期
+    // 计算折旧结束日期（月末）
     const depreciationEndDate = new Date(depreciationStartDate);
     depreciationEndDate.setMonth(depreciationEndDate.getMonth() + usefulLifeMonths);
     depreciationEndDate.setDate(0); // 月末
-    const depreciationEndStr = depreciationEndDate.toISOString().split('T')[0];
+    const depreciationEndStr = formatLocalDate(depreciationEndDate);
 
     // 保存时重新生成编码（确保不跳号，消耗编号）
     const manager = CodeRuleManager.getInstance();
@@ -271,10 +276,13 @@ function AssetCardDialog({
       return;
     }
 
-    // 确定入账状态：已入账的资产保持已入账状态，新增资产为待入账
-    const accountingStatus = asset?.acquisitionVoucherId || asset?.acquisitionVoucherNo
-      ? 'accounted'
-      : 'pending';
+    // 确定入账状态：优先用表单选择，其次保留原有状态，再次按是否已生成取得凭证判断
+    const accountingStatus = formData.accountingStatus
+      || (asset?.accountingStatus === 'accounted'
+        || asset?.acquisitionVoucherId
+        || asset?.acquisitionVoucherNo
+        ? 'accounted'
+        : 'pending');
 
     try {
       const savedAsset = await onSave({
@@ -302,14 +310,52 @@ function AssetCardDialog({
     }
   };
 
-  // 计算折旧预览
-  const monthlyDepreciation = calculateEstimatedMonthlyDepreciation(
-    formData.originalValue || 0,
-    formData.salvageValue || 0,
-    formData.depreciationMethod || 'straight_line',
-    formData.usefulLifeYears || 5,
-    (formData.usefulLifeYears || 5) * 12
-  );
+  // 计算折旧预览：与折旧引擎保持一致
+  // 直线法: 月折旧 = (原值 - 残值 - 已折旧) / 剩余月数
+  // 其中剩余月数 = 总月数 - 已过月数（从折旧开始日到当前期间）
+  const initialAccDep = formData.initialAccumulatedDepreciation || 0;
+  const originalValue = formData.originalValue || 0;
+  const salvageValue = formData.salvageValue || 0;
+  const totalMonths = (formData.usefulLifeYears || 5) * 12;
+  const depreciableValue = originalValue - salvageValue;
+  const remainingDepreciable = Math.max(0, depreciableValue - initialAccDep);
+
+  // 当前期间
+  const currentPeriodStr = useMemo(() => {
+    const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+    const p = accountSet?.accountingPeriods?.find(p => p.isCurrent);
+    if (p) return `${p.year}-${String(p.month).padStart(2, '0')}`;
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  // 已过月数（从折旧开始日到当前期间）
+  const monthsElapsed = useMemo(() => {
+    if (!formData.acquisitionDate) return 0;
+    const d = new Date(formData.acquisitionDate);
+    const cat = categories.find(c => c.id === formData.categoryId);
+    const isIntangible = cat?.assetType === 'intangible';
+    const start = new Date(d.getFullYear(), d.getMonth() + (isIntangible ? 0 : 1), 1);
+    const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`;
+    return calculateMonthsBetween(startStr, `${currentPeriodStr}-01`);
+  }, [formData.acquisitionDate, formData.categoryId, currentPeriodStr, categories]);
+
+  const remainingMonths = Math.max(0, totalMonths - monthsElapsed);
+
+  // 月折旧：直线法用剩余应折旧/剩余月数；其他方法仍走原函数（基于原值）
+  const monthlyDepreciation = (() => {
+    const method = formData.depreciationMethod || 'straight_line';
+    if (method === 'straight_line') {
+      return remainingMonths > 0 ? Math.round((remainingDepreciable / remainingMonths) * 100) / 100 : 0;
+    }
+    return calculateEstimatedMonthlyDepreciation(
+      originalValue,
+      salvageValue,
+      method,
+      formData.usefulLifeYears || 5,
+      totalMonths
+    );
+  })();
 
   const formatMoney = formatNumber;
 
@@ -494,24 +540,59 @@ function AssetCardDialog({
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>残值</Label>
-                  <Input
-                    type="number"
-                    value={formData.salvageValue || ''}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      salvageValue: parseFloat(e.target.value) || 0
-                    }))}
-                    placeholder="0.00"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label required>购置日期</Label>
                   <ChineseDatePicker
                     value={formData.acquisitionDate || ''}
                     onChange={(v) => setFormData(prev => ({ ...prev, acquisitionDate: v }))}
                   />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <Label>残值</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-slate-400">残值率</div>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={(() => {
+                            const original = formData.originalValue || 0;
+                            const salvage = formData.salvageValue || 0;
+                            if (original > 0) {
+                              return Math.round((salvage / original) * 10000) / 100;
+                            }
+                            return 0;
+                          })()}
+                          onChange={(e) => {
+                            const rate = parseFloat(e.target.value) || 0;
+                            const original = formData.originalValue || 0;
+                            const salvage = Math.round(original * rate * 100) / 10000;
+                            setFormData(prev => ({ ...prev, salvageValue: salvage }));
+                          }}
+                          placeholder="0"
+                          autoComplete="off"
+                          className="pr-7"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-slate-400">残值金额</div>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={formData.salvageValue || ''}
+                          onChange={(e) => setFormData(prev => ({
+                            ...prev,
+                            salvageValue: parseFloat(e.target.value) || 0
+                          }))}
+                          placeholder="0.00"
+                          autoComplete="off"
+                          className="pr-7"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">¥</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -553,8 +634,24 @@ function AssetCardDialog({
                       <span className="font-medium">{(formData.usefulLifeYears || 0) * 12} 个月</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-slate-500">已计提月份</span>
+                      <span className="font-medium text-slate-500">{monthsElapsed} 个月</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">剩余月数</span>
+                      <span className="font-medium text-slate-500">{remainingMonths} 个月</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-slate-500">应计折旧额</span>
                       <span className="font-medium">¥{formatMoney((formData.originalValue || 0) - (formData.salvageValue || 0))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">已折旧（期初）</span>
+                      <span className="font-medium text-slate-500">¥{formatMoney(formData.initialAccumulatedDepreciation || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">剩余应折旧</span>
+                      <span className="font-medium text-blue-700">¥{formatMoney(remainingDepreciable)}</span>
                     </div>
                   </div>
                   <div className="mt-2 pt-2 border-t border-slate-200 flex justify-between">
@@ -592,18 +689,7 @@ function AssetCardDialog({
                   </SelectContent>
                 </Select>
               </div>
-              {formData.acquisitionType !== 'opening_balance' && formData.acquisitionType !== 'invoice' && !asset?.acquisitionVoucherId && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">入账状态</Label>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-yellow-100 text-yellow-700">未入账</Badge>
-                    <span className="text-xs text-slate-500">
-                      保存后需在清单中点击"入账"生成取得凭证
-                    </span>
-                  </div>
-                </div>
-              )}
-              {asset?.acquisitionVoucherNo && (
+              {asset?.acquisitionVoucherNo ? (
                 <div className="space-y-1.5">
                   <Label className="text-xs">取得凭证</Label>
                   <div className="flex items-center gap-2">
@@ -612,6 +698,37 @@ function AssetCardDialog({
                       {asset.acquisitionVoucherNo}
                     </span>
                   </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">入账状态</Label>
+                  <Select
+                    value={formData.accountingStatus || 'pending'}
+                    onValueChange={(v) => setFormData(prev => ({ ...prev, accountingStatus: v as any }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">
+                        <span className="flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 rounded-full bg-yellow-500" />
+                          未入账
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="accounted">
+                        <span className="flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                          已入账（手工标记）
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {formData.accountingStatus === 'pending' && (
+                    <div className="text-xs text-slate-500">
+                      保存后可在清单中点击"入账"生成取得凭证
+                    </div>
+                  )}
                 </div>
               )}
               {formData.acquisitionType === 'opening_balance' && (
@@ -1472,9 +1589,18 @@ export default function FixedAssetsPage() {
                   </tr>
                 ) : (
                   filteredAssets.map((asset) => {
-                    // 计算剩余折旧月份
+                    // 计算剩余折旧月份：从折旧开始日期到当前期间动态算
                     const totalMonths = asset.usefulLifeMonths ?? (asset.usefulLifeYears ?? 5) * 12;
-                    const depreciated = asset.depreciatedMonths ?? 0;
+                    const depreciated = (() => {
+                      if (asset.depreciationStartDate) {
+                        const start = new Date(asset.depreciationStartDate);
+                        const [y, m] = currentPeriod.split('-').map(Number);
+                        // 当前期间相对折旧开始已过的整月数（含本月）
+                        const monthsPassed = (y * 12 + (m - 1)) - (start.getFullYear() * 12 + start.getMonth());
+                        return Math.max(0, Math.min(totalMonths, monthsPassed));
+                      }
+                      return asset.depreciatedMonths ?? 0;
+                    })();
                     const remainingMonths = asset.status !== 'active' ? '-' : Math.max(0, totalMonths - depreciated);
 
                     return (

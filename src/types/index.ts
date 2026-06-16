@@ -90,6 +90,8 @@ export interface VoucherEntry {
     customer?: string;
     supplier?: string;
     bankAccount?: string;
+    assetCode?: string;
+    assetName?: string;
   };
   accountSetId?: string; // 新增字段：所属账套ID
   docNo?: string; // 业务单据号（发票号、银行流水号等）
@@ -113,8 +115,8 @@ export interface VoucherTemplate {
   voucherType?: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
   description?: string;
   entries: VoucherTemplateEntry[];
-  validations?: any[];
-  variables?: any[];
+  validations?: unknown[];
+  variables?: unknown[];
   isSystem?: boolean;
   createTime: string;
   updateTime: string;
@@ -413,7 +415,7 @@ export interface BankStatementParseResult {
   bankInfo: BankAccountInfo;
   transactions: BankTransaction[];
   errors: Array<{ row: number; message: string }>;
-  rawData?: any[][];
+  rawData?: unknown[][];
 }
 
 // 关键词匹配规则

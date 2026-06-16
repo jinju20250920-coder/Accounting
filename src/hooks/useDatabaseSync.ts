@@ -48,6 +48,7 @@ export function useDatabaseSync() {
       useVoucherStore.getState().initialize(),
       useFixedAssetStore.getState().initialize()
     ]);
+    await useCurrencyStore.getState().initializeRevaluationRuns();
   };
 
   // 监听账套切换
@@ -130,6 +131,7 @@ export function useDatabaseSync() {
           useVoucherStore.getState().initialize(),
           useFixedAssetStore.getState().initialize()
         ]);
+        await useCurrencyStore.getState().initializeRevaluationRuns();
 
         setIsInitialized(true);
         _initDone = true;

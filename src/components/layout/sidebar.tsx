@@ -31,6 +31,13 @@ import {
   KeyRound,
   User,
   WalletCards,
+  Sparkles,
+  ShieldCheck,
+  Gift,
+  CheckCircle2,
+  Crown,
+  Star,
+  Tag,
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -169,103 +176,173 @@ function LicenseActivationDialog({ open, onOpenChange }: { open: boolean; onOpen
     return price.toFixed(2);
   };
 
+  const currentLicense = getCurrentLicense();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>授权管理</DialogTitle>
-          <DialogDescription>
-            激活您的授权码以解锁更多功能
-          </DialogDescription>
+          <DialogTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+              <ShieldCheck className="h-4 w-4 text-blue-600" />
+            </div>
+            授权管理
+            {currentLicense && (
+              <Badge className={
+                currentLicense.status === 'active'
+                  ? 'bg-green-50 text-green-700 hover:bg-green-50'
+                  : currentLicense.status === 'expired'
+                  ? 'bg-red-50 text-red-700 hover:bg-red-50'
+                  : 'bg-orange-50 text-orange-700 hover:bg-orange-50'
+              }>
+                {currentLicense.status === 'active' ? '已授权' : currentLicense.status === 'expired' ? '已过期' : '已暂停'}
+              </Badge>
+            )}
+          </DialogTitle>
+          <DialogDescription>激活您的授权码以解锁更多功能</DialogDescription>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="activate">激活授权</TabsTrigger>
-            <TabsTrigger value="plans">套餐选择</TabsTrigger>
+            <TabsTrigger value="activate">
+              <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+              激活授权
+            </TabsTrigger>
+            <TabsTrigger value="plans">
+              <Crown className="h-3.5 w-3.5 mr-1.5" />
+              套餐选择
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="activate" className="space-y-4 py-4">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label required>授权码</Label>
-                <Input
-                  placeholder="请输入授权码，如 LIVE-299-SET1"
-                  value={licenseKey}
-                  onChange={(e) => setLicenseKey(e.target.value)}
-                />
-                <p className="text-xs text-slate-500">
-                  授权码格式：LIVE-价格-账套数量（例如：LIVE-299-SET1 或 LIVE-599-SET5）
-                </p>
-              </div>
+          <TabsContent value="activate" className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label required className="text-sm font-semibold flex items-center gap-1.5 text-slate-900">
+                <Key className="h-3.5 w-3.5 text-slate-900" />
+                授权码
+              </Label>
+              <Input
+                placeholder="请输入授权码，如 LIVE-299-SET1"
+                value={licenseKey}
+                onChange={(e) => setLicenseKey(e.target.value.toUpperCase())}
+                className="font-mono tracking-wide h-11 text-base text-slate-900 border-slate-300"
+                autoComplete="off"
+              />
+              <p className="text-xs text-slate-900">
+                格式：<code className="px-1 py-0.5 bg-slate-100 rounded text-slate-900">LIVE-价格-账套数量</code>（如 LIVE-299-SET1 / LIVE-599-SET5）
+              </p>
+            </div>
 
-              <div className="space-y-2">
-                <Label>激活令牌（可选）</Label>
-                <Input
-                  placeholder="如果有激活令牌，请输入"
-                  value={activationToken}
-                  onChange={(e) => setActivationToken(e.target.value)}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold flex items-center gap-1.5 text-slate-900">
+                <Gift className="h-3.5 w-3.5 text-slate-900" />
+                激活令牌
+                <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0 h-4 text-slate-600 border-slate-300 font-normal">可选</Badge>
+              </Label>
+              <Input
+                placeholder="如有激活令牌，请输入"
+                value={activationToken}
+                onChange={(e) => setActivationToken(e.target.value)}
+                className="font-mono h-11 text-slate-900 border-slate-300"
+                autoComplete="off"
+              />
+            </div>
 
-              <div className="space-y-2">
-                <Label>折扣码（可选）</Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="输入折扣码"
-                    value={discountCode}
-                    onChange={(e) => setDiscountCode(e.target.value)}
-                  />
-                  <Button variant="outline" onClick={handleApplyDiscount}>
-                    应用
-                  </Button>
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold flex items-center gap-1.5 text-slate-900">
+                <Tag className="h-3.5 w-3.5 text-slate-900" />
+                折扣码
+                <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0 h-4 text-slate-600 border-slate-300 font-normal">可选</Badge>
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="输入折扣码"
+                  value={discountCode}
+                  onChange={(e) => setDiscountCode(e.target.value)}
+                  className="flex-1 h-11 text-slate-900 border-slate-300"
+                  autoComplete="off"
+                />
+                <Button variant="outline" onClick={handleApplyDiscount} className="h-11 px-5">应用</Button>
+              </div>
+              {discountApplied && discountApplied.valid && (
+                <div className="flex items-center gap-1.5 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>{discountApplied.description}</span>
                 </div>
-                {discountApplied && discountApplied.valid && (
-                  <p className="text-sm text-green-600">
-                    ✓ {discountApplied.description}
-                  </p>
-                )}
-              </div>
+              )}
             </div>
           </TabsContent>
 
-          <TabsContent value="plans" className="space-y-4 py-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {pricingPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className={cn(
-                    'border rounded-lg p-4 relative',
-                    plan.isPopular ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
-                  )}
-                >
-                  {plan.isPopular && (
-                    <Badge className="absolute -top-2 -right-2 bg-blue-500">
-                      推荐
-                    </Badge>
-                  )}
-                  <h3 className="font-bold text-lg">{plan.name}</h3>
-                  <p className="text-2xl font-bold my-2">
-                    ¥{getPlanPrice(plan.price)}
-                    <span className="text-sm text-slate-500 font-normal">/月</span>
-                  </p>
-                  <p className="text-sm text-slate-600 mb-4">{plan.description}</p>
-                  <div className="text-sm space-y-1">
-                    <p>• 账套数量：{plan.accountSetLimit === -1 ? '无限' : plan.accountSetLimit}</p>
-                    <p>• 功能数量：{plan.featureIds.length}</p>
-                  </div>
-                  <Button
-                    className="w-full mt-4"
-                    variant={plan.isPopular ? 'default' : 'outline'}
-                    onClick={() => {
-                      setActiveTab('activate');
-                      showToast('info', '请输入对应套餐的授权码');
-                    }}
+          <TabsContent value="plans" className="mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {pricingPlans.map((plan) => {
+                const discounted = discountApplied?.valid;
+                const finalPrice = parseFloat(getPlanPrice(plan.price));
+                const hasDiscount = discounted && finalPrice < plan.price;
+                return (
+                  <div
+                    key={plan.id}
+                    className={cn(
+                      'relative rounded-xl border-2 p-4 transition-all',
+                      plan.isPopular
+                        ? 'border-blue-500 bg-blue-50/50 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300'
+                    )}
                   >
-                    选择套餐
-                  </Button>
-                </div>
-              ))}
+                    {plan.isPopular && (
+                      <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
+                        <Badge className="bg-blue-600 text-white shadow-sm gap-0.5 px-2 py-0.5">
+                          <Star className="h-3 w-3 fill-current" />
+                          推荐
+                        </Badge>
+                      </div>
+                    )}
+                    <div className="text-center pt-1">
+                      <h3 className="font-bold text-base flex items-center justify-center gap-1.5">
+                        {plan.id === 'plan_enterprise' && <Crown className="h-4 w-4 text-amber-500" />}
+                        {plan.id === 'plan_pro' && <Sparkles className="h-4 w-4 text-blue-500" />}
+                        {plan.id === 'plan_basic' && <Package className="h-4 w-4 text-slate-500" />}
+                        {plan.name}
+                      </h3>
+                      <div className="my-2 flex items-baseline justify-center gap-1">
+                        <span className="text-xs text-slate-900">¥</span>
+                        <span className="text-2xl font-bold text-slate-900">{getPlanPrice(plan.price)}</span>
+                        <span className="text-xs text-slate-900 font-medium">
+                          {plan.duration === 'lifetime' ? '/ 永久' : plan.duration === 'yearly' ? '/ 年' : '/ 月'}
+                        </span>
+                      </div>
+                      {hasDiscount && (
+                        <span className="text-xs text-slate-400 line-through">¥{plan.price.toFixed(2)}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-900 text-center mb-3 min-h-[2.5rem]">{plan.description}</p>
+                    <div className="space-y-1.5 mb-4 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                        <span className="text-slate-900">账套数量：{plan.accountSetLimit === -1 ? '不限' : plan.accountSetLimit}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                        <span className="text-slate-900">全部功能（含高级报表、多币种、审计追踪等）</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                        <span className="text-slate-900">使用期限：永久</span>
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      size="sm"
+                      variant={plan.isPopular ? 'default' : 'outline'}
+                      onClick={() => {
+                        setActiveTab('activate');
+                        showToast('info', `请输入 ${plan.name} 对应的授权码`);
+                      }}
+                    >
+                      选择套餐
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           </TabsContent>
         </Tabs>
@@ -277,8 +354,19 @@ function LicenseActivationDialog({ open, onOpenChange }: { open: boolean; onOpen
           <Button
             onClick={handleActivate}
             disabled={isActivating || !licenseKey.trim()}
+            className="gap-1.5 min-w-[120px]"
           >
-            {isActivating ? '激活中...' : '激活授权'}
+            {isActivating ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                激活中...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-4 w-4" />
+                激活授权
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

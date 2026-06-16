@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
@@ -21,11 +21,13 @@ import Link from 'next/link';
 import { getCurrentService } from '@/lib/database';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useCurrencyStore } from '@/stores/useCurrencyStore';
-import { useVoucherStore } from '@/stores/useVoucherStore';
-import { generateVoucherNo } from '@/lib/accounting';
+import { generateVoucherNo as generateConfiguredVoucherNo } from '@/stores/useVoucherStore';
+import { formatVoucherNoForDisplay } from '@/lib/voucher-numbering';
 import {
   buildFxRevaluationPreview,
   buildFxRevaluationVoucher,
+  hasFinalizedFxRevaluationRun,
+  getFxRevaluationRunGainLoss,
   type FxRevaluationBankBalance,
   type FxRevaluationOpenItem,
 } from '@/lib/fx-revaluation';
@@ -47,7 +49,6 @@ export default function ExchangePage() {
   const baseCurrency = currentAccountSet?.baseCurrency || 'CNY';
 
   const {
-    fxRates,
     revaluationRuns,
     initializeFxRates,
     initializeRevaluationRuns,
@@ -55,8 +56,6 @@ export default function ExchangePage() {
     deleteRevaluationRun,
     getRevaluationRunLines,
   } = useCurrencyStore();
-
-  const { vouchers } = useVoucherStore();
 
   const [tab, setTab] = useState<TabValue>('preview');
   const [period, setPeriod] = useState(() => {
@@ -72,14 +71,35 @@ export default function ExchangePage() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    initializeFxRates();
-    initializeRevaluationRuns();
+    let cancelled = false;
+    (async () => {
+      try {
+        const { waitForDbInit } = await import('@/hooks/useDatabaseSync');
+        await waitForDbInit();
+      } catch {}
+      if (cancelled) return;
+      initializeFxRates();
+      initializeRevaluationRuns();
+    })();
+    return () => { cancelled = true; };
   }, [accountSetId]);
 
   // ─── 预览计算 ───
 
+  const periodRuns = useMemo(() => {
+    return revaluationRuns.filter((r) => r.period === period);
+  }, [revaluationRuns, period]);
+
+  const allRuns = useMemo(() => {
+    return [...revaluationRuns].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [revaluationRuns]);
+
   const handlePreview = useCallback(async () => {
     if (!period) return;
+    if (hasFinalizedFxRevaluationRun(periodRuns, period)) {
+      showToast('warning', `${period} 的汇兑损益已经入账，不能重复重估`);
+      return;
+    }
     setLoading(true);
     setPreviewLines([]);
     setPreviewSummary(null);
@@ -166,7 +186,7 @@ export default function ExchangePage() {
     } finally {
       setLoading(false);
     }
-  }, [period, accountSetId, baseCurrency, fxRates]);
+  }, [period, accountSetId, baseCurrency, periodRuns, showToast]);
 
   // ─── 确认并生成凭证 ───
 
@@ -180,16 +200,8 @@ export default function ExchangePage() {
 
       // 1. 创建凭证
       const voucherId = genId();
-      const [yearStr, monthStr] = period.split('-');
-      const year = parseInt(yearStr);
-      const month = parseInt(monthStr);
-      const existingCount = vouchers.filter((v) => {
-        const d = v.date || '';
-        return d.startsWith(period);
-      }).length;
-      const voucherNo = generateVoucherNo(year, month, existingCount + 1);
-
       const voucherDate = getMonthEndDate(period);
+      const voucherNo = await generateConfiguredVoucherNo(voucherDate, 'general');
       const entries = voucherEntries.map((e, idx) => ({
         id: `${voucherId}-E${idx}`,
         voucherId,
@@ -205,7 +217,7 @@ export default function ExchangePage() {
         id: voucherId,
         voucherNo,
         date: voucherDate,
-        status: 'draft' as const,
+        status: 'posted' as const,
         summary: `期末汇兑损益调整 ${period}`,
         voucherType: 'general' as const,
         createdBy: 'user',
@@ -222,7 +234,7 @@ export default function ExchangePage() {
         accountSetId: accountSetId || '',
         period,
         baseCurrency,
-        status: 'confirmed',
+        status: 'posted',
         previewData: JSON.stringify({ totalGain: previewSummary.totalGain, totalLoss: previewSummary.totalLoss }),
         voucherId,
         voucherNo,
@@ -245,7 +257,7 @@ export default function ExchangePage() {
     } finally {
       setLoading(false);
     }
-  }, [previewLines, previewSummary, voucherEntries, period, accountSetId, baseCurrency, vouchers]);
+  }, [previewLines, previewSummary, voucherEntries, period, accountSetId, baseCurrency, saveRevaluationRun, showToast]);
 
   // ─── 查看历史详情 ───
 
@@ -268,13 +280,19 @@ export default function ExchangePage() {
 
   // ─── 渲染 ───
 
-  const periodRuns = useMemo(() => {
-    return revaluationRuns.filter((r) => r.period === period);
-  }, [revaluationRuns, period]);
+  const detailGainLossTotal = useMemo(() => {
+    return detailLines.reduce((sum, line) => {
+      return sum + (line.gainLossDirection === 'gain' ? line.gainLossAmount : -line.gainLossAmount);
+    }, 0);
+  }, [detailLines]);
+
+  const runGainLossMap = useMemo(() => {
+    return new Map(allRuns.map(run => [run.id, getFxRevaluationRunGainLoss(run)]));
+  }, [allRuns]);
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6">
-      <div className="max-w-5xl mx-auto space-y-4">
+      <div className="max-w-6xl mx-auto space-y-4">
         {/* 标题栏 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -304,9 +322,6 @@ export default function ExchangePage() {
             <TabsTrigger value="preview">重估预览</TabsTrigger>
             <TabsTrigger value="history">
               历史记录
-              {periodRuns.length > 0 && (
-                <Badge variant="secondary" className="ml-1.5 text-xs">{periodRuns.length}</Badge>
-              )}
             </TabsTrigger>
           </TabsList>
 
@@ -354,40 +369,40 @@ export default function ExchangePage() {
             {/* 明细表 */}
             {previewLines.length > 0 && (
               <div className="rounded-lg border bg-white">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-24">类型</TableHead>
-                      <TableHead>来源</TableHead>
-                      <TableHead className="w-16">币种</TableHead>
-                      <TableHead className="text-right w-24">原币余额</TableHead>
-                      <TableHead className="text-right w-20">账面汇率</TableHead>
-                      <TableHead className="text-right w-20">期末汇率</TableHead>
-                      <TableHead className="text-right w-24">账面本币</TableHead>
-                      <TableHead className="text-right w-24">重估本币</TableHead>
-                      <TableHead className="text-right w-24">损益金额</TableHead>
-                      <TableHead className="w-16">方向</TableHead>
+                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">类型</TableHead>
+                      <TableHead className="h-8 w-[18rem] px-2 py-1.5 text-xs">来源</TableHead>
+                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">币种</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">原币余额</TableHead>
+                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">账面汇率</TableHead>
+                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">期末汇率</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">账面本币</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">重估本币</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">损益金额</TableHead>
+                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">方向</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {previewLines.map((line) => (
                       <TableRow key={line.id}>
-                        <TableCell>
+                        <TableCell className="px-2 py-2">
                           <Badge variant="outline" className="text-xs">
                             {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '应收' : '应付'}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm">{line.sourceName}</TableCell>
-                        <TableCell className="text-sm font-mono">{line.currencyCode}</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
-                        <TableCell className={cn('text-right text-sm tabular-nums font-medium', line.gainLossDirection === 'gain' ? 'text-green-600' : 'text-red-600')}>
+                        <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
+                        <TableCell className="px-2 py-2 text-xs font-mono">{line.currencyCode}</TableCell>
+                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
+                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
+                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
+                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
+                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
+                        <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium', line.gainLossDirection === 'gain' ? 'text-green-600' : 'text-red-600')}>
                           {line.gainLossDirection === 'gain' ? '+' : '-'}{fmtMoney(line.gainLossAmount)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="px-2 py-2">
                           <Badge className={cn('text-xs', line.gainLossDirection === 'gain' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
                             {line.gainLossDirection === 'gain' ? '收益' : '损失'}
                           </Badge>
@@ -440,45 +455,70 @@ export default function ExchangePage() {
 
           {/* 历史 Tab */}
           <TabsContent value="history" className="space-y-4">
-            {periodRuns.length === 0 ? (
-              <div className="rounded-lg border bg-white p-12 text-center text-slate-400">
-                <p>当前期间无重估记录</p>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-800">历史记录 ({allRuns.length})</h2>
+            </div>
+            {allRuns.length === 0 ? (
+              <div className="rounded-lg border bg-white p-10 text-center text-slate-400">
+                <p>暂无重估记录</p>
               </div>
             ) : (
               <div className="rounded-lg border bg-white">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>期间</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>本位币</TableHead>
-                      <TableHead>凭证</TableHead>
-                      <TableHead>创建时间</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
+                      <TableHead className="h-8 w-24 px-2 py-1.5 text-xs">期间</TableHead>
+                      <TableHead className="h-8 w-20 px-2 py-1.5 text-xs">状态</TableHead>
+                      <TableHead className="h-8 w-20 px-2 py-1.5 text-xs">本位币</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">汇兑收益</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">汇兑损失</TableHead>
+                      <TableHead className="h-8 w-32 px-2 py-1.5 text-xs">凭证</TableHead>
+                      <TableHead className="h-8 px-2 py-1.5 text-xs">创建时间</TableHead>
+                      <TableHead className="h-8 w-24 px-2 py-1.5 text-right text-xs">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {periodRuns.map((run) => (
-                      <TableRow key={run.id}>
-                        <TableCell className="text-sm font-mono">{run.period}</TableCell>
-                        <TableCell>
-                          <Badge className="text-xs bg-blue-50 text-blue-700">
-                            {run.status === 'confirmed' ? '已确认' : run.status === 'posted' ? '已过账' : run.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm">{run.baseCurrency}</TableCell>
-                        <TableCell className="text-sm font-mono">{run.voucherNo || '-'}</TableCell>
-                        <TableCell className="text-sm text-slate-500">{formatDateTime(run.createdAt)}</TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button variant="ghost" size="sm" onClick={() => handleViewDetail(run.id)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => handleDeleteRun(run.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {allRuns.map((run) => {
+                      const gl = runGainLossMap.get(run.id) || { gain: 0, loss: 0 };
+                      return (
+                        <TableRow key={run.id}>
+                          <TableCell className="px-2 py-2 text-xs font-mono">{run.period}</TableCell>
+                          <TableCell className="px-2 py-2">
+                            <Badge className="text-xs bg-blue-50 text-blue-700">
+                              {run.status === 'confirmed' ? '已确认' : run.status === 'posted' ? '已过账' : run.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-xs">{run.baseCurrency}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums font-medium text-green-600">
+                            {gl.gain > 0 ? `+${fmtMoney(gl.gain)}` : '-'}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums font-medium text-red-600">
+                            {gl.loss > 0 ? `-${fmtMoney(gl.loss)}` : '-'}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-xs font-mono">
+                            {run.voucherNo
+                              ? formatVoucherNoForDisplay(
+                                  {
+                                    voucherNo: run.voucherNo,
+                                    date: getMonthEndDate(run.period),
+                                    voucherType: 'general',
+                                  },
+                                  currentAccountSet?.voucherNumbering,
+                                )
+                              : '-'}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-xs text-slate-500">{formatDateTime(run.createdAt)}</TableCell>
+                          <TableCell className="space-x-1 px-2 py-1.5 text-right">
+                            <Button variant="ghost" size="sm" onClick={() => handleViewDetail(run.id)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => handleDeleteRun(run.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -494,36 +534,49 @@ export default function ExchangePage() {
                 {detailLoading ? (
                   <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-slate-400" /></div>
                 ) : detailLines.length > 0 ? (
-                  <Table>
+                  <>
+                    <div className="border-b bg-slate-50 px-4 py-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">汇兑损益调整金额</span>
+                        <span className={cn('font-semibold tabular-nums', detailGainLossTotal >= 0 ? 'text-green-600' : 'text-red-600')}>
+                          {detailGainLossTotal >= 0 ? '+' : '-'}{fmtMoney(Math.abs(detailGainLossTotal))}
+                        </span>
+                      </div>
+                    </div>
+                    <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-24">类型</TableHead>
-                        <TableHead>来源</TableHead>
-                        <TableHead className="w-16">币种</TableHead>
-                        <TableHead className="text-right w-24">原币余额</TableHead>
-                        <TableHead className="text-right w-24">账面本币</TableHead>
-                        <TableHead className="text-right w-24">重估本币</TableHead>
-                        <TableHead className="text-right w-24">损益金额</TableHead>
-                        <TableHead className="w-16">方向</TableHead>
+                        <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">类型</TableHead>
+                      <TableHead className="h-8 w-[20rem] px-2 py-1.5 text-xs">来源</TableHead>
+                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">币种</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">原币余额</TableHead>
+                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">入账汇率</TableHead>
+                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">调整汇率</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">账面本币</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">重估本币</TableHead>
+                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">汇兑损益调整金额</TableHead>
+                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">方向</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {detailLines.map((line) => (
                         <TableRow key={line.id}>
-                          <TableCell>
+                          <TableCell className="px-2 py-2">
                             <Badge variant="outline" className="text-xs">
                               {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '应收' : '应付'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-sm">{line.sourceName}</TableCell>
-                          <TableCell className="text-sm font-mono">{line.currencyCode}</TableCell>
-                          <TableCell className="text-right text-sm tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
-                          <TableCell className="text-right text-sm tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
-                          <TableCell className="text-right text-sm tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
-                          <TableCell className={cn('text-right text-sm tabular-nums font-medium', line.gainLossDirection === 'gain' ? 'text-green-600' : 'text-red-600')}>
+                          <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
+                          <TableCell className="px-2 py-2 text-xs font-mono">{line.currencyCode}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
+                          <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium', line.gainLossDirection === 'gain' ? 'text-green-600' : 'text-red-600')}>
                             {fmtMoney(line.gainLossAmount)}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="px-2 py-2">
                             <Badge className={cn('text-xs', line.gainLossDirection === 'gain' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
                               {line.gainLossDirection === 'gain' ? '收益' : '损失'}
                             </Badge>
@@ -531,7 +584,24 @@ export default function ExchangePage() {
                         </TableRow>
                       ))}
                     </TableBody>
-                  </Table>
+                    <TableFooter className="border-t bg-slate-50">
+                      <TableRow className="hover:bg-slate-50">
+                        <TableCell colSpan={8} className="px-2 py-2 text-right text-xs font-semibold text-slate-700">
+                          汇兑损益调整金额
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'px-2 py-2 text-right text-xs font-bold tabular-nums',
+                            detailGainLossTotal >= 0 ? 'text-green-600' : 'text-red-600',
+                          )}
+                        >
+                          {detailGainLossTotal >= 0 ? '+' : '-'}{fmtMoney(Math.abs(detailGainLossTotal))}
+                        </TableCell>
+                        <TableCell className="px-2 py-2" />
+                      </TableRow>
+                    </TableFooter>
+                    </Table>
+                  </>
                 ) : (
                   <div className="p-6 text-center text-slate-400 text-sm">无明细数据</div>
                 )}

@@ -332,7 +332,14 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
     const entry = entries[index];
     if (!entry) return;
     try {
-      await sqliteService.deleteBankAccountBinding?.(entry.accountNumber);
+      const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      const periodStart = (accountSet?.startDate || accountSet?.enableDate || new Date().toISOString().substring(0, 7)).substring(0, 7);
+      const bindings = await sqliteService.getBankAccountBindings();
+      const binding = bindings.find(item => item.accountNumber === entry.accountNumber.trim());
+      if (binding?.id) {
+        await sqliteService.deleteBankAccountBinding(binding.id);
+      }
+      await sqliteService.deleteBankOpeningBalance(entry.accountNumber.trim(), periodStart);
       setEntries(prev => prev.filter((_, i) => i !== index));
       setSaved(entries.length === 1);
     } catch (error) {
@@ -389,7 +396,7 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
             await persistEntry(entry, entries.length + i);
             setEntries(prev => [...prev, entry]);
             actuallySaved++;
-          } catch (err) {
+          } catch {
             skipped++;
           }
         }

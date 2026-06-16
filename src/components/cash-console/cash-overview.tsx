@@ -44,18 +44,9 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
     try {
       const result = await sqliteService.getCashOverview(accountNumber, periodStart, periodEnd);
 
-      // Also get computed opening (without manual override) and manual value
-      let computedOpening: number | undefined;
       let manualOpening: number | null = null;
       if (accountNumber) {
         manualOpening = await sqliteService.getBankOpeningBalance(accountNumber, periodStart);
-        if (manualOpening !== null) {
-          // Recompute from transactions to show what it would be without manual entry
-          const accountSetId = sqliteService.accountSetId;
-          const computed = await sqliteService.getCashOverview('', periodStart, periodEnd);
-          // We just need the computed part for this specific account
-          computedOpening = undefined; // will use computedOpening from overall result
-        }
       }
 
       setData({
@@ -107,7 +98,9 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
 
   const fmt = (n: number) => formatMoney(n);
 
-  const reconciliationDiff = data?.lastBankBalance != null
+  // Reconciliation diff only makes sense for a specific bank account —
+  // comparing aggregated balance against one bank's last balance is misleading.
+  const reconciliationDiff = (accountNumber && data?.lastBankBalance != null)
     ? Math.round((data.closingBalance - data.lastBankBalance) * 100) / 100
     : null;
 
@@ -128,6 +121,12 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
 
   if (!data) return null;
 
+  const isAllAccounts = !accountNumber;
+  const scopeLabel = isAllAccounts ? '全部账户合计' : '当前账户';
+  const periodLabel = periodStart.substring(0, 7) === periodEnd.substring(0, 7)
+    ? `${periodStart.substring(0, 7)} 期间`
+    : `${periodStart.substring(0, 7)} ~ ${periodEnd.substring(0, 7)}`;
+
   const cards = [
     {
       label: '期初余额',
@@ -138,13 +137,13 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
       isManual: data.manualOpening !== null,
     },
     {
-      label: '本月收入',
+      label: '本期收入',
       value: `+${fmt(data.totalCredit)}`,
       icon: TrendingUp,
       color: 'text-green-600',
     },
     {
-      label: '本月支出',
+      label: '本期支出',
       value: `-${fmt(data.totalDebit)}`,
       icon: TrendingDown,
       color: 'text-red-600',
@@ -160,6 +159,17 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
 
   return (
     <>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className={`text-xs px-2 py-0.5 rounded-full ${isAllAccounts ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
+            {scopeLabel}
+          </span>
+          <span className="text-xs text-slate-400">{periodLabel}</span>
+        </div>
+        {isAllAccounts && (
+          <span className="text-[11px] text-slate-400">汇总所有银行账户 + 现金日记账</span>
+        )}
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {cards.map((card) => (
           <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 group">
