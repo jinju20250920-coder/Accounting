@@ -43,6 +43,7 @@ interface AppSettings {
     language: 'zh-CN' | 'en-US';
     layout: 'standard' | 'compact';
     showHelpTips: boolean;
+    sidebarCollapsed?: boolean;
   };
 
   // 数据设置
@@ -96,7 +97,8 @@ const defaultSettings: AppSettings = {
     theme: 'light',
     language: 'zh-CN',
     layout: 'standard',
-    showHelpTips: true
+    showHelpTips: true,
+    sidebarCollapsed: false
   },
   data: {
     maxVouchersPerMonth: 1000,

@@ -18,6 +18,7 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   FolderKanban,
   List,
   Check,
@@ -55,6 +56,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useToast } from '@/components/ui/toast';
 import { ChangePasswordDialog } from '@/components/shared/change-password-dialog';
 
@@ -383,6 +385,7 @@ export function Sidebar() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const {
     accountSets,
     currentAccountSetId,
@@ -393,6 +396,15 @@ export function Sidebar() {
     currentPricingPlanId,
   } = useAccountSetStore();
   const { currentUser, logout, hasPermission } = useAuthStore();
+  const { settings, updateSettings } = useSettingsStore();
+  const collapsed = !!settings.ui.sidebarCollapsed;
+
+  const toggleCollapsed = () => {
+    updateSettings({ ui: { ...settings.ui, sidebarCollapsed: !collapsed } });
+    if (!collapsed) {
+      setExpandedItems(new Set());
+    }
+  };
 
   const visibleMenuItems = menuItems.filter(item => {
     if (!item.permission) return true;
@@ -463,30 +475,72 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-64 bg-slate-900 h-screen flex flex-col text-white">
+    <div className={cn(
+      'bg-slate-900 h-screen flex flex-col text-white transition-all duration-300 ease-in-out',
+      collapsed ? 'w-16' : 'w-64'
+    )}>
       {/* Logo */}
-      <div className="p-4 border-b border-slate-700">
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <Calculator className="h-6 w-6 text-blue-400" />
-          金桔财务系统
-        </h1>
+      <div className={cn(
+        'border-b border-slate-700 flex items-center',
+        collapsed ? 'p-2 justify-center' : 'p-4 justify-between'
+      )}>
+        {collapsed ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleCollapsed}
+            className="text-slate-400 hover:text-white hover:bg-slate-800 h-10 w-10 p-0"
+            title="展开菜单"
+            aria-label="展开菜单"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+        ) : (
+          <>
+            <h1 className="text-xl font-bold flex items-center gap-2">
+              <Calculator className="h-6 w-6 text-blue-400 flex-shrink-0" />
+              <span>金桔财务系统</span>
+            </h1>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleCollapsed}
+              className="text-slate-400 hover:text-white hover:bg-slate-800 h-7 w-7 p-0"
+              title="收起菜单"
+              aria-label="收起菜单"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          </>
+        )}
       </div>
 
       {/* 账套选择 */}
-      <div className="p-4 border-b border-slate-700">
+      <div className={cn('border-b border-slate-700', collapsed ? 'p-2' : 'p-4')}>
         {/* 账套下拉选择 */}
         <div className="relative">
-          <Button
-            variant="ghost"
-            className="w-full justify-between text-slate-300 hover:text-white hover:bg-slate-800"
-            onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
-          >
-            <div className="flex items-center gap-2 min-w-0 flex-1" suppressHydrationWarning>
-              <Building2 className="h-4 w-4 flex-shrink-0" />
-              <span className="truncate">{hasMounted ? (currentAccountSet?.name || '请选择账套') : '请选择账套'}</span>
-            </div>
-            <ChevronDown className="h-4 w-4 flex-shrink-0" />
-          </Button>
+          {collapsed ? (
+            <Button
+              variant="ghost"
+              className="w-full justify-center text-slate-300 hover:text-white hover:bg-slate-800 h-10 px-0"
+              onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
+              title={hasMounted ? (currentAccountSet?.name || '请选择账套') : '请选择账套'}
+            >
+              <Building2 className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:text-white hover:bg-slate-800"
+              onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1" suppressHydrationWarning>
+                <Building2 className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">{hasMounted ? (currentAccountSet?.name || '请选择账套') : '请选择账套'}</span>
+              </div>
+              <ChevronDown className="h-4 w-4 flex-shrink-0" />
+            </Button>
+          )}
 
           {/* 下拉菜单 */}
           {showAccountSwitcher && (
@@ -495,7 +549,10 @@ export function Sidebar() {
                 className="fixed inset-0 z-10"
                 onClick={() => setShowAccountSwitcher(false)}
               />
-              <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 rounded-lg shadow-lg z-20 overflow-hidden">
+              <div className={cn(
+                'absolute mt-1 bg-slate-800 rounded-lg shadow-lg z-20 overflow-hidden',
+                collapsed ? 'top-full left-full ml-2 w-48' : 'top-full left-0 right-0'
+              )}>
                 <div className="max-h-60 overflow-y-auto">
                   {accountSets.map((accountSet) => (
                     <button
@@ -532,80 +589,136 @@ export function Sidebar() {
         </div>
 
         {/* 授权状态 */}
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {hasMounted ? getLicenseStatusBadge() : <Badge variant="outline">加载中...</Badge>}
-            {hasMounted && currentPlan && (
-              <span className="text-xs text-slate-400">{currentPlan.name}</span>
-            )}
+        {!collapsed && (
+          <div className="mt-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {hasMounted ? getLicenseStatusBadge() : <Badge variant="outline">加载中...</Badge>}
+              {hasMounted && currentPlan && (
+                <span className="text-xs text-slate-400">{currentPlan.name}</span>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-slate-400 hover:text-white"
+              onClick={() => setShowLicenseDialog(true)}
+            >
+              <Key className="h-4 w-4" />
+            </Button>
           </div>
+        )}
+        {collapsed && (
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-2 text-slate-400 hover:text-white"
+            className="w-full justify-center text-slate-400 hover:text-white hover:bg-slate-800 h-10 px-0 mt-2"
             onClick={() => setShowLicenseDialog(true)}
+            title="授权管理"
           >
             <Key className="h-4 w-4" />
           </Button>
-        </div>
+        )}
       </div>
 
       {/* 菜单 */}
       <nav className="flex-1 py-4 overflow-y-auto">
         <ul className="space-y-1">
           {visibleMenuItems.map((item) => (
-            <li key={item.label}>
+            <li key={item.label} className="relative">
               {item.children ? (
-                <div>
-                  <button
-                    onClick={() => toggleExpand(item.label)}
-                    className={cn(
-                      'w-full flex items-center justify-between px-4 py-2.5 text-sm',
-                      'text-slate-300 hover:text-white hover:bg-slate-800 transition-colors'
-                    )}
-                  >
-                    <span className="flex items-center gap-3">
+                <div
+                  onMouseEnter={() => collapsed && setHoveredItem(item.label)}
+                  onMouseLeave={() => collapsed && setHoveredItem(null)}
+                >
+                  {collapsed ? (
+                    <button
+                      onClick={() => toggleExpand(item.label)}
+                      className={cn(
+                        'w-full flex items-center justify-center px-2 py-2.5 text-sm',
+                        'text-slate-300 hover:text-white hover:bg-slate-800 transition-colors'
+                      )}
+                      title={item.label}
+                    >
                       <item.icon className="h-4 w-4" />
-                      {item.label}
-                    </span>
-                    {(expandedItems.has(item.label) || autoExpandedItems.has(item.label)) ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                  </button>
-                  {(expandedItems.has(item.label) || autoExpandedItems.has(item.label)) && (
-                    <ul className="mt-1 space-y-1 bg-slate-800/50">
-                      {item.children.map((child) => (
-                        <li key={child.path}>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => toggleExpand(item.label)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-4 py-2.5 text-sm',
+                        'text-slate-300 hover:text-white hover:bg-slate-800 transition-colors'
+                      )}
+                    >
+                      <span className="flex items-center gap-3">
+                        <item.icon className="h-4 w-4" />
+                        {item.label}
+                      </span>
+                      {(expandedItems.has(item.label) || autoExpandedItems.has(item.label)) ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
+                  )}
+                  {collapsed ? (
+                    hoveredItem === item.label && (
+                      <div className="absolute top-0 left-full ml-2 z-30 min-w-[160px] bg-slate-800 rounded-lg shadow-xl border border-slate-700 py-1">
+                        <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 border-b border-slate-700 mb-1">
+                          {item.label}
+                        </div>
+                        {item.children.map((child) => (
                           <Link
+                            key={child.path}
                             href={child.path}
                             className={cn(
-                              'flex items-center px-4 py-2 text-sm pl-12',
+                              'block px-3 py-1.5 text-sm',
                               isActive(child.path)
                                 ? 'bg-slate-700 text-white'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                : 'text-slate-300 hover:bg-slate-700 hover:text-white'
                             )}
                           >
                             {child.label}
                           </Link>
-                        </li>
-                      ))}
-                    </ul>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    (expandedItems.has(item.label) || autoExpandedItems.has(item.label)) && (
+                      <ul className="mt-1 space-y-1 bg-slate-800/50">
+                        {item.children.map((child) => (
+                          <li key={child.path}>
+                            <Link
+                              href={child.path}
+                              className={cn(
+                                'flex items-center px-4 py-2 text-sm pl-12',
+                                isActive(child.path)
+                                  ? 'bg-slate-700 text-white'
+                                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                              )}
+                            >
+                              {child.label}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )
                   )}
                 </div>
               ) : (
                 <Link
                   href={item.path}
+                  title={collapsed ? item.label : undefined}
                   className={cn(
-                    'flex items-center gap-3 px-4 py-2.5 text-sm',
+                    collapsed
+                      ? 'flex items-center justify-center px-2 py-2.5 text-sm'
+                      : 'flex items-center gap-3 px-4 py-2.5 text-sm',
                     isActive(item.path)
                       ? 'bg-slate-700 text-white'
                       : 'text-slate-300 hover:text-white hover:bg-slate-800'
                   )}
                 >
                   <item.icon className="h-4 w-4" />
-                  {item.label}
+                  {!collapsed && item.label}
                 </Link>
               )}
             </li>
@@ -614,31 +727,30 @@ export function Sidebar() {
       </nav>
 
       {/* 数据库切换和底部信息 */}
-      <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
-        <div className="mb-3">
-          <DatabaseSwitcher />
-        </div>
-        <div className="flex items-center justify-between mb-2">
-          <span>期间: {hasMounted ? (currentAccountSet?.currentPeriod || '2026-03') : '2026-03'}</span>
-          <span>记-001</span>
-        </div>
-        <div>操作员: {hasMounted ? (currentUser?.displayName || '未登录') : '加载中...'}</div>
-        {currentUser && (
-          <div className="mt-2 relative">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800 h-7 px-1"
-              onClick={() => setShowUserMenu(!showUserMenu)}
-            >
-              <User className="h-3.5 w-3.5 mr-2" />
-              {currentUser.displayName}
-              <ChevronDown className="h-3 w-3 ml-auto" />
-            </Button>
-            {showUserMenu && (
+      <div className={cn(
+        'border-t border-slate-700 text-xs text-slate-400',
+        collapsed ? 'p-2' : 'p-4'
+      )}>
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-full flex justify-center mb-1">
+              <DatabaseSwitcher />
+            </div>
+            {currentUser && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-center text-slate-400 hover:text-white hover:bg-slate-800 h-9 px-0"
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                title={currentUser.displayName}
+              >
+                <User className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {showUserMenu && currentUser && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
-                <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 rounded-lg shadow-lg z-20 overflow-hidden">
+                <div className="absolute bottom-full left-full ml-2 mb-0 w-40 bg-slate-800 rounded-lg shadow-lg z-20 overflow-hidden">
                   <button
                     className="w-full px-4 py-2 text-left text-sm text-slate-300 hover:bg-slate-700 flex items-center gap-2"
                     onClick={() => { setShowUserMenu(false); setShowChangePassword(true); }}
@@ -657,14 +769,60 @@ export function Sidebar() {
               </>
             )}
           </div>
-        )}
-        {hasMounted && currentLicense && (
-          <div className="mt-2 pt-2 border-t border-slate-700">
-            <div className="flex items-center justify-between">
-              <span>有效期至:</span>
-              <span>{currentLicense.validTo}</span>
+        ) : (
+          <>
+            <div className="mb-3">
+              <DatabaseSwitcher />
             </div>
-          </div>
+            <div className="flex items-center justify-between mb-2">
+              <span>期间: {hasMounted ? (currentAccountSet?.currentPeriod || '2026-03') : '2026-03'}</span>
+              <span>记-001</span>
+            </div>
+            <div>操作员: {hasMounted ? (currentUser?.displayName || '未登录') : '加载中...'}</div>
+            {currentUser && (
+              <div className="mt-2 relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800 h-7 px-1"
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                >
+                  <User className="h-3.5 w-3.5 mr-2" />
+                  {currentUser.displayName}
+                  <ChevronDown className="h-3 w-3 ml-auto" />
+                </Button>
+                {showUserMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
+                    <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 rounded-lg shadow-lg z-20 overflow-hidden">
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm text-slate-300 hover:bg-slate-700 flex items-center gap-2"
+                        onClick={() => { setShowUserMenu(false); setShowChangePassword(true); }}
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        修改密码
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
+                        onClick={() => { setShowUserMenu(false); logout(); window.location.href = '/login'; }}
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
+                        退出登录
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {hasMounted && currentLicense && (
+              <div className="mt-2 pt-2 border-t border-slate-700">
+                <div className="flex items-center justify-between">
+                  <span>有效期至:</span>
+                  <span>{currentLicense.validTo}</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
