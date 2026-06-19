@@ -250,10 +250,18 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   }, [accountSetId]);
 
   const fixedAssets = useFixedAssetStore(s => s.assets);
+  const initializeFixedAssets = useFixedAssetStore(s => s.initialize);
+  const fixedAssetsInitializedRef = useRef(false);
 
   useEffect(() => {
     initializePartners();
   }, [initializePartners]);
+
+  useEffect(() => {
+    if (fixedAssetsInitializedRef.current) return;
+    fixedAssetsInitializedRef.current = true;
+    void initializeFixedAssets();
+  }, [initializeFixedAssets]);
 
   useEffect(() => {
     setPartnerEntries(prev => mergePartnerOpeningEntriesFromPartners(prev, partners));
@@ -263,6 +271,9 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   useEffect(() => {
     const loadBankAccounts = async () => {
       try {
+        if (sqliteService.accountSetId !== accountSetId) {
+          sqliteService.setAccountSetId(accountSetId);
+        }
         const bindings = await sqliteService.getBankAccountBindings();
         if (bindings && bindings.length > 0) {
           // Fetch any opening balances already saved in the bank step
@@ -482,6 +493,31 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       next[index] = { ...next[index], included: !next[index].included };
       return next;
     });
+  }, []);
+
+  // ==================== Bank Balance Handlers ====================
+
+  const updateBankEntry = useCallback((index: number, patch: Partial<BankBalanceEntry>) => {
+    setBankEntries(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...patch };
+      return next;
+    });
+  }, []);
+
+  const removeBankEntry = useCallback((index: number) => {
+    setBankEntries(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const addBankEntry = useCallback(() => {
+    setBankEntries(prev => [...prev, {
+      accountNumber: '',
+      bankName: '',
+      balance: 0,
+      currency: 'CNY',
+      foreignBalance: null,
+      exchangeRate: null,
+    }]);
   }, []);
 
   // ==================== Subject Tab Handlers ====================
@@ -1123,37 +1159,50 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               <div className="text-center py-8 text-slate-400">
                 <Landmark className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>暂无银行账户</p>
-                <p className="text-sm">请先在"银行账户"步骤中添加</p>
+                <p className="text-sm">点击下方按钮手动添加，或先在"银行账户"步骤中添加</p>
               </div>
             ) : (
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">科目</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600">银行</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600">账号</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">币种</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-44">期初余额</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">银行</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-40">账号</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">币种</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">原币余额</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">汇率</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">本币余额</th>
                     <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">未入账金额</th>
+                    <th className="px-3 py-2 w-10"></th>
                   </tr>
                 </thead>
                   <tbody>
                     {bankRowStates.map((entry, index) => {
                       const isForeign = !!entry.currency && entry.currency !== 'CNY';
-                      const foreignAmt = entry.foreignBalance && entry.foreignBalance !== 0
-                        ? entry.foreignBalance
-                        : null;
+                      const readOnly = entry.status === 'posted';
                       return (
-                      <tr key={index} className="border-t hover:bg-slate-50">
-                        <td className="px-3 py-2">
-                          <div className="font-mono text-xs text-slate-600">{entry.subjectCode || '1002'}</div>
-                          <div className="text-sm font-medium">{entry.subjectName || '银行存款'}</div>
+                      <tr key={index} className={`border-t ${readOnly ? 'bg-slate-50/70' : 'hover:bg-slate-50'}`}>
+                        <td className="px-3 py-1">
+                          <Input
+                            value={entry.bankName}
+                            onChange={e => updateBankEntry(index, { bankName: e.target.value })}
+                            disabled={readOnly}
+                            placeholder="如：建设银行"
+                            className="h-8 text-sm"
+                            autoComplete="off"
+                          />
                         </td>
-                        <td className="px-3 py-2 font-medium">{entry.bankName || '-'}</td>
-                        <td className="px-3 py-2 text-slate-600 font-mono text-xs">{entry.accountNumber}</td>
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-1">
+                          <Input
+                            value={entry.accountNumber}
+                            onChange={e => updateBankEntry(index, { accountNumber: e.target.value.trim() })}
+                            disabled={readOnly}
+                            placeholder="银行账号"
+                            className="h-8 text-sm font-mono"
+                            autoComplete="off"
+                          />
+                        </td>
+                        <td className="px-3 py-1">
                           <Badge
                             variant="outline"
                             className={`text-[10px] px-2 py-0.5 h-5 ${isForeign ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-600'}`}
@@ -1162,41 +1211,98 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                           </Badge>
                         </td>
                         <td className="px-3 py-1">
-                          {isForeign && foreignAmt !== null ? (
-                            <div className="flex flex-col items-end gap-0.5 tabular-nums">
-                              <div className="text-sm text-slate-700">
-                                <span className="text-xs text-slate-500 mr-1">{entry.currency}</span>
-                                {foreignAmt.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                <span className="mr-1">¥</span>
-                                {entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                                {entry.exchangeRate ? (
-                                  <span className="ml-1 text-[10px] text-slate-400">@ {entry.exchangeRate}</span>
-                                ) : null}
-                              </div>
-                            </div>
+                          {isForeign ? (
+                            <Input
+                              type="number"
+                              value={entry.foreignBalance ?? ''}
+                              onChange={e => {
+                                const raw = e.target.value;
+                                const num = parseFloat(raw);
+                                const rate = entry.exchangeRate ?? 0;
+                                const base = !isNaN(num) && rate > 0 ? Math.round(num * rate * 100) / 100 : 0;
+                                updateBankEntry(index, {
+                                  foreignBalance: raw === '' ? null : num,
+                                  balance: base,
+                                });
+                              }}
+                              disabled={readOnly}
+                              placeholder="0.00"
+                              className="h-8 text-sm text-right tabular-nums"
+                              autoComplete="off"
+                            />
                           ) : (
-                            <div className="h-8 flex items-center justify-end text-sm text-slate-700 tabular-nums">
-                              <span className="text-xs text-slate-500 mr-1">¥</span>
-                              {entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                            </div>
+                            <span className="text-slate-400 text-xs">—</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-3 py-1">
+                          {isForeign ? (
+                            <Input
+                              type="number"
+                              value={entry.exchangeRate ?? ''}
+                              onChange={e => {
+                                const raw = e.target.value;
+                                const rate = parseFloat(raw);
+                                const foreign = entry.foreignBalance ?? 0;
+                                const base = rate > 0 ? Math.round(foreign * rate * 100) / 100 : 0;
+                                updateBankEntry(index, {
+                                  exchangeRate: raw === '' ? null : rate,
+                                  balance: base,
+                                });
+                              }}
+                              disabled={readOnly}
+                              placeholder="0"
+                              className="h-8 text-sm text-right tabular-nums"
+                              autoComplete="off"
+                            />
+                          ) : (
+                            <span className="text-slate-400 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-1">
+                          {isForeign ? (
+                            <Input
+                              type="number"
+                              value={entry.balance !== 0 ? entry.balance : ''}
+                              onChange={e => updateBankEntry(index, { balance: parseFloat(e.target.value) || 0 })}
+                              disabled={readOnly}
+                              placeholder="0.00"
+                              className="h-8 text-sm text-right tabular-nums"
+                              autoComplete="off"
+                            />
+                          ) : (
+                            <Input
+                              type="number"
+                              value={entry.balance !== 0 ? entry.balance : ''}
+                              onChange={e => updateBankEntry(index, { balance: parseFloat(e.target.value) || 0 })}
+                              disabled={readOnly}
+                              placeholder="0.00"
+                              className="h-8 text-sm text-right tabular-nums"
+                              autoComplete="off"
+                            />
+                          )}
+                        </td>
+                        <td className="px-3 py-1 text-center">
                           <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
                             {getPostingStatusLabel(entry.status)}
                           </Badge>
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-medium">
-                          <span className="text-xs text-slate-500 mr-1">¥</span>
-                          {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        <td className="px-3 py-1">
+                          {!readOnly && (
+                            <Button variant="ghost" size="sm" onClick={() => removeBankEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
                         </td>
                       </tr>
                       );
                     })}
                   </tbody>
                 </table>
+                <div className="border-t p-2 bg-slate-50">
+                  <Button variant="outline" size="sm" onClick={addBankEntry} disabled={Boolean(lockedOpeningVoucher)} className="w-full">
+                    <Plus className="h-4 w-4 mr-1" /> 添加银行账户
+                  </Button>
+                </div>
               </div>
             )}
           </TabsContent>
