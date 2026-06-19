@@ -23,6 +23,7 @@ export interface SubjectRow {
   isSupplier: number | null;
   isEmployee: number | null;
   enableCashFlow: number | null;
+  isMonetary: number | null;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -42,8 +43,8 @@ const SUBJECT_INSERT_SQL = `
     id, code, name, parentId, level, type, direction, balance,
     enabled, frozen, description, enableDept, enableProject,
     enableForeign, foreignCurrency, isCustomer, isSupplier,
-    isEmployee, enableCashFlow, accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    isEmployee, enableCashFlow, isMonetary, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 // ── Mapper ──
@@ -64,6 +65,7 @@ export function mapSubjectRow(row: SubjectRow): Subject {
     isSupplier: Boolean(row.isSupplier),
     isEmployee: Boolean(row.isEmployee),
     enableCashFlow: Boolean(row.enableCashFlow),
+    isMonetary: Boolean(row.isMonetary),
     disabled: row.enabled === 0,
     block: row.frozen === 1,
     subjectType: (row.type as Subject['subjectType']) || undefined,
@@ -94,6 +96,7 @@ function buildSubjectInsertParams(subject: Subject, accountSetId: string, now: s
     Number(subject.isSupplier || false),
     Number(subject.isEmployee || false),
     Number(subject.enableCashFlow || false),
+    Number(subject.isMonetary || false),
     accountSetId,
     now, // createTime
     now, // updateTime

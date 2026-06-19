@@ -42,6 +42,7 @@ export interface Subject {
   isSupplier: boolean; // 供应商核算（原应付）
   isEmployee: boolean; // 雇员核算
   enableCashFlow: boolean; // 现金流量核算
+  isMonetary?: boolean; // 是否货币性项目（参与期末汇兑重估，CAS 19）
   disabled: boolean;
   block: boolean; // 冻结状态
   subjectType?: 'Asset' | 'Liability' | 'Equity' | 'Cost' | 'Profit/Loss'; // 科目类型

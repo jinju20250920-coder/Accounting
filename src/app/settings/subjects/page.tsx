@@ -32,6 +32,7 @@ import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { generateCode, CodeRuleManager } from '@/lib/code-generator';
 import { sqliteService } from '@/lib/database';
+import { inferIsMonetary } from '@/lib/monetary-prefixes';
 
 export default function SubjectsPage() {
   const { showToast } = useToast();
@@ -268,6 +269,7 @@ export default function SubjectsPage() {
             isSupplier: (parentSubject as any).isSupplier || false,
             isEmployee: (parentSubject as any).isEmployee || false,
             enableCashFlow: (parentSubject as any).enableCashFlow || false,
+            isMonetary: parentSubject.isMonetary ?? inferIsMonetary(parentSubject.code),
             block: false,
             subjectType: parentSubject.subjectType || ''
           });
@@ -295,6 +297,7 @@ export default function SubjectsPage() {
         isSupplier: (parentSubject as any).isSupplier || false,
         isEmployee: (parentSubject as any).isEmployee || false,
         enableCashFlow: (parentSubject as any).enableCashFlow || false,
+        isMonetary: parentSubject.isMonetary ?? inferIsMonetary(parentSubject.code),
         block: false,
         subjectType: parentSubject.subjectType || ''
       });
@@ -359,6 +362,7 @@ export default function SubjectsPage() {
     isSupplier: false,
     isEmployee: false,
     enableCashFlow: false,
+    isMonetary: false,
     block: false,
     subjectType: ''
   });
@@ -379,6 +383,7 @@ export default function SubjectsPage() {
       isSupplier: false,
       isEmployee: false,
       enableCashFlow: false,
+      isMonetary: false,
       block: false,
       subjectType: ''
     });
@@ -406,6 +411,7 @@ export default function SubjectsPage() {
       isSupplier: (subject as any).isSupplier || false,
       isEmployee: (subject as any).isEmployee || false,
       enableCashFlow: (subject as any).enableCashFlow || false,
+      isMonetary: subject.isMonetary ?? inferIsMonetary(subject.code),
       block: subject.block,
       subjectType: subject.subjectType || ''
     });
@@ -447,6 +453,7 @@ export default function SubjectsPage() {
       '项目核算': subject.enableProject ? '是' : '否',
       '外币核算': subject.enableForeign ? '是' : '否',
       '外币': subject.foreignCurrency || '',
+      '汇兑重估': subject.isMonetary ? '是' : '否',
       '客户': (subject as any).isCustomer ? '是' : '否',
       '供应商': (subject as any).isSupplier ? '是' : '否',
       '雇员': (subject as any).isEmployee ? '是' : '否',
@@ -468,6 +475,7 @@ export default function SubjectsPage() {
       '项目核算': '否',
       '外币核算': '否',
       '外币': '',
+      '汇兑重估': '否',
       '客户': '否',
       '供应商': '否',
       '雇员': '否',
@@ -484,6 +492,7 @@ export default function SubjectsPage() {
       { key: 'enableProject' as any, label: '项目核算', placeholder: '是/否' },
       { key: 'enableForeign' as any, label: '外币核算', placeholder: '是/否' },
       { key: 'foreignCurrency' as any, label: '外币', placeholder: '如：USD、CNY' },
+      { key: 'isMonetary' as any, label: '汇兑重估', placeholder: '是/否（货币性项目）' },
       { key: 'isCustomer' as any, label: '客户', placeholder: '是/否' },
       { key: 'isSupplier' as any, label: '供应商', placeholder: '是/否' },
       { key: 'isEmployee' as any, label: '雇员', placeholder: '是/否' },
@@ -510,6 +519,7 @@ export default function SubjectsPage() {
         { key: 'enableProject' as any, label: '项目核算', required: false },
         { key: 'enableForeign' as any, label: '外币核算', required: false },
         { key: 'foreignCurrency' as any, label: '外币', required: false },
+        { key: 'isMonetary' as any, label: '汇兑重估', required: false },
         { key: 'isCustomer' as any, label: '客户', required: false },
         { key: 'isSupplier' as any, label: '供应商', required: false },
         { key: 'isEmployee' as any, label: '雇员', required: false },
@@ -546,6 +556,7 @@ export default function SubjectsPage() {
           isSupplier: subject.isSupplier || false,
           isEmployee: subject.isEmployee || false,
           enableCashFlow: subject.enableCashFlow || false,
+          isMonetary: (subject as any).isMonetary ?? inferIsMonetary(subject.code),
           disabled: subject.disabled || false,
           block: false
         });
@@ -788,7 +799,20 @@ export default function SubjectsPage() {
                   <span>项目核算</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={formData.enableForeign} onChange={e => setFormData(prev => ({ ...prev, enableForeign: e.target.checked }))} className="h-4 w-4" />
+                  <input
+                    type="checkbox"
+                    checked={formData.enableForeign}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      setFormData(prev => ({
+                        ...prev,
+                        enableForeign: checked,
+                        // 开启外币核算时按科目代码自动推断是否为货币性项目；关闭时清空
+                        isMonetary: checked ? inferIsMonetary(formData.code) : false,
+                      }));
+                    }}
+                    className="h-4 w-4"
+                  />
                   <span>外币核算</span>
                 </label>
               </div>
@@ -802,6 +826,23 @@ export default function SubjectsPage() {
                 />
               </div>
             )}
+            <div className="space-y-2">
+              <Label>期末汇兑重估</Label>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isMonetary}
+                    onChange={e => setFormData(prev => ({ ...prev, isMonetary: e.target.checked }))}
+                    className="h-4 w-4"
+                  />
+                  <span>货币性项目（参与期末汇兑重估）</span>
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">
+                按 CAS 19，货币性项目（货币资金、应收/应付、借款等）期末按即期汇率重估，差额计入汇兑损益。固定资产、存货、所有者权益等非货币性项目不参与重估。
+              </p>
+            </div>
             <div className="space-y-2">
               <Label>往来科目</Label>
               <div className="flex flex-wrap items-center gap-6">

@@ -124,11 +124,8 @@ export default function ExchangePage() {
         showToast('info', `未找到 ${periodEnd} 的汇率，已使用最近日期（${usedDates}）的汇率`);
       }
 
-      // 2. 获取外币银行账户余额
-      const bankBalances: FxRevaluationBankBalance[] = await loadBankBalances(period, rates);
-
-      // 3. 获取外币应收/应付余额
-      const openItems: FxRevaluationOpenItem[] = await loadOpenItems(period, rates);
+      // 2. 获取所有外币货币性项目余额（基于 subjects.isMonetary 字段）
+      const { bankBalances, openItems } = await loadMonetaryBalances(period);
 
       if (bankBalances.length === 0 && openItems.length === 0) {
         showToast('info', '当前期间无外币余额需要重估');
@@ -389,7 +386,7 @@ export default function ExchangePage() {
                       <TableRow key={line.id}>
                         <TableCell className="px-2 py-2">
                           <Badge variant="outline" className="text-xs">
-                            {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '应收' : '应付'}
+                            {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '资产' : '负债'}
                           </Badge>
                         </TableCell>
                         <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
@@ -563,7 +560,7 @@ export default function ExchangePage() {
                         <TableRow key={line.id}>
                           <TableCell className="px-2 py-2">
                             <Badge variant="outline" className="text-xs">
-                              {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '应收' : '应付'}
+                              {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '资产' : '负债'}
                             </Badge>
                           </TableCell>
                           <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
@@ -630,22 +627,41 @@ function formatDateTime(iso?: string): string {
 }
 
 /**
- * 加载外币银行账户余额
+ * 加载所有外币货币性项目余额（按 subjects.isMonetary 字段过滤）
  *
- * 单一数据源：凭证分录（1001 库存现金 / 1002 银行存款 + currencyCode≠CNY）
+ * 数据来源：凭证分录（voucher entries）中 currencyCode ≠ CNY 且科目为货币性项目的分录
  *
- * 银行账户绑定（bank_account_bindings）仅用于元数据反查：
- * 通过 subSubjectCode 关联到对应银行户，补全 accountNumber/bankName 让预览行更直观。
+ * 分类规则（基于科目代码前缀）：
+ *   - 1001/1002/1012 → 'bank'（银行/现金类，使用 FxRevaluationBankBalance 类型）
+ *   - 其他 1xxx（资产类）→ 'receivable'（资产类货币性项目）
+ *   - 2xxx（负债类）→ 'payable'（负债类货币性项目）
  *
- * 优势：
- * - 用户无论是用银行流水导入还是手工录入凭证，只要分录带了币别，都会被识别
- * - 不会出现"流水来源 + 凭证来源"双重计数
+ * 引擎 fx-revaluation.ts 用 sourceType='receivable' 判断 isAsset=true（资产类，
+ * 正差额=收益），sourceType='payable' 判断 isAsset=false（负债类，正差额=损失）。
+ *
+ * 银行账户绑定（bank_account_bindings）用于元数据反查，补全 accountNumber/bankName
+ * 让预览行更直观。期初外币余额从 bank_opening_balances 回退补齐。
  */
-async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxRevaluationBankBalance[]> {
+async function loadMonetaryBalances(
+  period: string,
+): Promise<{ bankBalances: FxRevaluationBankBalance[]; openItems: FxRevaluationOpenItem[] }> {
   const service = getCurrentService() as any;
   const periodEnd = getMonthEndDate(period);
 
-  // 预加载银行账户绑定，按 subSubjectCode 和 accountNumber 索引，用于元数据反查
+  // 1. 加载货币性科目集合，建立 code → { direction, name } 映射
+  const monetarySubjects = new Map<string, { direction: string; name: string }>();
+  try {
+    const subjects = service.getAllSubjects ? await service.getAllSubjects() : [];
+    for (const s of subjects || []) {
+      if (s.isMonetary) {
+        monetarySubjects.set(s.code, { direction: s.direction || 'debit', name: s.name || s.code });
+      }
+    }
+  } catch (e) {
+    console.warn('loadMonetaryBalances: 科目加载失败', e);
+  }
+
+  // 2. 预加载银行账户绑定
   const bindingsBySubject = new Map<string, any>();
   const bindingsByAccount = new Map<string, any>();
   try {
@@ -655,11 +671,17 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
       if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
     }
   } catch (e) {
-    console.warn('loadBankBalances: 银行绑定加载失败', e);
+    console.warn('loadMonetaryBalances: 银行绑定加载失败', e);
   }
 
-  const results: FxRevaluationBankBalance[] = [];
-  const agg = new Map<string, { subjectCode: string; subjectName: string; currencyCode: string; totalOriginal: number; totalBase: number }>();
+  // 3. 聚合外币分录 by (subjectCode, currencyCode)
+  const agg = new Map<string, {
+    subjectCode: string;
+    subjectName: string;
+    currencyCode: string;
+    totalOriginal: number;
+    totalBase: number;
+  }>();
 
   try {
     const allVouchers = service.getAllVouchers ? await service.getAllVouchers() : [];
@@ -671,12 +693,13 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
       for (const entry of entries) {
         if (!entry.currencyCode || entry.currencyCode === 'CNY') continue;
         const code = (entry.subjectCode || '');
-        if (!code.startsWith('1001') && !code.startsWith('1002')) continue;
+        if (!code || !monetarySubjects.has(code)) continue;
 
         const key = `${code}-${entry.currencyCode}`;
+        const subjectInfo = monetarySubjects.get(code)!;
         const existing = agg.get(key) || {
           subjectCode: code,
-          subjectName: entry.subjectName || '银行存款',
+          subjectName: entry.subjectName || subjectInfo.name,
           currencyCode: entry.currencyCode,
           totalOriginal: 0,
           totalBase: 0,
@@ -690,24 +713,18 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
       }
     }
 
-    // Fallback: bank_opening_balances 表里存了外币明细但凭证分录未写入 currencyCode 的旧数据
-    // 用 bank_opening_balances 的 foreignBalance/exchangeRate 补齐，避免漏掉期初外币余额
+    // Fallback: bank_opening_balances 期初外币余额回退（仅银行类）
     try {
       const openingRows: Array<{ accountNumber: string; periodStart: string; balance: number; foreignBalance?: number | null; exchangeRate?: number | null }> =
         service.getAllBankOpeningBalances ? await service.getAllBankOpeningBalances() : [];
       for (const row of openingRows || []) {
-        if (!row.accountNumber || row.periodStart > period) {
-          continue;
-        }
-        if (!row.foreignBalance || !row.exchangeRate) {
-          continue;
-        }
+        if (!row.accountNumber || row.periodStart > period) continue;
+        if (!row.foreignBalance || !row.exchangeRate) continue;
         const binding = bindingsByAccount.get(row.accountNumber);
         const code = binding?.subSubjectCode || '1002';
+        if (!monetarySubjects.has(code)) continue;
         const currency = binding?.currency || '';
-        if (!currency || currency === 'CNY') {
-          continue;
-        }
+        if (!currency || currency === 'CNY') continue;
         const key = `${code}-${currency}`;
         const existing = agg.get(key) || {
           subjectCode: code,
@@ -721,13 +738,26 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
         agg.set(key, existing);
       }
     } catch (e) {
-      console.warn('loadBankBalances: 期初外币余额回退失败', e);
+      console.warn('loadMonetaryBalances: 期初外币余额回退失败', e);
     }
+  } catch (e) {
+    console.error('loadMonetaryBalances: 凭证聚合失败', e);
+  }
 
-    for (const [key, data] of agg) {
-      if (Math.abs(data.totalOriginal) < 0.005 && Math.abs(data.totalBase) < 0.005) continue;
+  // 4. 按 sourceType 分类输出
+  const bankBalances: FxRevaluationBankBalance[] = [];
+  const openItems: FxRevaluationOpenItem[] = [];
+
+  for (const [key, data] of agg) {
+    if (Math.abs(data.totalOriginal) < 0.005 && Math.abs(data.totalBase) < 0.005) continue;
+
+    const isBankPrefix = data.subjectCode.startsWith('1001') || data.subjectCode.startsWith('1002') || data.subjectCode.startsWith('1012');
+    const subjectInfo = monetarySubjects.get(data.subjectCode);
+    const isAsset = subjectInfo?.direction !== 'credit'; // direction='debit' = 资产类
+
+    if (isBankPrefix) {
       const binding = bindingsBySubject.get(data.subjectCode);
-      results.push({
+      bankBalances.push({
         accountId: binding?.id || `voucher-${key}`,
         accountNumber: binding?.accountNumber || data.subjectCode,
         bankName: binding?.bankName || binding?.aliasName || data.subjectName,
@@ -737,58 +767,10 @@ async function loadBankBalances(period: string, rates: FxRate[]): Promise<FxReva
         subjectCode: data.subjectCode,
         subjectName: data.subjectName,
       });
-    }
-  } catch (e) {
-    console.error('loadBankBalances: 凭证聚合失败', e);
-  }
-
-  return results;
-}
-
-/**
- * 加载外币应收/应付未核销余额
- * 从 vouchers 中的 entries 查找外币应收/应付科目余额
- */
-async function loadOpenItems(period: string, rates: FxRate[]): Promise<FxRevaluationOpenItem[]> {
-  const service = getCurrentService() as any;
-  const results: FxRevaluationOpenItem[] = [];
-
-  try {
-    // 从凭证分录中汇总外币应收/应付余额
-    const allVouchers = service.getAllVouchers ? await service.getAllVouchers() : [];
-    const periodEnd = getMonthEndDate(period);
-
-    const fxEntries = new Map<string, { totalOriginal: number; totalBase: number; subjectCode: string; subjectName: string; currencyCode: string }>();
-
-    for (const voucher of allVouchers) {
-      if (voucher.date > periodEnd) continue;
-      const entries = voucher.entries || [];
-      for (const entry of entries) {
-        if (!entry.currencyCode || entry.currencyCode === 'CNY') continue;
-        // 应收科目 1122 / 应付科目 2202
-        const isReceivable = (entry.subjectCode || '').startsWith('1122');
-        const isPayable = (entry.subjectCode || '').startsWith('2202');
-        if (!isReceivable && !isPayable) continue;
-
-        const key = `${entry.subjectCode}-${entry.currencyCode}-${isReceivable ? 'rec' : 'pay'}`;
-        const existing = fxEntries.get(key) || { totalOriginal: 0, totalBase: 0, subjectCode: entry.subjectCode, subjectName: entry.subjectName, currencyCode: entry.currencyCode };
-        const debit = entry.debit || 0;
-        const credit = entry.credit || 0;
-        existing.totalOriginal += (entry.originalAmount || 0) * (debit > 0 ? 1 : -1);
-        existing.totalBase += (debit - credit);
-        fxEntries.set(key, existing);
-      }
-    }
-
-    for (const [key, data] of fxEntries) {
-      if (Math.abs(data.totalOriginal) < 0.005) continue;
-      const rate = rates.find((r) => r.currencyCode === data.currencyCode);
-      if (!rate) continue;
-
-      const isReceivable = key.includes('-rec-');
-      results.push({
+    } else {
+      openItems.push({
         itemId: key,
-        moduleName: isReceivable ? 'receivable' : 'payable',
+        moduleName: isAsset ? 'receivable' : 'payable',
         partnerName: data.subjectName,
         currencyCode: data.currencyCode,
         originalAmount: data.totalOriginal,
@@ -797,9 +779,7 @@ async function loadOpenItems(period: string, rates: FxRate[]): Promise<FxRevalua
         subjectName: data.subjectName,
       });
     }
-  } catch (error) {
-    console.error('Failed to load open items:', error);
   }
 
-  return results;
+  return { bankBalances, openItems };
 }

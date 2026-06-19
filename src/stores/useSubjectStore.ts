@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { getCurrentService, sqliteService } from '@/lib/database';
 import type { Subject } from '@/lib/database/service';
+import { inferIsMonetary } from '@/lib/monetary-prefixes';
 import { useAccountSetStore } from './useAccountSetStore';
 import defaultSubjects from '@/lib/data/subjects.json';
 
@@ -511,6 +512,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           isSupplier: subject.isSupplier || (subject.code.startsWith('2202') || subject.code.startsWith('2201')), // 应付账款相关科目
           isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
           enableCashFlow: subject.enableCashFlow || false,
+          isMonetary: subject.isMonetary ?? inferIsMonetary(subject.code),
           accountSetId: currentAccountSet?.id,
           createTime: now,
           updateTime: now,
@@ -587,6 +589,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
                 isSupplier: subject.isSupplier || false,
                 isEmployee: subject.isEmployee || false,
                 enableCashFlow: subject.enableCashFlow || false,
+                isMonetary: subject.isMonetary ?? inferIsMonetary(subject.code),
                 accountSetId: currentAccountSet?.id,
                 createTime: now,
                 updateTime: now,
@@ -640,6 +643,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
           isSupplier: subject.isSupplier || (subject.code.startsWith('2202') || subject.code.startsWith('2201')), // 应付账款相关科目
           isEmployee: subject.isEmployee || subject.code.startsWith('2211'), // 应付职工薪酬相关科目
           enableCashFlow: subject.enableCashFlow || false,
+          isMonetary: subject.isMonetary ?? inferIsMonetary(subject.code),
           accountSetId: currentAccountSet?.id,
           createTime: now,
           updateTime: now,

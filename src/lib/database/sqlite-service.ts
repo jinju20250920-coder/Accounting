@@ -26,6 +26,7 @@ import type {
   PayrollItem,
 } from '../payroll';
 import { clonePayrollTaxRuleSet } from '../payroll-tax-rules';
+import { MONETARY_PREFIXES } from '../monetary-prefixes';
 import { saveFixedAssetRecord, type FixedAssetSaveInput } from './services/fixed-asset-sqlite-service';
 import {
   deleteBankAccountBindingRecord,
@@ -431,6 +432,8 @@ class SQLiteService {
     await this.migrateCreateDepartmentProjectTables();
     // 数据迁移：为旧凭证补全外币分录字段（仅货币性项目，从关联的银行流水或摘要解析推断）
     await this.migrateBackfillVoucherEntryFxFields();
+    // 数据迁移：为科目表回填 isMonetary 字段（按 CAS 19 货币性项目前缀）
+    await this.migrateBackfillSubjectIsMonetary();
   }
 
   /**
@@ -542,6 +545,73 @@ class SQLiteService {
       }
     } catch (err) {
       console.error('[FX migration] 失败:', err);
+    }
+  }
+
+  /**
+   * 数据迁移：为科目表回填 isMonetary 字段
+   *
+   * 按 MONETARY_PREFIXES 清单 + 现有 enableForeign 双条件勾选，避免误标。
+   * 幂等：localStorage 标记 + 只更新 isMonetary = 0 的行。
+   * CAS 19：货币性项目按期末汇率重估；1401/1471（存货）严格说不属于货币性项目，故不包含。
+   */
+  private async migrateBackfillSubjectIsMonetary(): Promise<void> {
+    if (!this.dbInstance) return;
+    if (typeof localStorage !== 'undefined') {
+      const flag = 'subject_monetary_migration_done_' + this.accountSetId;
+      if (localStorage.getItem(flag) === '1') return;
+    }
+
+    try {
+      const probe = this.dbInstance.exec('SELECT 1');
+      if (!probe || probe.length === 0) return;
+    } catch (err) {
+      console.warn('[Subject isMonetary migration] 数据库探测失败，跳过本次迁移。', err);
+      return;
+    }
+
+    const db = this.dbInstance;
+    const asId = this.accountSetId || '';
+
+    // 金桔财务体系下的货币性项目前缀（共享清单，参考 lib/monetary-prefixes.ts）
+    const MONETARY_CODES = MONETARY_PREFIXES;
+
+    try {
+      const stmt = db.prepare(
+        `SELECT code FROM subjects WHERE accountSetId = ? AND COALESCE(isMonetary, 0) = 0`,
+      );
+      stmt.bind([asId]);
+      const rows: any[] = [];
+      while (stmt.step()) rows.push(stmt.getAsObject());
+      stmt.free();
+
+      let updated = 0;
+      for (const row of rows) {
+        const code = String(row.code || '');
+        if (!code) continue;
+        const isMonetary = MONETARY_CODES.some((p) => code.startsWith(p));
+        if (!isMonetary) continue;
+        const upd = db.prepare(
+          `UPDATE subjects SET isMonetary = 1, updateTime = ? WHERE accountSetId = ? AND code = ? AND COALESCE(isMonetary, 0) = 0`,
+        );
+        try {
+          upd.run([new Date().toISOString(), asId, code]);
+          updated++;
+        } finally {
+          upd.free();
+        }
+      }
+
+      if (updated > 0) {
+        await this.persist();
+        console.log(`[Subject isMonetary migration] 已回填 ${updated} 个科目的 isMonetary 字段`);
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('subject_monetary_migration_done_' + this.accountSetId, '1');
+      }
+    } catch (err) {
+      console.error('[Subject isMonetary migration] 失败:', err);
     }
   }
 
@@ -1992,6 +2062,7 @@ class SQLiteService {
         'type', 'balance', 'description', 'frozen',
         'enableDept', 'enableProject', 'enableForeign', 'foreignCurrency',
         'isCustomer', 'isSupplier', 'isEmployee', 'enableCashFlow',
+        'isMonetary',
         'bankAccountNumber'
       ];
 

@@ -677,6 +677,7 @@ class SQLiteManager {
         isSupplier INTEGER DEFAULT 0,
         isEmployee INTEGER DEFAULT 0,
         enableCashFlow INTEGER DEFAULT 0,
+        isMonetary INTEGER DEFAULT 0,
         bankAccountNumber TEXT,
         createTime TEXT,
         updateTime TEXT,
