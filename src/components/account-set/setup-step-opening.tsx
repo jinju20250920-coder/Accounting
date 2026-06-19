@@ -20,6 +20,7 @@ import {
   Building2,
   FileText,
   Lock,
+  RefreshCw,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
@@ -267,35 +268,57 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
     setPartnerEntries(prev => mergePartnerOpeningEntriesFromPartners(prev, partners));
   }, [partners]);
 
-  // Load bank accounts from previous step, pre-filling saved opening balances
-  useEffect(() => {
-    const loadBankAccounts = async () => {
-      try {
-        if (sqliteService.accountSetId !== accountSetId) {
-          sqliteService.setAccountSetId(accountSetId);
-        }
-        const bindings = await sqliteService.getBankAccountBindings();
-        if (bindings && bindings.length > 0) {
-          // Fetch any opening balances already saved in the bank step
-          let savedRows: Array<{ accountNumber: string; balance: number; foreignBalance?: number | null; exchangeRate?: number | null }> = [];
-          try {
-            const rows = await sqliteService.getAllBankOpeningBalances() as BankOpeningBalanceRow[];
-            savedRows = (rows || []).map((row) => ({
-              accountNumber: row.accountNumber,
-              balance: row.balance,
-              foreignBalance: row.foreignBalance ?? null,
-              exchangeRate: row.exchangeRate ?? null,
-            }));
-          } catch { /* table may not exist yet */ }
-          const savedByAccount = new Map(savedRows.map(r => [r.accountNumber, r]));
+  // Load bank accounts from previous step, pre-filling saved opening balances.
+  // Wrapped in a callback so we can re-trigger it when the user opens the bank
+  // tab — the initial mount load sometimes races with sqliteService accountSetId
+  // sync, leaving the tab empty even though bindings are saved.
+  const reloadBankAccounts = useCallback(async () => {
+    try {
+      // Always force-sync — the service may still hold a stale id from another step
+      sqliteService.setAccountSetId(accountSetId);
 
-          const incoming = buildBankOpeningEntriesFromBindings(bindings as BankBindingForOpening[], savedByAccount);
-          setBankEntries(prev => mergeOpeningEntriesByKey(prev, incoming, entry => entry.accountNumber));
-        }
-      } catch { /* Bank accounts may not exist yet */ }
-    };
-    loadBankAccounts();
+      // Make sure the DB is ready before querying (no-op if already initialised)
+      try {
+        const { waitForDbInit } = await import('@/hooks/useDatabaseSync');
+        await waitForDbInit();
+      } catch { /* ignore — fall back to ensureInitialized inside getters */ }
+
+      const bindings = await sqliteService.getBankAccountBindings();
+      if (!bindings || bindings.length === 0) {
+        return;
+      }
+
+      // Fetch any opening balances already saved in the bank step
+      let savedRows: Array<{ accountNumber: string; balance: number; foreignBalance?: number | null; exchangeRate?: number | null }> = [];
+      try {
+        const rows = await sqliteService.getAllBankOpeningBalances() as BankOpeningBalanceRow[];
+        savedRows = (rows || []).map((row) => ({
+          accountNumber: row.accountNumber,
+          balance: row.balance,
+          foreignBalance: row.foreignBalance ?? null,
+          exchangeRate: row.exchangeRate ?? null,
+        }));
+      } catch { /* table may not exist yet */ }
+      const savedByAccount = new Map(savedRows.map(r => [r.accountNumber, r]));
+
+      const incoming = buildBankOpeningEntriesFromBindings(bindings as BankBindingForOpening[], savedByAccount);
+      setBankEntries(prev => mergeOpeningEntriesByKey(prev, incoming, entry => entry.accountNumber));
+    } catch (error) {
+      console.error('[setup-step-opening] load bank accounts failed:', error);
+    }
   }, [accountSetId]);
+
+  // Initial load on mount and whenever accountSetId changes
+  useEffect(() => {
+    void reloadBankAccounts();
+  }, [reloadBankAccounts]);
+
+  // Re-load when the user navigates to the bank tab. The mount load sometimes
+  // races with sibling effects/stores; tab activation gives us a second chance.
+  useEffect(() => {
+    if (activeTab !== 'bank') return;
+    void reloadBankAccounts();
+  }, [activeTab, reloadBankAccounts]);
 
   // Load fixed asset cards from previous step
   useEffect(() => {
@@ -1153,6 +1176,14 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                 <p className="text-lg font-semibold">{bankTotalBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="text-sm text-slate-400">{bankEntries.length} 个账户</div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void reloadBankAccounts()}
+                title="重新从银行账户步骤加载"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" /> 重新加载
+              </Button>
             </div>
 
             {bankEntries.length === 0 ? (
