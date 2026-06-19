@@ -1133,13 +1133,19 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">科目</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">银行</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">账号</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-40">期初余额</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">币种</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-44">期初余额</th>
                     <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">未入账金额</th>
                   </tr>
                 </thead>
                   <tbody>
-                    {bankRowStates.map((entry, index) => (
+                    {bankRowStates.map((entry, index) => {
+                      const isForeign = !!entry.currency && entry.currency !== 'CNY';
+                      const foreignAmt = entry.foreignBalance && entry.foreignBalance !== 0
+                        ? entry.foreignBalance
+                        : null;
+                      return (
                       <tr key={index} className="border-t hover:bg-slate-50">
                         <td className="px-3 py-2">
                           <div className="font-mono text-xs text-slate-600">{entry.subjectCode || '1002'}</div>
@@ -1147,10 +1153,35 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                         </td>
                         <td className="px-3 py-2 font-medium">{entry.bankName || '-'}</td>
                         <td className="px-3 py-2 text-slate-600 font-mono text-xs">{entry.accountNumber}</td>
+                        <td className="px-3 py-2">
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-2 py-0.5 h-5 ${isForeign ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-600'}`}
+                          >
+                            {entry.currency || 'CNY'}
+                          </Badge>
+                        </td>
                         <td className="px-3 py-1">
-                          <div className="h-8 flex items-center justify-end text-sm text-slate-700 tabular-nums">
-                            {entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                          </div>
+                          {isForeign && foreignAmt !== null ? (
+                            <div className="flex flex-col items-end gap-0.5 tabular-nums">
+                              <div className="text-sm text-slate-700">
+                                <span className="text-xs text-slate-500 mr-1">{entry.currency}</span>
+                                {foreignAmt.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                <span className="mr-1">¥</span>
+                                {entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                {entry.exchangeRate ? (
+                                  <span className="ml-1 text-[10px] text-slate-400">@ {entry.exchangeRate}</span>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="h-8 flex items-center justify-end text-sm text-slate-700 tabular-nums">
+                              <span className="text-xs text-slate-500 mr-1">¥</span>
+                              {entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
                           <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
@@ -1158,10 +1189,12 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                           </Badge>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          <span className="text-xs text-slate-500 mr-1">¥</span>
                           {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
