@@ -29,6 +29,11 @@ import { usePartnerStore } from '@/stores/usePartnerStore';
 import { useSubjectStore } from '@/stores';
 import { DepartmentPopover } from '@/components/shared/subject-popover';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
+import {
+  generatePartnerCode,
+  pickPartnerTypePriority,
+  type PartnerCodeType,
+} from '@/lib/partner-code-generator';
 import type { Partner } from '@/types';
 
 type PartnerTemplateSample = {
@@ -229,22 +234,31 @@ export default function AuxiliaryDataPage() {
   };
 
   const handleAddPartner = async () => {
-    if (!formData.code || !formData.name) {
-      showToast('error', '请填写必填字段：往来单位代码、名称');
-      return;
-    }
-
-    const normalizedCode = formData.code.toUpperCase();
-    // 检查代码是否重复
-    const existingPartner = partners.find(p => p.code === normalizedCode);
-    if (existingPartner && (!editingId || existingPartner.id !== editingId)) {
-      showToast('error', `往来单位代码 ${normalizedCode} 已存在，请使用其他代码`);
+    if (!formData.name) {
+      showToast('error', '请填写必填字段：单位名称');
       return;
     }
 
     // 检查必须至少选择一种身份
     if (!formData.isCustomer && !formData.isSupplier && !formData.isEmployee) {
       showToast('error', '请至少勾选一种身份：客户、供应商或雇员');
+      return;
+    }
+
+    // 代码为空时按类型前缀自动编号
+    let normalizedCode = formData.code.toUpperCase();
+    if (!normalizedCode) {
+      const type = pickPartnerTypePriority(formData.isCustomer, formData.isSupplier, formData.isEmployee);
+      normalizedCode = generatePartnerCode(
+        partners.map(p => p.code),
+        type as PartnerCodeType,
+      );
+    }
+
+    // 检查代码是否重复
+    const existingPartner = partners.find(p => p.code === normalizedCode);
+    if (existingPartner && (!editingId || existingPartner.id !== editingId)) {
+      showToast('error', `往来单位代码 ${normalizedCode} 已存在，请使用其他代码`);
       return;
     }
 
@@ -361,16 +375,34 @@ export default function AuxiliaryDataPage() {
 
         const importedData = await importFromExcel<Partner>(file, headers);
 
-        const newItems = importedData.map(item => ({
-          ...item,
-          id: `partner_${Date.now()}_${Math.random()}`,
-          code: item.code || '',
-          frozen: item.frozen || false,
-          isCustomer: item.isCustomer || false,
-          isSupplier: item.isSupplier || false,
-          isEmployee: item.isEmployee || false,
-          createdAt: new Date().toISOString().split('T')[0]
-        }));
+        const existingCodes = usePartnerStore.getState().partners.map(p => p.code);
+        const usedCodesInBatch = new Set<string>();
+
+        const newItems = importedData.map(item => {
+          let code = (item.code || '').trim().toUpperCase();
+          if (!code) {
+            const type = pickPartnerTypePriority(
+              Boolean(item.isCustomer),
+              Boolean(item.isSupplier),
+              Boolean(item.isEmployee),
+            );
+            if (type) {
+              const pool = [...existingCodes, ...Array.from(usedCodesInBatch)];
+              code = generatePartnerCode(pool, type);
+              usedCodesInBatch.add(code);
+            }
+          }
+          return {
+            ...item,
+            id: `partner_${Date.now()}_${Math.random()}`,
+            code,
+            frozen: item.frozen || false,
+            isCustomer: item.isCustomer || false,
+            isSupplier: item.isSupplier || false,
+            isEmployee: item.isEmployee || false,
+            createdAt: new Date().toISOString().split('T')[0]
+          };
+        });
 
         await partnerStore.importPartners(newItems);
         setPartners(usePartnerStore.getState().partners);
@@ -793,8 +825,21 @@ export default function AuxiliaryDataPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label required className="font-semibold text-sm">单位代码</Label>
-                  <Input placeholder="如：CUS001" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+                  <Label className="font-semibold text-sm">单位代码</Label>
+                  <Input placeholder="留空自动编号" value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    留空时按 客户(CUS)/供应商(SUP)/雇员(EMP) 自动编号
+                    {(() => {
+                      const type = pickPartnerTypePriority(formData.isCustomer, formData.isSupplier, formData.isEmployee);
+                      if (formData.code || !type) return null;
+                      const preview = generatePartnerCode(partners.map(p => p.code), type);
+                      return (
+                        <span className="block text-slate-500 mt-0.5">
+                          预览：<span className="font-mono">{preview}</span>
+                        </span>
+                      );
+                    })()}
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label required className="font-semibold text-sm">单位名称</Label>
