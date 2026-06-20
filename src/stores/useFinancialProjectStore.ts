@@ -54,6 +54,8 @@ interface FinancialProjectStore {
 // 生成唯一ID
 const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
+let initializeProjectsState: { accountSetId: string | null; promise: Promise<void> } | null = null;
+
 // 生成项目代码
 const generateProjectCode = (allProjects: Project[]): string => {
   const count = allProjects.length;
@@ -397,47 +399,61 @@ export const useFinancialProjectStore = create<FinancialProjectStore>((set, get)
 
   // 初始化项目数据
   initializeProjects: async () => {
-    try {
-      // 从数据库加载项目数据
-      const projects = await getCurrentService().getAllProjects();
+    const accountSetStore = useAccountSetStore.getState();
+    const currentAccountSet = accountSetStore.getCurrentAccountSet();
+    const currentAccountSetId = currentAccountSet?.id || null;
 
-      if (projects.length > 0) {
-        // 确保没有重复的项目代码
-        const uniqueProjects = [];
-        const seenCodes = new Set<string>();
+    if (initializeProjectsState?.accountSetId === currentAccountSetId) {
+      return initializeProjectsState.promise;
+    }
 
-        for (const project of projects) {
-          if (!seenCodes.has(project.code)) {
-            seenCodes.add(project.code);
-            uniqueProjects.push(project);
-          } else {
-            console.warn(`Duplicate project code detected: ${project.code}`);
+    const promise = (async () => {
+      try {
+        // 从数据库加载项目数据
+        const projects = await getCurrentService().getAllProjects();
+
+        if (projects.length > 0) {
+          // 确保没有重复的项目代码
+          const uniqueProjects = [];
+          const seenCodes = new Set<string>();
+
+          for (const project of projects) {
+            if (!seenCodes.has(project.code)) {
+              seenCodes.add(project.code);
+              uniqueProjects.push(project);
+            } else {
+              console.warn(`Duplicate project code detected: ${project.code}`);
+            }
           }
+
+          set({ projects: uniqueProjects });
+          return;
         }
 
-        set({ projects: uniqueProjects });
-        return;
+        // 创建默认项目 — 使用确定性 ID 防止并发初始化积累重复行
+        const now = new Date().toISOString();
+        const projectsWithIds = DEFAULT_PROJECTS.map(p => ({
+          ...p,
+          id: `project_default_${p.code}`,
+          createTime: now,
+          updateTime: now,
+          accountSetId: currentAccountSet?.id
+        }));
+
+        await getCurrentService().saveProjects(projectsWithIds);
+        set({ projects: projectsWithIds });
+      } catch (error) {
+        console.error('Failed to initialize projects:', error);
+        set({ error: '初始化项目数据失败' });
+      } finally {
+        if (initializeProjectsState?.promise === promise) {
+          initializeProjectsState = null;
+        }
       }
+    })();
 
-      // 创建默认项目
-      const accountSetStore = useAccountSetStore.getState();
-      const currentAccountSet = accountSetStore.getCurrentAccountSet();
-
-      const now = new Date().toISOString();
-      const projectsWithIds = DEFAULT_PROJECTS.map(p => ({
-        ...p,
-        id: generateId(),
-        createTime: now,
-        updateTime: now,
-        accountSetId: currentAccountSet?.id
-      }));
-
-      await getCurrentService().saveProjects(projectsWithIds);
-      set({ projects: projectsWithIds });
-    } catch (error) {
-      console.error('Failed to initialize projects:', error);
-      set({ error: '初始化项目数据失败' });
-    }
+    initializeProjectsState = { accountSetId: currentAccountSetId, promise };
+    return promise;
   },
 
   // 设置搜索查询
