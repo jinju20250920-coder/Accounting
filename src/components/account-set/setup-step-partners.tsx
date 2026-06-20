@@ -14,6 +14,7 @@ import {
   Save,
 } from 'lucide-react';
 import { usePartnerStore } from '@/stores/usePartnerStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
 import { loadOpeningBalanceLockKeys } from '@/lib/opening-balance-rules';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useToast } from '@/components/ui/toast';
@@ -49,6 +50,7 @@ interface PartnerFormState {
   departmentName: string;
   defaultSubjectCode: string;
   defaultSubjectName: string;
+  defaultCurrency: string;
   payrollSalaryExpenseSubjectCode: string;
   payrollSalaryExpenseSubjectName: string;
   openingBalance: number;
@@ -106,6 +108,7 @@ const emptyForm = (): PartnerFormState => ({
   departmentName: '',
   defaultSubjectCode: '',
   defaultSubjectName: '',
+  defaultCurrency: '',
   payrollSalaryExpenseSubjectCode: '',
   payrollSalaryExpenseSubjectName: '',
   openingBalance: 0,
@@ -134,6 +137,7 @@ function partnerToForm(p: Partner): PartnerFormState {
     departmentName: p.departmentName || '',
     defaultSubjectCode: p.defaultSubjectCode || '',
     defaultSubjectName: p.defaultSubjectName || '',
+    defaultCurrency: p.defaultCurrency || '',
     payrollSalaryExpenseSubjectCode: p.payrollSalaryExpenseSubjectCode || '',
     payrollSalaryExpenseSubjectName: p.payrollSalaryExpenseSubjectName || '',
     openingBalance: p.openingBalance || 0,
@@ -158,6 +162,8 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
     deletePartner,
     importPartners,
   } = usePartnerStore();
+  const currencyStore = useCurrencyStore();
+  const enabledCurrencies = currencyStore.getEnabledCurrencies();
 
   const [form, setForm] = useState<PartnerFormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -167,7 +173,8 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
 
   useEffect(() => {
     initializePartners();
-  }, [initializePartners]);
+    void currencyStore.initializeCurrencies();
+  }, [initializePartners, currencyStore]);
 
   useEffect(() => {
     loadOpeningBalanceLockKeys(accountSetId, { sqliteService }).then(keys => setLockedPartnerKeys(keys.partnerKeys));
@@ -425,6 +432,21 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
             <Label className="text-xs text-slate-500">账期天数</Label>
             <Input type="number" value={form.paymentTermDays || ''} onChange={(e) => updateForm('paymentTermDays', parseInt(e.target.value, 10) || 30)} className="h-9 text-sm" autoComplete="off" />
           </div>
+          <div>
+            <Label className="text-xs text-slate-500">默认币别</Label>
+            <select
+              value={form.defaultCurrency}
+              onChange={(e) => updateForm('defaultCurrency', e.target.value)}
+              className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm bg-white"
+            >
+              <option value="">人民币 (CNY)</option>
+              {enabledCurrencies
+                .filter(c => c.code !== 'CNY' && c.code !== 'RMB')
+                .map(c => (
+                  <option key={c.id} value={c.code}>{c.name} ({c.code})</option>
+                ))}
+            </select>
+          </div>
           {form.isEmployee && (
             <>
               <div>
@@ -477,6 +499,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                 <th className="px-3 py-2 text-left font-medium text-slate-600">名称</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">身份</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初余额</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">币别</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">联系人</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">电话</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">税号</th>
@@ -515,6 +538,20 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                         />
                       </td>
                       <td className="px-2 py-1">
+                        <select
+                          value={editForm.defaultCurrency}
+                          onChange={(e) => updateEditForm('defaultCurrency', e.target.value)}
+                          className="h-8 w-full rounded-md border border-slate-200 px-1 text-xs bg-white"
+                        >
+                          <option value="">CNY</option>
+                          {enabledCurrencies
+                            .filter(c => c.code !== 'CNY' && c.code !== 'RMB')
+                            .map(c => (
+                              <option key={c.id} value={c.code}>{c.code}</option>
+                            ))}
+                        </select>
+                      </td>
+                      <td className="px-2 py-1">
                         <Input value={editForm.contact} onChange={(e) => updateEditForm('contact', e.target.value)} className="h-8 text-xs" autoComplete="off" />
                       </td>
                       <td className="px-2 py-1">
@@ -548,6 +585,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                     <td className="px-3 py-2 font-medium">{p.name}</td>
                     <td className="px-3 py-2 text-xs">{getTypeDisplay(p)}</td>
                     <td className="px-3 py-2 text-right text-slate-600">{(p.openingBalance || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{p.defaultCurrency && p.defaultCurrency !== 'CNY' && p.defaultCurrency !== 'RMB' ? p.defaultCurrency : 'CNY'}</td>
                     <td className="px-3 py-2 text-slate-600">{p.contact || '-'}</td>
                     <td className="px-3 py-2 text-slate-600">{p.phone || '-'}</td>
                     <td className="px-3 py-2 text-slate-600 font-mono text-xs">{p.taxNumber || '-'}</td>
