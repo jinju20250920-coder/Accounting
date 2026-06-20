@@ -51,7 +51,6 @@ import {
   type PartnerOpeningRowState,
 } from '@/lib/opening-balance-rules';
 import type { VoucherEntry } from '@/types';
-import { MonthlyClosingWizard } from './monthly-closing-wizard';
 
 // ==================== Types ====================
 
@@ -173,7 +172,6 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('subject');
   const [saved, setSaved] = useState(false);
-  const [showClosingWizard, setShowClosingWizard] = useState(false);
   const [adjustmentSubject, setAdjustmentSubject] = useState({ code: '', name: '' });
   const [postedOpeningVoucher, setPostedOpeningVoucher] = useState<PostedOpeningVoucherSnapshot | null>(null);
 
@@ -489,19 +487,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
 
   const balancedRef = React.useRef(onBalancedChange);
   balancedRef.current = onBalancedChange;
-  useEffect(() => { balancedRef.current(Boolean(lockedOpeningVoucher?.isBalanced) || canSaveOpening); }, [canSaveOpening, lockedOpeningVoucher]);
-
-  // Get the opening period for monthly closing
-  const openingPeriod = useMemo(() => {
-    const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
-    if (!accountSet?.enableDate) return null;
-    const [year, month] = accountSet.enableDate.split('-').map(Number);
-    const period = (accountSet.accountingPeriods || []).find(
-      (p: { year: number; month: number }) => p.year === year && p.month === month
-    );
-    return period || null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved]); // recalculate after save since periods may change
+  useEffect(() => { balancedRef.current(Boolean(lockedOpeningVoucher?.isBalanced) || isBalanced); }, [isBalanced, lockedOpeningVoucher]);
 
   // Tab visibility — default to 'card'
   const showPartnerTab = (accounting?.partnerTrackingMethod ?? 'card') === 'card';
@@ -516,31 +502,6 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       next[index] = { ...next[index], included: !next[index].included };
       return next;
     });
-  }, []);
-
-  // ==================== Bank Balance Handlers ====================
-
-  const updateBankEntry = useCallback((index: number, patch: Partial<BankBalanceEntry>) => {
-    setBankEntries(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], ...patch };
-      return next;
-    });
-  }, []);
-
-  const removeBankEntry = useCallback((index: number) => {
-    setBankEntries(prev => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const addBankEntry = useCallback(() => {
-    setBankEntries(prev => [...prev, {
-      accountNumber: '',
-      bankName: '',
-      balance: 0,
-      currency: 'CNY',
-      foreignBalance: null,
-      exchangeRate: null,
-    }]);
   }, []);
 
   // ==================== Subject Tab Handlers ====================
@@ -650,8 +611,8 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   // ==================== Unified Save ====================
 
   const handleSave = async () => {
-    if (!canSaveOpening && entries.length > 0) {
-      showToast('error', '期初余额不平衡，借方合计必须等于贷方合计');
+    if (!isBalanced) {
+      showToast('error', `期初借贷不平衡，差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，请补录对方科目（如实收资本）`);
       return;
     }
 
@@ -1186,11 +1147,15 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               </Button>
             </div>
 
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-800">
+              银行账户与余额已在「银行账户」步骤录入，此处仅供查看。如需修改，请回到该步骤。
+            </div>
+
             {bankEntries.length === 0 ? (
               <div className="text-center py-8 text-slate-400">
                 <Landmark className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>暂无银行账户</p>
-                <p className="text-sm">点击下方按钮手动添加，或先在"银行账户"步骤中添加</p>
+                <p className="text-sm">请先在「银行账户」步骤中添加银行账户并录入期初余额</p>
               </div>
             ) : (
               <div className="border rounded-lg overflow-hidden">
@@ -1204,35 +1169,15 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">汇率</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">本币余额</th>
                     <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
-                    <th className="px-3 py-2 w-10"></th>
                   </tr>
                 </thead>
                   <tbody>
                     {bankRowStates.map((entry, index) => {
                       const isForeign = !!entry.currency && entry.currency !== 'CNY';
-                      const readOnly = entry.status === 'posted';
                       return (
-                      <tr key={index} className={`border-t ${readOnly ? 'bg-slate-50/70' : 'hover:bg-slate-50'}`}>
-                        <td className="px-3 py-1">
-                          <Input
-                            value={entry.bankName}
-                            onChange={e => updateBankEntry(index, { bankName: e.target.value })}
-                            disabled={readOnly}
-                            placeholder="如：建设银行"
-                            className="h-8 text-sm"
-                            autoComplete="off"
-                          />
-                        </td>
-                        <td className="px-3 py-1">
-                          <Input
-                            value={entry.accountNumber}
-                            onChange={e => updateBankEntry(index, { accountNumber: e.target.value.trim() })}
-                            disabled={readOnly}
-                            placeholder="银行账号"
-                            className="h-8 text-sm font-mono"
-                            autoComplete="off"
-                          />
-                        </td>
+                      <tr key={index} className="border-t bg-slate-50/40">
+                        <td className="px-3 py-1 text-sm text-slate-700">{entry.bankName || '-'}</td>
+                        <td className="px-3 py-1 text-sm font-mono text-slate-700">{entry.accountNumber || '-'}</td>
                         <td className="px-3 py-1">
                           <Badge
                             variant="outline"
@@ -1241,99 +1186,31 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                             {entry.currency || 'CNY'}
                           </Badge>
                         </td>
-                        <td className="px-3 py-1">
-                          {isForeign ? (
-                            <Input
-                              type="number"
-                              value={entry.foreignBalance ?? ''}
-                              onChange={e => {
-                                const raw = e.target.value;
-                                const num = parseFloat(raw);
-                                const rate = entry.exchangeRate ?? 0;
-                                const base = !isNaN(num) && rate > 0 ? Math.round(num * rate * 100) / 100 : 0;
-                                updateBankEntry(index, {
-                                  foreignBalance: raw === '' ? null : num,
-                                  balance: base,
-                                });
-                              }}
-                              disabled={readOnly}
-                              placeholder="0.00"
-                              className="h-8 text-sm text-right tabular-nums"
-                              autoComplete="off"
-                            />
-                          ) : (
-                            <span className="text-slate-400 text-xs">—</span>
-                          )}
+                        <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-700">
+                          {isForeign && entry.foreignBalance != null
+                            ? entry.foreignBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })
+                            : <span className="text-slate-400 text-xs">—</span>}
                         </td>
-                        <td className="px-3 py-1">
-                          {isForeign ? (
-                            <Input
-                              type="number"
-                              value={entry.exchangeRate ?? ''}
-                              onChange={e => {
-                                const raw = e.target.value;
-                                const rate = parseFloat(raw);
-                                const foreign = entry.foreignBalance ?? 0;
-                                const base = rate > 0 ? Math.round(foreign * rate * 100) / 100 : 0;
-                                updateBankEntry(index, {
-                                  exchangeRate: raw === '' ? null : rate,
-                                  balance: base,
-                                });
-                              }}
-                              disabled={readOnly}
-                              placeholder="0"
-                              className="h-8 text-sm text-right tabular-nums"
-                              autoComplete="off"
-                            />
-                          ) : (
-                            <span className="text-slate-400 text-xs">—</span>
-                          )}
+                        <td className="px-3 py-1 text-right text-sm tabular-nums text-slate-700">
+                          {isForeign && entry.exchangeRate != null
+                            ? entry.exchangeRate
+                            : <span className="text-slate-400 text-xs">—</span>}
                         </td>
-                        <td className="px-3 py-1">
-                          {isForeign ? (
-                            <Input
-                              type="number"
-                              value={entry.balance !== 0 ? entry.balance : ''}
-                              onChange={e => updateBankEntry(index, { balance: parseFloat(e.target.value) || 0 })}
-                              disabled={readOnly}
-                              placeholder="0.00"
-                              className="h-8 text-sm text-right tabular-nums"
-                              autoComplete="off"
-                            />
-                          ) : (
-                            <Input
-                              type="number"
-                              value={entry.balance !== 0 ? entry.balance : ''}
-                              onChange={e => updateBankEntry(index, { balance: parseFloat(e.target.value) || 0 })}
-                              disabled={readOnly}
-                              placeholder="0.00"
-                              className="h-8 text-sm text-right tabular-nums"
-                              autoComplete="off"
-                            />
-                          )}
+                        <td className="px-3 py-1 text-right text-sm tabular-nums font-medium text-slate-700">
+                          {entry.balance !== 0
+                            ? entry.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })
+                            : <span className="text-slate-400">0.00</span>}
                         </td>
                         <td className="px-3 py-1 text-center">
                           <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
                             {getPostingStatusLabel(entry.status)}
                           </Badge>
                         </td>
-                        <td className="px-3 py-1">
-                          {!readOnly && (
-                            <Button variant="ghost" size="sm" onClick={() => removeBankEntry(index)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </td>
                       </tr>
                       );
                     })}
                   </tbody>
                 </table>
-                <div className="border-t p-2 bg-slate-50">
-                  <Button variant="outline" size="sm" onClick={addBankEntry} disabled={Boolean(lockedOpeningVoucher)} className="w-full">
-                    <Plus className="h-4 w-4 mr-1" /> 添加银行账户
-                  </Button>
-                </div>
               </div>
             )}
           </TabsContent>
@@ -1429,48 +1306,30 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         </div>
       )}
 
-      {/* Save & Monthly Closing */}
+      {/* Save & Complete Opening */}
       {hasAnyData && (
         <div className="flex items-center justify-between">
-          {(lockedOpeningVoucher?.isBalanced || (saved && isBalanced && !hasPendingOpeningSupplement)) && (
+          {lockedOpeningVoucher?.isBalanced && (
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-green-600" />
               <span className="text-sm text-green-700">
-                {lockedOpeningVoucher ? `期初数据已入账：${lockedOpeningVoucher.voucherNo}` : '期初数据已保存'}
+                期初数据已入账：{lockedOpeningVoucher.voucherNo}
               </span>
             </div>
           )}
           <div className="flex items-center gap-2 ml-auto">
-            {(!saved || hasPendingOpeningSupplement) ? (
-              <Button onClick={handleSave} disabled={loading || (entries.length > 0 && !canSaveOpening)} className="bg-blue-600 hover:bg-blue-700">
-                {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 保存中...</> : '保存期初数据'}
-              </Button>
-            ) : openingPeriod ? (
-              <Button onClick={() => setShowClosingWizard(true)} className="bg-green-600 hover:bg-green-700">
-                <CheckCircle2 className="h-4 w-4 mr-1" />
-                完成期初并月结
-              </Button>
-            ) : (
-              <Button onClick={() => setSaved(false)} variant="outline">
-                重新编辑
-              </Button>
-            )}
+            <Button
+              onClick={handleSave}
+              disabled={loading || !isBalanced}
+              className="bg-blue-600 hover:bg-blue-700"
+              title={!isBalanced ? `借贷差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，无法入账` : undefined}
+            >
+              {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 入账中...</> : (
+                lockedOpeningVoucher ? '重新入账' : '完成期初'
+              )}
+            </Button>
           </div>
         </div>
-      )}
-
-      {/* Monthly Closing Wizard Dialog */}
-      {openingPeriod && (
-        <MonthlyClosingWizard
-          open={showClosingWizard}
-          onOpenChange={(open) => {
-            setShowClosingWizard(open);
-            if (!open) {
-              showToast('success', '期初月结完成，可以开始日常凭证录入');
-            }
-          }}
-          period={openingPeriod}
-        />
       )}
     </div>
   );
