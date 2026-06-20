@@ -54,6 +54,8 @@ interface PartnerFormState {
   payrollSalaryExpenseSubjectCode: string;
   payrollSalaryExpenseSubjectName: string;
   openingBalance: number;
+  openingForeignBalance: number;
+  openingExchangeRate: number;
   paymentTermDays: number;
 }
 
@@ -112,6 +114,8 @@ const emptyForm = (): PartnerFormState => ({
   payrollSalaryExpenseSubjectCode: '',
   payrollSalaryExpenseSubjectName: '',
   openingBalance: 0,
+  openingForeignBalance: 0,
+  openingExchangeRate: 0,
   paymentTermDays: 30,
 });
 
@@ -141,6 +145,8 @@ function partnerToForm(p: Partner): PartnerFormState {
     payrollSalaryExpenseSubjectCode: p.payrollSalaryExpenseSubjectCode || '',
     payrollSalaryExpenseSubjectName: p.payrollSalaryExpenseSubjectName || '',
     openingBalance: p.openingBalance || 0,
+    openingForeignBalance: p.openingForeignBalance || 0,
+    openingExchangeRate: p.openingExchangeRate || 0,
     paymentTermDays: p.paymentTermDays ?? 30,
   };
 }
@@ -150,6 +156,11 @@ function parseBool(value: unknown): boolean {
   if (typeof value === 'number') return value !== 0;
   const s = String(value || '').trim();
   return s === '是' || s === 'Y' || s === 'true' || s === '1';
+}
+
+function round2(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
 }
 
 export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
@@ -425,18 +436,18 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
             />
           </div>
           <div>
-            <Label className="text-xs text-slate-500">期初余额</Label>
-            <Input type="number" value={form.openingBalance || ''} onChange={(e) => updateForm('openingBalance', parseFloat(e.target.value) || 0)} className="h-9 text-sm" autoComplete="off" />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">账期天数</Label>
-            <Input type="number" value={form.paymentTermDays || ''} onChange={(e) => updateForm('paymentTermDays', parseInt(e.target.value, 10) || 30)} className="h-9 text-sm" autoComplete="off" />
-          </div>
-          <div>
             <Label className="text-xs text-slate-500">默认币别</Label>
             <select
               value={form.defaultCurrency}
-              onChange={(e) => updateForm('defaultCurrency', e.target.value)}
+              onChange={(e) => {
+                const currency = e.target.value;
+                if (!currency) {
+                  // 切回 CNY 时清空原币/汇率，本币保留
+                  updateForm('openingForeignBalance', 0);
+                  updateForm('openingExchangeRate', 0);
+                }
+                updateForm('defaultCurrency', currency);
+              }}
               className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm bg-white"
             >
               <option value="">人民币 (CNY)</option>
@@ -447,6 +458,64 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                 ))}
             </select>
           </div>
+          <div>
+            <Label className="text-xs text-slate-500">账期天数</Label>
+            <Input type="number" value={form.paymentTermDays || ''} onChange={(e) => updateForm('paymentTermDays', parseInt(e.target.value, 10) || 30)} className="h-9 text-sm" autoComplete="off" />
+          </div>
+          {(() => {
+            const isForeign = !!form.defaultCurrency && form.defaultCurrency !== 'CNY' && form.defaultCurrency !== 'RMB';
+            if (!isForeign) {
+              return (
+                <div>
+                  <Label className="text-xs text-slate-500">期初余额（本币）</Label>
+                  <Input type="number" value={form.openingBalance || ''} onChange={(e) => updateForm('openingBalance', parseFloat(e.target.value) || 0)} className="h-9 text-sm" autoComplete="off" />
+                </div>
+              );
+            }
+            return (
+              <>
+                <div>
+                  <Label className="text-xs text-slate-500">期初原币余额</Label>
+                  <Input
+                    type="number"
+                    value={form.openingForeignBalance || ''}
+                    onChange={(e) => {
+                      const foreign = parseFloat(e.target.value) || 0;
+                      const base = round2(foreign * (form.openingExchangeRate || 0));
+                      setForm(prev => ({ ...prev, openingForeignBalance: foreign, openingBalance: base }));
+                    }}
+                    className="h-9 text-sm"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-500">期初汇率</Label>
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    value={form.openingExchangeRate || ''}
+                    onChange={(e) => {
+                      const rate = parseFloat(e.target.value) || 0;
+                      const base = round2((form.openingForeignBalance || 0) * rate);
+                      setForm(prev => ({ ...prev, openingExchangeRate: rate, openingBalance: base }));
+                    }}
+                    className="h-9 text-sm"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-500">期初本币余额</Label>
+                  <Input
+                    type="number"
+                    value={form.openingBalance || ''}
+                    onChange={(e) => updateForm('openingBalance', parseFloat(e.target.value) || 0)}
+                    className="h-9 text-sm bg-slate-50"
+                    autoComplete="off"
+                  />
+                </div>
+              </>
+            );
+          })()}
           {form.isEmployee && (
             <>
               <div>
@@ -498,8 +567,10 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">代码</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600">名称</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">身份</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初余额</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">币别</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">币别</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初原币</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">汇率</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初本币</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">联系人</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">电话</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">税号</th>
@@ -528,20 +599,17 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                         </div>
                       </td>
                       <td className="px-2 py-1">
-                        <Input
-                          type="number"
-                          value={editForm.openingBalance || ''}
-                          onChange={(e) => updateEditForm('openingBalance', parseFloat(e.target.value) || 0)}
-                          disabled={isPosted}
-                          className="h-8 text-xs text-right disabled:bg-slate-100"
-                          autoComplete="off"
-                        />
-                      </td>
-                      <td className="px-2 py-1">
                         <select
                           value={editForm.defaultCurrency}
-                          onChange={(e) => updateEditForm('defaultCurrency', e.target.value)}
-                          className="h-8 w-full rounded-md border border-slate-200 px-1 text-xs bg-white"
+                          onChange={(e) => {
+                            const currency = e.target.value;
+                            if (!currency) {
+                              setEditForm(prev => ({ ...prev, openingForeignBalance: 0, openingExchangeRate: 0 }));
+                            }
+                            updateEditForm('defaultCurrency', currency);
+                          }}
+                          disabled={isPosted}
+                          className="h-8 w-full rounded-md border border-slate-200 px-1 text-xs bg-white disabled:bg-slate-100"
                         >
                           <option value="">CNY</option>
                           {enabledCurrencies
@@ -550,6 +618,61 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                               <option key={c.id} value={c.code}>{c.code}</option>
                             ))}
                         </select>
+                      </td>
+                      <td className="px-2 py-1">
+                        {(() => {
+                          const isForeign = !!editForm.defaultCurrency && editForm.defaultCurrency !== 'CNY' && editForm.defaultCurrency !== 'RMB';
+                          if (!isForeign) {
+                            return <span className="text-slate-300 text-xs">—</span>;
+                          }
+                          return (
+                            <Input
+                              type="number"
+                              value={editForm.openingForeignBalance || ''}
+                              onChange={(e) => {
+                                const foreign = parseFloat(e.target.value) || 0;
+                                const base = round2(foreign * (editForm.openingExchangeRate || 0));
+                                setEditForm(prev => ({ ...prev, openingForeignBalance: foreign, openingBalance: base }));
+                              }}
+                              disabled={isPosted}
+                              className="h-8 text-xs text-right disabled:bg-slate-100"
+                              autoComplete="off"
+                            />
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-1">
+                        {(() => {
+                          const isForeign = !!editForm.defaultCurrency && editForm.defaultCurrency !== 'CNY' && editForm.defaultCurrency !== 'RMB';
+                          if (!isForeign) {
+                            return <span className="text-slate-300 text-xs">—</span>;
+                          }
+                          return (
+                            <Input
+                              type="number"
+                              step="0.0001"
+                              value={editForm.openingExchangeRate || ''}
+                              onChange={(e) => {
+                                const rate = parseFloat(e.target.value) || 0;
+                                const base = round2((editForm.openingForeignBalance || 0) * rate);
+                                setEditForm(prev => ({ ...prev, openingExchangeRate: rate, openingBalance: base }));
+                              }}
+                              disabled={isPosted}
+                              className="h-8 text-xs text-right disabled:bg-slate-100"
+                              autoComplete="off"
+                            />
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-1">
+                        <Input
+                          type="number"
+                          value={editForm.openingBalance || ''}
+                          onChange={(e) => updateEditForm('openingBalance', parseFloat(e.target.value) || 0)}
+                          disabled={isPosted}
+                          className="h-8 text-xs text-right disabled:bg-slate-100"
+                          autoComplete="off"
+                        />
                       </td>
                       <td className="px-2 py-1">
                         <Input value={editForm.contact} onChange={(e) => updateEditForm('contact', e.target.value)} className="h-8 text-xs" autoComplete="off" />
@@ -584,8 +707,18 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                     <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
                     <td className="px-3 py-2 font-medium">{p.name}</td>
                     <td className="px-3 py-2 text-xs">{getTypeDisplay(p)}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{(p.openingBalance || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-slate-600 text-xs">{p.defaultCurrency && p.defaultCurrency !== 'CNY' && p.defaultCurrency !== 'RMB' ? p.defaultCurrency : 'CNY'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                      {p.defaultCurrency && p.defaultCurrency !== 'CNY' && p.defaultCurrency !== 'RMB' && p.openingForeignBalance
+                        ? p.openingForeignBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                      {p.defaultCurrency && p.defaultCurrency !== 'CNY' && p.defaultCurrency !== 'RMB' && p.openingExchangeRate
+                        ? p.openingExchangeRate
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">{(p.openingBalance || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-slate-600">{p.contact || '-'}</td>
                     <td className="px-3 py-2 text-slate-600">{p.phone || '-'}</td>
                     <td className="px-3 py-2 text-slate-600 font-mono text-xs">{p.taxNumber || '-'}</td>

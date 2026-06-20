@@ -20,6 +20,8 @@ export interface PartnerRow {
   defaultSubjectCode: string | null;
   defaultSubjectName: string | null;
   defaultCurrency: string | null;
+  openingForeignBalance: number | string | null;
+  openingExchangeRate: number | string | null;
   departmentCode: string | null;
   departmentName: string | null;
   paymentTermDays: number | string | null;
@@ -67,6 +69,8 @@ export interface PartnerInsertInput {
   defaultSubjectCode?: string;
   defaultSubjectName?: string;
   defaultCurrency?: string;
+  openingForeignBalance?: number;
+  openingExchangeRate?: number;
   departmentCode?: string;
   departmentName?: string;
   paymentTermDays?: number;
@@ -109,6 +113,7 @@ const PARTNER_INSERT_SQL = `
     idType, idNumber,
     employmentStartDate, employmentEndDate,
     defaultSubjectCode, defaultSubjectName, defaultCurrency,
+    openingForeignBalance, openingExchangeRate,
     departmentCode, departmentName, paymentTermDays, openingBalance,
     payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
     payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
@@ -118,7 +123,7 @@ const PARTNER_INSERT_SQL = `
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
     accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -179,6 +184,8 @@ export function mapPartnerRow(row: PartnerRow): Partner {
     departmentName: optionalText(row.departmentName),
     paymentTermDays: row.paymentTermDays !== null && row.paymentTermDays !== undefined ? Number(row.paymentTermDays) : undefined,
     openingBalance: row.openingBalance !== null && row.openingBalance !== undefined ? Number(row.openingBalance) : undefined,
+    openingForeignBalance: row.openingForeignBalance !== null && row.openingForeignBalance !== undefined ? Number(row.openingForeignBalance) : undefined,
+    openingExchangeRate: row.openingExchangeRate !== null && row.openingExchangeRate !== undefined ? Number(row.openingExchangeRate) : undefined,
     payrollSalaryExpenseSubjectCode: optionalText(row.payrollSalaryExpenseSubjectCode),
     payrollSalaryExpenseSubjectName: optionalText(row.payrollSalaryExpenseSubjectName),
     payrollContributionExpenseSubjectCode: optionalText(row.payrollContributionExpenseSubjectCode),
@@ -225,6 +232,8 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       text(partner.defaultSubjectCode),
       text(partner.defaultSubjectName),
       text(partner.defaultCurrency),
+      partner.openingForeignBalance || null,
+      partner.openingExchangeRate || null,
       text(partner.departmentCode),
       text(partner.departmentName),
       partner.paymentTermDays || null,
@@ -336,6 +345,8 @@ export async function savePartnersRecord(input: {
       defaultSubjectCode: partner.defaultSubjectCode,
       defaultSubjectName: partner.defaultSubjectName,
       defaultCurrency: partner.defaultCurrency,
+      openingForeignBalance: partner.openingForeignBalance,
+      openingExchangeRate: partner.openingExchangeRate,
       departmentCode: partner.departmentCode,
       departmentName: partner.departmentName,
       paymentTermDays: partner.paymentTermDays,

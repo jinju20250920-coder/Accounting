@@ -1479,6 +1479,8 @@ class SQLiteService {
         'payrollProjectName',
         'payrollCostCenterName',
         'defaultCurrency',
+        'openingForeignBalance',
+        'openingExchangeRate',
       ];
       for (const column of extraPartnerColumns) {
         if (!columns.includes(column)) {

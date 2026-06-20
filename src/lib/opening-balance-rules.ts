@@ -21,6 +21,8 @@ export interface PartnerOpeningSource {
   isSupplier?: boolean;
   openingBalance?: number;
   defaultCurrency?: string;
+  openingForeignBalance?: number;
+  openingExchangeRate?: number;
 }
 
 export interface BankOpeningEntry {
@@ -389,12 +391,16 @@ export function buildPartnerOpeningEntriesFromPartners(partners: PartnerOpeningS
       const currency = partner.defaultCurrency && partner.defaultCurrency !== 'CNY' && partner.defaultCurrency !== 'RMB'
         ? partner.defaultCurrency
         : undefined;
+      const foreign = currency && partner.openingForeignBalance ? Math.abs(partner.openingForeignBalance) : undefined;
+      const rate = currency && partner.openingExchangeRate && partner.openingExchangeRate > 0 ? partner.openingExchangeRate : undefined;
       return {
         name: partner.name,
         type: partner.isSupplier && !partner.isCustomer ? 'payable' as const : 'receivable' as const,
         amount,
         remark: '往来单位期初余额',
         currency,
+        foreignAmount: foreign,
+        exchangeRate: rate,
       };
     })
     .filter((entry): entry is PartnerOpeningEntry => entry !== null);

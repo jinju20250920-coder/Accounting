@@ -627,7 +627,9 @@ export interface Partner {
   defaultSubjectCode?: string; // 默认对方科目代码（供应商→应付账款，客户→应收账款）
   defaultSubjectName?: string; // 默认对方科目名称
   defaultCurrency?: string; // 默认币别代码（CNY/RMB/USD 等），未填视为 CNY
-  openingBalance?: number; // 期初余额
+  openingBalance?: number; // 期初余额（本币）
+  openingForeignBalance?: number; // 期初余额（原币），仅外币往来单位
+  openingExchangeRate?: number; // 期初汇率（原币→本币），仅外币往来单位
   paymentTermDays?: number; // 账期天数（入账日期+账期=到期日）
   payrollSalaryExpenseSubjectCode?: string;
   payrollSalaryExpenseSubjectName?: string;
