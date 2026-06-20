@@ -27,6 +27,7 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { usePartnerStore } from '@/stores/usePartnerStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { SubjectPopover } from '@/components/shared/subject-popover';
@@ -66,6 +67,9 @@ interface PartnerOpeningEntry {
   type: 'receivable' | 'payable';
   amount: number;
   remark: string;
+  currency?: string;
+  foreignAmount?: number;
+  exchangeRate?: number;
 }
 
 interface BankBalanceEntry {
@@ -100,6 +104,11 @@ interface AccountingConfig {
   partnerTrackingMethod?: 'card' | 'subject';
   bankTrackingMethod?: 'card' | 'subject';
   assetTrackingMethod?: 'card' | 'subject';
+}
+
+function roundMoney2(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
 }
 
 interface SetupStepOpeningProps {
@@ -159,6 +168,8 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   const subjects = useSubjectStore(s => s.subjects);
   const partners = usePartnerStore(s => s.partners);
   const initializePartners = usePartnerStore(s => s.initializePartners);
+  const currencyStore = useCurrencyStore();
+  const enabledCurrencies = useMemo(() => currencyStore.getEnabledCurrencies(), [currencyStore]);
 
   // Tab 1: 科目余额
   const [entries, setEntries] = useState<OpeningEntry[]>([]);
@@ -212,10 +223,29 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           }));
         const rawEntries = (voucher.entries || []).map(entry => ({
           summary: entry.summary,
+          subjectCode: entry.subjectCode,
+          subjectName: entry.subjectName,
           debit: entry.debit || 0,
           credit: entry.credit || 0,
+          currencyCode: entry.currencyCode,
+          originalAmount: entry.originalAmount,
+          exchangeRate: entry.exchangeRate,
           auxiliary: entry.auxiliary,
         }));
+        const postedPartnerCurrencyByName = new Map<string, { currency?: string; foreignAmount?: number; exchangeRate?: number }>();
+        for (const entry of rawEntries) {
+          const code = entry.subjectCode;
+          if (code !== '1122' && code !== '2202') continue;
+          if (!entry.currencyCode) continue;
+          const name = entry.auxiliary?.customer || entry.auxiliary?.supplier;
+          if (!name) continue;
+          const amount = entry.debit > 0 ? entry.debit : entry.credit;
+          postedPartnerCurrencyByName.set(name, {
+            currency: entry.currencyCode,
+            foreignAmount: entry.originalAmount ?? amount,
+            exchangeRate: entry.exchangeRate,
+          });
+        }
         const shouldHydrateSubjectEntries = (current: OpeningEntry[]) => (
           current.length === 0
           || current.every(entry => !entry.subjectCode && !entry.subjectName && Math.abs(entry.debit || 0) < 0.01 && Math.abs(entry.credit || 0) < 0.01)
@@ -239,6 +269,18 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           ));
           return mergeOpeningEntriesByKey(subjectEntries, current, entry => entry.subjectCode);
         });
+        if (postedPartnerCurrencyByName.size > 0) {
+          setPartnerEntries(prev => prev.map(p => {
+            const cur = postedPartnerCurrencyByName.get(p.name);
+            if (!cur) return p;
+            return {
+              ...p,
+              currency: cur.currency,
+              foreignAmount: cur.foreignAmount,
+              exchangeRate: cur.exchangeRate,
+            };
+          }));
+        }
         setSaved(true);
       } catch {
         setPostedOpeningVoucher(null);
@@ -642,12 +684,24 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       // 2. Partner opening balances → 1122/2202 entries (partner cards already exist)
       const validPartnerEntries = partnerEntries.filter(e => e.name && e.amount > 0);
       for (const e of validPartnerEntries) {
+        const isForeign = !!e.currency
+          && e.currency !== 'CNY'
+          && e.currency !== 'RMB'
+          && (e.foreignAmount ?? 0) !== 0
+          && (e.exchangeRate ?? 0) > 0;
+        const currencyFields = isForeign ? {
+          currencyCode: e.currency,
+          currencyName: e.currency,
+          exchangeRate: e.exchangeRate!,
+          originalAmount: Math.abs(e.foreignAmount!),
+        } : {};
         if (e.type === 'receivable') {
           allEntries.push({
             id: `oe_p_${Date.now()}_${allEntries.length}`, voucherId: '',
             date: voucherDate, summary: `期初应收-${e.name}`,
             subjectCode: '1122', subjectName: '应收账款', debit: e.amount, credit: 0,
             auxiliary: { customer: e.name },
+            ...currencyFields,
           });
         } else {
           allEntries.push({
@@ -655,6 +709,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
             date: voucherDate, summary: `期初应付-${e.name}`,
             subjectCode: '2202', subjectName: '应付账款', debit: 0, credit: e.amount,
             auxiliary: { supplier: e.name },
+            ...currencyFields,
           });
         }
       }
@@ -1094,29 +1149,98 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
                   <tr>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">往来单位</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">类型</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">金额</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">币别</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">原币金额</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">汇率</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">本币金额</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">备注</th>
                     <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">未入账金额</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">未入账金额</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {partnerRowStates.map((entry, index) => (
-                    <tr key={index} className="border-t hover:bg-slate-50">
-                      <td className="px-3 py-2 font-medium">{entry.name || '-'}</td>
-                      <td className="px-3 py-2 text-slate-600">{entry.type === 'receivable' ? '应收' : '应付'}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{entry.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-slate-600">{entry.remark || '-'}</td>
-                      <td className="px-3 py-2 text-center">
-                        <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
-                          {getPostingStatusLabel(entry.status)}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums font-medium">
-                        {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))}
+                  {partnerRowStates.map((entry, index) => {
+                    const isForeign = Boolean(entry.currency) && entry.currency !== 'CNY' && entry.currency !== 'RMB';
+                    return (
+                      <tr key={index} className="border-t hover:bg-slate-50">
+                        <td className="px-3 py-2 font-medium">{entry.name || '-'}</td>
+                        <td className="px-3 py-2 text-slate-600">{entry.type === 'receivable' ? '应收' : '应付'}</td>
+                        <td className="px-3 py-2 text-slate-600">
+                          {isForeign ? (
+                            <select
+                              className="w-full rounded border border-slate-200 px-1 py-0.5 text-xs bg-white"
+                              value={entry.currency || ''}
+                              onChange={e => {
+                                const currency = e.target.value;
+                                setPartnerEntries(prev => prev.map((p, i) => {
+                                  if (i !== index) return p;
+                                  const foreign = currency ? (p.foreignAmount ?? p.amount) : undefined;
+                                  const rate = currency ? (p.exchangeRate ?? 1) : undefined;
+                                  const baseAmount = currency && foreign && rate ? roundMoney2(foreign * rate) : p.amount;
+                                  return { ...p, currency: currency || undefined, foreignAmount: foreign, exchangeRate: rate, amount: baseAmount };
+                                }));
+                              }}
+                            >
+                              <option value="">CNY</option>
+                              {enabledCurrencies
+                                .filter(c => c.code !== 'CNY' && c.code !== 'RMB')
+                                .map(c => (
+                                  <option key={c.id} value={c.code}>{c.code}</option>
+                                ))}
+                            </select>
+                          ) : (
+                            <span>CNY</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {isForeign ? (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              className="h-8 text-right tabular-nums"
+                              value={entry.foreignAmount ?? ''}
+                              onChange={e => {
+                                const foreign = parseFloat(e.target.value) || 0;
+                                const rate = entry.exchangeRate ?? 1;
+                                const baseAmount = roundMoney2(foreign * rate);
+                                setPartnerEntries(prev => prev.map((p, i) => i === index ? { ...p, foreignAmount: foreign, amount: baseAmount } : p));
+                              }}
+                            />
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {isForeign ? (
+                            <Input
+                              type="number"
+                              step="0.0001"
+                              className="h-8 text-right tabular-nums"
+                              value={entry.exchangeRate ?? ''}
+                              onChange={e => {
+                                const rate = parseFloat(e.target.value) || 0;
+                                const foreign = entry.foreignAmount ?? 0;
+                                const baseAmount = roundMoney2(foreign * rate);
+                                setPartnerEntries(prev => prev.map((p, i) => i === index ? { ...p, exchangeRate: rate, amount: baseAmount } : p));
+                              }}
+                            />
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{entry.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2 text-slate-600">{entry.remark || '-'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
+                            {getPostingStatusLabel(entry.status)}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <div className="border-t p-2 bg-slate-50">

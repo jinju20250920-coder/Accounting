@@ -10,6 +10,9 @@ export interface PartnerOpeningEntry {
   type: 'receivable' | 'payable';
   amount: number;
   remark: string;
+  currency?: string;
+  foreignAmount?: number;
+  exchangeRate?: number;
 }
 
 export interface PartnerOpeningSource {
@@ -17,6 +20,7 @@ export interface PartnerOpeningSource {
   isCustomer?: boolean;
   isSupplier?: boolean;
   openingBalance?: number;
+  defaultCurrency?: string;
 }
 
 export interface BankOpeningEntry {
@@ -68,6 +72,10 @@ export interface OpeningPostedVoucherEntryLike {
   subjectName?: string;
   debit?: number;
   credit?: number;
+  currencyCode?: string;
+  currencyName?: string;
+  originalAmount?: number;
+  exchangeRate?: number;
   auxiliary?: {
     bankAccount?: string;
     customer?: string;
@@ -378,11 +386,15 @@ export function buildPartnerOpeningEntriesFromPartners(partners: PartnerOpeningS
     .map((partner): PartnerOpeningEntry | null => {
       const amount = roundMoney(Math.abs(partner.openingBalance || 0));
       if (!partner.name || amount < MONEY_EPSILON) return null;
+      const currency = partner.defaultCurrency && partner.defaultCurrency !== 'CNY' && partner.defaultCurrency !== 'RMB'
+        ? partner.defaultCurrency
+        : undefined;
       return {
         name: partner.name,
         type: partner.isSupplier && !partner.isCustomer ? 'payable' as const : 'receivable' as const,
         amount,
         remark: '往来单位期初余额',
+        currency,
       };
     })
     .filter((entry): entry is PartnerOpeningEntry => entry !== null);

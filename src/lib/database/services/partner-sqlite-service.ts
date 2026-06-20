@@ -19,6 +19,7 @@ export interface PartnerRow {
   employmentEndDate: string | null;
   defaultSubjectCode: string | null;
   defaultSubjectName: string | null;
+  defaultCurrency: string | null;
   departmentCode: string | null;
   departmentName: string | null;
   paymentTermDays: number | string | null;
@@ -65,6 +66,7 @@ export interface PartnerInsertInput {
   employmentEndDate?: string;
   defaultSubjectCode?: string;
   defaultSubjectName?: string;
+  defaultCurrency?: string;
   departmentCode?: string;
   departmentName?: string;
   paymentTermDays?: number;
@@ -106,7 +108,7 @@ const PARTNER_INSERT_SQL = `
     bankName,
     idType, idNumber,
     employmentStartDate, employmentEndDate,
-    defaultSubjectCode, defaultSubjectName,
+    defaultSubjectCode, defaultSubjectName, defaultCurrency,
     departmentCode, departmentName, paymentTermDays, openingBalance,
     payrollSalaryExpenseSubjectCode, payrollSalaryExpenseSubjectName,
     payrollContributionExpenseSubjectCode, payrollContributionExpenseSubjectName,
@@ -116,7 +118,7 @@ const PARTNER_INSERT_SQL = `
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
     accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -172,6 +174,7 @@ export function mapPartnerRow(row: PartnerRow): Partner {
     employmentEndDate: optionalText(row.employmentEndDate),
     defaultSubjectCode: optionalText(row.defaultSubjectCode),
     defaultSubjectName: optionalText(row.defaultSubjectName),
+    defaultCurrency: optionalText(row.defaultCurrency),
     departmentCode: optionalText(row.departmentCode),
     departmentName: optionalText(row.departmentName),
     paymentTermDays: row.paymentTermDays !== null && row.paymentTermDays !== undefined ? Number(row.paymentTermDays) : undefined,
@@ -221,6 +224,7 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       text(partner.employmentEndDate),
       text(partner.defaultSubjectCode),
       text(partner.defaultSubjectName),
+      text(partner.defaultCurrency),
       text(partner.departmentCode),
       text(partner.departmentName),
       partner.paymentTermDays || null,
@@ -331,6 +335,7 @@ export async function savePartnersRecord(input: {
       employmentEndDate: partner.employmentEndDate,
       defaultSubjectCode: partner.defaultSubjectCode,
       defaultSubjectName: partner.defaultSubjectName,
+      defaultCurrency: partner.defaultCurrency,
       departmentCode: partner.departmentCode,
       departmentName: partner.departmentName,
       paymentTermDays: partner.paymentTermDays,

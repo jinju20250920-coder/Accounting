@@ -1478,6 +1478,7 @@ class SQLiteService {
         'payrollDepartmentName',
         'payrollProjectName',
         'payrollCostCenterName',
+        'defaultCurrency',
       ];
       for (const column of extraPartnerColumns) {
         if (!columns.includes(column)) {

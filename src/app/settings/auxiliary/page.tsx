@@ -26,6 +26,7 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { usePartnerStore } from '@/stores/usePartnerStore';
+import { useCurrencyStore } from '@/stores/useCurrencyStore';
 import { useSubjectStore } from '@/stores';
 import { DepartmentPopover } from '@/components/shared/subject-popover';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
@@ -143,6 +144,7 @@ function SubjectSearchPopover({ onSelect, placeholder }: {
 export default function AuxiliaryDataPage() {
   const { showToast } = useToast();
   const partnerStore = usePartnerStore();
+  const currencyStore = useCurrencyStore();
   const hasInitializedPartnersRef = useRef(false);
 
   const [partners, setPartners] = useState<Partner[]>(partnerStore.partners);
@@ -167,7 +169,8 @@ export default function AuxiliaryDataPage() {
     if (hasInitializedPartnersRef.current) return;
     hasInitializedPartnersRef.current = true;
     void partnerStore.initializePartners();
-  }, [partnerStore]);
+    void currencyStore.initializeCurrencies();
+  }, [partnerStore, currencyStore]);
 
   useEffect(() => {
     setPartners(partnerStore.partners);
@@ -188,6 +191,7 @@ export default function AuxiliaryDataPage() {
     bankName: '',
     defaultSubjectCode: '',
     defaultSubjectName: '',
+    defaultCurrency: '',
     departmentCode: '',
     departmentName: '',
     payrollSalaryExpenseSubjectCode: '',
@@ -300,6 +304,7 @@ export default function AuxiliaryDataPage() {
       bankName: partner.bankName || '',
       defaultSubjectCode: partner.defaultSubjectCode || '',
       defaultSubjectName: partner.defaultSubjectName || '',
+      defaultCurrency: partner.defaultCurrency || '',
       departmentCode: partner.departmentCode || '',
       departmentName: partner.departmentName || '',
       payrollSalaryExpenseSubjectCode: partner.payrollSalaryExpenseSubjectCode || '',
@@ -523,6 +528,7 @@ export default function AuxiliaryDataPage() {
       bankName: '',
       defaultSubjectCode: '',
       defaultSubjectName: '',
+      defaultCurrency: '',
       departmentCode: '',
       departmentName: '',
       payrollSalaryExpenseSubjectCode: '',
@@ -947,6 +953,26 @@ export default function AuxiliaryDataPage() {
                     placeholder="点击选择科目..."
                   />
                 )}
+              </div>
+
+              {/* 默认币别 */}
+              <div className="flex items-center gap-3">
+                <Label className="font-semibold text-sm w-20 shrink-0 text-right">默认币别</Label>
+                <select
+                  className="flex-1 rounded-md border border-slate-200 px-3 py-1.5 text-sm bg-white"
+                  value={formData.defaultCurrency}
+                  onChange={e => setFormData(prev => ({ ...prev, defaultCurrency: e.target.value }))}
+                  autoComplete="off"
+                >
+                  <option value="">人民币 (CNY)</option>
+                  {currencyStore.getEnabledCurrencies()
+                    .filter(c => c.code !== 'CNY' && c.code !== 'RMB')
+                    .map(c => (
+                      <option key={c.id} value={c.code}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                </select>
               </div>
 
               {formData.isEmployee && (
