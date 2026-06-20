@@ -174,6 +174,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
     importPartners,
   } = usePartnerStore();
   const currencyStore = useCurrencyStore();
+  const initializeCurrencies = currencyStore.initializeCurrencies;
   const enabledCurrencies = currencyStore.getEnabledCurrencies();
 
   const [form, setForm] = useState<PartnerFormState>(emptyForm);
@@ -183,12 +184,14 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    initializePartners();
-    void currencyStore.initializeCurrencies();
-  }, [initializePartners, currencyStore]);
+    void initializePartners();
+    void initializeCurrencies();
+  }, [initializePartners, initializeCurrencies]);
 
   useEffect(() => {
-    loadOpeningBalanceLockKeys(accountSetId, { sqliteService }).then(keys => setLockedPartnerKeys(keys.partnerKeys));
+    loadOpeningBalanceLockKeys(accountSetId, { sqliteService })
+      .then(keys => setLockedPartnerKeys(keys.partnerKeys))
+      .catch(err => console.error('[partners.loadOpeningBalanceLockKeys] rejected', err));
   }, [accountSetId]);
 
   const updateForm = <K extends keyof PartnerFormState>(field: K, value: PartnerFormState[K]) => {
