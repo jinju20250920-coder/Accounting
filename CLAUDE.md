@@ -670,6 +670,7 @@ npm run lint
 - ✅ 往来明细账原币列 - partner-detail.tsx 新增 币别徽章/原币金额/汇率 3 列，仅外币行显示，CNY 行用 em-dash 占位
 - ✅ 账龄分析表明细原币列 - aging-report.tsx 明细弹窗与 Excel 导出新增 币别/原币金额/汇率 3 列；AgingDetail 类型扩展 currencyCode/originalAmount/exchangeRate 由 getAgingDetails 回填；账龄分桶仍按本币汇总
 - ✅ 核销汇兑损益自动生成 - useClearingStore.processBatchClearing 检测同币别外币对，按借/贷本币差额计算实现汇兑损益（AR: credit-debit；AP: debit-credit），累计后调用 generateFxSettlementVoucher 生成一张汇总凭证，优先计入 660303（汇兑损益）科目，回退到 6603，无科目则跳过；汇兑损益 >=0.01 才入账
+- ✅ 期末调汇分录往来挂账 - buildFxRevaluationVoucher 对 sourceType=receivable 的调整分录加 customerName + auxiliary.customer，payable 加 supplierName + auxiliary.supplier；保证总账与明细账相符（CAS 19 货币性项目期末按即期汇率折算），往来明细账/账龄表能读到调汇分录，否则 GL≠∑明细账
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
