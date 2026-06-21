@@ -35,6 +35,8 @@ interface PeriodManagementStore {
   // Actions - 期间管理（与账套关联）
   getCurrentPeriod: () => AccountingPeriod | undefined;
   getPeriodsForCurrentAccountSet: () => AccountingPeriod[];
+  getPeriodByYearMonth: (yearMonth: string) => AccountingPeriod | undefined;
+  isPeriodClosed: (yearMonth: string) => boolean;
   selectPeriod: (periodId: string) => void;
   createPeriod: (periodData: Omit<AccountingPeriod, 'id' | 'createdDate' | 'lastModifiedDate'>) => void;
   updatePeriod: (id: string, updates: Partial<AccountingPeriod>) => void;
@@ -197,6 +199,19 @@ export const usePeriodManagementStore = create<PeriodManagementStore>()((set, ge
   getPeriodsForCurrentAccountSet: () => {
     const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
     return currentAccountSet?.accountingPeriods || [];
+  },
+
+  // 按 "YYYY-MM" 查找期间（period.id 格式为 "YYYYMM"）
+  getPeriodByYearMonth: (yearMonth) => {
+    const periods = get().getPeriodsForCurrentAccountSet();
+    const normalized = yearMonth.replace('-', '');
+    return periods.find(p => p.id === normalized);
+  },
+
+  // 判断某月份是否已关账
+  isPeriodClosed: (yearMonth) => {
+    const p = get().getPeriodByYearMonth(yearMonth);
+    return !!p && p.status === 'closed';
   },
 
   // 选择期间

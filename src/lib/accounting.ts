@@ -426,7 +426,7 @@ export function createReverseVoucher(
 } {
   const reverseVoucherId = generateId();
   const reverseNumber = `冲${originalVoucher.voucherNo}`;
-  const reverseDate = reverseDateParam || new Date().toISOString().split('T')[0];
+  const reverseDate = reverseDateParam || originalVoucher.date || new Date().toISOString().split('T')[0];
 
   // 创建冲销凭证，所有分录借贷方向相反
   const reversedEntries = originalVoucher.entries.map((entry: VoucherEntry) => ({

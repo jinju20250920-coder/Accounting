@@ -40,6 +40,7 @@ import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { DatabaseManager } from '@/components/DatabaseManager';
 import { getCurrentService } from '@/lib/database';
 import { assertAccountingDateEditable } from '@/lib/period-closing';
+import { ReverseVoucherDialog } from '@/components/voucher/reverse-voucher-dialog';
 
 
 // 状态配置
@@ -317,6 +318,7 @@ export default function VoucherListPage() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState<VoucherType | null>(null);
   const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
+  const [reverseTarget, setReverseTarget] = useState<VoucherType | null>(null);
 
   // 筛选和排序凭证
   const filteredVouchers = vouchers
@@ -554,29 +556,30 @@ export default function VoucherListPage() {
     );
   };
 
-  const handleReverse = async (voucher: VoucherType) => {
-    await executeVoucherAction(
-      voucher,
-      'reverse',
-      '冲销',
-      async () => {
-        // 创建并保存冲销凭证
-        const reversedVoucher = createReverseVoucher(voucher);
-        await getCurrentService().saveVoucher(reversedVoucher);
-        // 更新原凭证状态为已冲销
-        await getCurrentService().updateVoucherStatus(voucher.id, 'reversed');
-        // 如果是工资计提凭证，解除工资批次与凭证的绑定，便于回到工资管理重新生成
-        const { sqliteService } = await import('@/lib/database/sqlite-service');
-        const payrollBatch = await sqliteService.getPayrollBatchByVoucherId(voucher.id);
-        const cleared = await sqliteService.clearPayrollBatchVoucherByVoucherId(voucher.id);
-        if (cleared && payrollBatch) {
-          showToast('info', '工资计提凭证已冲销，系统将返回工资管理重新生成。');
-          router.push(`/payroll?period=${payrollBatch.payrollPeriod}`);
-        } else if (cleared) {
-          showToast('info', '工资计提凭证已冲销，已解除工资批次绑定，请返回工资管理重新生成。');
-        }
-      }
-    );
+  const handleReverse = (voucher: VoucherType) => {
+    setReverseTarget(voucher);
+  };
+
+  const handleReverseConfirm = async (reversalDate: string) => {
+    const voucher = reverseTarget;
+    if (!voucher) return;
+    // 创建并保存冲销凭证
+    const reversedVoucher = createReverseVoucher(voucher, reversalDate);
+    await getCurrentService().saveVoucher(reversedVoucher);
+    // 更新原凭证状态为已冲销
+    await getCurrentService().updateVoucherStatus(voucher.id, 'reversed');
+    // 如果是工资计提凭证，解除工资批次与凭证的绑定，便于回到工资管理重新生成
+    const { sqliteService } = await import('@/lib/database/sqlite-service');
+    const payrollBatch = await sqliteService.getPayrollBatchByVoucherId(voucher.id);
+    const cleared = await sqliteService.clearPayrollBatchVoucherByVoucherId(voucher.id);
+    setReverseTarget(null);
+    await useVoucherStore.getState().initialize();
+    if (cleared && payrollBatch) {
+      showToast('info', '工资计提凭证已冲销，系统将返回工资管理重新生成。');
+      router.push(`/payroll?period=${payrollBatch.payrollPeriod}`);
+    } else if (cleared) {
+      showToast('info', '工资计提凭证已冲销，已解除工资批次绑定，请返回工资管理重新生成。');
+    }
   };
 
   const handleRefresh = useCallback(async () => {
@@ -1344,6 +1347,12 @@ export default function VoucherListPage() {
         </DialogContent>
       </Dialog>
 
+      <ReverseVoucherDialog
+        open={!!reverseTarget}
+        onOpenChange={(o) => !o && setReverseTarget(null)}
+        originalVoucher={reverseTarget}
+        onConfirm={handleReverseConfirm}
+      />
 
     </div>
   );
