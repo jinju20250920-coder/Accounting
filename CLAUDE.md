@@ -673,6 +673,7 @@ npm run lint
 - ✅ 期末调汇分录往来挂账 - buildFxRevaluationVoucher 对 sourceType=receivable 的调整分录加 customerName + auxiliary.customer，payable 加 supplierName + auxiliary.supplier；保证总账与明细账相符（CAS 19 货币性项目期末按即期汇率折算），往来明细账/账龄表能读到调汇分录，否则 GL≠∑明细账
 - ✅ 期末调汇按往来单位分桶 - loadMonetaryBalances 改为按 (subjectCode, currencyCode, partnerName) 聚合外币分录，partnerName 从 entry.customerName/supplierName/auxiliary 提取；之前按 (subjectCode, currencyCode) 聚合把所有客户合并成一桶，导致 partnerName 回退到 subjectName（"应收账款"），调整分录挂错对象
 - ✅ 调汇失败错误透传 - exchange/page.tsx handleConfirm catch 改为 showToast(error.message)，把期间关账、科目缺失等底层错误直接显示给用户，不再只显示"确认失败"
+- ✅ 调汇红冲后允许重做 - initializeRevaluationRuns 加载 fx_revaluation_runs 时同步关联凭证状态：若 voucher.status=reversed 则把 run.status 也置为 reversed，避免 hasFinalizedFxRevaluationRun 误判为"已入账不能重估"卡住用户重做
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
