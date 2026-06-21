@@ -39,6 +39,18 @@ import type { FxRate, FxRevaluationRun, FxRevaluationRunLine } from '@/types';
 const genId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
 const fmtMoney = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// 统一的损益金额展示：0 显示浅灰，>0 收益绿，损失红
+type SignedKind = 'gain' | 'loss' | 'net';
+function formatSignedAmount(amount: number, kind: SignedKind): { text: string; color: string } {
+  if (Math.abs(amount) < 0.005) return { text: '0.00', color: 'text-slate-400' };
+  if (kind === 'gain') return { text: `+${fmtMoney(amount)}`, color: 'text-emerald-600' };
+  if (kind === 'loss') return { text: `-${fmtMoney(amount)}`, color: 'text-rose-600' };
+  // net：正=净收益，负=净损失
+  return amount > 0
+    ? { text: `+${fmtMoney(amount)}`, color: 'text-emerald-600' }
+    : { text: `-${fmtMoney(Math.abs(amount))}`, color: 'text-rose-600' };
+}
+
 type TabValue = 'preview' | 'history';
 
 // ─── 页面组件 ───
@@ -340,8 +352,8 @@ export default function ExchangePage() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
-          <TabsList>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)} className="space-y-4">
+          <TabsList className="grid grid-cols-2 w-full max-w-md">
             <TabsTrigger value="preview">重估预览</TabsTrigger>
             <TabsTrigger value="history">
               历史记录
@@ -377,72 +389,80 @@ export default function ExchangePage() {
             {/* 汇总卡片 */}
             {previewSummary && (
               <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg border bg-white p-4">
-                  <div className="text-xs text-slate-500 mb-1">汇兑收益</div>
-                  <div className="text-lg font-semibold text-green-600">+{fmtMoney(previewSummary.totalGain)}</div>
-                </div>
-                <div className="rounded-lg border bg-white p-4">
-                  <div className="text-xs text-slate-500 mb-1">汇兑损失</div>
-                  <div className="text-lg font-semibold text-red-600">-{fmtMoney(previewSummary.totalLoss)}</div>
-                </div>
-                <div className="rounded-lg border bg-white p-4">
-                  <div className="text-xs text-slate-500 mb-1">净差异</div>
-                  <div className={cn('text-lg font-semibold', previewSummary.net >= 0 ? 'text-green-600' : 'text-red-600')}>
-                    {previewSummary.net >= 0 ? '+' : ''}{fmtMoney(previewSummary.net)}
-                  </div>
-                </div>
+                {(() => {
+                  const gain = formatSignedAmount(previewSummary.totalGain, 'gain');
+                  const loss = formatSignedAmount(previewSummary.totalLoss, 'loss');
+                  const net = formatSignedAmount(previewSummary.net, 'net');
+                  const cards = [
+                    { label: '汇兑收益', ...gain },
+                    { label: '汇兑损失', ...loss },
+                    { label: '净差异', ...net },
+                  ];
+                  return cards.map((c) => (
+                    <div key={c.label} className="rounded-lg border bg-white p-4">
+                      <div className="text-xs text-slate-500 mb-2">{c.label}</div>
+                      <div className={cn('text-2xl font-bold tabular-nums', c.color)}>{c.text}</div>
+                    </div>
+                  ));
+                })()}
               </div>
             )}
 
             {/* 明细表 */}
             {previewLines.length > 0 && (
-              <div className="rounded-lg border bg-white">
-                <Table className="table-fixed">
+              <div className="rounded-lg border bg-white overflow-hidden">
+                <Table className="table-fixed w-full">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">类型</TableHead>
-                      <TableHead className="h-8 w-[18rem] px-2 py-1.5 text-xs">来源</TableHead>
-                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">币种</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">原币余额</TableHead>
-                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">账面汇率</TableHead>
-                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">期末汇率</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">账面本币</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">重估本币</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">损益金额</TableHead>
-                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">方向</TableHead>
+                      <TableHead className="h-9 w-[70px] px-2 py-1.5 text-xs text-center">类型</TableHead>
+                      <TableHead className="h-9 w-[130px] px-2 py-1.5 text-xs">来源</TableHead>
+                      <TableHead className="h-9 w-[70px] px-2 py-1.5 text-xs text-center">币种</TableHead>
+                      <TableHead className="h-9 px-2 py-1.5 text-right text-xs">原币余额</TableHead>
+                      <TableHead className="h-9 px-2 py-1.5 text-right text-xs">账面汇率</TableHead>
+                      <TableHead className="h-9 px-2 py-1.5 text-right text-xs">期末汇率</TableHead>
+                      <TableHead className="h-9 px-2 py-1.5 text-right text-xs">账面本币</TableHead>
+                      <TableHead className="h-9 px-2 py-1.5 text-right text-xs">重估本币</TableHead>
+                      <TableHead className="h-9 px-2 py-1.5 text-right text-xs">损益金额</TableHead>
+                      <TableHead className="h-9 w-[70px] px-2 py-1.5 text-xs text-center">方向</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {previewLines.map((line) => (
-                      <TableRow key={line.id}>
-                        <TableCell className="px-2 py-2">
-                          <Badge variant="outline" className="text-xs">
-                            {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '资产' : '负债'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
-                        <TableCell className="px-2 py-2 text-xs font-mono">{line.currencyCode}</TableCell>
-                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
-                        <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium',
-                          line.gainLossDirection === 'gain' ? 'text-green-600'
-                          : line.gainLossDirection === 'loss' ? 'text-red-600'
-                          : 'text-slate-400')}>
-                          {line.gainLossDirection === 'gain' ? '+' : line.gainLossDirection === 'loss' ? '-' : ''}{fmtMoney(line.gainLossAmount)}
-                        </TableCell>
-                        <TableCell className="px-2 py-2">
-                          <Badge className={cn('text-xs',
-                            line.gainLossDirection === 'gain' ? 'bg-green-50 text-green-700'
-                            : line.gainLossDirection === 'loss' ? 'bg-red-50 text-red-700'
-                            : 'bg-slate-50 text-slate-500')}>
-                            {line.gainLossDirection === 'gain' ? '收益' : line.gainLossDirection === 'loss' ? '损失' : '无差异'}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {previewLines.map((line) => {
+                      const dir = line.gainLossDirection;
+                      const amountText = dir === 'none'
+                        ? '0.00'
+                        : `${dir === 'gain' ? '+' : '-'}${fmtMoney(line.gainLossAmount)}`;
+                      const amountColor = dir === 'gain' ? 'text-emerald-600'
+                        : dir === 'loss' ? 'text-rose-600'
+                        : 'text-slate-400';
+                      return (
+                        <TableRow key={line.id}>
+                          <TableCell className="px-2 py-2 text-center">
+                            <Badge variant="outline" className="text-xs">
+                              {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '资产' : '负债'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
+                          <TableCell className="px-2 py-2 text-center text-xs font-mono">{line.currencyCode}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
+                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
+                          <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium', amountColor)}>
+                            {amountText}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-center">
+                            <Badge className={cn('text-xs',
+                              dir === 'gain' ? 'bg-emerald-50 text-emerald-700'
+                              : dir === 'loss' ? 'bg-rose-50 text-rose-700'
+                              : 'bg-gray-100 text-gray-500')}>
+                              {dir === 'gain' ? '收益' : dir === 'loss' ? '损失' : '无差异'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
