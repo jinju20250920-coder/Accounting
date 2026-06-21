@@ -321,9 +321,8 @@ function AssetCardDialog({
     }
   };
 
-  // 计算折旧预览：与折旧引擎保持一致
-  // 直线法: 月折旧 = (原值 - 残值 - 已折旧) / 剩余月数
-  // 其中剩余月数 = 总月数 - 已过月数（从折旧开始日到当前期间）
+  // 卡片预览：直线法 月折旧 = (原值 - 残值 - 期初累计折旧) / 剩余月数
+  // 剩余月数 = 总月数 - 已过月数（从折旧开始日到当前期间）
   const initialAccDep = formData.initialAccumulatedDepreciation || 0;
   const originalValue = formData.originalValue || 0;
   const salvageValue = formData.salvageValue || 0;
@@ -340,20 +339,18 @@ function AssetCardDialog({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }, []);
 
-  // 已过月数（从折旧开始日到当前期间）
+  // 已过月数：折旧开始日 → 当前期间
   const monthsElapsed = useMemo(() => {
-    if (!formData.acquisitionDate) return 0;
-    const d = new Date(formData.acquisitionDate);
-    const cat = categories.find(c => c.id === formData.categoryId);
-    const isIntangible = cat?.assetType === 'intangible';
-    const start = new Date(d.getFullYear(), d.getMonth() + (isIntangible ? 0 : 1), 1);
-    const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`;
+    const startStr = formData.depreciationStartDate
+      ? formData.depreciationStartDate.substring(0, 8) + '01'
+      : '';
+    if (!startStr) return 0;
     return calculateMonthsBetween(startStr, `${currentPeriodStr}-01`);
-  }, [formData.acquisitionDate, formData.categoryId, currentPeriodStr, categories]);
+  }, [formData.depreciationStartDate, currentPeriodStr]);
 
   const remainingMonths = Math.max(0, totalMonths - monthsElapsed);
 
-  // 月折旧：直线法用剩余应折旧/剩余月数；其他方法仍走原函数（基于原值）
+  // 月折旧：直线法用剩余应折旧/剩余月数；其他方法走估算函数
   const monthlyDepreciation = (() => {
     const method = formData.depreciationMethod || 'straight_line';
     if (method === 'straight_line') {
@@ -1344,14 +1341,23 @@ export default function FixedAssetsPage() {
           return;
         }
 
-        // 计算月折旧额
-        const monthlyDep = calculateEstimatedMonthlyDepreciation(
-          originalValue,
-          salvageValue,
-          asset.depreciationMethod || 'straight_line',
-          asset.usefulLifeYears || 5,
-          (asset.usefulLifeYears || 5) * 12
-        );
+        // 计算月折旧额：直线法 = (原值 - 残值 - 已折旧) / 剩余月数
+        const method = asset.depreciationMethod || 'straight_line';
+        const usefulLifeMonths = (asset.usefulLifeYears || 5) * 12;
+        const remainingDepreciable = Math.max(0, depreciableValue - accumulatedDepreciation);
+        const monthsElapsed = asset.depreciationStartDate
+          ? calculateMonthsBetween(asset.depreciationStartDate, `${currentPeriod}-01`)
+          : 0;
+        const remainingMonths = Math.max(0, usefulLifeMonths - monthsElapsed);
+        const monthlyDep = method === 'straight_line'
+          ? (remainingMonths > 0 ? Math.round((remainingDepreciable / remainingMonths) * 100) / 100 : 0)
+          : calculateEstimatedMonthlyDepreciation(
+              originalValue,
+              salvageValue,
+              method,
+              asset.usefulLifeYears || 5,
+              usefulLifeMonths
+            );
         shouldDepreciateAmount += monthlyDep;
       }
     });
