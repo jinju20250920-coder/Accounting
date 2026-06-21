@@ -795,7 +795,9 @@ async function loadMonetaryBalances(
         if (!monetarySubjects.has(code)) continue;
         const currency = binding?.currency || '';
         if (!currency || currency === 'CNY') continue;
-        const key = `${code}-${currency}`;
+        // 与凭证聚合的 key 格式保持一致：${code}-${currency}-${partnerName}
+        // 银行回退不带往来单位，partnerName 固定为空串
+        const key = `${code}-${currency}-`;
         const existing = agg.get(key) || {
           subjectCode: code,
           subjectName: binding?.subSubjectName || '银行存款',
