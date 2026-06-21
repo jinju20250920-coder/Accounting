@@ -679,6 +679,9 @@ npm run lint
 - ✅ 调汇避免跨月重复计算 - loadMonetaryBalances 拆分为 foreignAgg（仅外币分录累加原币）+ baseAgg（所有货币性科目分录累加本币，含 currencyCode='' 的调汇分录），按 (subject, partner) 合并；之前 currencyCode='' 过滤跳过上期调汇分录，导致 6 月账面本币读成原始值，重估出与 5 月完全相同的损失
 - ✅ 调汇 0 差异也展示明细 - buildFxRevaluationPreview 移除 `< 0.005` 过滤，引入 'none' 方向（gainLossDirection 类型扩展为 'gain' | 'loss' | 'none'）；voucher 构建跳过 none 行不生成 0 金额分录；handlePreview 不再因 items 空早返回；净差异 < 0.005 时禁用「确认并生成凭证」并加 tooltip；空状态仅在真无外币余额时显示
 - ✅ 调汇页面 UI 优化 - KPI 卡片用 formatSignedAmount 统一格式化（abs<0.005 显示 "0.00" 浅灰 text-slate-400，收益 emerald-600/损失 rose-600），字号 text-2xl font-bold；表格 table-fixed + 固定列宽（类型 70px/来源 130px/币种 70px/方向 70px），数字列平分剩余空间消除横向滚动；TabsList 改为 grid-cols-2 w-full max-w-md 通栏；方向 Badge 无差异用 bg-gray-100 text-gray-500 弱化
+- ✅ 调汇历史明细切换修复 - handleViewDetail 立即清空旧 detailLines + setDetailLoading(true) 让切换可见；detailRequestRef 防 race condition（连续点击多行只采纳最新请求）；明细标题显示 period+状态 Badge + ring-2 ring-blue-200/60 蓝色边框；眼睛/删除按钮加 type="button" 和 title
+- ✅ 调汇历史删除按钮移除 - 删除 run 会留下孤立凭证破坏关联，应通过凭证红冲流程撤销；同步移除 handleDeleteRun 函数、deleteRevaluationRun store 引用、Trash2 图标
+- ✅ 调汇凭证号可点击 + 明细 Dialog 化 - 凭证号改为蓝色下划线按钮，点击通过 run.voucherId 调 getVoucher 加载完整凭证，弹出只读 VoucherReadOnlyView Dialog（日期/状态/摘要/分录表/合计）；明细从行内展开改为独立 Dialog，每行点击都打开新弹窗，避免行内展开时切换行数据相同用户感觉"没反应"
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
