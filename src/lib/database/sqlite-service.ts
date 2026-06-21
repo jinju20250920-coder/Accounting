@@ -893,6 +893,88 @@ class SQLiteService {
       console.warn('assetChangeRecords table migration warning:', error);
     }
 
+    // 无形资产时序账记录表
+    try {
+      const intangibleChangeTableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='intangibleChangeRecords'"
+      );
+      if (!intangibleChangeTableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating intangibleChangeRecords table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS intangibleChangeRecords (
+            id TEXT PRIMARY KEY,
+            assetId TEXT NOT NULL,
+            assetCode TEXT NOT NULL,
+            assetName TEXT NOT NULL,
+            accountSetId TEXT NOT NULL,
+            changeType TEXT NOT NULL,
+            changeDate TEXT NOT NULL,
+            period TEXT NOT NULL,
+            fieldName TEXT NOT NULL,
+            beforeValue TEXT,
+            afterValue TEXT,
+            originalValueChange REAL,
+            amortizationChange REAL,
+            originalValueBalance REAL,
+            accumulatedAmortizationBalance REAL,
+            netValueBalance REAL,
+            voucherId TEXT,
+            voucherNo TEXT,
+            reason TEXT,
+            operatorId TEXT,
+            createTime TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_icr_assetId ON intangibleChangeRecords(assetId);
+          CREATE INDEX IF NOT EXISTS idx_icr_voucherId ON intangibleChangeRecords(voucherId);
+          CREATE INDEX IF NOT EXISTS idx_icr_period ON intangibleChangeRecords(period);
+        `);
+        console.log('intangibleChangeRecords table migration completed');
+      }
+    } catch (error) {
+      console.warn('intangibleChangeRecords table migration warning:', error);
+    }
+
+    // 待摊费用时序账记录表
+    try {
+      const prepaidChangeTableCheck = this.dbInstance.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='prepaidChangeRecords'"
+      );
+      if (!prepaidChangeTableCheck[0]?.values?.length) {
+        console.log('Migrating database: creating prepaidChangeRecords table...');
+        this.dbInstance.exec(`
+          CREATE TABLE IF NOT EXISTS prepaidChangeRecords (
+            id TEXT PRIMARY KEY,
+            assetId TEXT NOT NULL,
+            assetCode TEXT NOT NULL,
+            assetName TEXT NOT NULL,
+            accountSetId TEXT NOT NULL,
+            changeType TEXT NOT NULL,
+            changeDate TEXT NOT NULL,
+            period TEXT NOT NULL,
+            fieldName TEXT NOT NULL,
+            beforeValue TEXT,
+            afterValue TEXT,
+            originalValueChange REAL,
+            amortizationChange REAL,
+            originalValueBalance REAL,
+            accumulatedAmortizationBalance REAL,
+            netValueBalance REAL,
+            voucherId TEXT,
+            voucherNo TEXT,
+            reason TEXT,
+            operatorId TEXT,
+            createTime TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_pcr_assetId ON prepaidChangeRecords(assetId);
+          CREATE INDEX IF NOT EXISTS idx_pcr_voucherId ON prepaidChangeRecords(voucherId);
+          CREATE INDEX IF NOT EXISTS idx_pcr_period ON prepaidChangeRecords(period);
+        `);
+        console.log('prepaidChangeRecords table migration completed');
+      }
+    } catch (error) {
+      console.warn('prepaidChangeRecords table migration warning:', error);
+    }
+
     // 资产拆分记录表
     try {
       const splitTableCheck = this.dbInstance.exec(

@@ -12,8 +12,9 @@ import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { SubjectPopover, PartnerPopover, DepartmentPopover } from '@/components/shared/subject-popover';
 import { VoucherStamp } from '@/components/shared/voucher-stamp';
 import { AmortizationDialog } from '@/components/assets/amortization-dialog';
+import { PrepaidTimelineLedger } from '@/components/assets/prepaid-change-record-list';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Calculator, History, Pencil, Trash2, FileText, RotateCcw, Upload, Download } from 'lucide-react';
+import { Search, Plus, Calculator, History, Pencil, Trash2, FileText, RotateCcw, Upload, Download, BookOpen } from 'lucide-react';
 import { sqliteService } from '@/lib/database';
 import { formatNumber } from '@/lib/utils';
 import { getPrepaidExpenseTypeName } from '@/lib/amortization';
@@ -195,6 +196,8 @@ export default function PrepaidExpensePage() {
   const [showHistoryDialog, setShowHistoryDialog] = useState(false);
   const [historyExpenseId, setHistoryExpenseId] = useState<string | null>(null);
   const [historyRecords, setHistoryRecords] = useState<AmortizationRecord[]>([]);
+  const [showLedger, setShowLedger] = useState(false);
+  const [ledgerExpenseId, setLedgerExpenseId] = useState<string | null>(null);
   const [showVoucherDialog, setShowVoucherDialog] = useState(false);
   const [selectedVoucherNo, setSelectedVoucherNo] = useState<string | null>(null);
   const [showCorrectDialog, setShowCorrectDialog] = useState(false);
@@ -493,6 +496,10 @@ export default function PrepaidExpensePage() {
                   <td className="p-3">{getStatusBadge(expense.status)}</td>
                   <td className="p-3">
                     <div className="flex items-center justify-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="时序账"
+                        onClick={() => { setLedgerExpenseId(expense.id); setShowLedger(true); }}>
+                        <BookOpen className="h-3.5 w-3.5" />
+                      </Button>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="摊销历史"
                         onClick={() => handleViewHistory(expense.id)}>
                         <History className="h-3.5 w-3.5" />
@@ -808,6 +815,13 @@ export default function PrepaidExpensePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 时序账 */}
+      <PrepaidTimelineLedger
+        open={showLedger}
+        onOpenChange={setShowLedger}
+        expenseId={ledgerExpenseId || undefined}
+      />
     </div>
   );
 }

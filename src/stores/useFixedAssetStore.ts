@@ -1046,6 +1046,35 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             voucherNo: record.voucherNo,
             reason: `${record.period}折旧`,
           });
+
+          // 无形资产双写：同时写入 intangibleChangeRecords
+          const assetCategory = state.categories.find(c => c.id === asset.categoryId);
+          if (assetCategory?.assetType === 'intangible') {
+            try {
+              const icrId = `icr-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+              const icrStmt = db.prepare(
+                `INSERT INTO intangibleChangeRecords (
+                  id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                  fieldName, beforeValue, afterValue,
+                  originalValueChange, amortizationChange, originalValueBalance,
+                  accumulatedAmortizationBalance, netValueBalance,
+                  voucherId, voucherNo, reason, operatorId, createTime
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              );
+              icrStmt.run([
+                icrId, asset.id, asset.assetCode, asset.assetName, accountSetId,
+                'amortization', changeDate, record.period,
+                'amortization', String(asset.accumulatedDepreciation), String(newAccumulated),
+                0, record.periodDepreciation,
+                asset.originalValue, newAccumulated, newNetValue,
+                record.voucherId || '', record.voucherNo || '', `${record.period}摊销`, '',
+                new Date().toISOString(),
+              ]);
+              icrStmt.free();
+            } catch (icrError) {
+              console.warn('写入无形资产时序账失败:', icrError);
+            }
+          }
         }
       }
 
@@ -2373,7 +2402,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
         // 回退 fixedAssets 余额
         const assetResult = db.exec(
-          `SELECT originalValue, accumulatedDepreciation FROM fixedAssets WHERE id = ?`,
+          `SELECT originalValue, accumulatedDepreciation, categoryId FROM fixedAssets WHERE id = ?`,
           [assetId]
         );
         const assetRow = assetResult[0]?.values?.[0];
@@ -2386,6 +2415,37 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           );
           stmt.run([newOrig, newAccDep, newNet, new Date().toISOString(), assetId]);
           stmt.free();
+
+          // 无形资产双写到 intangibleChangeRecords
+          const categoryId = String(assetRow[2] ?? '');
+          const isIntangible = get().categories.find(c => c.id === categoryId)?.assetType === 'intangible';
+          if (isIntangible) {
+            try {
+              const icrId = `icr-rev-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+              const icrStmt = db.prepare(
+                `INSERT INTO intangibleChangeRecords (
+                  id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                  fieldName, beforeValue, afterValue,
+                  originalValueChange, amortizationChange, originalValueBalance,
+                  accumulatedAmortizationBalance, netValueBalance,
+                  voucherId, voucherNo, reason, operatorId, createTime
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              );
+              icrStmt.run([
+                icrId, assetId, assetCode, assetName, accountSetId,
+                'voucher_reversal', reversalDate, period,
+                'voucher_reversal', origVoucherNo || originalVoucherId, reversedVoucherNo,
+                -deltaOrig, -deltaDep,
+                newOrig, newAccDep, newNet,
+                reversedVoucherId, reversedVoucherNo,
+                `红冲 ${origVoucherNo || originalVoucherId}`, '',
+                new Date().toISOString(),
+              ]);
+              icrStmt.free();
+            } catch (icrError) {
+              console.warn('红冲写入无形资产时序账失败:', icrError);
+            }
+          }
         }
       }
 

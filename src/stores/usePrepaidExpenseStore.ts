@@ -12,6 +12,7 @@ import type {
   BatchAmortizationResult,
   PrepaidExpenseType,
   AmortizationStatus,
+  PrepaidChangeRecord,
 } from '@/types';
 
 interface PrepaidExpenseStore {
@@ -35,6 +36,11 @@ interface PrepaidExpenseStore {
   saveAmortizationRecords: (records: AmortizationRecord[]) => Promise<void>;
   postAmortizationRecords: (recordIds: string[]) => Promise<void>;
   reverseAmortizationByVoucherId: (originalVoucherId: string) => Promise<void>;
+
+  // 时序账
+  logPrepaidChange: (record: Omit<PrepaidChangeRecord, 'id' | 'createTime'>) => Promise<void>;
+  getPrepaidChangeRecords: (expenseId: string) => Promise<PrepaidChangeRecord[]>;
+  clearPrepaidChangeRecords: (expenseId: string) => Promise<void>;
 
   // 查询
   getActiveExpenses: () => PrepaidExpense[];
@@ -400,6 +406,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
 
     try {
       const db = await getCurrentManager().getDatabase();
+      const accountSetId = useAccountSetStore.getState().getCurrentAccountSet()?.id || '';
 
       for (const record of records) {
         // 更新摊销记录状态
@@ -429,6 +436,25 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
             new Date().toISOString(), expense.id,
           ]);
           stmt.free();
+
+          // 写入时序账
+          await get().logPrepaidChange({
+            assetId: expense.id,
+            assetCode: expense.expenseCode,
+            assetName: expense.expenseName,
+            accountSetId,
+            changeType: 'amortization',
+            changeDate: record.amortizationDate,
+            period: record.period,
+            fieldName: 'amortization',
+            amortizationChange: record.periodAmortization,
+            accumulatedAmortizationBalance: newAmortized,
+            netValueBalance: newRemaining,
+            originalValueBalance: expense.originalAmount,
+            voucherId: record.voucherId,
+            voucherNo: record.voucherNo,
+            reason: `${record.period} 摊销`,
+          });
         }
       }
 
@@ -467,15 +493,117 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
     return get().expenses.filter(e => e.status === 'active' || e.status === 'not_started');
   },
 
+  // 时序账：记录变动
+  logPrepaidChange: async (record) => {
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const currentAccountSet = accountSetStore.getCurrentAccountSet();
+      if (currentAccountSet?.id) {
+        sqliteService.setAccountSetId(currentAccountSet.id);
+      }
+      const db = await sqliteService.getDatabase();
+      if (!db) throw new Error('数据库未初始化');
+
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+      const now = new Date().toISOString();
+      const stmt = db.prepare(
+        `INSERT INTO prepaidChangeRecords (
+          id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+          fieldName, beforeValue, afterValue,
+          originalValueChange, amortizationChange, originalValueBalance,
+          accumulatedAmortizationBalance, netValueBalance,
+          voucherId, voucherNo, reason, operatorId, createTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      );
+      stmt.run([
+        id, record.assetId, record.assetCode, record.assetName, record.accountSetId,
+        record.changeType, record.changeDate, record.period,
+        record.fieldName, record.beforeValue || '', record.afterValue || '',
+        record.originalValueChange ?? null, record.amortizationChange ?? null,
+        record.originalValueBalance ?? null, record.accumulatedAmortizationBalance ?? null,
+        record.netValueBalance ?? null,
+        record.voucherId || '', record.voucherNo || '', record.reason || '', record.operatorId || '',
+        now,
+      ]);
+      stmt.free();
+    } catch (error: unknown) {
+      console.warn('记录待摊费用时序账失败:', error);
+    }
+  },
+
+  // 时序账：查询
+  getPrepaidChangeRecords: async (expenseId) => {
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const db = await sqliteService.getDatabase();
+      if (!db) return [];
+      const result = db.exec(
+        `SELECT id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                fieldName, beforeValue, afterValue,
+                originalValueChange, amortizationChange, originalValueBalance,
+                accumulatedAmortizationBalance, netValueBalance,
+                voucherId, voucherNo, reason, operatorId, createTime
+         FROM prepaidChangeRecords WHERE assetId = ? ORDER BY changeDate ASC, createTime ASC`,
+        [expenseId]
+      );
+      return result[0]?.values?.map((row: SqliteBindable[]) => ({
+        id: String(row[0] ?? ''),
+        assetId: String(row[1] ?? ''),
+        assetCode: String(row[2] ?? ''),
+        assetName: String(row[3] ?? ''),
+        accountSetId: String(row[4] ?? ''),
+        changeType: String(row[5] ?? '') as PrepaidChangeRecord['changeType'],
+        changeDate: String(row[6] ?? ''),
+        period: String(row[7] ?? ''),
+        fieldName: String(row[8] ?? ''),
+        beforeValue: row[9] ? String(row[9]) : '',
+        afterValue: row[10] ? String(row[10]) : '',
+        originalValueChange: row[11] != null ? Number(row[11]) : undefined,
+        amortizationChange: row[12] != null ? Number(row[12]) : undefined,
+        originalValueBalance: row[13] != null ? Number(row[13]) : undefined,
+        accumulatedAmortizationBalance: row[14] != null ? Number(row[14]) : undefined,
+        netValueBalance: row[15] != null ? Number(row[15]) : undefined,
+        voucherId: row[16] ? String(row[16]) : undefined,
+        voucherNo: row[17] ? String(row[17]) : undefined,
+        reason: row[18] ? String(row[18]) : undefined,
+        operatorId: row[19] ? String(row[19]) : undefined,
+        createTime: String(row[20] ?? ''),
+      })) ?? [];
+    } catch (error) {
+      console.warn('查询待摊费用时序账失败:', error);
+      return [];
+    }
+  },
+
+  // 时序账：清空
+  clearPrepaidChangeRecords: async (expenseId) => {
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      if (accountSetStore.getCurrentAccountSet()?.id) {
+        sqliteService.setAccountSetId(accountSetStore.getCurrentAccountSet()!.id);
+      }
+      const db = await sqliteService.getDatabase();
+      if (!db) throw new Error('数据库未初始化');
+      const stmt = db.prepare(`DELETE FROM prepaidChangeRecords WHERE assetId = ?`);
+      stmt.run([expenseId]);
+      stmt.free();
+    } catch (error) {
+      console.warn('清空待摊费用时序账失败:', error);
+      throw error;
+    }
+  },
+
   // 红冲联动：按原凭证 ID 回退待摊费用摊销
   reverseAmortizationByVoucherId: async (originalVoucherId) => {
     try {
       const db = await getCurrentManager().getDatabase();
       const accountSetId = useAccountSetStore.getState().getCurrentAccountSet()?.id || '';
 
-      // 1. 查关联的摊销记录
+      // 1. 查关联的摊销记录（含 period/voucherNo 用于时序账回填）
       const result = db.exec(
-        `SELECT id, entityId, periodAmortization
+        `SELECT id, entityId, period, periodAmortization, voucherNo
          FROM amortizationRecords
          WHERE voucherId = ? AND entityType = 'prepaid'
          AND (accountSetId = ? OR accountSetId IS NULL)`,
@@ -484,21 +612,28 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       const rows: SqliteBindable[][] = result[0]?.values ?? [];
       if (rows.length === 0) return;
 
-      // 2. 回退每条记录对应的费用余额
+      const today = new Date().toISOString().slice(0, 10);
+      const currentPeriod = today.substring(0, 7);
+
+      // 2. 回退每条记录对应的费用余额 + 写反向时序账
       for (const row of rows) {
         const recordId = String(row[0] ?? '');
         const entityId = String(row[1] ?? '');
-        const delta = Number(row[2] ?? 0);
+        const period = String(row[2] ?? '');
+        const delta = Number(row[3] ?? 0);
+        const origVoucherNo = String(row[4] ?? '');
         const expenseResult = db.exec(
-          `SELECT originalAmount, amortizedAmount, amortizedPeriods, amortizationPeriods
+          `SELECT expenseCode, expenseName, originalAmount, amortizedAmount, amortizedPeriods
            FROM prepaidExpenses WHERE id = ?`,
           [entityId]
         );
         const expenseRow = expenseResult[0]?.values?.[0];
         if (expenseRow) {
-          const originalAmount = Number(expenseRow[0]);
-          const newAmortized = Number(expenseRow[1]) - delta;
-          const newPeriods = Number(expenseRow[2]) - 1;
+          const expenseCode = String(expenseRow[0] ?? '');
+          const expenseName = String(expenseRow[1] ?? '');
+          const originalAmount = Number(expenseRow[2] ?? 0);
+          const newAmortized = Number(expenseRow[3] ?? 0) - delta;
+          const newPeriods = Number(expenseRow[4] ?? 0) - 1;
           const newRemaining = originalAmount - newAmortized;
           const newStatus = newPeriods <= 0 ? 'not_started' : 'active';
           const stmt = db.prepare(
@@ -512,6 +647,25 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
             newStatus, new Date().toISOString(), entityId,
           ]);
           stmt.free();
+
+          // 写反向时序账行
+          await get().logPrepaidChange({
+            assetId: entityId,
+            assetCode: expenseCode,
+            assetName: expenseName,
+            accountSetId,
+            changeType: 'voucher_reversal',
+            changeDate: today,
+            period: currentPeriod,
+            fieldName: 'voucher_reversal',
+            amortizationChange: -delta,
+            accumulatedAmortizationBalance: newAmortized,
+            netValueBalance: newRemaining,
+            originalValueBalance: originalAmount,
+            voucherId: originalVoucherId,
+            voucherNo: origVoucherNo,
+            reason: `红冲 ${origVoucherNo || originalVoucherId}（原期间 ${period}）`,
+          });
         }
         // 回退摊销记录状态
         const revStmt = db.prepare(

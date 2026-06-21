@@ -52,6 +52,7 @@ import { CodeRuleManager, generateCode, type CodeRule } from '@/lib/code-generat
 import { AssetQRLabel, AssetQRLabelPrint, AssetQRLabelBatch } from '@/components/assets/asset-qr-label';
 import { AssetChangeDialog } from '@/components/assets/asset-improvement-dialog';
 import { AssetTimelineLedger } from '@/components/assets/asset-change-record-list';
+import { IntangibleTimelineLedger } from '@/components/assets/intangible-change-record-list';
 import { DepreciationDialog } from '@/components/assets/depreciation-dialog';
 import { parseFixedAssetsExcel, exportFixedAssetsToExcel, generateAssetImportTemplate } from '@/lib/excel-utils';
 import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDepreciationStartRule, calculateMonthsBetween } from '@/lib/depreciation';
@@ -912,6 +913,8 @@ export default function FixedAssetsPage() {
   const [showQRLabelDialog, setShowQRLabelDialog] = useState(false);
   const [showBatchLabelDialog, setShowBatchLabelDialog] = useState(false);
   const [showChangeRecordDialog, setShowChangeRecordDialog] = useState(false);
+  const [showIntangibleLedger, setShowIntangibleLedger] = useState(false);
+  const [selectedIntangibleAsset, setSelectedIntangibleAsset] = useState<any>(null);
   const [showDepreciationDialog, setShowDepreciationDialog] = useState(false);
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [accountingAsset, setAccountingAsset] = useState<FixedAsset | null>(null);
@@ -1704,10 +1707,16 @@ export default function FixedAssetsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            title="变动记录"
+                            title={categories.find(c => c.id === asset.categoryId)?.assetType === 'intangible' ? '时序账' : '变动记录'}
                             onClick={() => {
-                              setSelectedAsset(asset);
-                              setShowChangeRecordDialog(true);
+                              const isIntangible = categories.find(c => c.id === asset.categoryId)?.assetType === 'intangible';
+                              if (isIntangible) {
+                                setSelectedIntangibleAsset(asset);
+                                setShowIntangibleLedger(true);
+                              } else {
+                                setSelectedAsset(asset);
+                                setShowChangeRecordDialog(true);
+                              }
                             }}
                           >
                             <History className="h-4 w-4" />
@@ -1975,6 +1984,13 @@ export default function FixedAssetsPage() {
         open={showChangeRecordDialog}
         onOpenChange={setShowChangeRecordDialog}
         assetId={selectedAsset?.id}
+      />
+
+      {/* 无形资产时序账 */}
+      <IntangibleTimelineLedger
+        open={showIntangibleLedger}
+        onOpenChange={setShowIntangibleLedger}
+        assetId={selectedIntangibleAsset?.id}
       />
 
       {/* 折旧计算对话框 */}

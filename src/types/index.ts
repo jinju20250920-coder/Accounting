@@ -877,6 +877,68 @@ export interface AssetChangeRecord {
   createTime: string;
 }
 
+// 无形资产时序账记录
+export interface IntangibleChangeRecord {
+  id: string;
+  assetId: string;            // 无形资产 ID
+  assetCode: string;
+  assetName: string;
+  accountSetId: string;
+
+  changeType: 'acquisition' | 'amortization' | 'disposal' | 'status_change' | 'voucher_reversal';
+  changeDate: string;
+  period: string;
+
+  fieldName: string;
+  beforeValue?: string;
+  afterValue?: string;
+
+  // 时序账字段（语义对齐无形资产：原值/累计摊销/净值）
+  originalValueChange?: number;
+  amortizationChange?: number;
+  originalValueBalance?: number;
+  accumulatedAmortizationBalance?: number;
+  netValueBalance?: number;
+
+  voucherId?: string;
+  voucherNo?: string;
+
+  reason?: string;
+  operatorId?: string;
+  createTime: string;
+}
+
+// 待摊费用时序账记录
+export interface PrepaidChangeRecord {
+  id: string;
+  assetId: string;            // 待摊费用 ID
+  assetCode: string;
+  assetName: string;
+  accountSetId: string;
+
+  changeType: 'acquisition' | 'amortization' | 'disposal' | 'status_change' | 'voucher_reversal';
+  changeDate: string;
+  period: string;
+
+  fieldName: string;
+  beforeValue?: string;
+  afterValue?: string;
+
+  // 时序账字段（语义对齐待摊费用：原值/已摊/剩余）
+  originalValueChange?: number;
+  amortizationChange?: number;
+  originalValueBalance?: number;
+  accumulatedAmortizationBalance?: number;  // 已摊余额
+  netValueBalance?: number;                 // 剩余余额
+
+  voucherId?: string;
+  voucherNo?: string;
+
+  reason?: string;
+  operatorId?: string;
+  createTime: string;
+}
+
 // 折旧记录
 export interface DepreciationRecord {
   id: string;
