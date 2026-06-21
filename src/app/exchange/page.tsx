@@ -740,14 +740,19 @@ async function loadMonetaryBalances(
   // 3. 聚合外币分录 by (subjectCode, currencyCode, partnerName)
   // 必须保留往来单位名，否则后续 buildFxRevaluationVoucher 无法把调整分录挂到客户/供应商，
   // 期末调汇后总账与明细账无法相符（CAS 19）。
-  const agg = new Map<string, {
+  //
+  // 双 map 策略：
+  // - foreignAgg：仅累加外币分录（带 currencyCode），记录原币余额 + 币种 + 往来
+  // - baseAgg：累加该科目该往来所有分录的本币借贷差（含调汇分录，调汇分录 currencyCode=''）
+  //   否则 5 月已调汇过的余额在 6 月重估时账面本币还是原始值，会重复计算汇兑损益。
+  const foreignAgg = new Map<string, {
     subjectCode: string;
     subjectName: string;
     currencyCode: string;
     partnerName: string; // customerName 或 supplierName，空串表示无往来
     totalOriginal: number;
-    totalBase: number;
   }>();
+  const baseAgg = new Map<string, number>(); // key: `${subjectCode}-${partnerName}` → 本币累计
 
   try {
     const allVouchers = service.getAllVouchers ? await service.getAllVouchers() : [];
@@ -757,7 +762,6 @@ async function loadMonetaryBalances(
       if (!voucherDate || voucherDate > periodEnd) continue;
       const entries = voucher.entries || [];
       for (const entry of entries) {
-        if (!entry.currencyCode || entry.currencyCode === 'CNY') continue;
         const code = (entry.subjectCode || '');
         if (!code || !monetarySubjects.has(code)) continue;
 
@@ -770,22 +774,30 @@ async function loadMonetaryBalances(
           || '',
         );
 
-        const key = `${code}-${entry.currencyCode}-${partnerName}`;
-        const subjectInfo = monetarySubjects.get(code)!;
-        const existing = agg.get(key) || {
-          subjectCode: code,
-          subjectName: entry.subjectName || subjectInfo.name,
-          currencyCode: entry.currencyCode,
-          partnerName,
-          totalOriginal: 0,
-          totalBase: 0,
-        };
         const debit = entry.debit || 0;
         const credit = entry.credit || 0;
-        const sign = debit > 0 ? 1 : -1;
-        existing.totalOriginal += (entry.originalAmount || 0) * sign;
-        existing.totalBase += (debit - credit);
-        agg.set(key, existing);
+        const baseDelta = debit - credit;
+
+        // 本币账面：所有分录都计入（含 currencyCode 为空的调汇分录）
+        const baseKey = `${code}-${partnerName}`;
+        baseAgg.set(baseKey, (baseAgg.get(baseKey) || 0) + baseDelta);
+
+        // 原币：仅外币分录
+        const cur = entry.currencyCode;
+        if (cur && cur !== 'CNY') {
+          const key = `${code}-${cur}-${partnerName}`;
+          const subjectInfo = monetarySubjects.get(code)!;
+          const existing = foreignAgg.get(key) || {
+            subjectCode: code,
+            subjectName: entry.subjectName || subjectInfo.name,
+            currencyCode: cur,
+            partnerName,
+            totalOriginal: 0,
+          };
+          const sign = debit > 0 ? 1 : -1;
+          existing.totalOriginal += (entry.originalAmount || 0) * sign;
+          foreignAgg.set(key, existing);
+        }
       }
     }
 
@@ -804,17 +816,21 @@ async function loadMonetaryBalances(
         // 与凭证聚合的 key 格式保持一致：${code}-${currency}-${partnerName}
         // 银行回退不带往来单位，partnerName 固定为空串
         const key = `${code}-${currency}-`;
-        const existing = agg.get(key) || {
+        const existing = foreignAgg.get(key) || {
           subjectCode: code,
           subjectName: binding?.subSubjectName || '银行存款',
           currencyCode: currency,
           partnerName: '',
           totalOriginal: 0,
-          totalBase: 0,
         };
         if (Math.abs(existing.totalOriginal) < 0.005) existing.totalOriginal = row.foreignBalance;
-        if (Math.abs(existing.totalBase) < 0.005) existing.totalBase = row.balance;
-        agg.set(key, existing);
+        foreignAgg.set(key, existing);
+
+        // 同步回退本币账面（仅当凭证侧未累计过时）
+        const baseKey = `${code}-`;
+        if (!baseAgg.has(baseKey) || Math.abs(baseAgg.get(baseKey) || 0) < 0.005) {
+          baseAgg.set(baseKey, row.balance);
+        }
       }
     } catch (e) {
       console.warn('loadMonetaryBalances: 期初外币余额回退失败', e);
@@ -823,7 +839,22 @@ async function loadMonetaryBalances(
     console.error('loadMonetaryBalances: 凭证聚合失败', e);
   }
 
-  // 4. 按 sourceType 分类输出
+  // 4. 合并 foreignAgg + baseAgg → 最终桶
+  const agg = new Map<string, {
+    subjectCode: string;
+    subjectName: string;
+    currencyCode: string;
+    partnerName: string;
+    totalOriginal: number;
+    totalBase: number;
+  }>();
+  for (const [key, data] of foreignAgg) {
+    const baseKey = `${data.subjectCode}-${data.partnerName}`;
+    const totalBase = baseAgg.get(baseKey) || 0;
+    agg.set(key, { ...data, totalBase });
+  }
+
+  // 5. 按 sourceType 分类输出
   const bankBalances: FxRevaluationBankBalance[] = [];
   const openItems: FxRevaluationOpenItem[] = [];
 
