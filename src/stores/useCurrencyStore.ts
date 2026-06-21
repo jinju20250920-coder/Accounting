@@ -572,7 +572,25 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const service = getCurrentService() as any;
       if (service.getFxRevaluationRuns) {
         const runs = await service.getFxRevaluationRuns();
-        set({ revaluationRuns: runs, revaluationLoading: false });
+        // 与凭证状态同步：若关联凭证已被红冲（status=reversed），将 run 也标记为 reversed，
+        // 否则 hasFinalizedFxRevaluationRun 会一直挡着用户重做调汇。
+        let syncedRuns = runs;
+        try {
+          const allVouchers = service.getAllVouchers ? await service.getAllVouchers() : [];
+          const voucherStatusMap = new Map<string, string>();
+          for (const v of allVouchers || []) {
+            if (v?.id) voucherStatusMap.set(v.id, v.status);
+          }
+          syncedRuns = runs.map((run: any) => {
+            if (run.status === 'posted' && run.voucherId && voucherStatusMap.get(run.voucherId) === 'reversed') {
+              return { ...run, status: 'reversed' as const };
+            }
+            return run;
+          });
+        } catch (syncErr) {
+          console.warn('Failed to sync revaluation runs with voucher status:', syncErr);
+        }
+        set({ revaluationRuns: syncedRuns, revaluationLoading: false });
       } else {
         set({ revaluationLoading: false });
       }

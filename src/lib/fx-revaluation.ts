@@ -84,7 +84,9 @@ export function hasFinalizedFxRevaluationRun(
   runs: FxRevaluationRun[],
   period: string,
 ): boolean {
-  return runs.some(run => run.period === period && (run.status === 'confirmed' || run.status === 'posted'));
+  // status=reversed 表示原调汇凭证已被红冲，相当于未入账，允许重新预览
+  return runs.some(run => run.period === period
+    && (run.status === 'confirmed' || run.status === 'posted'));
 }
 
 export function getFxRevaluationRunNetAmount(run: Pick<FxRevaluationRun, 'previewData'>): number {
