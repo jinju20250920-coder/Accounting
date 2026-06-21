@@ -5,6 +5,7 @@ import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import { calculatePeriodAmount } from '@/lib/amortization';
 import { generateId } from '@/lib/utils';
+import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
 import type {
   PrepaidExpense,
   AmortizationRecord,
@@ -33,6 +34,7 @@ interface PrepaidExpenseStore {
   batchCalculateAmortization: (expenseIds: string[], period: string) => BatchAmortizationResult;
   saveAmortizationRecords: (records: AmortizationRecord[]) => Promise<void>;
   postAmortizationRecords: (recordIds: string[]) => Promise<void>;
+  reverseAmortizationByVoucherId: (originalVoucherId: string) => Promise<void>;
 
   // 查询
   getActiveExpenses: () => PrepaidExpense[];
@@ -463,6 +465,68 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
   // 获取在用待摊费用
   getActiveExpenses: () => {
     return get().expenses.filter(e => e.status === 'active' || e.status === 'not_started');
+  },
+
+  // 红冲联动：按原凭证 ID 回退待摊费用摊销
+  reverseAmortizationByVoucherId: async (originalVoucherId) => {
+    try {
+      const db = await getCurrentManager().getDatabase();
+      const accountSetId = useAccountSetStore.getState().getCurrentAccountSet()?.id || '';
+
+      // 1. 查关联的摊销记录
+      const result = db.exec(
+        `SELECT id, entityId, periodAmortization
+         FROM amortizationRecords
+         WHERE voucherId = ? AND entityType = 'prepaid'
+         AND (accountSetId = ? OR accountSetId IS NULL)`,
+        [originalVoucherId, accountSetId]
+      );
+      const rows: SqliteBindable[][] = result[0]?.values ?? [];
+      if (rows.length === 0) return;
+
+      // 2. 回退每条记录对应的费用余额
+      for (const row of rows) {
+        const recordId = String(row[0] ?? '');
+        const entityId = String(row[1] ?? '');
+        const delta = Number(row[2] ?? 0);
+        const expenseResult = db.exec(
+          `SELECT originalAmount, amortizedAmount, amortizedPeriods, amortizationPeriods
+           FROM prepaidExpenses WHERE id = ?`,
+          [entityId]
+        );
+        const expenseRow = expenseResult[0]?.values?.[0];
+        if (expenseRow) {
+          const originalAmount = Number(expenseRow[0]);
+          const newAmortized = Number(expenseRow[1]) - delta;
+          const newPeriods = Number(expenseRow[2]) - 1;
+          const newRemaining = originalAmount - newAmortized;
+          const newStatus = newPeriods <= 0 ? 'not_started' : 'active';
+          const stmt = db.prepare(
+            `UPDATE prepaidExpenses SET
+              amortizedAmount = ?, remainingAmount = ?, amortizedPeriods = ?,
+              lastAmortizationDate = '', status = ?, updateTime = ?
+             WHERE id = ?`
+          );
+          stmt.run([
+            newAmortized, newRemaining, newPeriods,
+            newStatus, new Date().toISOString(), entityId,
+          ]);
+          stmt.free();
+        }
+        // 回退摊销记录状态
+        const revStmt = db.prepare(
+          `UPDATE amortizationRecords SET status = 'draft', voucherId = '', voucherNo = '', updateTime = ? WHERE id = ?`
+        );
+        revStmt.run([new Date().toISOString(), recordId]);
+        revStmt.free();
+      }
+
+      // 3. 同步本地 state
+      await get().initialize();
+    } catch (error: unknown) {
+      console.warn('红冲联动待摊费用失败:', error);
+      throw error;
+    }
   },
 
   // 获取摊销历史

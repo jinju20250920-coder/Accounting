@@ -14,6 +14,7 @@ import { CodeRuleManager, generateCode } from '@/lib/code-generator';
 import { ACCOUNT_CODES } from '@/lib/accounting';
 import { getDefaultAssetTypeSubjectConfig, refreshVoucherStore } from '@/lib/utils';
 import { getAssetDatePeriod, normalizeAssetDate } from '@/lib/asset-date';
+import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
 import type {
   FixedAsset,
   DepreciationRecord,
@@ -94,6 +95,12 @@ interface FixedAssetStore {
   getAssetChangeRecords: (assetId: string) => Promise<AssetChangeRecord[]>;
   logAssetChange: (record: Omit<AssetChangeRecord, 'id' | 'createTime'>) => Promise<void>;
   clearAssetChangeRecords: (assetId: string) => Promise<void>;
+  reverseAssetChangesByVoucherId: (
+    originalVoucherId: string,
+    reversedVoucherId: string,
+    reversedVoucherNo: string,
+    reversalDate: string
+  ) => Promise<void>;
 
   // 校验
   shouldDepreciateThisMonth: (assetId: string, period: string) => boolean;
@@ -996,12 +1003,27 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           const newAccumulated = asset.accumulatedDepreciation + record.periodDepreciation;
           const newNetValue = asset.originalValue - newAccumulated;
 
+          // 时序账日期优先用关联凭证的实际日期，回退到 record.depreciationDate（period-01）
+          let changeDate = record.depreciationDate;
+          let lastDepDate = record.depreciationDate;
+          if (record.voucherId) {
+            try {
+              const linked = await sqliteService.getVoucher(record.voucherId);
+              if (linked?.date) {
+                changeDate = linked.date;
+                lastDepDate = linked.date;
+              }
+            } catch {
+              // 凭证查不到时静默回退到默认日期
+            }
+          }
+
           const stmt2 = db.prepare(
             `UPDATE fixedAssets SET
               accumulatedDepreciation = ?, netValue = ?, lastDepreciationDate = ?, updateTime = ?
             WHERE id = ?`
           );
-          stmt2.run([newAccumulated, newNetValue, record.depreciationDate, new Date().toISOString(), asset.id]);
+          stmt2.run([newAccumulated, newNetValue, lastDepDate, new Date().toISOString(), asset.id]);
           stmt2.free();
 
           await get().logAssetChange({
@@ -1010,7 +1032,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             assetName: asset.assetName,
             accountSetId,
             changeType: 'depreciation',
-            changeDate: record.depreciationDate,
+            changeDate,
             period: record.period,
             fieldName: 'accumulatedDepreciation',
             beforeValue: String(asset.accumulatedDepreciation),
@@ -2284,6 +2306,108 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       console.log('已清空资产变动记录:', assetId);
     } catch (error: any) {
       console.warn('清空资产变动记录失败:', error);
+      throw error;
+    }
+  },
+
+  // 红冲联动：按原凭证 ID 反转所有相关资产变动
+  reverseAssetChangesByVoucherId: async (originalVoucherId, reversedVoucherId, reversedVoucherNo, reversalDate) => {
+    try {
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const accountSetStore = useAccountSetStore.getState();
+      const accountSetId = accountSetStore.getCurrentAccountSet()?.id || '';
+      if (accountSetId) sqliteService.setAccountSetId(accountSetId);
+      const db = await sqliteService.getDatabase();
+      if (!db) throw new Error('数据库未初始化');
+
+      // 1. 查原凭证关联的所有资产变动（排除已有的红冲反向行，避免重复抵消）
+      const result = db.exec(
+        `SELECT id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                fieldName, beforeValue, afterValue,
+                originalValueChange, depreciationChange, originalValueBalance,
+                accumulatedDepreciationBalance, netValueBalance,
+                voucherId, voucherNo, reason, operatorId, createTime
+         FROM assetChangeRecords
+         WHERE voucherId = ? AND accountSetId = ? AND fieldName != 'voucher_reversal'`,
+        [originalVoucherId, accountSetId]
+      );
+
+      const rows: SqliteBindable[][] = result[0]?.values ?? [];
+      if (rows.length === 0) return;
+
+      const period = reversalDate.substring(0, 7);
+
+      // 2. 为每条变动写一条抵消记录，并回退 fixedAssets 余额
+      for (const row of rows) {
+        const assetId = String(row[1] ?? '');
+        const assetCode = String(row[2] ?? '');
+        const assetName = String(row[3] ?? '');
+        const deltaOrig = Number(row[11] ?? 0);
+        const deltaDep = Number(row[12] ?? 0);
+        const origBal = row[13] as number | null;
+        const accDepBal = row[14] as number | null;
+        const netBal = row[15] as number | null;
+        const origVoucherNo = String(row[17] ?? '');
+
+        // 写抵消变动行
+        await get().logAssetChange({
+          assetId,
+          assetCode,
+          assetName,
+          accountSetId,
+          changeType: 'status_change',
+          changeDate: reversalDate,
+          period,
+          fieldName: 'voucher_reversal',
+          beforeValue: origVoucherNo || originalVoucherId,
+          afterValue: reversedVoucherNo,
+          originalValueChange: -deltaOrig,
+          depreciationChange: -deltaDep,
+          originalValueBalance: origBal ?? undefined,
+          accumulatedDepreciationBalance: accDepBal ?? undefined,
+          netValueBalance: netBal ?? undefined,
+          voucherId: reversedVoucherId,
+          voucherNo: reversedVoucherNo,
+          reason: `红冲 ${origVoucherNo || originalVoucherId}`,
+        });
+
+        // 回退 fixedAssets 余额
+        const assetResult = db.exec(
+          `SELECT originalValue, accumulatedDepreciation FROM fixedAssets WHERE id = ?`,
+          [assetId]
+        );
+        const assetRow = assetResult[0]?.values?.[0];
+        if (assetRow) {
+          const newOrig = Number(assetRow[0]) - deltaOrig;
+          const newAccDep = Number(assetRow[1]) - deltaDep;
+          const newNet = newOrig - newAccDep;
+          const stmt = db.prepare(
+            `UPDATE fixedAssets SET originalValue = ?, accumulatedDepreciation = ?, netValue = ?, updateTime = ? WHERE id = ?`
+          );
+          stmt.run([newOrig, newAccDep, newNet, new Date().toISOString(), assetId]);
+          stmt.free();
+        }
+      }
+
+      // 3. 把关联的折旧记录回退到 draft，并清掉 voucherId/voucherNo
+      const depStmt = db.prepare(
+        `UPDATE depreciationRecords SET status = 'draft', voucherId = '', voucherNo = '', updateTime = ?
+         WHERE voucherId = ? AND accountSetId = ?`
+      );
+      depStmt.run([new Date().toISOString(), originalVoucherId, accountSetId]);
+      depStmt.free();
+
+      // 4. 同步本地 state（资产余额 + 折旧记录状态）
+      await get().initialize();
+      set((state) => ({
+        depreciationRecords: state.depreciationRecords.map(r =>
+          r.voucherId === originalVoucherId
+            ? { ...r, status: 'draft' as const, voucherId: undefined, voucherNo: undefined }
+            : r
+        ),
+      }));
+    } catch (error: unknown) {
+      console.warn('红冲联动固定资产失败:', error);
       throw error;
     }
   },

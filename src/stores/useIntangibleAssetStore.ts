@@ -13,6 +13,7 @@
 import { create } from 'zustand';
 import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
+import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
 import {
   calculateAmortization,
   getAmortizationMethodName,
@@ -47,6 +48,7 @@ interface IntangibleAssetStore {
   batchCalculateAmortization: (assetIds: string[], period: string, unitsMap?: Record<string, number>) => BatchAmortizationResult;
   saveAmortizationRecords: (records: AmortizationRecord[]) => Promise<void>;
   postAmortizationRecords: (recordIds: string[]) => Promise<void>;
+  reverseAmortizationByVoucherId: (originalVoucherId: string) => Promise<void>;
 
   // 查询
   getActiveAssets: () => IntangibleAsset[];
@@ -481,6 +483,58 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
   // 获取在用资产
   getActiveAssets: () => {
     return get().assets.filter(a => a.status === 'active');
+  },
+
+  // 红冲联动：按原凭证 ID 回退无形资产摊销
+  reverseAmortizationByVoucherId: async (originalVoucherId) => {
+    try {
+      const db = await getCurrentManager().getDatabase();
+      const accountSetId = useAccountSetStore.getState().getCurrentAccountSet()?.id || '';
+
+      // 1. 查关联的摊销记录
+      const result = db.exec(
+        `SELECT id, entityId, periodAmortization
+         FROM amortizationRecords
+         WHERE voucherId = ? AND entityType = 'intangible'
+         AND (accountSetId = ? OR accountSetId IS NULL)`,
+        [originalVoucherId, accountSetId]
+      );
+      const rows: SqliteBindable[][] = result[0]?.values ?? [];
+      if (rows.length === 0) return;
+
+      // 2. 回退每条记录对应的资产余额
+      for (const row of rows) {
+        const recordId = String(row[0] ?? '');
+        const entityId = String(row[1] ?? '');
+        const delta = Number(row[2] ?? 0);
+        const assetResult = db.exec(
+          `SELECT originalValue, accumulatedAmortization FROM intangibleAssets WHERE id = ?`,
+          [entityId]
+        );
+        const assetRow = assetResult[0]?.values?.[0];
+        if (assetRow) {
+          const newAccumulated = Number(assetRow[1]) - delta;
+          const newNet = Number(assetRow[0]) - newAccumulated;
+          const stmt = db.prepare(
+            `UPDATE intangibleAssets SET accumulatedAmortization = ?, netValue = ?, updateTime = ? WHERE id = ?`
+          );
+          stmt.run([newAccumulated, newNet, new Date().toISOString(), entityId]);
+          stmt.free();
+        }
+        // 回退摊销记录状态
+        const revStmt = db.prepare(
+          `UPDATE amortizationRecords SET status = 'draft', voucherId = '', voucherNo = '', updateTime = ? WHERE id = ?`
+        );
+        revStmt.run([new Date().toISOString(), recordId]);
+        revStmt.free();
+      }
+
+      // 3. 同步本地 state
+      await get().initialize();
+    } catch (error: unknown) {
+      console.warn('红冲联动无形资产失败:', error);
+      throw error;
+    }
   },
 
   // 获取摊销历史

@@ -568,6 +568,18 @@ export default function VoucherListPage() {
     await getCurrentService().saveVoucher(reversedVoucher);
     // 更新原凭证状态为已冲销
     await getCurrentService().updateVoucherStatus(voucher.id, 'reversed');
+    // 联动固定资产/无形资产/待摊费用：原凭证若涉及资产变动或摊销，
+    // 写抵消行 + 回退资产余额 + 折旧/摊销记录回退 draft
+    const { useFixedAssetStore } = await import('@/stores/useFixedAssetStore');
+    const { useIntangibleAssetStore } = await import('@/stores/useIntangibleAssetStore');
+    const { usePrepaidExpenseStore } = await import('@/stores/usePrepaidExpenseStore');
+    await Promise.all([
+      useFixedAssetStore.getState().reverseAssetChangesByVoucherId(
+        voucher.id, reversedVoucher.id, reversedVoucher.voucherNo, reversalDate,
+      ),
+      useIntangibleAssetStore.getState().reverseAmortizationByVoucherId(voucher.id),
+      usePrepaidExpenseStore.getState().reverseAmortizationByVoucherId(voucher.id),
+    ]);
     // 如果是工资计提凭证，解除工资批次与凭证的绑定，便于回到工资管理重新生成
     const { sqliteService } = await import('@/lib/database/sqlite-service');
     const payrollBatch = await sqliteService.getPayrollBatchByVoucherId(voucher.id);
