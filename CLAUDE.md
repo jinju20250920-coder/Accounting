@@ -666,6 +666,10 @@ npm run lint
 - ✅ 期初保存调试与 accountSetId 同步 - setup-step-opening 在 handleSave 入口同步 sqliteService.accountSetId；保存前后增加 console.info 日志（条目数、借贷合计、verify 回读），失败 toast 附带错误消息
 - ✅ 期初页面往来 Tab 改为只读 - 往来单位及余额统一在「往来单位」步骤维护，期初页仅供查看；提示用户回到往来步骤修改
 - ✅ 往来单位 Excel 导入多币别 - PARTNER_IMPORT_HEADERS 新增 币别/期初原币余额/期初汇率/期初本币余额 4 列；导入时若币别非 CNY 则按 原币×汇率 计算本币余额；列表列宽优化（名称/银行账号列加宽）
+- ✅ 往来卡片表单外币期初 - settings/auxiliary/page.tsx 默认币别选非 CNY 时显示"期初原币余额 + 期初汇率"输入框（绑定 Partner.openingForeignBalance/openingExchangeRate），实时预览本币=原币×汇率；切回 CNY 自动清空
+- ✅ 往来明细账原币列 - partner-detail.tsx 新增 币别徽章/原币金额/汇率 3 列，仅外币行显示，CNY 行用 em-dash 占位
+- ✅ 账龄分析表明细原币列 - aging-report.tsx 明细弹窗与 Excel 导出新增 币别/原币金额/汇率 3 列；AgingDetail 类型扩展 currencyCode/originalAmount/exchangeRate 由 getAgingDetails 回填；账龄分桶仍按本币汇总
+- ✅ 核销汇兑损益自动生成 - useClearingStore.processBatchClearing 检测同币别外币对，按借/贷本币差额计算实现汇兑损益（AR: credit-debit；AP: debit-credit），累计后调用 generateFxSettlementVoucher 生成一张汇总凭证，优先计入 660303（汇兑损益）科目，回退到 6603，无科目则跳过；汇兑损益 >=0.01 才入账
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
