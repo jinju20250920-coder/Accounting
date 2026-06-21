@@ -82,6 +82,10 @@ export default function ExchangePage() {
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [detailLines, setDetailLines] = useState<FxRevaluationRunLine[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  // 跟踪当前查看的 period/状态摘要，让用户在切换行时看到明确的视觉反馈
+  const [detailRunMeta, setDetailRunMeta] = useState<{ period: string; status: string } | null>(null);
+  // 防止快速切换多行时 race condition：只采纳最新一次请求的结果
+  const detailRequestRef = useRef<string | null>(null);
 
   const [runsReady, setRunsReady] = useState(false);
   useEffect(() => {
@@ -296,12 +300,31 @@ export default function ExchangePage() {
 
   // ─── 查看历史详情 ───
 
-  const handleViewDetail = useCallback(async (runId: string) => {
+  const handleViewDetail = useCallback(async (runId: string, meta?: { period: string; status: string }) => {
+    // 立即清空旧明细 + 标记 loading，让用户看到明显的"切换"反馈
+    // （否则切换行时旧数据还在显示，用户会以为没反应）
+    setDetailLines([]);
+    setDetailRunMeta(meta ?? null);
     setDetailRunId(runId);
     setDetailLoading(true);
-    const lines = await getRevaluationRunLines(runId);
-    setDetailLines(lines);
-    setDetailLoading(false);
+
+    // race condition 保护：连续点击多行时，只采纳最新请求的结果
+    const reqKey = `${runId}-${Date.now()}`;
+    detailRequestRef.current = reqKey;
+
+    try {
+      const lines = await getRevaluationRunLines(runId);
+      if (detailRequestRef.current !== reqKey) return; // 已被后续点击覆盖
+      setDetailLines(lines);
+    } catch (e) {
+      console.error('Failed to load revaluation run lines:', e);
+      if (detailRequestRef.current !== reqKey) return;
+      setDetailLines([]);
+    } finally {
+      if (detailRequestRef.current === reqKey) {
+        setDetailLoading(false);
+      }
+    }
   }, [getRevaluationRunLines]);
 
   const handleDeleteRun = useCallback(async (id: string) => {
@@ -309,6 +332,7 @@ export default function ExchangePage() {
     if (detailRunId === id) {
       setDetailRunId(null);
       setDetailLines([]);
+      setDetailRunMeta(null);
     }
     showToast('success', '已删除重估记录');
   }, [deleteRevaluationRun, detailRunId]);
@@ -597,10 +621,23 @@ export default function ExchangePage() {
                           </TableCell>
                           <TableCell className="px-2 py-2 text-xs text-slate-500">{formatDateTime(run.createdAt)}</TableCell>
                           <TableCell className="space-x-1 px-2 py-1.5 text-right">
-                            <Button variant="ghost" size="sm" onClick={() => handleViewDetail(run.id)}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              type="button"
+                              title="查看明细"
+                              onClick={() => handleViewDetail(run.id, { period: run.period, status: run.status })}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => handleDeleteRun(run.id)}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              type="button"
+                              title="删除该重估记录"
+                              className="text-red-500 hover:text-red-700"
+                              onClick={() => handleDeleteRun(run.id)}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
@@ -614,10 +651,33 @@ export default function ExchangePage() {
 
             {/* 明细展开 */}
             {detailRunId && (
-              <div className="rounded-lg border bg-white">
+              <div className="rounded-lg border bg-white ring-2 ring-blue-200/60">
                 <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between">
-                  <h3 className="text-sm font-medium">重估明细</h3>
-                  <Button variant="ghost" size="sm" onClick={() => { setDetailRunId(null); setDetailLines([]); }}>收起</Button>
+                  <h3 className="text-sm font-medium">
+                    重估明细
+                    {detailRunMeta && (
+                      <span className="ml-2 text-xs font-normal text-slate-500">
+                        {detailRunMeta.period}
+                        <Badge className="ml-2 text-xs bg-blue-50 text-blue-700">
+                          {detailRunMeta.status === 'confirmed'
+                            ? '已确认'
+                            : detailRunMeta.status === 'posted'
+                              ? '已过账'
+                              : (detailRunMeta.status as string) === 'reversed'
+                                ? '已红冲'
+                                : detailRunMeta.status}
+                        </Badge>
+                      </span>
+                    )}
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    onClick={() => { setDetailRunId(null); setDetailLines([]); setDetailRunMeta(null); }}
+                  >
+                    收起
+                  </Button>
                 </div>
                 {detailLoading ? (
                   <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-slate-400" /></div>
