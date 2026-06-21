@@ -6,7 +6,6 @@ import {
   Eye,
   Loader2,
   RefreshCw,
-  Trash2,
   ArrowRightLeft,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -66,7 +65,6 @@ export default function ExchangePage() {
     initializeFxRates,
     initializeRevaluationRuns,
     saveRevaluationRun,
-    deleteRevaluationRun,
     getRevaluationRunLines,
   } = useCurrencyStore();
 
@@ -326,16 +324,6 @@ export default function ExchangePage() {
       }
     }
   }, [getRevaluationRunLines]);
-
-  const handleDeleteRun = useCallback(async (id: string) => {
-    await deleteRevaluationRun(id);
-    if (detailRunId === id) {
-      setDetailRunId(null);
-      setDetailLines([]);
-      setDetailRunMeta(null);
-    }
-    showToast('success', '已删除重估记录');
-  }, [deleteRevaluationRun, detailRunId]);
 
   // ─── 渲染 ───
 
@@ -620,7 +608,7 @@ export default function ExchangePage() {
                               : '-'}
                           </TableCell>
                           <TableCell className="px-2 py-2 text-xs text-slate-500">{formatDateTime(run.createdAt)}</TableCell>
-                          <TableCell className="space-x-1 px-2 py-1.5 text-right">
+                          <TableCell className="px-2 py-1.5 text-right">
                             <Button
                               variant="ghost"
                               size="sm"
@@ -629,16 +617,6 @@ export default function ExchangePage() {
                               onClick={() => handleViewDetail(run.id, { period: run.period, status: run.status })}
                             >
                               <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              type="button"
-                              title="删除该重估记录"
-                              className="text-red-500 hover:text-red-700"
-                              onClick={() => handleDeleteRun(run.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
                         </TableRow>
