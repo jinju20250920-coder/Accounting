@@ -622,8 +622,19 @@ function AssetCardDialog({
                           const d = new Date(formData.acquisitionDate);
                           const cat = categories.find(c => c.id === formData.categoryId);
                           const isIntangible = cat?.assetType === 'intangible';
-                          const startMonth = isIntangible ? d.getMonth() : d.getMonth() + 1;
-                          return `${d.getFullYear()}-${String(startMonth + 1).padStart(2, '0')}-01`;
+                          const startRule = cat?.depreciationStartRule
+                            || (isIntangible ? 'current_month' : 'next_month');
+                          // 优先用户/setup 显式录入；否则按规则从购置日期推算
+                          // 用 JS Date 让 12月 → 次年1月 自动溢出（避免字符串拼接产生 13 月）
+                          let start: Date;
+                          if (formData.depreciationStartDate) {
+                            const parsed = new Date(formData.depreciationStartDate);
+                            if (!isNaN(parsed.getTime())) start = parsed;
+                            else start = new Date(d.getFullYear(), d.getMonth() + (startRule === 'current_month' ? 0 : 1), 1);
+                          } else {
+                            start = new Date(d.getFullYear(), d.getMonth() + (startRule === 'current_month' ? 0 : 1), 1);
+                          }
+                          return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
                         })()}
                       </span>
                     </div>
