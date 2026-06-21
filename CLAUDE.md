@@ -675,6 +675,9 @@ npm run lint
 - ✅ 调汇失败错误透传 - exchange/page.tsx handleConfirm catch 改为 showToast(error.message)，把期间关账、科目缺失等底层错误直接显示给用户，不再只显示"确认失败"
 - ✅ 调汇红冲后允许重做 - initializeRevaluationRuns 加载 fx_revaluation_runs 时同步关联凭证状态：若 voucher.status=reversed 则把 run.status 也置为 reversed，避免 hasFinalizedFxRevaluationRun 误判为"已入账不能重估"卡住用户重做
 - ✅ 调汇预览银行去重 - loadMonetaryBalances 银行期初回退的 bucket key 从 `${code}-${currency}` 改为 `${code}-${currency}-`，与凭证聚合 key `${code}-${currency}-${partnerName}` 格式对齐；否则两套 key 产生两个 bank 桶，pre 渲染出重复的建行行
+- ✅ 调汇历史状态中文化 - exchange/page.tsx 历史记录 Badge 增加 reversed 分支显示「已红冲」，与「已确认」「已过账」保持中文一致，不再泄漏英文枚举值
+- ✅ 调汇避免跨月重复计算 - loadMonetaryBalances 拆分为 foreignAgg（仅外币分录累加原币）+ baseAgg（所有货币性科目分录累加本币，含 currencyCode='' 的调汇分录），按 (subject, partner) 合并；之前 currencyCode='' 过滤跳过上期调汇分录，导致 6 月账面本币读成原始值，重估出与 5 月完全相同的损失
+- ✅ 调汇 0 差异也展示明细 - buildFxRevaluationPreview 移除 `< 0.005` 过滤，引入 'none' 方向（gainLossDirection 类型扩展为 'gain' | 'loss' | 'none'）；voucher 构建跳过 none 行不生成 0 金额分录；handlePreview 不再因 items 空早返回；净差异 < 0.005 时禁用「确认并生成凭证」并加 tooltip；空状态仅在真无外币余额时显示
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
