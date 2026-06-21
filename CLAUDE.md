@@ -678,6 +678,7 @@ npm run lint
 - ✅ 调汇历史状态中文化 - exchange/page.tsx 历史记录 Badge 增加 reversed 分支显示「已红冲」，与「已确认」「已过账」保持中文一致，不再泄漏英文枚举值
 - ✅ 调汇避免跨月重复计算 - loadMonetaryBalances 拆分为 foreignAgg（仅外币分录累加原币）+ baseAgg（所有货币性科目分录累加本币，含 currencyCode='' 的调汇分录），按 (subject, partner) 合并；之前 currencyCode='' 过滤跳过上期调汇分录，导致 6 月账面本币读成原始值，重估出与 5 月完全相同的损失
 - ✅ 调汇 0 差异也展示明细 - buildFxRevaluationPreview 移除 `< 0.005` 过滤，引入 'none' 方向（gainLossDirection 类型扩展为 'gain' | 'loss' | 'none'）；voucher 构建跳过 none 行不生成 0 金额分录；handlePreview 不再因 items 空早返回；净差异 < 0.005 时禁用「确认并生成凭证」并加 tooltip；空状态仅在真无外币余额时显示
+- ✅ 调汇页面 UI 优化 - KPI 卡片用 formatSignedAmount 统一格式化（abs<0.005 显示 "0.00" 浅灰 text-slate-400，收益 emerald-600/损失 rose-600），字号 text-2xl font-bold；表格 table-fixed + 固定列宽（类型 70px/来源 130px/币种 70px/方向 70px），数字列平分剩余空间消除横向滚动；TabsList 改为 grid-cols-2 w-full max-w-md 通栏；方向 Badge 无差异用 bg-gray-100 text-gray-500 弱化
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
