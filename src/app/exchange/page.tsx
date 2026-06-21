@@ -539,7 +539,13 @@ export default function ExchangePage() {
                           <TableCell className="px-2 py-2 text-xs font-mono">{run.period}</TableCell>
                           <TableCell className="px-2 py-2">
                             <Badge className="text-xs bg-blue-50 text-blue-700">
-                              {run.status === 'confirmed' ? '已确认' : run.status === 'posted' ? '已过账' : run.status}
+                              {run.status === 'confirmed'
+                                ? '已确认'
+                                : run.status === 'posted'
+                                  ? '已过账'
+                                  : (run.status as string) === 'reversed'
+                                    ? '已红冲'
+                                    : run.status}
                             </Badge>
                           </TableCell>
                           <TableCell className="px-2 py-2 text-xs">{run.baseCurrency}</TableCell>
