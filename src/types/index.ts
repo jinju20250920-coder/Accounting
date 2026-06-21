@@ -253,7 +253,7 @@ export interface FxRevaluationRunLine {
   bookValueBase: number;
   revaluedBase: number;
   gainLossAmount: number;
-  gainLossDirection: 'gain' | 'loss';
+  gainLossDirection: 'gain' | 'loss' | 'none';
   subjectCode?: string;
   subjectName?: string;
   createTime?: string;

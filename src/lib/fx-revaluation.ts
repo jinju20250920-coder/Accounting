@@ -66,7 +66,7 @@ export interface FxRevaluationPreviewLine {
   bookValueBase: number;
   revaluedBase: number;
   gainLossAmount: number;
-  gainLossDirection: 'gain' | 'loss';
+  gainLossDirection: 'gain' | 'loss' | 'none';
   subjectCode: string;
   subjectName: string;
 }
@@ -155,7 +155,7 @@ export function buildFxRevaluationPreview(input: FxRevaluationInput): FxRevaluat
       bank.bookValueBase,
       endRate,
     );
-    if (Math.abs(gainLossAmount) < 0.005) continue;
+    // 保留 0 损益行：用户希望看到明细即使无差异，方向标记为 none
     items.push({
       sourceType: 'bank',
       sourceId: bank.accountId,
@@ -167,7 +167,7 @@ export function buildFxRevaluationPreview(input: FxRevaluationInput): FxRevaluat
       bookValueBase: bank.bookValueBase,
       revaluedBase,
       gainLossAmount: Math.abs(gainLossAmount),
-      gainLossDirection: gainLossAmount > 0 ? 'gain' : 'loss',
+      gainLossDirection: Math.abs(gainLossAmount) < 0.005 ? 'none' : (gainLossAmount > 0 ? 'gain' : 'loss'),
       subjectCode: bank.subjectCode,
       subjectName: bank.subjectName,
     });
@@ -185,11 +185,13 @@ export function buildFxRevaluationPreview(input: FxRevaluationInput): FxRevaluat
       item.bookValueBase,
       endRate,
     );
-    if (Math.abs(gainLossAmount) < 0.005) continue;
 
     // 应收是资产：正差额=收益，应付是负债：正差额=损失
+    // 0 损益 → direction=none
     const isAsset = item.moduleName === 'receivable';
-    const direction: 'gain' | 'loss' = (gainLossAmount > 0) === isAsset ? 'gain' : 'loss';
+    const direction: 'gain' | 'loss' | 'none' = Math.abs(gainLossAmount) < 0.005
+      ? 'none'
+      : ((gainLossAmount > 0) === isAsset ? 'gain' : 'loss');
 
     items.push({
       sourceType: item.moduleName,
@@ -251,6 +253,9 @@ export function buildFxRevaluationVoucher(
   let netGainLoss = 0; // 正=净收益，负=净损失
 
   for (const item of preview.items) {
+    // 0 损益行不入凭证
+    if (item.gainLossDirection === 'none') continue;
+
     // 仅 AR/AP 调整分录需要带往来信息，以便明细账/账龄表与总账对齐
     // （CAS 19：货币性项目期末按即期汇率折算，总账与明细账必须相符）
     const partnerFields: Pick<FxRevaluationVoucherEntry, 'customerName' | 'supplierName' | 'auxiliary'> = {};

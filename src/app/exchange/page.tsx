@@ -150,11 +150,8 @@ export default function ExchangePage() {
         gainLossSubjectName: '财务费用-汇兑损失',
       });
 
-      if (preview.items.length === 0) {
-        showToast('info', '所有外币余额无汇兑差异');
-        setLoading(false);
-        return;
-      }
+      // 即使 preview.items 全为 0 损益也展示明细，让用户看到原币余额和重估结果
+      // 仅在 netDifference 为 0 时，凭证预览会被清空（无需入账）
 
       // 5. 转换为 RunLine 格式
       const runId = genId();
@@ -360,7 +357,12 @@ export default function ExchangePage() {
                 预览重估
               </Button>
               {previewLines.length > 0 && (
-                <Button variant="default" onClick={handleConfirm} disabled={loading}>
+                <Button
+                  variant="default"
+                  onClick={handleConfirm}
+                  disabled={loading || !previewSummary || Math.abs(previewSummary.net) < 0.005}
+                  title={previewSummary && Math.abs(previewSummary.net) < 0.005 ? '净差异为 0，无需生成调汇凭证' : undefined}
+                >
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                   确认并生成凭证
                 </Button>
@@ -425,12 +427,18 @@ export default function ExchangePage() {
                         <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
                         <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
                         <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
-                        <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium', line.gainLossDirection === 'gain' ? 'text-green-600' : 'text-red-600')}>
-                          {line.gainLossDirection === 'gain' ? '+' : '-'}{fmtMoney(line.gainLossAmount)}
+                        <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium',
+                          line.gainLossDirection === 'gain' ? 'text-green-600'
+                          : line.gainLossDirection === 'loss' ? 'text-red-600'
+                          : 'text-slate-400')}>
+                          {line.gainLossDirection === 'gain' ? '+' : line.gainLossDirection === 'loss' ? '-' : ''}{fmtMoney(line.gainLossAmount)}
                         </TableCell>
                         <TableCell className="px-2 py-2">
-                          <Badge className={cn('text-xs', line.gainLossDirection === 'gain' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
-                            {line.gainLossDirection === 'gain' ? '收益' : '损失'}
+                          <Badge className={cn('text-xs',
+                            line.gainLossDirection === 'gain' ? 'bg-green-50 text-green-700'
+                            : line.gainLossDirection === 'loss' ? 'bg-red-50 text-red-700'
+                            : 'bg-slate-50 text-slate-500')}>
+                            {line.gainLossDirection === 'gain' ? '收益' : line.gainLossDirection === 'loss' ? '损失' : '无差异'}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -474,8 +482,8 @@ export default function ExchangePage() {
             {previewLines.length === 0 && !loading && (
               <div className="rounded-lg border bg-white p-12 text-center text-slate-400">
                 <RefreshCw className="mx-auto h-8 w-8 mb-2 opacity-50" />
-                <p>{period} 无外币余额需要重估，或该期间已入账</p>
-                <p className="mt-1 text-xs">切换月份会自动重新预览</p>
+                <p>{period} 无外币货币性项目余额</p>
+                <p className="mt-1 text-xs">若有外币业务未入账，请先在凭证中录入；切换月份会自动重新预览</p>
               </div>
             )}
           </TabsContent>
