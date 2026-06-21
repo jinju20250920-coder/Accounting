@@ -227,6 +227,9 @@ export interface FxRevaluationVoucherEntry {
   debit: number;
   credit: number;
   summary: string;
+  customerName?: string;
+  supplierName?: string;
+  auxiliary?: Record<string, string>;
 }
 
 /**
@@ -246,6 +249,17 @@ export function buildFxRevaluationVoucher(
   let netGainLoss = 0; // 正=净收益，负=净损失
 
   for (const item of preview.items) {
+    // 仅 AR/AP 调整分录需要带往来信息，以便明细账/账龄表与总账对齐
+    // （CAS 19：货币性项目期末按即期汇率折算，总账与明细账必须相符）
+    const partnerFields: Pick<FxRevaluationVoucherEntry, 'customerName' | 'supplierName' | 'auxiliary'> = {};
+    if (item.sourceType === 'receivable') {
+      partnerFields.customerName = item.sourceName;
+      partnerFields.auxiliary = { customer: item.sourceName };
+    } else if (item.sourceType === 'payable') {
+      partnerFields.supplierName = item.sourceName;
+      partnerFields.auxiliary = { supplier: item.sourceName };
+    }
+
     if (item.gainLossDirection === 'gain') {
       // 收益：调整科目借方（资产增值），汇兑损益科目贷方
       entries.push({
@@ -254,6 +268,7 @@ export function buildFxRevaluationVoucher(
         debit: item.gainLossAmount,
         credit: 0,
         summary: `汇兑收益-${item.currencyCode} ${item.sourceName}`,
+        ...partnerFields,
       });
       netGainLoss += item.gainLossAmount;
     } else {
@@ -264,6 +279,7 @@ export function buildFxRevaluationVoucher(
         debit: 0,
         credit: item.gainLossAmount,
         summary: `汇兑损失-${item.currencyCode} ${item.sourceName}`,
+        ...partnerFields,
       });
       netGainLoss -= item.gainLossAmount;
     }

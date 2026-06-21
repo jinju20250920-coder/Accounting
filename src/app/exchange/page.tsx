@@ -26,6 +26,7 @@ import { formatVoucherNoForDisplay } from '@/lib/voucher-numbering';
 import {
   buildFxRevaluationPreview,
   buildFxRevaluationVoucher,
+  type FxRevaluationVoucherEntry,
   hasFinalizedFxRevaluationRun,
   getFxRevaluationRunGainLoss,
   type FxRevaluationBankBalance,
@@ -65,7 +66,7 @@ export default function ExchangePage() {
   const [loading, setLoading] = useState(false);
   const [previewLines, setPreviewLines] = useState<FxRevaluationRunLine[]>([]);
   const [previewSummary, setPreviewSummary] = useState<{ totalGain: number; totalLoss: number; net: number } | null>(null);
-  const [voucherEntries, setVoucherEntries] = useState<{ subjectCode: string; subjectName: string; debit: number; credit: number; summary: string }[]>([]);
+  const [voucherEntries, setVoucherEntries] = useState<FxRevaluationVoucherEntry[]>([]);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [detailLines, setDetailLines] = useState<FxRevaluationRunLine[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -224,6 +225,14 @@ export default function ExchangePage() {
         debit: e.debit,
         credit: e.credit,
         summary: e.summary,
+        // 透传往来字段，让明细账/账龄表能读到调整分录（总账与明细账相符）
+        customerName: e.customerName || '',
+        supplierName: e.supplierName || '',
+        auxiliary: e.auxiliary || {},
+        currencyCode: '',
+        currencyName: '',
+        exchangeRate: 0,
+        originalAmount: 0,
       }));
 
       const voucher = {
