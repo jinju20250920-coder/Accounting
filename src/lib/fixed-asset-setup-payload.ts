@@ -8,6 +8,7 @@ export interface FixedAssetSetupRow {
   salvageValue?: number;
   accumulatedDepreciation: number;
   acquisitionDate: string;
+  depreciationStartDate?: string;
   depreciationMethod: string;
   usefulLifeYears: number;
 }
@@ -26,6 +27,7 @@ export interface FixedAssetSetupPayload extends FixedAssetSetupRow {
   depreciationMethod: DepreciationMethod;
   usefulLifeMonths: number;
   remainingDepreciationMonths: number;
+  depreciationStartDate: string;
   status: 'active';
   accountingStatus: 'accounted';
   acquisitionType: 'opening_balance';
@@ -75,6 +77,10 @@ export function buildFixedAssetSetupPayload(input: {
   );
   const depreciableValue = roundMoney(originalValue - salvageValue);
 
+  const acquisitionDate = input.row.acquisitionDate.trim() || input.fallbackDate;
+  // 折旧开始日期：用户在 setup 中显式录入的优先；否则与购置日期一致（后续 FA 卡片会按规则推算）
+  const depreciationStartDate = input.row.depreciationStartDate?.trim() || acquisitionDate;
+
   return {
     id: `${input.accountSetId}_opening_asset_${String(input.index + 1).padStart(4, '0')}`,
     accountSetId: input.accountSetId,
@@ -95,7 +101,8 @@ export function buildFixedAssetSetupPayload(input: {
     usefulLifeYears,
     usefulLifeMonths,
     remainingDepreciationMonths: usefulLifeMonths,
-    acquisitionDate: input.row.acquisitionDate.trim() || input.fallbackDate,
+    acquisitionDate,
+    depreciationStartDate,
     status: 'active',
     accountingStatus: 'accounted',
     acquisitionType: 'opening_balance',

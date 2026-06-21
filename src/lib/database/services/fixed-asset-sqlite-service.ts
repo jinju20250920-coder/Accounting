@@ -30,9 +30,9 @@ const FIXED_ASSET_INSERT_SQL = `
     id, accountSetId, assetCode, assetName, categoryId, categoryName, unit, quantity, remainingQuantity, unitPrice,
     originalValue, salvageValue, depreciableValue, accumulatedDepreciation, netValue,
     depreciationMethod, usefulLifeYears, usefulLifeMonths, remainingDepreciationMonths,
-    acquisitionDate, status, accountingStatus, acquisitionType, isOpeningBalance, initialAccumulatedDepreciation,
+    acquisitionDate, depreciationStartDate, status, accountingStatus, acquisitionType, isOpeningBalance, initialAccumulatedDepreciation,
     createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function text(value: string | undefined | null, fallback = ''): string {
@@ -71,6 +71,7 @@ export function buildFixedAssetInsert(asset: FixedAssetSaveInput, accountSetId: 
       usefulLifeMonths,
       numberValue(asset.remainingDepreciationMonths, usefulLifeMonths),
       text(asset.acquisitionDate),
+      text(asset.depreciationStartDate),
       text(asset.status, 'active'),
       text(asset.accountingStatus, 'accounted'),
       text(asset.acquisitionType, 'opening_balance'),

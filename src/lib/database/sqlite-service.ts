@@ -434,6 +434,8 @@ class SQLiteService {
     await this.migrateBackfillVoucherEntryFxFields();
     // 数据迁移：为科目表回填 isMonetary 字段（按 CAS 19 货币性项目前缀）
     await this.migrateBackfillSubjectIsMonetary();
+    // 数据迁移：为 fixedAssets.depreciationStartDate IS NULL 的行回填（按规则从 acquisitionDate 推算）
+    await this.migrateBackfillFixedAssetDepreciationStartDate();
   }
 
   /**
@@ -607,6 +609,71 @@ class SQLiteService {
       }
     } catch (err) {
       console.error('[Subject isMonetary migration] 失败:', err);
+    }
+  }
+
+  /**
+   * 回填 fixedAssets.depreciationStartDate IS NULL 的行。
+   * 旧的 setup saveFixedAsset 不写此列，FA 卡片虽会按规则推算，但 DB 仍是 NULL；
+   * 这里把隐式值落盘，避免后续查询/UI 出现意外的空值。
+   * 规则：固定资产（categoryId 关联的 category.assetType != 'intangible'）= acquisitionDate + 1月；
+   *      无形资产 = acquisitionDate 当月。
+   */
+  private async migrateBackfillFixedAssetDepreciationStartDate(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const db = this.dbInstance;
+      const rows = db.exec(
+        `SELECT f.id, f.acquisitionDate, f.categoryId,
+                COALESCE(c.assetType, 'fixed') AS assetType,
+                COALESCE(c.depreciationStartRule, '') AS rule
+         FROM fixedAssets f
+         LEFT JOIN assetCategories c ON c.id = f.categoryId
+         WHERE f.depreciationStartDate IS NULL OR f.depreciationStartDate = ''`
+      );
+      const list = rows[0]?.values ?? [];
+      if (list.length === 0) return;
+
+      const formatLocal = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      let updated = 0;
+      for (const row of list) {
+        const id = String(row[0] ?? '');
+        const acquisitionDateStr = String(row[1] ?? '');
+        const assetType = String(row[2] ?? 'fixed');
+        const rule = String(row[3] ?? '');
+        if (!id || !acquisitionDateStr) continue;
+
+        const acquisition = new Date(acquisitionDateStr);
+        if (isNaN(acquisition.getTime())) continue;
+
+        const isIntangible = assetType === 'intangible';
+        const useNextMonth = rule
+          ? rule === 'next_month'
+          : !isIntangible;
+        const startDate = useNextMonth
+          ? new Date(acquisition.getFullYear(), acquisition.getMonth() + 1, 1)
+          : new Date(acquisition.getFullYear(), acquisition.getMonth(), 1);
+        const depreciationStartStr = formatLocal(startDate);
+
+        const upd = db.prepare(
+          `UPDATE fixedAssets SET depreciationStartDate = ?, updateTime = ? WHERE id = ?`
+        );
+        try {
+          upd.run([depreciationStartStr, new Date().toISOString(), id]);
+          updated++;
+        } finally {
+          upd.free();
+        }
+      }
+
+      if (updated > 0) {
+        await this.persist();
+        console.log(`[FA depreciationStartDate migration] 已回填 ${updated} 个资产的折旧开始日期`);
+      }
+    } catch (err) {
+      console.error('[FA depreciationStartDate migration] 失败:', err);
     }
   }
 

@@ -237,17 +237,27 @@ function AssetCardDialog({
     const usefulLifeMonths = (formData.usefulLifeYears || 5) * 12;
     const quantity = formData.quantity || 1;
 
-    // 计算折旧开始日期：固定资产下月开始，无形资产当月开始
+    // 计算折旧开始日期：若用户/setup 已显式录入则优先；否则按规则从购置日期推算
     const acquisitionDate = new Date(formData.acquisitionDate);
     const category = categories.find(c => c.id === formData.categoryId);
     const isIntangible = category?.assetType === 'intangible';
+    const startRule = category?.depreciationStartRule
+      || (isIntangible ? 'current_month' : 'next_month');
 
     let depreciationStartDate: Date;
-    if (isIntangible) {
-      // 无形资产：当月增加，当月开始摊销
+    if (formData.depreciationStartDate) {
+      // 已显式录入（例如 setup 期初录入或编辑时手动指定），直接采用
+      const parsed = new Date(formData.depreciationStartDate);
+      if (!isNaN(parsed.getTime())) {
+        depreciationStartDate = parsed;
+      } else {
+        depreciationStartDate = isIntangible
+          ? new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth(), 1)
+          : new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth() + 1, 1);
+      }
+    } else if (startRule === 'current_month') {
       depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth(), 1);
     } else {
-      // 固定资产：当月增加，下月开始折旧
       depreciationStartDate = new Date(acquisitionDate.getFullYear(), acquisitionDate.getMonth() + 1, 1);
     }
     // 用本地日期格式化（避免 toISOString 时区错位，月初/月末会变成前一天）

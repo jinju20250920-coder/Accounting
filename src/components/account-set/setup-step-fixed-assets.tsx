@@ -43,7 +43,8 @@ const ASSET_IMPORT_HEADERS = [
   { key: 'originalValue' as const, label: '原值', required: true },
   { key: 'salvageValue' as const, label: '残值', required: false },
   { key: 'accumulatedDepreciation' as const, label: '累计折旧金额', required: false },
-  { key: 'acquisitionDate' as const, label: '开始折旧日期', required: false },
+  { key: 'acquisitionDate' as const, label: '购置日期', required: false },
+  { key: 'depreciationStartDate' as const, label: '开始折旧日期', required: false },
   { key: 'depreciationMethod' as const, label: '折旧方法', required: false },
   { key: 'usefulLifeYears' as const, label: '使用年限', required: false },
 ];
@@ -63,6 +64,7 @@ const emptyAssetRow: AssetRow = {
   salvageValue: 0,
   accumulatedDepreciation: 0,
   acquisitionDate: '',
+  depreciationStartDate: '',
   depreciationMethod: 'straight_line',
   usefulLifeYears: 10,
 };
@@ -113,6 +115,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
           salvageValue: a.salvageValue || 0,
           accumulatedDepreciation: a.accumulatedDepreciation,
           acquisitionDate: a.acquisitionDate || '',
+          depreciationStartDate: a.depreciationStartDate || '',
           depreciationMethod: a.depreciationMethod || 'straight_line',
           usefulLifeYears: a.usefulLifeYears || 10,
         })));
@@ -178,6 +181,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
       salvageValue: payload.salvageValue,
       accumulatedDepreciation: payload.accumulatedDepreciation,
       acquisitionDate: payload.acquisitionDate,
+      depreciationStartDate: payload.depreciationStartDate,
       depreciationMethod: payload.depreciationMethod,
       usefulLifeYears: payload.usefulLifeYears,
     };
@@ -221,6 +225,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
       salvageValue: asset.salvageValue || 0,
       accumulatedDepreciation: asset.accumulatedDepreciation,
       acquisitionDate: asset.acquisitionDate,
+      depreciationStartDate: asset.depreciationStartDate || '',
       depreciationMethod: asset.depreciationMethod,
       usefulLifeYears: asset.usefulLifeYears,
     });
@@ -269,6 +274,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
           salvageValue: payload.salvageValue,
           accumulatedDepreciation: payload.accumulatedDepreciation,
           acquisitionDate: payload.acquisitionDate,
+          depreciationStartDate: payload.depreciationStartDate,
           depreciationMethod: payload.depreciationMethod,
           usefulLifeYears: payload.usefulLifeYears,
         };
@@ -328,6 +334,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
           salvageValue: Math.round(Number(row.salvageValue || 0) * 100) / 100,
           accumulatedDepreciation: Math.round(Number(row.accumulatedDepreciation || 0) * 100) / 100,
           acquisitionDate: String(row.acquisitionDate || '').trim(),
+          depreciationStartDate: String(row.depreciationStartDate || '').trim(),
           depreciationMethod: String(row.depreciationMethod || category?.defaultDepreciationMethod || 'straight_line').trim(),
           usefulLifeYears: Number(row.usefulLifeYears) || category?.defaultUsefulLifeYears || 10,
         });
@@ -363,7 +370,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
   const handleDownloadTemplate = () => {
     exportTemplate<AssetRow>(
       '固定资产导入模板',
-      { assetName: '办公电脑', categoryId: '', categoryName: '电子设备', originalValue: 10000, salvageValue: 500, accumulatedDepreciation: 2000, acquisitionDate: '2026-01-01', depreciationMethod: '直线法', usefulLifeYears: 5 },
+      { assetName: '办公电脑', categoryId: '', categoryName: '电子设备', originalValue: 10000, salvageValue: 500, accumulatedDepreciation: 2000, acquisitionDate: '2026-01-01', depreciationStartDate: '2026-02-01', depreciationMethod: '直线法', usefulLifeYears: 5 },
       ASSET_IMPORT_HEADERS,
     );
   };
@@ -395,7 +402,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
 
       <div className="border rounded-lg p-4 bg-slate-50">
         <Label className="text-sm font-medium mb-3 block">新增资产</Label>
-        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 items-end gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 items-end gap-3">
           <div>
             <Label className="text-xs text-slate-500">资产名称 *</Label>
             <Input value={form.assetName} onChange={(event) => updateForm('assetName', event.target.value)} placeholder="办公电脑" className="h-9 text-sm" autoComplete="off" />
@@ -450,8 +457,12 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
             <Input type="number" value={form.accumulatedDepreciation || ''} onChange={(event) => updateForm('accumulatedDepreciation', parseFloat(event.target.value) || 0)} placeholder="0.00" className="h-9 text-sm" autoComplete="off" />
           </div>
           <div>
-            <Label className="text-xs text-slate-500">开始折旧日期</Label>
+            <Label className="text-xs text-slate-500">购置日期</Label>
             <ChineseDatePicker value={form.acquisitionDate} onChange={(value) => updateForm('acquisitionDate', value)} className="w-full" />
+          </div>
+          <div>
+            <Label className="text-xs text-slate-500">开始折旧日期</Label>
+            <ChineseDatePicker value={form.depreciationStartDate} onChange={(value) => updateForm('depreciationStartDate', value)} className="w-full" />
           </div>
           <div>
             <Label className="text-xs text-slate-500">年限</Label>
@@ -494,7 +505,8 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">残值</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">累计折旧金额</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">账面价值</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-36">开始折旧日期</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">购置日期</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">开始折旧日期</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-16">年限</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">折旧方法</th>
                 <th className="px-3 py-2 w-20"></th>
@@ -566,6 +578,13 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                         />
                       </td>
                       <td className="px-2 py-1">
+                        <ChineseDatePicker
+                          value={editForm.depreciationStartDate}
+                          onChange={(v) => updateEditForm('depreciationStartDate', v)}
+                          className="w-full"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
                         <Input type="number" value={editForm.usefulLifeYears || ''} onChange={(e) => updateEditForm('usefulLifeYears', parseInt(e.target.value, 10) || 10)} className="h-8 text-sm text-right" autoComplete="off" />
                       </td>
                       <td className="px-2 py-1">
@@ -601,6 +620,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
                     <td className="px-3 py-2 text-right text-slate-600">{asset.accumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right font-medium text-blue-700">{(asset.originalValue - asset.accumulatedDepreciation).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-slate-600">{asset.acquisitionDate || '-'}</td>
+                    <td className="px-3 py-2 text-slate-600">{asset.depreciationStartDate || asset.acquisitionDate || '-'}</td>
                     <td className="px-3 py-2 text-right text-slate-600">{asset.usefulLifeYears}</td>
                     <td className="px-3 py-2 text-slate-600">
                       {DEPRECIATION_METHODS.find(m => m.value === asset.depreciationMethod)?.label || asset.depreciationMethod}
