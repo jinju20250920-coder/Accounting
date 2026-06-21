@@ -7,6 +7,7 @@ import {
   Loader2,
   RefreshCw,
   ArrowRightLeft,
+  FileText,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
@@ -31,7 +33,7 @@ import {
   type FxRevaluationBankBalance,
   type FxRevaluationOpenItem,
 } from '@/lib/fx-revaluation';
-import type { FxRate, FxRevaluationRun, FxRevaluationRunLine } from '@/types';
+import type { FxRate, FxRevaluationRun, FxRevaluationRunLine, Voucher } from '@/types';
 
 // ─── 工具 ───
 
@@ -84,6 +86,12 @@ export default function ExchangePage() {
   const [detailRunMeta, setDetailRunMeta] = useState<{ period: string; status: string } | null>(null);
   // 防止快速切换多行时 race condition：只采纳最新一次请求的结果
   const detailRequestRef = useRef<string | null>(null);
+
+  // 明细 Dialog 弹窗：替代行内展开，每行点击都打开独立弹窗，避免视觉混淆
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  // 凭证详情 Dialog：凭证号点击时弹出只读详情
+  const [voucherDialogVoucher, setVoucherDialogVoucher] = useState<Voucher | null>(null);
+  const [voucherDialogLoading, setVoucherDialogLoading] = useState(false);
 
   const [runsReady, setRunsReady] = useState(false);
   useEffect(() => {
@@ -305,6 +313,7 @@ export default function ExchangePage() {
     setDetailRunMeta(meta ?? null);
     setDetailRunId(runId);
     setDetailLoading(true);
+    setDetailDialogOpen(true);
 
     // race condition 保护：连续点击多行时，只采纳最新请求的结果
     const reqKey = `${runId}-${Date.now()}`;
@@ -324,6 +333,23 @@ export default function ExchangePage() {
       }
     }
   }, [getRevaluationRunLines]);
+
+  // 凭证详情：根据 voucherId 加载完整凭证并打开 Dialog
+  const handleViewVoucher = useCallback(async (voucherId?: string) => {
+    if (!voucherId) return;
+    setVoucherDialogLoading(true);
+    setVoucherDialogVoucher(null);
+    try {
+      const service = getCurrentService() as any;
+      const voucher = service.getVoucher ? await service.getVoucher(voucherId) : null;
+      setVoucherDialogVoucher(voucher || null);
+    } catch (e) {
+      console.error('Failed to load voucher:', e);
+      setVoucherDialogVoucher(null);
+    } finally {
+      setVoucherDialogLoading(false);
+    }
+  }, []);
 
   // ─── 渲染 ───
 
@@ -596,16 +622,24 @@ export default function ExchangePage() {
                             {gl.loss > 0 ? `-${fmtMoney(gl.loss)}` : '-'}
                           </TableCell>
                           <TableCell className="px-2 py-2 text-xs font-mono">
-                            {run.voucherNo
-                              ? formatVoucherNoForDisplay(
+                            {run.voucherNo ? (
+                              <button
+                                type="button"
+                                className="text-blue-600 hover:underline disabled:text-slate-400 disabled:no-underline"
+                                title="查看凭证详情"
+                                disabled={!run.voucherId}
+                                onClick={() => handleViewVoucher(run.voucherId)}
+                              >
+                                {formatVoucherNoForDisplay(
                                   {
                                     voucherNo: run.voucherNo,
                                     date: getMonthEndDate(run.period),
                                     voucherType: 'general',
                                   },
                                   currentAccountSet?.voucherNumbering,
-                                )
-                              : '-'}
+                                )}
+                              </button>
+                            ) : '-'}
                           </TableCell>
                           <TableCell className="px-2 py-2 text-xs text-slate-500">{formatDateTime(run.createdAt)}</TableCell>
                           <TableCell className="px-2 py-1.5 text-right">
@@ -627,88 +661,102 @@ export default function ExchangePage() {
               </div>
             )}
 
-            {/* 明细展开 */}
-            {detailRunId && (
-              <div className="rounded-lg border bg-white ring-2 ring-blue-200/60">
-                <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between">
-                  <h3 className="text-sm font-medium">
-                    重估明细
-                    {detailRunMeta && (
-                      <span className="ml-2 text-xs font-normal text-slate-500">
-                        {detailRunMeta.period}
-                        <Badge className="ml-2 text-xs bg-blue-50 text-blue-700">
-                          {detailRunMeta.status === 'confirmed'
-                            ? '已确认'
-                            : detailRunMeta.status === 'posted'
-                              ? '已过账'
-                              : (detailRunMeta.status as string) === 'reversed'
-                                ? '已红冲'
-                                : detailRunMeta.status}
-                        </Badge>
+          </TabsContent>
+        </Tabs>
+
+        {/* 明细 Dialog：每行点击都打开独立弹窗，避免行内展开的视觉混淆 */}
+        <Dialog open={detailDialogOpen} onOpenChange={(open) => {
+          setDetailDialogOpen(open);
+          if (!open) {
+            setDetailRunId(null);
+            setDetailLines([]);
+            setDetailRunMeta(null);
+            detailRequestRef.current = null;
+          }
+        }}>
+          <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-blue-600" />
+                重估明细
+                {detailRunMeta && (
+                  <span className="ml-2 text-sm font-normal text-slate-500">
+                    {detailRunMeta.period}
+                    <Badge className="ml-2 text-xs bg-blue-50 text-blue-700">
+                      {detailRunMeta.status === 'confirmed'
+                        ? '已确认'
+                        : detailRunMeta.status === 'posted'
+                          ? '已过账'
+                          : (detailRunMeta.status as string) === 'reversed'
+                            ? '已红冲'
+                            : detailRunMeta.status}
+                    </Badge>
+                  </span>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto">
+              {detailLoading ? (
+                <div className="p-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-slate-400" /></div>
+              ) : detailLines.length > 0 ? (
+                <>
+                  <div className="border-b bg-slate-50 px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">汇兑损益调整金额</span>
+                      <span className={cn('font-semibold tabular-nums', detailGainLossTotal >= 0 ? 'text-green-600' : 'text-red-600')}>
+                        {detailGainLossTotal >= 0 ? '+' : '-'}{fmtMoney(Math.abs(detailGainLossTotal))}
                       </span>
-                    )}
-                  </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    type="button"
-                    onClick={() => { setDetailRunId(null); setDetailLines([]); setDetailRunMeta(null); }}
-                  >
-                    收起
-                  </Button>
-                </div>
-                {detailLoading ? (
-                  <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-slate-400" /></div>
-                ) : detailLines.length > 0 ? (
-                  <>
-                    <div className="border-b bg-slate-50 px-4 py-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-600">汇兑损益调整金额</span>
-                        <span className={cn('font-semibold tabular-nums', detailGainLossTotal >= 0 ? 'text-green-600' : 'text-red-600')}>
-                          {detailGainLossTotal >= 0 ? '+' : '-'}{fmtMoney(Math.abs(detailGainLossTotal))}
-                        </span>
-                      </div>
                     </div>
-                    <Table className="table-fixed">
+                  </div>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">类型</TableHead>
-                      <TableHead className="h-8 w-[20rem] px-2 py-1.5 text-xs">来源</TableHead>
-                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">币种</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">原币余额</TableHead>
-                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">入账汇率</TableHead>
-                      <TableHead className="h-8 w-[5.5rem] px-2 py-1.5 text-right text-xs">调整汇率</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">账面本币</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">重估本币</TableHead>
-                      <TableHead className="h-8 w-28 px-2 py-1.5 text-right text-xs">汇兑损益调整金额</TableHead>
-                      <TableHead className="h-8 w-14 px-2 py-1.5 text-xs">方向</TableHead>
+                        <TableHead className="h-8 w-[70px] px-2 py-1.5 text-xs text-center">类型</TableHead>
+                        <TableHead className="h-8 w-[130px] px-2 py-1.5 text-xs">来源</TableHead>
+                        <TableHead className="h-8 w-[70px] px-2 py-1.5 text-xs text-center">币种</TableHead>
+                        <TableHead className="h-8 px-2 py-1.5 text-right text-xs">原币余额</TableHead>
+                        <TableHead className="h-8 px-2 py-1.5 text-right text-xs">入账汇率</TableHead>
+                        <TableHead className="h-8 px-2 py-1.5 text-right text-xs">调整汇率</TableHead>
+                        <TableHead className="h-8 px-2 py-1.5 text-right text-xs">账面本币</TableHead>
+                        <TableHead className="h-8 px-2 py-1.5 text-right text-xs">重估本币</TableHead>
+                        <TableHead className="h-8 px-2 py-1.5 text-right text-xs">汇兑损益调整金额</TableHead>
+                        <TableHead className="h-8 w-[70px] px-2 py-1.5 text-xs text-center">方向</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {detailLines.map((line) => (
-                        <TableRow key={line.id}>
-                          <TableCell className="px-2 py-2">
-                            <Badge variant="outline" className="text-xs">
-                              {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '资产' : '负债'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
-                          <TableCell className="px-2 py-2 text-xs font-mono">{line.currencyCode}</TableCell>
-                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
-                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
-                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
-                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
-                          <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
-                          <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium', line.gainLossDirection === 'gain' ? 'text-green-600' : 'text-red-600')}>
-                            {fmtMoney(line.gainLossAmount)}
-                          </TableCell>
-                          <TableCell className="px-2 py-2">
-                            <Badge className={cn('text-xs', line.gainLossDirection === 'gain' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
-                              {line.gainLossDirection === 'gain' ? '收益' : '损失'}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {detailLines.map((line) => {
+                        const dir = line.gainLossDirection;
+                        const amountColor = dir === 'gain' ? 'text-emerald-600'
+                          : dir === 'loss' ? 'text-rose-600'
+                          : 'text-slate-400';
+                        return (
+                          <TableRow key={line.id}>
+                            <TableCell className="px-2 py-2 text-center">
+                              <Badge variant="outline" className="text-xs">
+                                {line.sourceType === 'bank' ? '银行' : line.sourceType === 'receivable' ? '资产' : '负债'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="truncate px-2 py-2 text-xs" title={line.sourceName}>{line.sourceName}</TableCell>
+                            <TableCell className="px-2 py-2 text-center text-xs font-mono">{line.currencyCode}</TableCell>
+                            <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.originalAmount)}</TableCell>
+                            <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.originalRate.toFixed(4)}</TableCell>
+                            <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{line.revaluationRate.toFixed(4)}</TableCell>
+                            <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.bookValueBase)}</TableCell>
+                            <TableCell className="px-2 py-2 text-right text-xs tabular-nums">{fmtMoney(line.revaluedBase)}</TableCell>
+                            <TableCell className={cn('px-2 py-2 text-right text-xs tabular-nums font-medium', amountColor)}>
+                              {dir === 'none' ? '0.00' : `${dir === 'gain' ? '+' : '-'}${fmtMoney(line.gainLossAmount)}`}
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-center">
+                              <Badge className={cn('text-xs',
+                                dir === 'gain' ? 'bg-emerald-50 text-emerald-700'
+                                : dir === 'loss' ? 'bg-rose-50 text-rose-700'
+                                : 'bg-gray-100 text-gray-500')}>
+                                {dir === 'gain' ? '收益' : dir === 'loss' ? '损失' : '无差异'}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                     <TableFooter className="border-t bg-slate-50">
                       <TableRow className="hover:bg-slate-50">
@@ -718,7 +766,7 @@ export default function ExchangePage() {
                         <TableCell
                           className={cn(
                             'px-2 py-2 text-right text-xs font-bold tabular-nums',
-                            detailGainLossTotal >= 0 ? 'text-green-600' : 'text-red-600',
+                            detailGainLossTotal >= 0 ? 'text-emerald-600' : 'text-rose-600',
                           )}
                         >
                           {detailGainLossTotal >= 0 ? '+' : '-'}{fmtMoney(Math.abs(detailGainLossTotal))}
@@ -726,16 +774,106 @@ export default function ExchangePage() {
                         <TableCell className="px-2 py-2" />
                       </TableRow>
                     </TableFooter>
-                    </Table>
-                  </>
-                ) : (
-                  <div className="p-6 text-center text-slate-400 text-sm">无明细数据</div>
-                )}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+                  </Table>
+                </>
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-sm">无明细数据</div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* 凭证详情 Dialog */}
+        <Dialog open={!!voucherDialogVoucher || voucherDialogLoading} onOpenChange={(open) => {
+          if (!open) { setVoucherDialogVoucher(null); setVoucherDialogLoading(false); }
+        }}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-blue-600" />
+                {voucherDialogVoucher?.voucherNo || '凭证详情'}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto">
+              {voucherDialogLoading ? (
+                <div className="p-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-slate-400" /></div>
+              ) : voucherDialogVoucher ? (
+                <VoucherReadOnlyView voucher={voucherDialogVoucher} />
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-sm">未找到凭证</div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
+    </div>
+  );
+}
+
+// ─── 只读凭证视图（用于历史详情） ───
+
+function VoucherReadOnlyView({ voucher }: { voucher: Voucher }) {
+  const entries = voucher.entries || [];
+  const debitTotal = entries.reduce((s, e) => s + (e.debit || 0), 0);
+  const creditTotal = entries.reduce((s, e) => s + (e.credit || 0), 0);
+  const statusLabel = voucher.status === 'posted' ? '已记账'
+    : voucher.status === 'reversed' ? '已冲销'
+    : voucher.status === 'review' ? '已审核'
+    : voucher.status === 'draft' ? '草稿'
+    : voucher.status;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <div className="text-xs text-slate-500">日期</div>
+          <div className="font-medium">{voucher.date}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">状态</div>
+          <Badge className="text-xs bg-slate-100 text-slate-700">{statusLabel}</Badge>
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">摘要</div>
+          <div className="font-medium truncate" title={voucher.summary || ''}>{voucher.summary || '-'}</div>
+        </div>
+      </div>
+      <div className="border rounded-lg overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="h-9 text-xs">科目代码</TableHead>
+              <TableHead className="h-9 text-xs">科目名称</TableHead>
+              <TableHead className="h-9 text-xs">摘要</TableHead>
+              <TableHead className="h-9 text-xs">往来</TableHead>
+              <TableHead className="h-9 text-xs text-right">借方</TableHead>
+              <TableHead className="h-9 text-xs text-right">贷方</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entries.filter(e => e.subjectCode || e.debit > 0 || e.credit > 0).map((e) => (
+              <TableRow key={e.id}>
+                <TableCell className="text-xs font-mono">{e.subjectCode || '-'}</TableCell>
+                <TableCell className="text-xs">{e.subjectName || '-'}</TableCell>
+                <TableCell className="text-xs text-slate-500">{e.summary || '-'}</TableCell>
+                <TableCell className="text-xs text-slate-500">{e.auxiliary?.customer || e.auxiliary?.supplier || e.customerName || e.supplierName || ''}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums">{e.debit > 0 ? fmtMoney(e.debit) : ''}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums">{e.credit > 0 ? fmtMoney(e.credit) : ''}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow className="bg-slate-50 font-medium">
+              <TableCell colSpan={4} className="text-xs">合计</TableCell>
+              <TableCell className="text-xs text-right tabular-nums text-blue-600">{fmtMoney(debitTotal)}</TableCell>
+              <TableCell className="text-xs text-right tabular-nums text-blue-600">{fmtMoney(creditTotal)}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      {voucher.createTime && (
+        <div className="text-xs text-slate-400 text-right">
+          创建时间：{new Date(voucher.createTime).toLocaleString('zh-CN')}
+        </div>
+      )}
     </div>
   );
 }
