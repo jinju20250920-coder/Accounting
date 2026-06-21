@@ -36,6 +36,10 @@ export interface FxRevaluationOpenItem {
   lockedRate?: number;
   subjectCode: string;
   subjectName: string;
+  /** 桶内原始发票分录 ID（CSV 写入调汇分录 sourceEntryId，留审计链路） */
+  sourceEntryIds?: string[];
+  /** 桶内原始发票凭证日期（账龄计算用 MIN） */
+  sourceDates?: string[];
 }
 
 export interface FxRevaluationInput {
@@ -69,6 +73,10 @@ export interface FxRevaluationPreviewLine {
   gainLossDirection: 'gain' | 'loss' | 'none';
   subjectCode: string;
   subjectName: string;
+  /** AR/AP 行携带：原始发票分录 ID 列表 */
+  sourceEntryIds?: string[];
+  /** AR/AP 行携带：原始发票凭证日期列表 */
+  sourceDates?: string[];
 }
 
 export interface FxRevaluationPreview {
@@ -207,6 +215,8 @@ export function buildFxRevaluationPreview(input: FxRevaluationInput): FxRevaluat
       gainLossDirection: direction,
       subjectCode: item.subjectCode,
       subjectName: item.subjectName,
+      sourceEntryIds: item.sourceEntryIds,
+      sourceDates: item.sourceDates,
     });
   }
 
@@ -234,6 +244,10 @@ export interface FxRevaluationVoucherEntry {
   customerName?: string;
   supplierName?: string;
   auxiliary?: Record<string, string>;
+  /** CSV 多 ID，用于追溯原始发票分录 */
+  sourceEntryId?: string;
+  /** 原始发票最早日期（账龄分桶用） */
+  sourceVoucherDate?: string;
 }
 
 /**
@@ -258,13 +272,23 @@ export function buildFxRevaluationVoucher(
 
     // 仅 AR/AP 调整分录需要带往来信息，以便明细账/账龄表与总账对齐
     // （CAS 19：货币性项目期末按即期汇率折算，总账与明细账必须相符）
-    const partnerFields: Pick<FxRevaluationVoucherEntry, 'customerName' | 'supplierName' | 'auxiliary'> = {};
+    const partnerFields: Pick<FxRevaluationVoucherEntry, 'customerName' | 'supplierName' | 'auxiliary' | 'sourceEntryId' | 'sourceVoucherDate'> = {};
     if (item.sourceType === 'receivable') {
       partnerFields.customerName = item.sourceName;
       partnerFields.auxiliary = { customer: item.sourceName };
     } else if (item.sourceType === 'payable') {
       partnerFields.supplierName = item.sourceName;
       partnerFields.auxiliary = { supplier: item.sourceName };
+    }
+    if (item.sourceType === 'receivable' || item.sourceType === 'payable') {
+      // 写入原始发票追溯信息：sourceEntryId (CSV) + sourceVoucherDate (MIN 日期)
+      // 账龄计算时回退到原始发票日期，确保调汇分录与原始发票落到同一桶
+      if (item.sourceEntryIds && item.sourceEntryIds.length > 0) {
+        partnerFields.sourceEntryId = item.sourceEntryIds.join(',');
+      }
+      if (item.sourceDates && item.sourceDates.length > 0) {
+        partnerFields.sourceVoucherDate = item.sourceDates.slice().sort()[0];
+      }
     }
 
     if (item.gainLossDirection === 'gain') {

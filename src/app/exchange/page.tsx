@@ -252,6 +252,9 @@ export default function ExchangePage() {
         currencyName: '',
         exchangeRate: 0,
         originalAmount: 0,
+        // 透传原始发票追溯信息：账龄分桶回退到原始日期，与原发票同区间
+        sourceEntryId: e.sourceEntryId,
+        sourceVoucherDate: e.sourceVoucherDate,
       }));
 
       const voucher = {
@@ -955,6 +958,8 @@ async function loadMonetaryBalances(
     currencyCode: string;
     partnerName: string; // customerName 或 supplierName，空串表示无往来
     totalOriginal: number;
+    sourceEntryIds: string[];
+    sourceDates: string[];
   }>();
   const baseAgg = new Map<string, number>(); // key: `${subjectCode}-${partnerName}` → 本币累计
 
@@ -997,9 +1002,18 @@ async function loadMonetaryBalances(
             currencyCode: cur,
             partnerName,
             totalOriginal: 0,
+            sourceEntryIds: [],
+            sourceDates: [],
           };
           const sign = debit > 0 ? 1 : -1;
           existing.totalOriginal += (entry.originalAmount || 0) * sign;
+          // 仅捕获原始发票分录（跳过历史调汇分录，避免污染 MIN 日期）
+          // 银行类不参与账龄，但保持一致也捕获（输出阶段仅 AR/AP 透传到 openItems）
+          const summaryStr = String(entry.summary || '');
+          if (!summaryStr.startsWith('汇兑') && entry.id) {
+            existing.sourceEntryIds.push(entry.id);
+            existing.sourceDates.push(voucherDate);
+          }
           foreignAgg.set(key, existing);
         }
       }
@@ -1026,6 +1040,8 @@ async function loadMonetaryBalances(
           currencyCode: currency,
           partnerName: '',
           totalOriginal: 0,
+          sourceEntryIds: [],
+          sourceDates: [],
         };
         if (Math.abs(existing.totalOriginal) < 0.005) existing.totalOriginal = row.foreignBalance;
         foreignAgg.set(key, existing);
@@ -1051,6 +1067,8 @@ async function loadMonetaryBalances(
     partnerName: string;
     totalOriginal: number;
     totalBase: number;
+    sourceEntryIds: string[];
+    sourceDates: string[];
   }>();
   for (const [key, data] of foreignAgg) {
     const baseKey = `${data.subjectCode}-${data.partnerName}`;
@@ -1091,6 +1109,8 @@ async function loadMonetaryBalances(
         bookValueBase: data.totalBase,
         subjectCode: data.subjectCode,
         subjectName: data.subjectName,
+        sourceEntryIds: data.sourceEntryIds,
+        sourceDates: data.sourceDates,
       });
     }
   }

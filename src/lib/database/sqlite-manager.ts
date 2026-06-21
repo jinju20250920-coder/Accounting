@@ -556,6 +556,8 @@ class SQLiteManager {
         accountSetId TEXT,
         createTime TEXT,
         updateTime TEXT,
+        sourceEntryId TEXT,
+        sourceVoucherDate TEXT,
         FOREIGN KEY (voucherId) REFERENCES vouchers(id),
         FOREIGN KEY (accountSetId) REFERENCES accountSets(id)
       );

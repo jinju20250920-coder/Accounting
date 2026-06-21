@@ -46,6 +46,8 @@ export interface VoucherEntryRow {
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
+  sourceEntryId: string | null;
+  sourceVoucherDate: string | null;
 }
 
 // ── Query service interface ──
@@ -82,6 +84,8 @@ export function mapVoucherEntryRow(row: VoucherEntryRow): VoucherEntry {
     recRefNo: text(row.recRefNo),
     auxiliary: row.auxiliary ? JSON.parse(row.auxiliary) : {},
     accountSetId: row.accountSetId,
+    sourceEntryId: text(row.sourceEntryId) || undefined,
+    sourceVoucherDate: text(row.sourceVoucherDate) || undefined,
   };
 }
 
@@ -117,8 +121,8 @@ const ENTRY_INSERT_SQL = `
     summary, customerName, supplierName, auxiliary, recRefNo,
     departmentCode, departmentName, projectCode, projectName,
     currencyCode, currencyName, exchangeRate, originalAmount, date, accountSetId,
-    createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    createTime, updateTime, sourceEntryId, sourceVoucherDate
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 // ── Write operations (use db.prepare directly for transactions) ──
@@ -170,6 +174,8 @@ export function buildEntryInsertParams(entry: VoucherEntry, voucherId: string, a
     accountSetId,
     now,
     now,
+    entry.sourceEntryId || '',
+    entry.sourceVoucherDate || '',
   ];
 }
 

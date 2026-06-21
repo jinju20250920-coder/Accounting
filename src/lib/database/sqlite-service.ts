@@ -2782,6 +2782,8 @@ class SQLiteService {
       if (!columns.includes('accountSetId')) addColumns.push('ALTER TABLE entries ADD COLUMN accountSetId TEXT');
       if (!columns.includes('createTime')) addColumns.push('ALTER TABLE entries ADD COLUMN createTime TEXT');
       if (!columns.includes('updateTime')) addColumns.push('ALTER TABLE entries ADD COLUMN updateTime TEXT');
+      if (!columns.includes('sourceEntryId')) addColumns.push('ALTER TABLE entries ADD COLUMN sourceEntryId TEXT');
+      if (!columns.includes('sourceVoucherDate')) addColumns.push('ALTER TABLE entries ADD COLUMN sourceVoucherDate TEXT');
       for (const sql of addColumns) {
         this.dbInstance.exec(sql);
       }

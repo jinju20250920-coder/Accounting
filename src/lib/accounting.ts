@@ -733,7 +733,7 @@ export function calculateAgingData(
         }
       }
 
-      const days = calculateDaysDifference(entry.date, config.asOfDate);
+      const days = calculateDaysDifference(entry.sourceVoucherDate || entry.date, config.asOfDate);
       const bucket = getAgingBucket(days, config.mode, config.useCustomBuckets, config.customBuckets);
 
       result.totalAmount += remainingAmount;
@@ -796,7 +796,7 @@ export function getAgingDetails(
       return;
     }
 
-    const days = calculateDaysDifference(entry.date, config.asOfDate);
+    const days = calculateDaysDifference(entry.sourceVoucherDate || entry.date, config.asOfDate);
     const bucket = getAgingBucket(days, config.mode, config.useCustomBuckets, config.customBuckets);
 
     // 按账龄区间筛选

@@ -97,6 +97,8 @@ export interface VoucherEntry {
   accountSetId?: string; // 新增字段：所属账套ID
   docNo?: string; // 业务单据号（发票号、银行流水号等）
   recRefNo?: string; // 核销单号（为后续核销系统预留）
+  sourceEntryId?: string; // 源分录 ID（CSV 多 ID），用于调汇分录追溯原始发票
+  sourceVoucherDate?: string; // 源凭证日期（账龄计算用，调汇分录取原始发票最早日期）
 }
 
 // 科目余额
