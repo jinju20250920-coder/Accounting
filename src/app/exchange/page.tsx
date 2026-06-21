@@ -275,7 +275,11 @@ export default function ExchangePage() {
       showToast('success', `已生成凭证 ${voucherNo}`);
     } catch (error) {
       console.error('Confirm failed:', error);
-      showToast('error', '确认失败');
+      // 把底层错误透传到前端（如期间关账、科目缺失等），避免只显示"确认失败"让人摸不着头脑
+      const message = error instanceof Error && error.message
+        ? error.message
+        : (typeof error === 'string' ? error : '确认失败');
+      showToast('error', message);
     } finally {
       setLoading(false);
     }
@@ -727,11 +731,14 @@ async function loadMonetaryBalances(
     console.warn('loadMonetaryBalances: 银行绑定加载失败', e);
   }
 
-  // 3. 聚合外币分录 by (subjectCode, currencyCode)
+  // 3. 聚合外币分录 by (subjectCode, currencyCode, partnerName)
+  // 必须保留往来单位名，否则后续 buildFxRevaluationVoucher 无法把调整分录挂到客户/供应商，
+  // 期末调汇后总账与明细账无法相符（CAS 19）。
   const agg = new Map<string, {
     subjectCode: string;
     subjectName: string;
     currencyCode: string;
+    partnerName: string; // customerName 或 supplierName，空串表示无往来
     totalOriginal: number;
     totalBase: number;
   }>();
@@ -748,12 +755,22 @@ async function loadMonetaryBalances(
         const code = (entry.subjectCode || '');
         if (!code || !monetarySubjects.has(code)) continue;
 
-        const key = `${code}-${entry.currencyCode}`;
+        // 提取往来单位名：优先 customerName/supplierName，回退到 auxiliary.customer/supplier
+        const partnerName = String(
+          entry.customerName
+          || entry.supplierName
+          || entry.auxiliary?.customer
+          || entry.auxiliary?.supplier
+          || '',
+        );
+
+        const key = `${code}-${entry.currencyCode}-${partnerName}`;
         const subjectInfo = monetarySubjects.get(code)!;
         const existing = agg.get(key) || {
           subjectCode: code,
           subjectName: entry.subjectName || subjectInfo.name,
           currencyCode: entry.currencyCode,
+          partnerName,
           totalOriginal: 0,
           totalBase: 0,
         };
@@ -783,6 +800,7 @@ async function loadMonetaryBalances(
           subjectCode: code,
           subjectName: binding?.subSubjectName || '银行存款',
           currencyCode: currency,
+          partnerName: '',
           totalOriginal: 0,
           totalBase: 0,
         };
@@ -824,7 +842,7 @@ async function loadMonetaryBalances(
       openItems.push({
         itemId: key,
         moduleName: isAsset ? 'receivable' : 'payable',
-        partnerName: data.subjectName,
+        partnerName: data.partnerName || data.subjectName,
         currencyCode: data.currencyCode,
         originalAmount: data.totalOriginal,
         bookValueBase: data.totalBase,
