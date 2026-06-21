@@ -946,7 +946,15 @@ export default function FixedAssetsPage() {
   const [codeRule, setCodeRule] = useState<CodeRule | null>(null);
 
   useEffect(() => {
-    initialize();
+    const init = async () => {
+      await initialize();
+      const state = useFixedAssetStore.getState();
+      if (state.categories.length === 0) {
+        await state.initializeDefaultCategories();
+        await initialize();
+      }
+    };
+    init();
   }, [initialize]);
 
   // 加载编码规则
