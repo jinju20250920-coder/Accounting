@@ -684,6 +684,8 @@ npm run lint
 - ✅ 调汇凭证号可点击 + 明细 Dialog 化 - 凭证号改为蓝色下划线按钮，点击通过 run.voucherId 调 getVoucher 加载完整凭证，弹出只读 VoucherReadOnlyView Dialog（日期/状态/摘要/分录表/合计）；明细从行内展开改为独立 Dialog，每行点击都打开新弹窗，避免行内展开时切换行数据相同用户感觉"没反应"
 - ✅ 调汇分录账期跟随原始发票 - VoucherEntry 新增 sourceEntryId/sourceVoucherDate 字段（entries 表 schema + 迁移 + CRUD），buildFxRevaluationVoucher 对 AR/AP 调整分录写入 CSV sourceEntryId 与 MIN 日期 sourceVoucherDate，loadMonetaryBalances 按往来分桶捕获原始发票分录 ID 与日期，calculateAgingData/getAgingDetails 优先用 sourceVoucherDate 计算账龄。CAS 19 货币性项目调汇不再让汇兑差额落入"未逾期"桶，与原始发票同账期对齐
 - ✅ 红冲凭证日期一致性 - createReverseVoucher 默认 reverseDate 改用原凭证日期（fallback 链：参数→原日期→今天），usePeriodManagementStore 新增 getPeriodByYearMonth/isPeriodClosed，新建 ReverseVoucherDialog（ChineseDatePicker + 「用原日期/用今天」快捷 ghost 按钮 + 跨月黄色警告 + 关账红色拦截 + 双重校验），voucher-list handleReverse 改为弹 Dialog 让用户确认日期，避免跨月红冲造成历史月份余额停留在调汇后状态
+- ✅ 红冲联动资产时序账 - voucher-list handleReverseConfirm 新增 Promise.all 并行调用三个 store 的 reverseAssetChangesByVoucherId / reverseAmortizationByVoucherId：FA 写 fieldName='voucher_reversal' 反向变动行 + UPDATE fixedAssets 回退原值/累计折旧/净值 + depreciationRecords 回退 draft；无形资产和待摊费用按 voucherId 查 amortizationRecords，UPDATE 实体表余额回退 + amortizationRecords 回退 draft。避免总账红冲后辅助账停留在原凭证入账状态
+- ✅ 固定资产时序账日期跟随凭证 - postDepreciationRecords 中按 record.voucherId 查 voucher 实际日期作为 changeDate / lastDepreciationDate，缺失才回退 ${period}-01，避免「凭证 5/31 但 FA 明细 6/01」的显示不一致
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
