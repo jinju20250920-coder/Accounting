@@ -278,7 +278,9 @@
       "Bash(iconv -f gbk -t utf-8)",
       "Bash(npx shadcn@latest add accordion -y)",
       "Bash(npx.cmd tsc *)",
-      "Bash(npx.cmd eslint *)"
+      "Bash(npx.cmd eslint *)",
+      "mcp__ide__getDiagnostics",
+      "Bash(awk *)"
     ]
   }
 }

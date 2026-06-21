@@ -557,10 +557,9 @@ class SQLiteService {
    */
   private async migrateBackfillSubjectIsMonetary(): Promise<void> {
     if (!this.dbInstance) return;
-    if (typeof localStorage !== 'undefined') {
-      const flag = 'subject_monetary_migration_done_' + this.accountSetId;
-      if (localStorage.getItem(flag) === '1') return;
-    }
+    // 不再用 localStorage 短路：迁移本身只更新 isMonetary=0 的行，SQL 级幂等。
+    // 这样在 setup 之后新建的银行/应收/应付等子科目也会被补齐 isMonetary，避免期
+    // 末汇兑损益预览把它们误过滤掉。
 
     try {
       const probe = this.dbInstance.exec('SELECT 1');
@@ -605,10 +604,6 @@ class SQLiteService {
       if (updated > 0) {
         await this.persist();
         console.log(`[Subject isMonetary migration] 已回填 ${updated} 个科目的 isMonetary 字段`);
-      }
-
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('subject_monetary_migration_done_' + this.accountSetId, '1');
       }
     } catch (err) {
       console.error('[Subject isMonetary migration] 失败:', err);

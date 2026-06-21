@@ -584,8 +584,9 @@ export function JournalTable({
   ];
 
   const hasAnyData = statusCounts.pending + statusCounts.matched + statusCounts.posted > 0;
+  const hasOpening = openingBalance !== 0;
 
-  if (!hasAnyData && !loading) {
+  if (!hasAnyData && !hasOpening && !loading) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-8 text-center text-slate-400">
         暂无流水数据，请导入银行流水
@@ -678,17 +679,17 @@ export function JournalTable({
         </div>
 
         {/* Opening balance row */}
-        <div className="flex items-center px-3 py-2 bg-slate-50/50 border-b border-slate-200 text-xs text-slate-500">
+        <div className="flex items-center px-3 py-2.5 bg-amber-50/70 border-b border-amber-200 text-sm text-slate-700">
           <span className="w-8 shrink-0" />
           <span className="w-10 shrink-0" />
           <span className="w-14 shrink-0">{formatDate(periodStart)}</span>
-          <span className="w-28 font-medium shrink-0">期初余额</span>
+          <span className="w-28 font-semibold text-amber-800 shrink-0">银行期初余额</span>
           <span className="w-24 shrink-0" />
-          <span className="flex-1 min-w-[120px] text-slate-400 shrink-0">(系统自动)</span>
+          <span className="flex-1 min-w-[120px] text-slate-400 text-xs shrink-0">(账套设置录入)</span>
           <span className="w-24 text-right shrink-0">-</span>
           <span className="w-24 text-right shrink-0">-</span>
-          <span className="w-28 text-right font-medium text-slate-700 shrink-0">{formatMoney(openingBalance)}</span>
-          <span className="w-20 flex justify-center shrink-0"><Lock className="h-3 w-3 text-slate-400" /></span>
+          <span className="w-28 text-right font-semibold text-slate-800 shrink-0">{formatMoney(openingBalance)}</span>
+          <span className="w-20 flex justify-center shrink-0"><Lock className="h-3.5 w-3.5 text-amber-500" /></span>
           {isForeignAccount && (
             <span
               className="w-14 text-center shrink-0"
@@ -714,7 +715,9 @@ export function JournalTable({
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-sm">加载中...</div>
         ) : entriesWithBalance.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">暂无流水数据</div>
+          <div className="p-8 text-center text-slate-400 text-sm">
+            {openingBalance !== 0 ? '本期暂无银行流水（仅显示期初余额）' : '暂无流水数据，请导入银行流水'}
+          </div>
         ) : (
           entriesWithBalance.map((entry, idx) => {
             const globalNo = (page - 1) * pageSize + idx + 1;

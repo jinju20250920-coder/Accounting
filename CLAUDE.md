@@ -658,6 +658,14 @@ npm run lint
 - ✅ 授权管理对话框 UI 重构 - 白色系统风格 DialogHeader + 图标徽章 + 输入框 h-11 + "可选" Badge + 套餐卡片含 CheckCircle2 功能列表 + 永久授权后缀
 - ✅ 永久授权套餐 - defaultPricingPlans 改为 ¥199/1账套、¥299/5账套、¥399/不限账套（永久）；PricingPlan.duration 增加 'lifetime' 类型；UI 按 duration 显示 / 永久 | / 年 | / 月
 - ✅ pricingPlans 不持久化 - partialize 移除 pricingPlans + merge/migrate 丢弃旧缓存，保证套餐配置永远以代码 defaultPricingPlans 为准（version: 2）
+- ✅ 资金管理控制台期初行可见 - JournalTable 早返回条件改为「无流水且无期初余额」才显示空状态，避免有银行期初但无流水时整张表被吞；期初行改为黄色高亮（bg-amber-50/70 + 锁图标），与正常流水行视觉区分
+- ✅ 银行子科目默认标记为货币性 - setup-step-bank 保存 1002 子科目时显式写入 isMonetary=true，期末汇兑损益预览能正确识别新建银行账户
+- ✅ isMonetary 迁移移除 localStorage 短路 - migrateBackfillSubjectIsMonetary 不再依赖 localStorage 标记，迁移本身只更新 isMonetary=0 的行（SQL 级幂等），确保账套初始化后新建的银行/应收/应付子科目也能被回填
+- ✅ 汇兑损益页自动预览 - 月份/账套切换时若当前期间未入账，自动触发 handlePreview；空状态文案从「选择会计期间后点击预览重估」改为「无外币余额需要重估，或该期间已入账」
+- ✅ 汇兑损益历史 scope 切换 - 历史 Tab 新增「当前期间 / 全部期间」切换按钮，默认仅显示当前月份的历史记录
+- ✅ 期初保存调试与 accountSetId 同步 - setup-step-opening 在 handleSave 入口同步 sqliteService.accountSetId；保存前后增加 console.info 日志（条目数、借贷合计、verify 回读），失败 toast 附带错误消息
+- ✅ 期初页面往来 Tab 改为只读 - 往来单位及余额统一在「往来单位」步骤维护，期初页仅供查看；提示用户回到往来步骤修改
+- ✅ 往来单位 Excel 导入多币别 - PARTNER_IMPORT_HEADERS 新增 币别/期初原币余额/期初汇率/期初本币余额 4 列；导入时若币别非 CNY 则按 原币×汇率 计算本币余额；列表列宽优化（名称/银行账号列加宽）
 
 ### 待完善功能
 1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Eye,
@@ -70,6 +70,7 @@ export default function ExchangePage() {
   const [detailLines, setDetailLines] = useState<FxRevaluationRunLine[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const [runsReady, setRunsReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -79,7 +80,8 @@ export default function ExchangePage() {
       } catch {}
       if (cancelled) return;
       initializeFxRates();
-      initializeRevaluationRuns();
+      await initializeRevaluationRuns();
+      if (!cancelled) setRunsReady(true);
     })();
     return () => { cancelled = true; };
   }, [accountSetId]);
@@ -90,9 +92,12 @@ export default function ExchangePage() {
     return revaluationRuns.filter((r) => r.period === period);
   }, [revaluationRuns, period]);
 
+  const [historyScope, setHistoryScope] = useState<'current' | 'all'>('current');
   const allRuns = useMemo(() => {
-    return [...revaluationRuns].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-  }, [revaluationRuns]);
+    const sorted = [...revaluationRuns].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    if (historyScope === 'all') return sorted;
+    return sorted.filter(r => r.period === period);
+  }, [revaluationRuns, historyScope, period]);
 
   const handlePreview = useCallback(async () => {
     if (!period) return;
@@ -184,6 +189,17 @@ export default function ExchangePage() {
       setLoading(false);
     }
   }, [period, accountSetId, baseCurrency, periodRuns, showToast]);
+
+  // 月份/账套切换时自动预览（revaluation runs 就绪 + 当前期间未入账时）
+  const autoPreviewRanRef = useRef<string>('');
+  useEffect(() => {
+    if (!runsReady || !period) return;
+    const key = `${accountSetId}|${period}`;
+    if (autoPreviewRanRef.current === key) return;
+    if (hasFinalizedFxRevaluationRun(periodRuns, period)) return;
+    autoPreviewRanRef.current = key;
+    void handlePreview();
+  }, [runsReady, period, accountSetId, periodRuns, handlePreview]);
 
   // ─── 确认并生成凭证 ───
 
@@ -445,7 +461,8 @@ export default function ExchangePage() {
             {previewLines.length === 0 && !loading && (
               <div className="rounded-lg border bg-white p-12 text-center text-slate-400">
                 <RefreshCw className="mx-auto h-8 w-8 mb-2 opacity-50" />
-                <p>选择会计期间后点击"预览重估"</p>
+                <p>{period} 无外币余额需要重估，或该期间已入账</p>
+                <p className="mt-1 text-xs">切换月份会自动重新预览</p>
               </div>
             )}
           </TabsContent>
@@ -453,7 +470,34 @@ export default function ExchangePage() {
           {/* 历史 Tab */}
           <TabsContent value="history" className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-800">历史记录 ({allRuns.length})</h2>
+              <h2 className="text-sm font-semibold text-slate-800">
+                历史记录 ({allRuns.length})
+                {historyScope === 'current' && (
+                  <span className="ml-2 text-xs font-normal text-slate-500">仅 {period}</span>
+                )}
+              </h2>
+              <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setHistoryScope('current')}
+                  className={cn(
+                    'rounded px-2.5 py-1 text-xs transition-colors',
+                    historyScope === 'current' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100',
+                  )}
+                >
+                  当前期间
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryScope('all')}
+                  className={cn(
+                    'rounded px-2.5 py-1 text-xs transition-colors',
+                    historyScope === 'all' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100',
+                  )}
+                >
+                  全部期间
+                </button>
+              </div>
             </div>
             {allRuns.length === 0 ? (
               <div className="rounded-lg border bg-white p-10 text-center text-slate-400">

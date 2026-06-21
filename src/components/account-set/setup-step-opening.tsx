@@ -653,9 +653,13 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
   // ==================== Unified Save ====================
 
   const handleSave = async () => {
-    if (!isBalanced) {
-      showToast('error', `期初借贷不平衡，差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，请补录对方科目（如实收资本）`);
+    if (!canSaveOpening) {
+      showToast('error', `期初借贷不平衡，差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，请补录对方科目（如实收资本）或选择补平科目`);
       return;
+    }
+
+    if (sqliteService.accountSetId !== accountSetId) {
+      sqliteService.setAccountSetId(accountSetId);
     }
 
     setLoading(true);
@@ -795,7 +799,11 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         }
       }
 
-      if (!isBalanced && adjustmentSubject.code) {
+      const needsAdjustment = !openingAnalysis.isBalanced
+        && openingAnalysis.adjustmentSide
+        && openingAnalysis.balanceDifference >= 0.01
+        && Boolean(adjustmentSubject.code);
+      if (needsAdjustment) {
         const adjustmentEntry = buildOpeningAdjustmentEntry({
           subjectCode: adjustmentSubject.code,
           subjectName: adjustmentSubject.name,
@@ -803,9 +811,25 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           id: `oe_adj_${Date.now()}_${allEntries.length}`,
           date: voucherDate,
         });
+        console.info('[opening-balance] adjustment entry build', {
+          isBalanced,
+          needsAdjustment,
+          adjustmentSubject,
+          adjustmentSide: openingAnalysis.adjustmentSide,
+          balanceDifference: openingAnalysis.balanceDifference,
+          built: adjustmentEntry,
+        });
         if (adjustmentEntry) {
           allEntries.push(adjustmentEntry);
         }
+      } else {
+        console.info('[opening-balance] adjustment entry skipped', {
+          isBalanced,
+          needsAdjustment,
+          hasAdjustmentSubject: Boolean(adjustmentSubject.code),
+          analysisBalanced: openingAnalysis.isBalanced,
+          balanceDifference: openingAnalysis.balanceDifference,
+        });
       }
 
       // Save unified voucher (stable ID so re-saves replace, not duplicate)
@@ -826,12 +850,40 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           }
         } catch (err) { console.warn('Cleanup orphan opening vouchers failed:', err); }
 
+        const totalDebitBefore = allEntries.reduce((s, e) => s + (e.debit || 0), 0);
+        const totalCreditBefore = allEntries.reduce((s, e) => s + (e.credit || 0), 0);
+        console.info('[opening-balance] saving voucher', {
+          voucherId,
+          accountSetId,
+          serviceAccountSetId: sqliteService.accountSetId,
+          entriesCount: allEntries.length,
+          totalDebit: totalDebitBefore,
+          totalCredit: totalCreditBefore,
+        });
+
         await sqliteService.saveVoucher({
           id: voucherId, voucherNo: '记-期初-0001', date: voucherDate,
           status: 'posted', voucherType: 'general', summary: '期初余额',
           createdBy: 'system', createTime: now, updateTime: now,
           entries: allEntries,
         });
+
+        // Verify write succeeded — read back via the same service path /balance uses
+        try {
+          const all = await sqliteService.getAllVouchers();
+          const found = all.find(v => v.id === voucherId);
+          console.info('[opening-balance] verify after save', {
+            foundVoucher: !!found,
+            entriesCount: found?.entries?.length ?? 0,
+            totalVouchersInAccountSet: all.length,
+          });
+          if (!found) {
+            showToast('warning', '凭证写入后读取不到，请检查数据库 accountSetId 是否一致');
+          }
+        } catch (verifyErr) {
+          console.error('[opening-balance] verify failed', verifyErr);
+        }
+
         const postedEntries = allEntries.map(entry => ({
           subjectCode: entry.subjectCode,
           subjectName: entry.subjectName,
@@ -854,6 +906,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           isBalanced: Math.abs(postedTotalDebit - postedTotalCredit) < 0.01,
         });
       } else {
+        console.warn('[opening-balance] no entries to save — cleaning up prior opening voucher');
         // No entries — also clean up any prior opening voucher for this account set
         try {
           const db = (sqliteService as unknown as { dbInstance?: SqliteDbLike }).dbInstance;
@@ -872,8 +925,13 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
       setSaved(true);
       showToast('success', `期初数据已保存，共 ${totalItems} 条`);
     } catch (error) {
-      console.error('Save opening balance failed:', error);
-      showToast('error', '保存期初数据失败');
+      console.error('[opening-balance] save failed', {
+        accountSetId,
+        serviceAccountSetId: sqliteService.accountSetId,
+        error,
+      });
+      const message = error instanceof Error ? error.message : String(error);
+      showToast('error', `保存期初数据失败：${message}`);
     } finally {
       setLoading(false);
     }
@@ -1129,126 +1187,76 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => triggerImport('partner-opening')} disabled>
-                <Upload className="h-4 w-4 mr-1" /> 导入Excel
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setImportTarget('partner-opening'); handleDownloadTemplate(); }} disabled>
-                <Download className="h-4 w-4 mr-1" /> 下载模板
-              </Button>
-              {partnerEntries.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setPartnerEntries([])} disabled className="text-red-500 hover:text-red-700 ml-auto">
-                  <Trash2 className="h-4 w-4 mr-1" /> 清空
-                </Button>
-              )}
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-800">
+              往来单位与余额已在「往来单位」步骤录入，此处仅供查看。如需修改，请回到该步骤。
             </div>
 
-            <div className="border rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600">往来单位</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">类型</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">币别</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">原币金额</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">汇率</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">本币金额</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600">备注</th>
-                    <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">未入账金额</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {partnerRowStates.map((entry, index) => {
-                    const isForeign = Boolean(entry.currency) && entry.currency !== 'CNY' && entry.currency !== 'RMB';
-                    return (
-                      <tr key={index} className="border-t hover:bg-slate-50">
-                        <td className="px-3 py-2 font-medium">{entry.name || '-'}</td>
-                        <td className="px-3 py-2 text-slate-600">{entry.type === 'receivable' ? '应收' : '应付'}</td>
-                        <td className="px-3 py-2 text-slate-600">
-                          {isForeign ? (
-                            <select
-                              className="w-full rounded border border-slate-200 px-1 py-0.5 text-xs bg-white"
-                              value={entry.currency || ''}
-                              onChange={e => {
-                                const currency = e.target.value;
-                                setPartnerEntries(prev => prev.map((p, i) => {
-                                  if (i !== index) return p;
-                                  const foreign = currency ? (p.foreignAmount ?? p.amount) : undefined;
-                                  const rate = currency ? (p.exchangeRate ?? 1) : undefined;
-                                  const baseAmount = currency && foreign && rate ? roundMoney2(foreign * rate) : p.amount;
-                                  return { ...p, currency: currency || undefined, foreignAmount: foreign, exchangeRate: rate, amount: baseAmount };
-                                }));
-                              }}
-                            >
-                              <option value="">CNY</option>
-                              {enabledCurrencies
-                                .filter(c => c.code !== 'CNY' && c.code !== 'RMB')
-                                .map(c => (
-                                  <option key={c.id} value={c.code}>{c.code}</option>
-                                ))}
-                            </select>
-                          ) : (
-                            <span>CNY</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {isForeign ? (
-                            <Input
-                              type="number"
-                              step="0.01"
-                              className="h-8 text-right tabular-nums"
-                              value={entry.foreignAmount ?? ''}
-                              onChange={e => {
-                                const foreign = parseFloat(e.target.value) || 0;
-                                const rate = entry.exchangeRate ?? 1;
-                                const baseAmount = roundMoney2(foreign * rate);
-                                setPartnerEntries(prev => prev.map((p, i) => i === index ? { ...p, foreignAmount: foreign, amount: baseAmount } : p));
-                              }}
-                            />
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {isForeign ? (
-                            <Input
-                              type="number"
-                              step="0.0001"
-                              className="h-8 text-right tabular-nums"
-                              value={entry.exchangeRate ?? ''}
-                              onChange={e => {
-                                const rate = parseFloat(e.target.value) || 0;
-                                const foreign = entry.foreignAmount ?? 0;
-                                const baseAmount = roundMoney2(foreign * rate);
-                                setPartnerEntries(prev => prev.map((p, i) => i === index ? { ...p, exchangeRate: rate, amount: baseAmount } : p));
-                              }}
-                            />
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">{entry.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-slate-600">{entry.remark || '-'}</td>
-                        <td className="px-3 py-2 text-center">
-                          <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
-                            {getPostingStatusLabel(entry.status)}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-medium">
-                          {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <div className="border-t p-2 bg-slate-50">
-                <Button variant="outline" size="sm" disabled className="w-full">
-                  <Plus className="h-4 w-4 mr-1" /> 添加往来余额
-                </Button>
+            {partnerEntries.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>暂无往来单位</p>
+                <p className="text-sm">请先在「往来单位」步骤中添加往来单位并录入期初余额</p>
               </div>
-            </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-slate-600">往来单位</th>
+                      <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">类型</th>
+                      <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">币别</th>
+                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">原币金额</th>
+                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">汇率</th>
+                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-36">本币金额</th>
+                      <th className="px-3 py-2 text-left font-medium text-slate-600">备注</th>
+                      <th className="px-3 py-2 text-center font-medium text-slate-600 w-24">入账状态</th>
+                      <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">未入账金额</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {partnerRowStates.map((entry, index) => {
+                      const isForeign = Boolean(entry.currency) && entry.currency !== 'CNY' && entry.currency !== 'RMB';
+                      return (
+                        <tr key={index} className="border-t bg-slate-50/40">
+                          <td className="px-3 py-2 font-medium">{entry.name || '-'}</td>
+                          <td className="px-3 py-2 text-slate-600">{entry.type === 'receivable' ? '应收' : '应付'}</td>
+                          <td className="px-3 py-2">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-2 py-0.5 h-5 ${isForeign ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-600'}`}
+                            >
+                              {entry.currency || 'CNY'}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-right text-sm tabular-nums text-slate-700">
+                            {isForeign && entry.foreignAmount != null
+                              ? entry.foreignAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })
+                              : <span className="text-slate-400 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right text-sm tabular-nums text-slate-700">
+                            {isForeign && entry.exchangeRate != null
+                              ? entry.exchangeRate
+                              : <span className="text-slate-400 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right text-sm tabular-nums font-medium text-slate-700">
+                            {entry.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{entry.remark || '-'}</td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge variant="outline" className={`text-[10px] px-2 py-0.5 h-5 ${getPostingStatusClass(entry.status)}`}>
+                              {getPostingStatusLabel(entry.status)}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium">
+                            {entry.unpostedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </TabsContent>
         )}
 
@@ -1444,9 +1452,9 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
           <div className="flex items-center gap-2 ml-auto">
             <Button
               onClick={handleSave}
-              disabled={loading || !isBalanced}
+              disabled={loading || !canSaveOpening}
               className="bg-blue-600 hover:bg-blue-700"
-              title={!isBalanced ? `借贷差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，无法入账` : undefined}
+              title={!canSaveOpening ? `借贷差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，请补录对方科目（如实收资本）或选择补平科目` : undefined}
             >
               {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 入账中...</> : (
                 lockedOpeningVoucher ? '重新入账' : '完成期初'

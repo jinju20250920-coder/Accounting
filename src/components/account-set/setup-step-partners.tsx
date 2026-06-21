@@ -75,7 +75,10 @@ const PARTNER_IMPORT_HEADERS = [
   { key: 'isCustomer' as const, label: '是否客户', required: false },
   { key: 'isSupplier' as const, label: '是否供应商', required: false },
   { key: 'isEmployee' as const, label: '是否雇员', required: false },
-  { key: 'openingBalance' as const, label: '期初余额', required: false },
+  { key: 'defaultCurrency' as const, label: '币别', required: false },
+  { key: 'openingForeignBalance' as const, label: '期初原币余额', required: false },
+  { key: 'openingExchangeRate' as const, label: '期初汇率', required: false },
+  { key: 'openingBalance' as const, label: '期初本币余额', required: false },
   { key: 'contact' as const, label: '联系人', required: false },
   { key: 'phone' as const, label: '联系电话', required: false },
   { key: 'email' as const, label: '电子邮箱', required: false },
@@ -291,6 +294,15 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
           // Default to customer if none specified
         }
 
+        const defaultCurrency = String(row.defaultCurrency || '').trim().toUpperCase();
+        const isForeign = !!defaultCurrency && defaultCurrency !== 'CNY' && defaultCurrency !== 'RMB';
+        const openingForeignBalance = isForeign ? Math.round((Number(row.openingForeignBalance) || 0) * 100) / 100 : 0;
+        const openingExchangeRate = isForeign ? Math.round((Number(row.openingExchangeRate) || 0) * 10000) / 10000 : 0;
+        const openingBalanceFromRow = Math.round((Number(row.openingBalance) || 0) * 100) / 100;
+        const openingBalance = isForeign && openingForeignBalance !== 0 && openingExchangeRate > 0
+          ? Math.round(openingForeignBalance * openingExchangeRate * 100) / 100
+          : openingBalanceFromRow;
+
         toImport.push({
           code,
           name,
@@ -310,7 +322,10 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
           employmentEndDate: String(row.employmentEndDate || '').trim(),
           departmentCode: String(row.departmentCode || '').trim(),
           departmentName: String(row.departmentName || '').trim(),
-          openingBalance: Math.round((Number(row.openingBalance) || 0) * 100) / 100,
+          defaultCurrency: isForeign ? defaultCurrency : '',
+          openingForeignBalance,
+          openingExchangeRate,
+          openingBalance,
           paymentTermDays: Number(row.paymentTermDays) || 30,
           frozen: false,
         } as PartnerImportInput);
@@ -345,7 +360,10 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
         '是否客户': '是',
         '是否供应商': '否',
         '是否雇员': '否',
-        '期初余额': 5000,
+        '币别': '',
+        '期初原币余额': '',
+        '期初汇率': '',
+        '期初本币余额': 5000,
         '联系人': '张三',
         '联系电话': '13800138000',
         '电子邮箱': 'example@email.com',
@@ -568,16 +586,16 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
             <thead className="bg-slate-50">
               <tr>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">代码</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">名称</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">身份</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">币别</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初原币</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[200px]">名称</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">身份</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">币别</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">期初原币</th>
                 <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">汇率</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600 w-28">期初本币</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">联系人</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-32">期初本币</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">联系人</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">电话</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">税号</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">开户银行/账号</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-60">开户银行/账号</th>
                 <th className="px-3 py-2 w-20"></th>
               </tr>
             </thead>
@@ -724,7 +742,7 @@ export function SetupStepPartners({ accountSetId }: SetupStepPartnersProps) {
                     <td className="px-3 py-2 text-right tabular-nums text-slate-600">{(p.openingBalance || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-slate-600">{p.contact || '-'}</td>
                     <td className="px-3 py-2 text-slate-600">{p.phone || '-'}</td>
-                    <td className="px-3 py-2 text-slate-600 font-mono text-xs">{p.taxNumber || '-'}</td>
+                    <td className="px-3 py-2 text-slate-600 font-mono text-xs break-all">{p.taxNumber || '-'}</td>
                     <td className="px-3 py-2 text-slate-600 text-xs">
                       {p.bankName || p.bankAccount ? `${p.bankName || ''} ${p.bankAccount || ''}` : '-'}
                     </td>

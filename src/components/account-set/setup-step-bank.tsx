@@ -240,6 +240,7 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
         enableCashFlow: true,
         disabled: false,
         accountSetId,
+        isMonetary: true,
       }]);
     }
 
@@ -396,7 +397,8 @@ export function SetupStepBank({ accountSetId }: SetupStepBankProps) {
             await persistEntry(entry, entries.length + i);
             setEntries(prev => [...prev, entry]);
             actuallySaved++;
-          } catch {
+          } catch (error) {
+            console.error('[setup-step-bank] persistEntry failed for', entry.accountNumber, error);
             skipped++;
           }
         }
