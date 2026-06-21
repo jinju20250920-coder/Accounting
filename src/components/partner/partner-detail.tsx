@@ -311,6 +311,9 @@ export function PartnerDetail({ partner, onBack }: PartnerDetailProps) {
                   <th className="p-2 text-left text-sm font-medium border-r border-slate-300">业务单据号</th>
                   <th className="p-2 text-right text-sm font-medium border-r border-slate-300">借方金额</th>
                   <th className="p-2 text-right text-sm font-medium border-r border-slate-300">贷方金额</th>
+                  <th className="p-2 text-center text-sm font-medium border-r border-slate-300">币别</th>
+                  <th className="p-2 text-right text-sm font-medium border-r border-slate-300">原币金额</th>
+                  <th className="p-2 text-right text-sm font-medium border-r border-slate-300">汇率</th>
                   <th className="p-2 text-right text-sm font-medium border-r border-slate-300">已核销金额</th>
                   <th className="p-2 text-right text-sm font-medium border-r border-slate-300">剩余金额</th>
                   <th className="p-2 text-center text-sm font-medium">操作</th>
@@ -319,7 +322,7 @@ export function PartnerDetail({ partner, onBack }: PartnerDetailProps) {
               <tbody>
                 {filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-8 text-gray-500">
+                    <td colSpan={13} className="text-center py-8 text-gray-500">
                       没有找到相关交易记录
                     </td>
                   </tr>
@@ -351,6 +354,21 @@ export function PartnerDetail({ partner, onBack }: PartnerDetailProps) {
                       </td>
                       <td className="p-2 text-right text-red-600 font-mono border-r border-slate-300">
                         {transaction.credit > 0 ? transaction.credit.toFixed(2) : '-'}
+                      </td>
+                      <td className="p-2 text-center text-xs font-medium border-r border-slate-300">
+                        {transaction.currencyCode && transaction.currencyCode !== 'CNY' && transaction.currencyCode !== 'RMB'
+                          ? <Badge variant="outline" className="bg-amber-50 text-amber-700 text-[10px]">{transaction.currencyCode}</Badge>
+                          : <span className="text-slate-400 text-xs">—</span>}
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs border-r border-slate-300 text-slate-600">
+                        {transaction.originalAmount && transaction.currencyCode && transaction.currencyCode !== 'CNY' && transaction.currencyCode !== 'RMB'
+                          ? transaction.originalAmount.toFixed(2)
+                          : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs border-r border-slate-300 text-slate-600">
+                        {transaction.exchangeRate && transaction.currencyCode && transaction.currencyCode !== 'CNY' && transaction.currencyCode !== 'RMB'
+                          ? transaction.exchangeRate
+                          : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="p-2 text-right text-green-600 font-mono border-r border-slate-300">
                         {transaction.recAmount > 0 ? transaction.recAmount.toFixed(2) : '-'}

@@ -192,6 +192,8 @@ export default function AuxiliaryDataPage() {
     defaultSubjectCode: '',
     defaultSubjectName: '',
     defaultCurrency: '',
+    openingForeignBalance: undefined,
+    openingExchangeRate: undefined,
     departmentCode: '',
     departmentName: '',
     payrollSalaryExpenseSubjectCode: '',
@@ -305,6 +307,8 @@ export default function AuxiliaryDataPage() {
       defaultSubjectCode: partner.defaultSubjectCode || '',
       defaultSubjectName: partner.defaultSubjectName || '',
       defaultCurrency: partner.defaultCurrency || '',
+      openingForeignBalance: partner.openingForeignBalance,
+      openingExchangeRate: partner.openingExchangeRate,
       departmentCode: partner.departmentCode || '',
       departmentName: partner.departmentName || '',
       payrollSalaryExpenseSubjectCode: partner.payrollSalaryExpenseSubjectCode || '',
@@ -529,6 +533,8 @@ export default function AuxiliaryDataPage() {
       defaultSubjectCode: '',
       defaultSubjectName: '',
       defaultCurrency: '',
+      openingForeignBalance: undefined,
+      openingExchangeRate: undefined,
       departmentCode: '',
       departmentName: '',
       payrollSalaryExpenseSubjectCode: '',
@@ -961,7 +967,12 @@ export default function AuxiliaryDataPage() {
                 <select
                   className="flex-1 rounded-md border border-slate-200 px-3 py-1.5 text-sm bg-white"
                   value={formData.defaultCurrency}
-                  onChange={e => setFormData(prev => ({ ...prev, defaultCurrency: e.target.value }))}
+                  onChange={e => setFormData(prev => ({
+                    ...prev,
+                    defaultCurrency: e.target.value,
+                    // 切回 CNY 时清空外币字段，避免残留
+                    ...(e.target.value ? {} : { openingForeignBalance: undefined, openingExchangeRate: undefined }),
+                  }))}
                   autoComplete="off"
                 >
                   <option value="">人民币 (CNY)</option>
@@ -974,6 +985,49 @@ export default function AuxiliaryDataPage() {
                     ))}
                 </select>
               </div>
+
+              {/* 外币期初信息：仅当默认币别非 CNY 时显示 */}
+              {formData.defaultCurrency && (
+                <div className="grid grid-cols-2 gap-3 rounded-md border border-amber-200 bg-amber-50/40 p-3">
+                  <div className="space-y-1">
+                    <Label className="text-sm">期初原币余额 ({formData.defaultCurrency})</Label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm bg-white"
+                      value={formData.openingForeignBalance ?? ''}
+                      onChange={e => {
+                        const foreign = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                        setFormData(prev => ({ ...prev, openingForeignBalance: foreign }));
+                      }}
+                      placeholder="0.00"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-sm">期初汇率</Label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm bg-white"
+                      value={formData.openingExchangeRate ?? ''}
+                      onChange={e => {
+                        const rate = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                        setFormData(prev => ({ ...prev, openingExchangeRate: rate }));
+                      }}
+                      placeholder="如 7.2"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="col-span-2 text-xs text-slate-500">
+                    本币期初 = 原币 × 汇率 ＝ <span className="font-medium text-slate-700">
+                      {(formData.openingForeignBalance && formData.openingExchangeRate)
+                        ? (formData.openingForeignBalance * formData.openingExchangeRate).toFixed(2)
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {formData.isEmployee && (
                 <div className="space-y-3 border-t border-slate-100 pt-4">

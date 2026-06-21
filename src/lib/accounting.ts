@@ -539,6 +539,9 @@ export interface AgingDetail {
   subjectCode?: string;
   subjectName?: string;
   recRefNo?: string;
+  currencyCode?: string;
+  originalAmount?: number;
+  exchangeRate?: number;
 }
 
 export interface AgingConfig {
@@ -855,7 +858,10 @@ export function getAgingDetails(
       isWriteOff: isWriteOff,
       subjectCode: entry.subjectCode,
       subjectName: entry.subjectName,
-      recRefNo: entry.recRefNo
+      recRefNo: entry.recRefNo,
+      currencyCode: entry.currencyCode,
+      originalAmount: entry.originalAmount,
+      exchangeRate: entry.exchangeRate,
     });
   });
 

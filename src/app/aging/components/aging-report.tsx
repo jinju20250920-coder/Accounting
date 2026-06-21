@@ -169,6 +169,9 @@ export function AgingReport({
         '科目代码': detail.subjectCode,
         '科目名称': detail.subjectName,
         '金额': detail.amount,
+        '币别': detail.currencyCode && detail.currencyCode !== 'CNY' && detail.currencyCode !== 'RMB' ? detail.currencyCode : 'CNY',
+        '原币金额': detail.originalAmount && detail.currencyCode && detail.currencyCode !== 'CNY' && detail.currencyCode !== 'RMB' ? detail.originalAmount : '',
+        '汇率': detail.exchangeRate && detail.currencyCode && detail.currencyCode !== 'CNY' && detail.currencyCode !== 'RMB' ? detail.exchangeRate : '',
         '剩余金额': detail.remainingAmount,
         '账龄': formatAging(detail.daysOverdue, mode),
         '状态': Math.abs(detail.remainingAmount) < 0.01 ? '已核销' :
@@ -366,6 +369,9 @@ export function AgingReport({
                   <th className="p-2 text-left text-sm font-medium">科目代码</th>
                   <th className="p-2 text-left text-sm font-medium">科目名称</th>
                   <th className="p-2 text-right text-sm font-medium">金额</th>
+                  <th className="p-2 text-center text-sm font-medium">币别</th>
+                  <th className="p-2 text-right text-sm font-medium">原币金额</th>
+                  <th className="p-2 text-right text-sm font-medium">汇率</th>
                   <th className="p-2 text-right text-sm font-medium">剩余金额</th>
                   <th className="p-2 text-right text-sm font-medium">账龄</th>
                   <th className="p-2 text-left text-sm font-medium">状态</th>
@@ -390,6 +396,21 @@ export function AgingReport({
                     <td className="p-2 text-sm">{detail.subjectName}</td>
                     <td className={`p-2 text-right text-sm ${detail.amount < 0 ? 'text-red-600' : ''}`}>
                       {formatMoney(detail.amount)}
+                    </td>
+                    <td className="p-2 text-center text-xs">
+                      {detail.currencyCode && detail.currencyCode !== 'CNY' && detail.currencyCode !== 'RMB'
+                        ? <Badge variant="outline" className="bg-amber-50 text-amber-700 text-[10px]">{detail.currencyCode}</Badge>
+                        : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="p-2 text-right text-xs text-slate-600 font-mono">
+                      {detail.originalAmount && detail.currencyCode && detail.currencyCode !== 'CNY' && detail.currencyCode !== 'RMB'
+                        ? formatMoney(detail.originalAmount)
+                        : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="p-2 text-right text-xs text-slate-600 font-mono">
+                      {detail.exchangeRate && detail.currencyCode && detail.currencyCode !== 'CNY' && detail.currencyCode !== 'RMB'
+                        ? detail.exchangeRate
+                        : <span className="text-slate-400">—</span>}
                     </td>
                     <td className={`p-2 text-right text-sm ${detail.remainingAmount < 0 ? 'text-red-600' : ''}`}>
                       {formatMoney(detail.remainingAmount)}
