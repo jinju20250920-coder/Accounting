@@ -13,11 +13,12 @@ interface ChineseDatePickerProps {
   disabled?: boolean;
   min?: string;
   max?: string;
+  displayFormat?: 'chinese' | 'iso';
 }
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 
-export function ChineseDatePicker({ value, onChange, className, placeholder = '选择日期', disabled, min, max }: ChineseDatePickerProps) {
+export function ChineseDatePicker({ value, onChange, className, placeholder = '选择日期', disabled, min, max, displayFormat = 'chinese' }: ChineseDatePickerProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -95,7 +96,9 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
   }, [value]);
 
   const displayValue = value
-    ? `${value.split('-')[0]}年${parseInt(value.split('-')[1])}月${parseInt(value.split('-')[2])}日`
+    ? (displayFormat === 'iso'
+        ? value
+        : `${value.split('-')[0]}年${parseInt(value.split('-')[1])}月${parseInt(value.split('-')[2])}日`)
     : placeholder;
 
   const calendarDays = useMemo(() => {

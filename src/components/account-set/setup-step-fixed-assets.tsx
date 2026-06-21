@@ -402,85 +402,89 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
 
       <div className="border rounded-lg p-4 bg-slate-50">
         <Label className="text-sm font-medium mb-3 block">新增资产</Label>
-        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 items-end gap-3">
-          <div>
-            <Label className="text-xs text-slate-500">资产名称 *</Label>
-            <Input value={form.assetName} onChange={(event) => updateForm('assetName', event.target.value)} placeholder="办公电脑" className="h-9 text-sm" autoComplete="off" />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 items-end gap-3">
+            <div>
+              <Label className="text-xs text-slate-500">资产名称 *</Label>
+              <Input value={form.assetName} onChange={(event) => updateForm('assetName', event.target.value)} placeholder="办公电脑" className="h-9 text-sm" autoComplete="off" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">分类</Label>
+              <select value={form.categoryId} onChange={(event) => handleCategoryChange(event.target.value)} className="h-9 w-full rounded-md border px-3 text-sm">
+                <option value="">选择分类</option>
+                {fixedAssetCategories.map(category => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">原值 *</Label>
+              <Input type="number" value={form.originalValue || ''} onChange={(event) => {
+                const v = parseFloat(event.target.value) || 0;
+                setForm(prev => ({
+                  ...prev,
+                  originalValue: v,
+                  salvageValue: prev.salvageValue === 0 ? Math.round(v * 0.05 * 100) / 100 : prev.salvageValue,
+                }));
+              }} placeholder="10000" className="h-9 text-sm text-right" autoComplete="off" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">累计折旧金额</Label>
+              <Input type="number" value={form.accumulatedDepreciation || ''} onChange={(event) => updateForm('accumulatedDepreciation', parseFloat(event.target.value) || 0)} placeholder="0.00" className="h-9 text-sm text-right" autoComplete="off" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">残值率 (%)</Label>
+              <Input
+                type="number"
+                value={(() => {
+                  const original = form.originalValue || 0;
+                  const salvage = form.salvageValue || 0;
+                  if (original > 0) return Math.round((salvage / original) * 10000) / 100;
+                  return 0;
+                })()}
+                onChange={(event) => {
+                  const rate = parseFloat(event.target.value) || 0;
+                  const original = form.originalValue || 0;
+                  const salvage = Math.round(original * rate * 100) / 10000;
+                  updateForm('salvageValue', salvage);
+                }}
+                placeholder="0"
+                className="h-9 text-sm text-right"
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">残值金额 (¥)</Label>
+              <Input type="number" value={form.salvageValue || ''} onChange={(event) => updateForm('salvageValue', parseFloat(event.target.value) || 0)} placeholder="0.00" className="h-9 text-sm text-right" autoComplete="off" />
+            </div>
           </div>
-          <div>
-            <Label className="text-xs text-slate-500">分类</Label>
-            <select value={form.categoryId} onChange={(event) => handleCategoryChange(event.target.value)} className="h-9 w-full rounded-md border px-3 text-sm">
-              <option value="">选择分类</option>
-              {fixedAssetCategories.map(category => (
-                <option key={category.id} value={category.id}>{category.name}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 items-end gap-3">
+            <div>
+              <Label className="text-xs text-slate-500">购置日期</Label>
+              <ChineseDatePicker value={form.acquisitionDate} onChange={(value) => updateForm('acquisitionDate', value)} displayFormat="iso" className="w-full" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">开始折旧日期</Label>
+              <ChineseDatePicker value={form.depreciationStartDate} onChange={(value) => updateForm('depreciationStartDate', value)} displayFormat="iso" className="w-full" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">年限</Label>
+              <Input type="number" value={form.usefulLifeYears || ''} onChange={(event) => updateForm('usefulLifeYears', parseInt(event.target.value, 10) || 10)} placeholder="10" className="h-9 text-sm text-right" autoComplete="off" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">折旧方法</Label>
+              <select value={form.depreciationMethod} onChange={(event) => updateForm('depreciationMethod', event.target.value)} className="h-9 w-full rounded-md border px-3 text-sm">
+                {DEPRECIATION_METHODS.map(method => (
+                  <option key={method.value} value={method.value}>{method.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-span-2 flex items-end justify-end gap-2">
+              <Button size="sm" onClick={handleAdd} disabled={saving || !form.assetName || form.originalValue <= 0} className="h-9">
+                <Plus className="h-4 w-4 mr-1" /> 添加
+              </Button>
+            </div>
           </div>
-          <div>
-            <Label className="text-xs text-slate-500">原值 *</Label>
-            <Input type="number" value={form.originalValue || ''} onChange={(event) => {
-              const v = parseFloat(event.target.value) || 0;
-              setForm(prev => ({
-                ...prev,
-                originalValue: v,
-                salvageValue: prev.salvageValue === 0 ? Math.round(v * 0.05 * 100) / 100 : prev.salvageValue,
-              }));
-            }} placeholder="10000" className="h-9 text-sm" autoComplete="off" />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">残值率 (%)</Label>
-            <Input
-              type="number"
-              value={(() => {
-                const original = form.originalValue || 0;
-                const salvage = form.salvageValue || 0;
-                if (original > 0) return Math.round((salvage / original) * 10000) / 100;
-                return 0;
-              })()}
-              onChange={(event) => {
-                const rate = parseFloat(event.target.value) || 0;
-                const original = form.originalValue || 0;
-                const salvage = Math.round(original * rate * 100) / 10000;
-                updateForm('salvageValue', salvage);
-              }}
-              placeholder="0"
-              className="h-9 text-sm"
-              autoComplete="off"
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">残值金额 (¥)</Label>
-            <Input type="number" value={form.salvageValue || ''} onChange={(event) => updateForm('salvageValue', parseFloat(event.target.value) || 0)} placeholder="0.00" className="h-9 text-sm" autoComplete="off" />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">累计折旧金额</Label>
-            <Input type="number" value={form.accumulatedDepreciation || ''} onChange={(event) => updateForm('accumulatedDepreciation', parseFloat(event.target.value) || 0)} placeholder="0.00" className="h-9 text-sm" autoComplete="off" />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">购置日期</Label>
-            <ChineseDatePicker value={form.acquisitionDate} onChange={(value) => updateForm('acquisitionDate', value)} className="w-full" />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">开始折旧日期</Label>
-            <ChineseDatePicker value={form.depreciationStartDate} onChange={(value) => updateForm('depreciationStartDate', value)} className="w-full" />
-          </div>
-          <div>
-            <Label className="text-xs text-slate-500">年限</Label>
-            <Input type="number" value={form.usefulLifeYears || ''} onChange={(event) => updateForm('usefulLifeYears', parseInt(event.target.value, 10) || 10)} placeholder="10" className="h-9 text-sm" autoComplete="off" />
-          </div>
-        </div>
-        <div className="mt-3 flex items-end gap-3">
-          <div className="flex-1 max-w-xs">
-            <Label className="text-xs text-slate-500">折旧方法</Label>
-            <select value={form.depreciationMethod} onChange={(event) => updateForm('depreciationMethod', event.target.value)} className="h-9 w-full rounded-md border px-3 text-sm">
-              {DEPRECIATION_METHODS.map(method => (
-                <option key={method.value} value={method.value}>{method.label}</option>
-              ))}
-            </select>
-          </div>
-          <Button size="sm" onClick={handleAdd} disabled={saving || !form.assetName || form.originalValue <= 0}>
-            <Plus className="h-4 w-4 mr-1" /> 添加
-          </Button>
         </div>
       </div>
 
@@ -515,134 +519,141 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
             <tbody>
               {assets.map((asset) => {
                 const isPosted = lockedAssetKeys.has(asset.assetName);
-                if (editingId === asset.id) {
-                  return (
-                    <tr key={asset.id} className="border-t bg-blue-50/40">
-                      <td className="px-2 py-1">
-                        <Input value={editForm.assetName} onChange={(e) => updateEditForm('assetName', e.target.value)} className="h-8 text-sm" autoComplete="off" />
-                      </td>
-                      <td className="px-2 py-1">
-                        <select
-                          value={editForm.categoryId}
-                          onChange={(e) => handleEditCategoryChange(e.target.value)}
-                          className="h-8 w-full text-sm rounded-md border px-2"
-                        >
-                          <option value="">无</option>
-                          {fixedAssetCategories.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input type="number" value={editForm.originalValue || ''} onChange={(e) => updateEditForm('originalValue', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-8 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
-                      </td>
-                      <td className="px-2 py-1">
-                        <div className="space-y-1">
-                          <Input
-                            type="number"
-                            value={(() => {
-                              const original = editForm.originalValue || 0;
-                              const salvage = editForm.salvageValue || 0;
-                              if (original > 0) return Math.round((salvage / original) * 10000) / 100;
-                              return 0;
-                            })()}
-                            onChange={(e) => {
-                              const rate = parseFloat(e.target.value) || 0;
-                              const original = editForm.originalValue || 0;
-                              const salvage = Math.round(original * rate * 100) / 10000;
-                              updateEditForm('salvageValue', salvage);
-                            }}
-                            className="h-8 text-sm text-right"
-                            autoComplete="off"
-                          />
-                          <Input
-                            type="number"
-                            value={editForm.salvageValue || ''}
-                            onChange={(e) => updateEditForm('salvageValue', parseFloat(e.target.value) || 0)}
-                            className="h-8 text-sm text-right"
-                            autoComplete="off"
-                          />
-                        </div>
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input type="number" value={editForm.accumulatedDepreciation || ''} onChange={(e) => updateEditForm('accumulatedDepreciation', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-8 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
-                      </td>
-                      <td className="px-2 py-1 text-right text-xs text-slate-500">
-                        {Math.round((editForm.originalValue - editForm.accumulatedDepreciation) * 100) / 100}
-                      </td>
-                      <td className="px-2 py-1">
-                        <ChineseDatePicker
-                          value={editForm.acquisitionDate}
-                          onChange={(v) => updateEditForm('acquisitionDate', v)}
-                          className="w-full"
-                        />
-                      </td>
-                      <td className="px-2 py-1">
-                        <ChineseDatePicker
-                          value={editForm.depreciationStartDate}
-                          onChange={(v) => updateEditForm('depreciationStartDate', v)}
-                          className="w-full"
-                        />
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input type="number" value={editForm.usefulLifeYears || ''} onChange={(e) => updateEditForm('usefulLifeYears', parseInt(e.target.value, 10) || 10)} className="h-8 text-sm text-right" autoComplete="off" />
-                      </td>
-                      <td className="px-2 py-1">
-                        <select
-                          value={editForm.depreciationMethod}
-                          onChange={(e) => updateEditForm('depreciationMethod', e.target.value)}
-                          className="h-8 w-full text-sm rounded-md border px-2"
-                        >
-                          {DEPRECIATION_METHODS.map(m => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
-                          ))}
-                        </select>
+                const isEditing = editingId === asset.id;
+                return (
+                  <React.Fragment key={asset.id}>
+                    <tr className={`border-t hover:bg-slate-50 ${isEditing ? 'bg-blue-50/30' : ''}`}>
+                      <td className="px-3 py-2 font-medium">{asset.assetName}</td>
+                      <td className="px-3 py-2 text-slate-600">{asset.categoryName || '-'}</td>
+                      <td className="px-3 py-2 text-right text-slate-600">{asset.originalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right text-slate-500">{(asset.salvageValue || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right text-slate-600">{asset.accumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right font-medium text-blue-700">{(asset.originalValue - asset.accumulatedDepreciation).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-slate-600">{asset.acquisitionDate || '-'}</td>
+                      <td className="px-3 py-2 text-slate-600">{asset.depreciationStartDate || asset.acquisitionDate || '-'}</td>
+                      <td className="px-3 py-2 text-right text-slate-600">{asset.usefulLifeYears}</td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {DEPRECIATION_METHODS.find(m => m.value === asset.depreciationMethod)?.label || asset.depreciationMethod}
                       </td>
                       <td className="px-3 py-1">
                         <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="sm" onClick={saveEdit} className="h-7 w-7 p-0 text-green-600 hover:text-green-700">
-                            <Save className="h-3 w-3" />
+                          <Button variant="ghost" size="sm" onClick={() => isEditing ? cancelEdit() : startEdit(asset)} className={`h-7 w-7 p-0 ${isEditing ? 'text-blue-600' : ''}`}>
+                            <Edit className="h-3 w-3" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={cancelEdit} className="h-7 w-7 p-0 text-slate-500">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => !isPosted && removeAsset(asset.id)}
+                            disabled={isPosted}
+                            title={isPosted ? '已入账期初凭证，无法删除。如需调整请先冲销期初凭证' : '删除'}
+                            className={`h-7 w-7 p-0 ${isPosted ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
+                          >
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
                       </td>
                     </tr>
-                  );
-                }
-                return (
-                  <tr key={asset.id} className="border-t hover:bg-slate-50">
-                    <td className="px-3 py-2 font-medium">{asset.assetName}</td>
-                    <td className="px-3 py-2 text-slate-600">{asset.categoryName || '-'}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{asset.originalValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 text-right text-slate-500">{(asset.salvageValue || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{asset.accumulatedDepreciation.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 text-right font-medium text-blue-700">{(asset.originalValue - asset.accumulatedDepreciation).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 text-slate-600">{asset.acquisitionDate || '-'}</td>
-                    <td className="px-3 py-2 text-slate-600">{asset.depreciationStartDate || asset.acquisitionDate || '-'}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{asset.usefulLifeYears}</td>
-                    <td className="px-3 py-2 text-slate-600">
-                      {DEPRECIATION_METHODS.find(m => m.value === asset.depreciationMethod)?.label || asset.depreciationMethod}
-                    </td>
-                    <td className="px-3 py-1">
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => startEdit(asset)} className="h-7 w-7 p-0">
-                          <Edit className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => !isPosted && removeAsset(asset.id)}
-                          disabled={isPosted}
-                          title={isPosted ? '已入账期初凭证，无法删除。如需调整请先冲销期初凭证' : '删除'}
-                          className={`h-7 w-7 p-0 ${isPosted ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
+                    {isEditing && (
+                      <tr className="bg-blue-50/40">
+                        <td colSpan={11} className="px-4 py-4">
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                              <div>
+                                <Label className="text-xs text-slate-500">资产名称 *</Label>
+                                <Input value={editForm.assetName} onChange={(e) => updateEditForm('assetName', e.target.value)} className="h-9 text-sm" autoComplete="off" />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">分类</Label>
+                                <select
+                                  value={editForm.categoryId}
+                                  onChange={(e) => handleEditCategoryChange(e.target.value)}
+                                  className="h-9 w-full rounded-md border px-3 text-sm"
+                                >
+                                  <option value="">无</option>
+                                  {fixedAssetCategories.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">原值 *</Label>
+                                <Input type="number" value={editForm.originalValue || ''} onChange={(e) => updateEditForm('originalValue', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-9 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">累计折旧金额</Label>
+                                <Input type="number" value={editForm.accumulatedDepreciation || ''} onChange={(e) => updateEditForm('accumulatedDepreciation', parseFloat(e.target.value) || 0)} disabled={isPosted} className="h-9 text-sm text-right disabled:bg-slate-100" autoComplete="off" />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">账面价值</Label>
+                                <div className="h-9 flex items-center justify-end px-3 text-sm font-medium text-blue-700 bg-slate-100/60 rounded-md border border-slate-200">
+                                  {Math.round((editForm.originalValue - editForm.accumulatedDepreciation) * 100) / 100}
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">年限</Label>
+                                <Input type="number" value={editForm.usefulLifeYears || ''} onChange={(e) => updateEditForm('usefulLifeYears', parseInt(e.target.value, 10) || 10)} className="h-9 text-sm text-right" autoComplete="off" />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                              <div>
+                                <Label className="text-xs text-slate-500">残值率 (%)</Label>
+                                <Input
+                                  type="number"
+                                  value={(() => {
+                                    const original = editForm.originalValue || 0;
+                                    const salvage = editForm.salvageValue || 0;
+                                    if (original > 0) return Math.round((salvage / original) * 10000) / 100;
+                                    return 0;
+                                  })()}
+                                  onChange={(e) => {
+                                    const rate = parseFloat(e.target.value) || 0;
+                                    const original = editForm.originalValue || 0;
+                                    const salvage = Math.round(original * rate * 100) / 10000;
+                                    updateEditForm('salvageValue', salvage);
+                                  }}
+                                  placeholder="0"
+                                  className="h-9 text-sm text-right"
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">残值金额 (¥)</Label>
+                                <Input type="number" value={editForm.salvageValue || ''} onChange={(e) => updateEditForm('salvageValue', parseFloat(e.target.value) || 0)} placeholder="0.00" className="h-9 text-sm text-right" autoComplete="off" />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">购置日期</Label>
+                                <ChineseDatePicker value={editForm.acquisitionDate} onChange={(v) => updateEditForm('acquisitionDate', v)} displayFormat="iso" className="w-full" />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">开始折旧日期</Label>
+                                <ChineseDatePicker value={editForm.depreciationStartDate} onChange={(v) => updateEditForm('depreciationStartDate', v)} displayFormat="iso" className="w-full" />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-500">折旧方法</Label>
+                                <select
+                                  value={editForm.depreciationMethod}
+                                  onChange={(e) => updateEditForm('depreciationMethod', e.target.value)}
+                                  className="h-9 w-full rounded-md border px-3 text-sm"
+                                >
+                                  {DEPRECIATION_METHODS.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex items-end gap-2">
+                                <Button size="sm" onClick={saveEdit} className="h-9">
+                                  <Save className="h-4 w-4 mr-1" /> 保存
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={cancelEdit} className="h-9">
+                                  取消
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
