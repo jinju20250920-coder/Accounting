@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   DollarSign,
   FileText,
+  Info,
   ListChecks,
   RefreshCw,
   ShieldAlert,
@@ -19,6 +20,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
@@ -104,6 +106,7 @@ export default function SmartAccountingWorkbench() {
   const [bankTransactions, setBankTransactions] = useState<SmartAccountingBankTransaction[]>([]);
   const [lastCheckedAt, setLastCheckedAt] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [showStatusLegend, setShowStatusLegend] = useState(false);
 
   const periodInfo = useMemo(() => getCurrentPeriodText(currentAccountSet), [currentAccountSet]);
 
@@ -346,7 +349,28 @@ export default function SmartAccountingWorkbench() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <Card className="xl:col-span-2 border-slate-200">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">本月做账任务</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">本月做账任务</CardTitle>
+              <button
+                type="button"
+                onClick={() => setShowStatusLegend(prev => !prev)}
+                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+              >
+                <Info className="h-3.5 w-3.5" />
+                {showStatusLegend ? '收起说明' : '查看状态说明'}
+              </button>
+            </div>
+            {showStatusLegend && (
+              <Alert className="mt-3 bg-blue-50/60 border-blue-200 text-blue-900">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-xs space-y-1.5 pl-1">
+                  <div><strong className="text-red-700">阻塞</strong>：必须处理才能月结。系统已发现明确问题（如已有资产但本期未计提折旧），不修复会导致报表错误。</div>
+                  <div><strong className="text-amber-700">提醒</strong>：需要关注但不阻塞月结。如部分银行流水未生成凭证、工资已计算但未完成计提/发放等。</div>
+                  <div><strong className="text-slate-700">未开始</strong>：系统未检测到该模块的数据。可能是你尚未操作（如未导入发票），或公司确实无此业务 — 后者可在月结检查页手动标为「不需要」。</div>
+                  <div><strong className="text-emerald-700">已完成</strong>：系统检查通过或人工已确认。</div>
+                </AlertDescription>
+              </Alert>
+            )}
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
