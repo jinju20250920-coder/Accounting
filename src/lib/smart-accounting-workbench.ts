@@ -313,25 +313,23 @@ export function buildSmartAccountingSummary(input: SmartAccountingInput): SmartA
 }
 
 function smartStatusFromMonthlyCheck(item: MonthlyClosingCheckResult): SmartTaskStatus {
-  if (item.completed) return 'completed';
+  // 先按系统状态判断，避免 item.completed 把 no_data 误判为完成
   if (item.systemStatus === 'blocked') return 'blocked';
   if (item.systemStatus === 'warning') return 'warning';
+  // no_data（无发票/无资产余额/无待摊余额等）一律视为未开始，提示用户去处理或确认不需要
+  if (item.systemStatus === 'no_data') return 'not_started';
   if (item.systemStatus === 'passed') return 'completed';
-  if (item.systemStatus === 'no_data') {
-    // 进项/销项发票：无数据通常意味着用户还没导入，应提示"未开始"
-    // 资产/待摊等：无数据确实代表"无需处理"，可视为完成
-    if (item.code === 'input_invoice_certification' || item.code === 'output_invoice_posting') {
-      return 'not_started';
-    }
-    return 'completed';
-  }
+  // 最后再看 item.completed（手动确认或无系统数据时的人工状态）
+  if (item.completed) return 'completed';
   return 'not_started';
 }
 
 function smartActionLabelFromMonthlyCheck(item: MonthlyClosingCheckResult): string {
-  if (item.completed) return '查看';
+  // 与 smartStatusFromMonthlyCheck 的判断对齐
+  if (item.systemStatus === 'no_data') return '去处理';
   if (item.systemStatus === 'blocked') return '处理阻塞';
   if (item.systemStatus === 'warning') return item.allowManualConfirmation ? '确认处理' : '去处理';
+  if (item.completed) return '查看';
   return '查看';
 }
 
