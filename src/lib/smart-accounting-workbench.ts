@@ -316,7 +316,15 @@ function smartStatusFromMonthlyCheck(item: MonthlyClosingCheckResult): SmartTask
   if (item.completed) return 'completed';
   if (item.systemStatus === 'blocked') return 'blocked';
   if (item.systemStatus === 'warning') return 'warning';
-  if (item.systemStatus === 'passed' || item.systemStatus === 'no_data') return 'completed';
+  if (item.systemStatus === 'passed') return 'completed';
+  if (item.systemStatus === 'no_data') {
+    // 进项/销项发票：无数据通常意味着用户还没导入，应提示"未开始"
+    // 资产/待摊等：无数据确实代表"无需处理"，可视为完成
+    if (item.code === 'input_invoice_certification' || item.code === 'output_invoice_posting') {
+      return 'not_started';
+    }
+    return 'completed';
+  }
   return 'not_started';
 }
 
