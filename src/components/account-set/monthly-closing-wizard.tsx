@@ -32,6 +32,8 @@ import {
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
+import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { usePrepaidExpenseStore } from '@/stores/usePrepaidExpenseStore';
 import { useAccountSetStore, type AccountingPeriod } from '@/stores/useAccountSetStore';
 import { usePeriodManagementStore } from '@/stores/usePeriodManagementStore';
 import { useMonthlyClosingCheckStore } from '@/lib/monthly-closing-check-state';
@@ -86,6 +88,8 @@ export function MonthlyClosingWizard({ open, onOpenChange, period }: MonthlyClos
     try {
       const vouchers = useVoucherStore.getState().vouchers;
       const invoices = useInvoiceStore.getState().invoices;
+      const assetCategories = useFixedAssetStore.getState().categories;
+      const prepaidExpenses = usePrepaidExpenseStore.getState().expenses;
       const bankTxs = await sqliteService.getBankTransactionsByDateRange(period.startDate, period.endDate);
 
       const currentAccountSet = useAccountSetStore.getState().getCurrentAccountSet();
@@ -131,6 +135,8 @@ export function MonthlyClosingWizard({ open, onOpenChange, period }: MonthlyClos
           status: tx.status,
           voucherId: tx.voucherId,
         })),
+        assetCategories,
+        prepaidSubjectCodes: Array.from(new Set(prepaidExpenses.map((item) => item.prepaidSubjectCode).filter(Boolean))),
       });
 
       setSummary(result);

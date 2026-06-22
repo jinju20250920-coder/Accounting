@@ -1,4 +1,5 @@
 import type { AccountingPeriod } from '@/stores/useAccountSetStore';
+import type { AssetCategory } from '@/types';
 import {
   applyMonthlyCheckRuleConfigs,
   buildMonthlyClosingSummary,
@@ -16,6 +17,8 @@ export interface PeriodClosingData {
   vouchers: MonthlyClosingVoucher[];
   invoices: MonthlyClosingInvoice[];
   bankTransactions: MonthlyClosingBankTransaction[];
+  assetCategories?: AssetCategory[];
+  prepaidSubjectCodes?: string[];
 }
 
 const LOCKED_PERIOD_STATUSES: AccountingPeriod['status'][] = ['closed', 'locked'];
@@ -73,6 +76,8 @@ export function assertPeriodCanCloseWithData(
     vouchers: data.vouchers,
     invoices: data.invoices,
     bankTransactions: data.bankTransactions,
+    assetCategories: data.assetCategories,
+    prepaidSubjectCodes: data.prepaidSubjectCodes,
   });
 
   if (!summary.canClose) {

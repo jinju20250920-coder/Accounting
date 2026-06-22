@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAccountSetStore, type AccountSet } from '@/stores/useAccountSetStore';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { useVoucherStore } from '@/stores/useVoucherStore';
+import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { usePrepaidExpenseStore } from '@/stores/usePrepaidExpenseStore';
 import type { BankTransaction } from '@/types';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import {
@@ -43,6 +45,10 @@ export default function MonthlyClosingCheckReportPage() {
   const { invoices, initialize: initializeInvoices } = useInvoiceStore();
   const { getCurrentAccountSet } = useAccountSetStore();
   const { overridesByAccountSet, ruleConfigsByAccountSet } = useMonthlyClosingCheckStore();
+  const assetCategories = useFixedAssetStore((state) => state.categories);
+  const initializeFixedAssets = useFixedAssetStore((state) => state.initialize);
+  const prepaidExpenses = usePrepaidExpenseStore((state) => state.expenses);
+  const initializePrepaidExpenses = usePrepaidExpenseStore((state) => state.initialize);
   const currentAccountSet = getCurrentAccountSet();
   const periodInfo = useMemo(() => getCurrentPeriodText(currentAccountSet), [currentAccountSet]);
   const [bankTransactions, setBankTransactions] = useState<MonthlyClosingBankTransaction[]>([]);
@@ -52,7 +58,7 @@ export default function MonthlyClosingCheckReportPage() {
   const refreshReport = async () => {
     setLoading(true);
     try {
-      await Promise.all([initializeVouchers(), initializeInvoices()]);
+      await Promise.all([initializeVouchers(), initializeInvoices(), initializeFixedAssets(), initializePrepaidExpenses()]);
       try {
         const transactions = await sqliteService.getAllBankTransactions();
         setBankTransactions((transactions as BankTransaction[]).map((tx) => ({
@@ -123,7 +129,9 @@ export default function MonthlyClosingCheckReportPage() {
       voucherId: invoice.voucherId,
       paymentStatus: invoice.paymentStatus,
     })),
-  }), [bankTransactions, instances, invoices, periodInfo.period, vouchers]);
+    assetCategories,
+    prepaidSubjectCodes: Array.from(new Set(prepaidExpenses.map((item) => item.prepaidSubjectCode).filter(Boolean))),
+  }), [assetCategories, bankTransactions, instances, invoices, periodInfo.period, prepaidExpenses, vouchers]);
 
   const report = useMemo(() => buildMonthlyClosingReport({
     accountSetName: currentAccountSet?.name || '当前账套',

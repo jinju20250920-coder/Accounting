@@ -10,6 +10,8 @@ export type MonthlyCheckModule =
   | 'tax'
   | 'general_ledger';
 
+import type { AssetCategory } from '@/types';
+
 export type MonthlyCheckSeverity = 'info' | 'warning' | 'blocker';
 export type MonthlyCheckSystemStatus = 'unchecked' | 'passed' | 'warning' | 'blocked' | 'no_data';
 export type MonthlyCheckManualStatus = 'unchecked' | 'completed' | 'confirmed_not_needed' | 'explained' | 'recheck';
@@ -91,6 +93,8 @@ export interface MonthlyClosingInput {
   templates?: MonthlyCheckTemplate[];
   instances?: MonthlyCheckInstance[];
   ruleConfigs?: MonthlyCheckRuleConfigs;
+  assetCategories?: AssetCategory[];
+  prepaidSubjectCodes?: string[];
 }
 
 export interface MonthlyClosingCheckResult extends MonthlyCheckInstance {
@@ -157,10 +161,36 @@ export const DEFAULT_MONTHLY_CLOSING_TEMPLATES: MonthlyCheckTemplate[] = [
   template('cashflow_fluctuation_explain', 'general_ledger', '现金流量表是否存在异常波动并完成说明', '现金流量表', 'cashflow_fluctuation', 'warning', false, true, '/reports/cashflow', 'low'),
 ];
 
-const FIXED_ASSET_ORIGINAL_CODES = ['1501', '1601', '1604'];
-const ACCUMULATED_DEPRECIATION_CODES = ['1502', '1602'];
-const PREPAID_CODES = ['1801', '1811'];
+const DEFAULT_FIXED_ASSET_ORIGINAL_CODES = ['1501', '1601', '1604'];
+const DEFAULT_ACCUMULATED_DEPRECIATION_CODES = ['1502', '1602'];
+const DEFAULT_PREPAID_CODES = ['1801', '1811'];
 const KEY_SUBJECT_REVIEW_CODES = ['1002', '1122', '1221', '1405', '2202', '2203', '2211', '2221'];
+
+interface ResolvedAssetCodes {
+  fixedAssetOriginalCodes: string[];
+  accumulatedDepreciationCodes: string[];
+  prepaidCodes: string[];
+}
+
+function resolveAssetCodes(input: MonthlyClosingInput): ResolvedAssetCodes {
+  const fixedCategories = (input.assetCategories || []).filter(
+    (category) => category.assetType === 'fixed' && category.enabled !== false,
+  );
+  const fixedAssetOriginalFromCategories = Array.from(new Set(fixedCategories.map((c) => c.assetSubjectCode).filter(Boolean)));
+  const accumulatedDepreciationFromCategories = Array.from(new Set(fixedCategories.map((c) => c.depreciationSubjectCode).filter(Boolean)));
+  const prepaidFromInput = input.prepaidSubjectCodes ? Array.from(new Set(input.prepaidSubjectCodes.filter(Boolean))) : [];
+
+  const fixedAssetOriginalCodes = fixedAssetOriginalFromCategories.length > 0
+    ? fixedAssetOriginalFromCategories
+    : DEFAULT_FIXED_ASSET_ORIGINAL_CODES;
+  const accumulatedDepreciationCodes = accumulatedDepreciationFromCategories.length > 0
+    ? accumulatedDepreciationFromCategories
+    : DEFAULT_ACCUMULATED_DEPRECIATION_CODES;
+  const prepaidCodes = prepaidFromInput.length > 0
+    ? prepaidFromInput
+    : DEFAULT_PREPAID_CODES;
+  return { fixedAssetOriginalCodes, accumulatedDepreciationCodes, prepaidCodes };
+}
 
 function template(
   code: string,
@@ -301,6 +331,7 @@ function evaluateCheck(instance: MonthlyCheckInstance, input: MonthlyClosingInpu
   const bankTransactions = (input.bankTransactions || []).filter((item) => isInPeriod(item.date, period));
   const invoices = (input.invoices || []).filter((item) => isInPeriod(item.invoiceDate, period));
   const confirmedPayrollBatches = (input.payrollBatches || []).filter((item) => item.status === 'confirmed');
+  const codes = resolveAssetCodes(input);
 
   switch (instance.code) {
     case 'bank_import_and_voucher': {
@@ -343,17 +374,17 @@ function evaluateCheck(instance: MonthlyCheckInstance, input: MonthlyClosingInpu
       return result(instance, 'warning', 'warning', '已找到已确认工资批次中的社保、公积金计算结果；实际计提与缴纳仍需核对确认。', 1);
     }
     case 'fixed_asset_depreciation': {
-      const originalBalance = Math.max(0, sumEntries(vouchers, FIXED_ASSET_ORIGINAL_CODES, 'balanceDebit'));
-      const depreciationBalance = Math.max(0, sumEntries(vouchers, ACCUMULATED_DEPRECIATION_CODES, 'balanceCredit'));
-      const currentDepreciation = sumEntries(vouchers, ACCUMULATED_DEPRECIATION_CODES, 'credit', period);
+      const originalBalance = Math.max(0, sumEntries(vouchers, codes.fixedAssetOriginalCodes, 'balanceDebit'));
+      const depreciationBalance = Math.max(0, sumEntries(vouchers, codes.accumulatedDepreciationCodes, 'balanceCredit'));
+      const currentDepreciation = sumEntries(vouchers, codes.accumulatedDepreciationCodes, 'credit', period);
       if ((originalBalance > 0 || depreciationBalance > 0) && currentDepreciation <= 0) {
         return result(instance, instance.blockClosing ? 'blocked' : 'warning', instance.blockClosing ? 'blocker' : 'warning', `固定资产原值余额 ${originalBalance.toFixed(2)}，累计折旧余额 ${depreciationBalance.toFixed(2)}，本期未发现折旧计提。`, 1);
       }
       return result(instance, originalBalance > 0 || depreciationBalance > 0 ? 'passed' : 'no_data', 'info', '固定资产折旧检查未发现异常。', 0);
     }
     case 'prepaid_amortization': {
-      const prepaidBalance = Math.max(0, sumEntries(vouchers, PREPAID_CODES, 'balanceDebit'));
-      const currentAmortization = sumEntries(vouchers, PREPAID_CODES, 'credit', period);
+      const prepaidBalance = Math.max(0, sumEntries(vouchers, codes.prepaidCodes, 'balanceDebit'));
+      const currentAmortization = sumEntries(vouchers, codes.prepaidCodes, 'credit', period);
       if (prepaidBalance > 0 && currentAmortization <= 0) {
         return result(instance, 'warning', 'warning', `待摊费用余额 ${prepaidBalance.toFixed(2)}，本期未发现摊销发生额。`, 1);
       }

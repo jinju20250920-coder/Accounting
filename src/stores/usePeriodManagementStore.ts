@@ -6,6 +6,8 @@ import type { AccountingPeriod } from './useAccountSetStore';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 import { useVoucherStore } from './useVoucherStore';
 import { useInvoiceStore } from './useInvoiceStore';
+import { useFixedAssetStore } from './useFixedAssetStore';
+import { usePrepaidExpenseStore } from './usePrepaidExpenseStore';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import {
   assertPeriodCanCloseWithData,
@@ -125,6 +127,8 @@ const defaultTemplates: PeriodTemplate[] = [
 async function loadPeriodClosingData(period: AccountingPeriod): Promise<PeriodClosingData> {
   const vouchers = useVoucherStore.getState().vouchers;
   const invoices = useInvoiceStore.getState().invoices;
+  const assetCategories = useFixedAssetStore.getState().categories;
+  const prepaidExpenses = usePrepaidExpenseStore.getState().expenses;
   const periodBankTransactions = await sqliteService.getBankTransactionsByDateRange(period.startDate, period.endDate);
 
   return {
@@ -154,6 +158,8 @@ async function loadPeriodClosingData(period: AccountingPeriod): Promise<PeriodCl
       status: tx.status,
       voucherId: tx.voucherId,
     })),
+    assetCategories,
+    prepaidSubjectCodes: Array.from(new Set(prepaidExpenses.map((item) => item.prepaidSubjectCode).filter(Boolean))),
   };
 }
 

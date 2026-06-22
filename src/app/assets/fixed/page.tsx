@@ -409,11 +409,15 @@ function AssetCardDialog({
                       <SelectValue placeholder="选择分类" />
                     </SelectTrigger>
                     <SelectContent>
-                      {categories.filter(c => c.enabled).map(c => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name} ({c.assetType === 'intangible' ? '无形' : '固定'})
-                        </SelectItem>
-                      ))}
+                      {categories.filter(c => c.enabled).map(c => {
+                        const sameNameCount = categories.filter(other => other.enabled && other.name === c.name).length;
+                        const needsTypeSuffix = sameNameCount > 1;
+                        return (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}{needsTypeSuffix ? ` (${c.assetType === 'intangible' ? '无形' : '固定'})` : ''}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -667,6 +671,10 @@ function AssetCardDialog({
                       <span className="font-medium text-slate-500">¥{formatMoney(formData.initialAccumulatedDepreciation || 0)}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-slate-500">当前累计折旧</span>
+                      <span className="font-medium text-orange-600">¥{formatMoney(formData.accumulatedDepreciation || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-slate-500">剩余应折旧</span>
                       <span className="font-medium text-blue-700">¥{formatMoney(remainingDepreciable)}</span>
                     </div>
@@ -750,7 +758,7 @@ function AssetCardDialog({
               )}
               {formData.acquisitionType === 'opening_balance' && (
                 <div className="space-y-1.5">
-                  <Label>初始累计折旧</Label>
+                  <Label className="text-slate-500">初始累计折旧（期初）</Label>
                   <Input
                     type="number"
                     value={formData.initialAccumulatedDepreciation || 0}
@@ -761,7 +769,15 @@ function AssetCardDialog({
                     }))}
                     placeholder="0.00"
                     autoComplete="off"
+                    disabled={Boolean(formData.id)}
+                    readOnly={Boolean(formData.id)}
+                    className={formData.id ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}
                   />
+                  {formData.id && (
+                    <p className="text-xs text-amber-600">
+                      期初值已锁定。如需修改，请到凭证列表红冲期初凭证（摘要含"期初累计折旧-xxx"），再重新入账。
+                    </p>
+                  )}
                 </div>
               )}
               {/* 购入/发票取得显示供应商 */}
@@ -1509,7 +1525,7 @@ export default function FixedAssetsPage() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">累计折旧</div>
+            <div className="text-sm text-slate-500">当前累计折旧</div>
             <div className="text-2xl font-bold text-orange-600">¥{formatMoney(totalDepreciation)}</div>
           </CardContent>
         </Card>
@@ -1602,7 +1618,8 @@ export default function FixedAssetsPage() {
                   <th className="text-left p-4 font-medium text-sm">类型</th>
                   <th className="text-center p-4 font-medium text-sm">数量</th>
                   <th className="text-right p-4 font-medium text-sm">原值</th>
-                  <th className="text-right p-4 font-medium text-sm">累计折旧</th>
+                  <th className="text-right p-4 font-medium text-sm">期初累计折旧</th>
+                  <th className="text-right p-4 font-medium text-sm">当前累计折旧</th>
                   <th className="text-right p-4 font-medium text-sm">净值</th>
                   <th className="text-center p-4 font-medium text-sm">本月折旧</th>
                   <th className="text-center p-4 font-medium text-sm">剩余月份</th>
@@ -1664,6 +1681,7 @@ export default function FixedAssetsPage() {
                         )}
                       </td>
                       <td className="p-4 text-sm text-right">¥{formatMoney(asset.originalValue)}</td>
+                      <td className="p-4 text-sm text-right text-slate-500">¥{formatMoney(asset.isOpeningBalance ? (asset.initialAccumulatedDepreciation ?? 0) : 0)}</td>
                       <td className="p-4 text-sm text-right text-orange-600">¥{formatMoney(asset.accumulatedDepreciation)}</td>
                       <td className="p-4 text-sm text-right font-medium">¥{formatMoney(asset.netValue)}</td>
                       <td className="p-4 text-sm text-center">

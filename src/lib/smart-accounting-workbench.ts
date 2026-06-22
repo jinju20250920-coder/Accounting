@@ -3,6 +3,7 @@ import {
   type MonthlyClosingCheckResult,
   type MonthlyClosingSummary,
 } from './monthly-closing-checks';
+import type { AssetCategory } from '@/types';
 
 export type SmartTaskStatus = 'completed' | 'in_progress' | 'warning' | 'blocked' | 'not_started';
 export type SmartRiskSeverity = 'info' | 'warning' | 'blocker';
@@ -43,6 +44,8 @@ export interface SmartAccountingInput {
   vouchers: SmartAccountingVoucher[];
   bankTransactions?: SmartAccountingBankTransaction[];
   invoices?: SmartAccountingInvoice[];
+  assetCategories?: AssetCategory[];
+  prepaidSubjectCodes?: string[];
 }
 
 export interface SmartAccountingTask {
@@ -85,10 +88,36 @@ export interface SmartAccountingSummary {
   };
 }
 
-const FIXED_ASSET_ORIGINAL_CODES = ['1501', '1601', '1604'];
-const ACCUMULATED_DEPRECIATION_CODES = ['1502', '1602'];
-const PREPAID_CODES = ['1801', '1811'];
+const DEFAULT_FIXED_ASSET_ORIGINAL_CODES = ['1501', '1601', '1604'];
+const DEFAULT_ACCUMULATED_DEPRECIATION_CODES = ['1502', '1602'];
+const DEFAULT_PREPAID_CODES = ['1801', '1811'];
 const KEY_SUBJECT_REVIEW_CODES = ['1002', '1122', '1221', '1405', '2202', '2203', '2211', '2221'];
+
+interface AssetCodeSet {
+  fixedAssetOriginalCodes: string[];
+  accumulatedDepreciationCodes: string[];
+  prepaidCodes: string[];
+}
+
+function resolveAssetCodes(input: SmartAccountingInput): AssetCodeSet {
+  const fixedCategories = (input.assetCategories || []).filter(
+    (category) => category.assetType === 'fixed' && category.enabled !== false,
+  );
+  const fixedAssetOriginalFromCategories = Array.from(new Set(fixedCategories.map((c) => c.assetSubjectCode).filter(Boolean)));
+  const accumulatedDepreciationFromCategories = Array.from(new Set(fixedCategories.map((c) => c.depreciationSubjectCode).filter(Boolean)));
+  const prepaidFromInput = input.prepaidSubjectCodes ? Array.from(new Set(input.prepaidSubjectCodes.filter(Boolean))) : [];
+
+  const fixedAssetOriginalCodes = fixedAssetOriginalFromCategories.length > 0
+    ? fixedAssetOriginalFromCategories
+    : DEFAULT_FIXED_ASSET_ORIGINAL_CODES;
+  const accumulatedDepreciationCodes = accumulatedDepreciationFromCategories.length > 0
+    ? accumulatedDepreciationFromCategories
+    : DEFAULT_ACCUMULATED_DEPRECIATION_CODES;
+  const prepaidCodes = prepaidFromInput.length > 0
+    ? prepaidFromInput
+    : DEFAULT_PREPAID_CODES;
+  return { fixedAssetOriginalCodes, accumulatedDepreciationCodes, prepaidCodes };
+}
 
 function isInPeriod(date: string | undefined, period: string): boolean {
   return Boolean(date?.startsWith(period));
@@ -147,6 +176,7 @@ export function buildSmartAccountingSummary(input: SmartAccountingInput): SmartA
   const periodVouchers = input.vouchers.filter((voucher) => isInPeriod(voucher.date, input.period));
   const periodBankTransactions = bankTransactions.filter((tx) => isInPeriod(tx.date, input.period));
   const periodInvoices = invoices.filter((invoice) => isInPeriod(invoice.invoiceDate, input.period));
+  const codes = resolveAssetCodes(input);
 
   const tasks: SmartAccountingTask[] = [];
   const risks: SmartAccountingRisk[] = [];
@@ -193,9 +223,9 @@ export function buildSmartAccountingSummary(input: SmartAccountingInput): SmartA
     }
   }
 
-  const fixedAssetOriginalBalance = Math.max(0, sumEntries(input.vouchers, FIXED_ASSET_ORIGINAL_CODES, 'balanceDebit'));
-  const accumulatedDepreciationBalance = Math.max(0, sumEntries(input.vouchers, ACCUMULATED_DEPRECIATION_CODES, 'balanceCredit'));
-  const currentDepreciationCredit = sumEntries(input.vouchers, ACCUMULATED_DEPRECIATION_CODES, 'credit', input.period);
+  const fixedAssetOriginalBalance = Math.max(0, sumEntries(input.vouchers, codes.fixedAssetOriginalCodes, 'balanceDebit'));
+  const accumulatedDepreciationBalance = Math.max(0, sumEntries(input.vouchers, codes.accumulatedDepreciationCodes, 'balanceCredit'));
+  const currentDepreciationCredit = sumEntries(input.vouchers, codes.accumulatedDepreciationCodes, 'credit', input.period);
 
   if ((fixedAssetOriginalBalance > 0 || accumulatedDepreciationBalance > 0) && currentDepreciationCredit <= 0) {
     tasks.push(task('fixed_asset_depreciation_check', '资产摊折', '固定资产折旧确认', 'warning', 1, '/assets/depreciation', '计提折旧'));
@@ -209,8 +239,8 @@ export function buildSmartAccountingSummary(input: SmartAccountingInput): SmartA
     ));
   }
 
-  const prepaidBalance = Math.max(0, sumEntries(input.vouchers, PREPAID_CODES, 'balanceDebit'));
-  const currentPrepaidCredit = sumEntries(input.vouchers, PREPAID_CODES, 'credit', input.period);
+  const prepaidBalance = Math.max(0, sumEntries(input.vouchers, codes.prepaidCodes, 'balanceDebit'));
+  const currentPrepaidCredit = sumEntries(input.vouchers, codes.prepaidCodes, 'credit', input.period);
 
   if (prepaidBalance > 0 && currentPrepaidCredit <= 0) {
     tasks.push(task('prepaid_amortization_check', '资产摊折', '待摊费用摊销确认', 'warning', 1, '/assets/prepaid', '计提摊销'));

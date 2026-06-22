@@ -113,7 +113,7 @@ export function SetupStepFixedAssets({ accountSetId }: SetupStepFixedAssetsProps
           categoryName: a.categoryName || '',
           originalValue: a.originalValue,
           salvageValue: a.salvageValue || 0,
-          accumulatedDepreciation: a.accumulatedDepreciation,
+          accumulatedDepreciation: a.initialAccumulatedDepreciation ?? a.accumulatedDepreciation,
           acquisitionDate: a.acquisitionDate || '',
           depreciationStartDate: a.depreciationStartDate || '',
           depreciationMethod: a.depreciationMethod || 'straight_line',

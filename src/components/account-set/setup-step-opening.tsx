@@ -88,6 +88,7 @@ interface AssetBalanceEntry {
   accumulatedDepreciation: number;
   netValue: number;
   included: boolean;
+  categoryId?: string;
 }
 
 interface BankBindingForOpening {
@@ -292,6 +293,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
 
   const fixedAssets = useFixedAssetStore(s => s.assets);
   const initializeFixedAssets = useFixedAssetStore(s => s.initialize);
+  const assetCategories = useFixedAssetStore(s => s.categories);
   const fixedAssetsInitializedRef = useRef(false);
 
   useEffect(() => {
@@ -776,23 +778,35 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
         } catch (err) { console.warn('Bank bridge failed:', err); }
       }
 
-      // 5. Fixed asset balances → 1601/1602 entries (asset cards already exist)
+      // 5. Fixed asset balances → asset subject entries (asset cards already exist)
+      // 按资产的 categoryId 从分类管理查询科目代码，找不到时回退 1601/1602
       const includedAssets = assetEntries.filter(e => e.included);
+      const categoryById = new Map(assetCategories.map(c => [c.id, c]));
+      const FALLBACK_ASSET_CODE = '1601';
+      const FALLBACK_ASSET_NAME = '固定资产';
+      const FALLBACK_DEPRECIATION_CODE = '1602';
+      const FALLBACK_DEPRECIATION_NAME = '累计折旧';
       for (const e of includedAssets) {
-        // 1601 借方（原值）
+        const category = e.categoryId ? categoryById.get(e.categoryId) : undefined;
+        const isIntangible = category?.assetType === 'intangible';
+        const assetCode = category?.assetSubjectCode || FALLBACK_ASSET_CODE;
+        const assetName = isIntangible ? (category?.name || '无形资产') : '固定资产';
+        const depreciationCode = category?.depreciationSubjectCode || FALLBACK_DEPRECIATION_CODE;
+        const depreciationName = isIntangible ? (category?.name ? `${category.name}累计摊销` : '累计摊销') : '累计折旧';
+        // 资产科目借方（原值）
         allEntries.push({
           id: `oe_a_${Date.now()}_${allEntries.length}`, voucherId: '',
           date: voucherDate, summary: `期初资产-${e.assetName}`,
-          subjectCode: '1601', subjectName: '固定资产',
+          subjectCode: assetCode, subjectName: assetName,
           debit: e.originalValue, credit: 0,
           auxiliary: { assetCode: e.assetCode, assetName: e.assetName },
         });
-        // 1602 贷方（累计折旧）
+        // 折旧/摊销科目贷方（累计折旧）
         if (e.accumulatedDepreciation > 0) {
           allEntries.push({
             id: `oe_ad_${Date.now()}_${allEntries.length}`, voucherId: '',
             date: voucherDate, summary: `期初累计折旧-${e.assetName}`,
-            subjectCode: '1602', subjectName: '累计折旧',
+            subjectCode: depreciationCode, subjectName: depreciationName,
             debit: 0, credit: e.accumulatedDepreciation,
             auxiliary: { assetCode: e.assetCode, assetName: e.assetName },
           });

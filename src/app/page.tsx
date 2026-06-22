@@ -27,6 +27,8 @@ import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { usePayrollStore } from '@/stores/usePayrollStore';
+import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { usePrepaidExpenseStore } from '@/stores/usePrepaidExpenseStore';
 import type { AccountSet } from '@/stores/useAccountSetStore';
 import type { BankTransaction } from '@/types';
 import { sqliteService } from '@/lib/database/sqlite-service';
@@ -99,6 +101,10 @@ export default function SmartAccountingWorkbench() {
   const { invoices, initialize: initializeInvoices } = useInvoiceStore();
   const payrollBatches = usePayrollStore((state) => state.batches);
   const loadPayrollPeriod = usePayrollStore((state) => state.loadPeriod);
+  const assetCategories = useFixedAssetStore((state) => state.categories);
+  const initializeFixedAssets = useFixedAssetStore((state) => state.initialize);
+  const prepaidExpenses = usePrepaidExpenseStore((state) => state.expenses);
+  const initializePrepaidExpenses = usePrepaidExpenseStore((state) => state.initialize);
   const { getCurrentAccountSet } = useAccountSetStore();
   const monthlyOverridesByAccountSet = useMonthlyClosingCheckStore((state) => state.overridesByAccountSet);
   const monthlyRuleConfigsByAccountSet = useMonthlyClosingCheckStore((state) => state.ruleConfigsByAccountSet);
@@ -118,6 +124,8 @@ export default function SmartAccountingWorkbench() {
         initializeSubjects(),
         initializeInvoices(),
         loadPayrollPeriod(periodInfo.period),
+        initializeFixedAssets(),
+        initializePrepaidExpenses(),
       ]);
 
       try {
@@ -167,7 +175,9 @@ export default function SmartAccountingWorkbench() {
       voucherId: invoice.voucherId,
       paymentStatus: invoice.paymentStatus,
     })),
-  }), [bankTransactions, invoices, periodInfo.period, vouchers]);
+    assetCategories,
+    prepaidSubjectCodes: Array.from(new Set(prepaidExpenses.map((item) => item.prepaidSubjectCode).filter(Boolean))),
+  }), [assetCategories, bankTransactions, invoices, periodInfo.period, prepaidExpenses, vouchers]);
 
   const monthlyPeriodOverrides = useMemo(
     () => (currentAccountSet?.id ? monthlyOverridesByAccountSet[currentAccountSet.id]?.[periodInfo.period] || {} : {}),
@@ -209,7 +219,9 @@ export default function SmartAccountingWorkbench() {
       includesSocialFundCalculation: batch.employeeCount > 0,
     })),
     ruleConfigs: monthlyRuleConfigs,
-  }), [monthlyInstances, monthlyRuleConfigs, payrollBatches, periodInfo.period, smartAccountingInput]);
+    assetCategories,
+    prepaidSubjectCodes: smartAccountingInput.prepaidSubjectCodes,
+  }), [assetCategories, monthlyInstances, monthlyRuleConfigs, payrollBatches, periodInfo.period, smartAccountingInput]);
 
   const workbenchSummary = useMemo(
     () => buildSmartAccountingSummaryFromMonthlyClosing(smartAccountingInput, monthlySummary),

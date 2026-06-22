@@ -58,6 +58,7 @@ export interface AssetOpeningEntry {
   accumulatedDepreciation: number;
   netValue: number;
   included: boolean;
+  categoryId?: string;
 }
 
 export interface AssetOpeningSource {
@@ -66,6 +67,12 @@ export interface AssetOpeningSource {
   originalValue: number;
   accumulatedDepreciation: number;
   netValue: number;
+  categoryId?: string;
+  /**
+   * 期初导入时的累计折旧快照（仅期初卡片有值）。
+   * 若存在则优先使用——避免被后续计提折旧累加污染期初页面的显示口径。
+   */
+  initialAccumulatedDepreciation?: number;
 }
 
 export interface OpeningPostedVoucherEntryLike {
@@ -466,14 +473,18 @@ export function buildBankOpeningEntriesFromBindings(
 }
 
 export function buildAssetOpeningEntriesFromAssets(assets: AssetOpeningSource[]): AssetOpeningEntry[] {
-  return assets.map(asset => ({
-    assetCode: asset.assetCode,
-    assetName: asset.assetName,
-    originalValue: asset.originalValue,
-    accumulatedDepreciation: asset.accumulatedDepreciation,
-    netValue: asset.netValue,
-    included: true,
-  }));
+  return assets.map(asset => {
+    const openingDepreciation = asset.initialAccumulatedDepreciation ?? asset.accumulatedDepreciation;
+    return {
+      assetCode: asset.assetCode,
+      assetName: asset.assetName,
+      originalValue: asset.originalValue,
+      accumulatedDepreciation: openingDepreciation,
+      netValue: asset.originalValue - openingDepreciation,
+      included: true,
+      categoryId: asset.categoryId,
+    };
+  });
 }
 
 export function collectPostedOpeningDetailIndex(
