@@ -798,7 +798,7 @@ class SQLiteManager {
 
       CREATE TABLE IF NOT EXISTS assetCategories (
         id TEXT PRIMARY KEY,
-        code TEXT UNIQUE,
+        code TEXT,
         name TEXT NOT NULL,
         assetType TEXT NOT NULL,
         defaultUsefulLifeYears INTEGER,

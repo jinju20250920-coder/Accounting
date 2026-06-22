@@ -436,6 +436,8 @@ class SQLiteService {
     await this.migrateBackfillSubjectIsMonetary();
     // 数据迁移：为 fixedAssets.depreciationStartDate IS NULL 的行回填（按规则从 acquisitionDate 推算）
     await this.migrateBackfillFixedAssetDepreciationStartDate();
+    // 迁移：assetCategories.code 去掉全局 UNIQUE（改为可重复，按 accountSetId 区分）
+    await this.migrateDropAssetCategoriesCodeUnique();
   }
 
   /**
@@ -674,6 +676,67 @@ class SQLiteService {
       }
     } catch (err) {
       console.error('[FA depreciationStartDate migration] 失败:', err);
+    }
+  }
+
+  /**
+   * assetCategories 表的 code 列原来是全局 UNIQUE，导致同一 code（如 ELECTRONIC）无法
+   * 在多个账套中各自存在。本迁移去掉该 UNIQUE 约束，让每个账套都能有自己的同 code 分类。
+   * 检测方式：sqlite_master 中建表 SQL 含 "code TEXT UNIQUE" 即旧 schema。
+   */
+  private async migrateDropAssetCategoriesCodeUnique(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const db = this.dbInstance;
+      const schemaRows = db.exec(
+        `SELECT sql FROM sqlite_master WHERE type='table' AND name='assetCategories'`
+      );
+      const schemaSql = String(schemaRows[0]?.values?.[0]?.[0] ?? '');
+      if (!schemaSql.includes('code TEXT UNIQUE')) return;
+
+      db.exec('BEGIN');
+      try {
+        db.exec(`
+          CREATE TABLE assetCategories_new (
+            id TEXT PRIMARY KEY,
+            code TEXT,
+            name TEXT NOT NULL,
+            assetType TEXT NOT NULL,
+            defaultUsefulLifeYears INTEGER,
+            defaultDepreciationMethod TEXT,
+            defaultSalvageRate REAL DEFAULT 0.05,
+            assetSubjectCode TEXT,
+            depreciationSubjectCode TEXT,
+            expenseSubjectCode TEXT,
+            description TEXT,
+            sortOrder INTEGER DEFAULT 0,
+            enabled INTEGER DEFAULT 1,
+            accountSetId TEXT,
+            createTime TEXT,
+            updateTime TEXT
+          )
+        `);
+        db.exec(`
+          INSERT INTO assetCategories_new
+          SELECT id, code, name, assetType, defaultUsefulLifeYears, defaultDepreciationMethod,
+                 defaultSalvageRate, assetSubjectCode, depreciationSubjectCode, expenseSubjectCode,
+                 description, sortOrder, enabled, accountSetId, createTime, updateTime
+          FROM assetCategories
+        `);
+        db.exec('DROP TABLE assetCategories');
+        db.exec('ALTER TABLE assetCategories_new RENAME TO assetCategories');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_assetCategories_accountSetId ON assetCategories(accountSetId)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_assetCategories_code ON assetCategories(code)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_assetCategories_assetType ON assetCategories(assetType)');
+        db.exec('COMMIT');
+        await this.persist();
+        console.log('[assetCategories migration] 已去掉 code 全局 UNIQUE 约束');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
+    } catch (err) {
+      console.error('[assetCategories migration] 失败:', err);
     }
   }
 
