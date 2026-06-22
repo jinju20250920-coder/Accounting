@@ -438,6 +438,8 @@ class SQLiteService {
     await this.migrateBackfillFixedAssetDepreciationStartDate();
     // 迁移：assetCategories.code 去掉全局 UNIQUE（改为可重复，按 accountSetId 区分）
     await this.migrateDropAssetCategoriesCodeUnique();
+    // 迁移：按 (code, accountSetId) 去重资产分类，并建复合唯一索引防重
+    await this.migrateDedupAssetCategories();
   }
 
   /**
@@ -676,6 +678,97 @@ class SQLiteService {
       }
     } catch (err) {
       console.error('[FA depreciationStartDate migration] 失败:', err);
+    }
+  }
+
+  /**
+   * 资产分类历史数据可能存在重复行（之前没有 UNIQUE 约束时由 initializeDefaultCategories
+   * 在多次初始化中累积）。本迁移按 (code, accountSetId) 分组保留最早创建的一行，删除其余
+   * 重复行；fixedAssets.categoryId 引用被迁移到保留行；最后建 (code, accountSetId) 复合
+   * UNIQUE 索引防止再次累积。幂等：索引存在即跳过。
+   */
+  private async migrateDedupAssetCategories(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const db = this.dbInstance;
+
+      // 检测是否已建复合唯一索引（幂等）
+      const idxRows = db.exec(
+        `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='assetCategories' AND name='idx_assetCategories_code_accountSetId_unique'`
+      );
+      const indexExists = (idxRows[0]?.values?.length ?? 0) > 0;
+      if (indexExists) return;
+
+      // 找出所有重复行（按 code+accountSetId 分组，组内超过 1 条）
+      const dupRows = db.exec(`
+        WITH ranked AS (
+          SELECT id, code, COALESCE(accountSetId, '') AS acctId, createTime,
+            ROW_NUMBER() OVER (
+              PARTITION BY code, COALESCE(accountSetId, '')
+              ORDER BY createTime ASC, id ASC
+            ) AS rn
+          FROM assetCategories
+        )
+        SELECT r.id, r.code, r.acctId
+        FROM ranked r
+        WHERE r.rn > 1
+      `);
+      const dups = dupRows[0]?.values ?? [];
+
+      if (dups.length > 0) {
+        db.exec('BEGIN');
+        try {
+          for (const row of dups) {
+            const dupId = String(row[0]);
+            const code = String(row[1]);
+            const acctId = String(row[2]);
+
+            // 找到保留行（同组 createTime 最早）
+            const keepRes = db.exec(`
+              SELECT id FROM assetCategories
+              WHERE code = ?
+                AND COALESCE(accountSetId, '') = ?
+              ORDER BY createTime ASC, id ASC
+              LIMIT 1
+            `, [code, acctId]);
+            const keepId = String(keepRes[0]?.values?.[0]?.[0] ?? '');
+            if (!keepId || keepId === dupId) continue;
+
+            // fixedAssets 改挂保留行
+            const upd = db.prepare(
+              `UPDATE fixedAssets SET categoryId = ? WHERE categoryId = ?`
+            );
+            try {
+              upd.run([keepId, dupId]);
+            } finally {
+              upd.free();
+            }
+
+            // 删除重复行
+            const del = db.prepare(`DELETE FROM assetCategories WHERE id = ?`);
+            try {
+              del.run([dupId]);
+            } finally {
+              del.free();
+            }
+          }
+          db.exec('COMMIT');
+          await this.persist();
+          console.log(`[assetCategories dedup] 已清理 ${dups.length} 行重复分类`);
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      }
+
+      // 建复合唯一索引（code + accountSetId），COALESCE 处理 NULL
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_assetCategories_code_accountSetId_unique
+        ON assetCategories(code, COALESCE(accountSetId, ''))
+      `);
+      await this.persist();
+    } catch (err) {
+      console.error('[assetCategories dedup migration] 失败:', err);
     }
   }
 
