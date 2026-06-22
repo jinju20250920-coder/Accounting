@@ -406,9 +406,7 @@ function AssetCardDialog({
                     onValueChange={handleCategoryChange}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="选择分类">
-                        {formData.categoryId ? categories.find(c => c.id === formData.categoryId)?.name : '选择分类'}
-                      </SelectValue>
+                      <SelectValue placeholder="选择分类" />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.filter(c => c.enabled).map(c => (
