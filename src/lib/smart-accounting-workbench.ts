@@ -86,7 +86,7 @@ export interface SmartAccountingSummary {
 }
 
 const FIXED_ASSET_ORIGINAL_CODES = ['1501', '1601', '1604'];
-const ACCUMULATED_DEPRECIATION_CODES = ['1502'];
+const ACCUMULATED_DEPRECIATION_CODES = ['1502', '1602'];
 const PREPAID_CODES = ['1801', '1811'];
 const KEY_SUBJECT_REVIEW_CODES = ['1002', '1122', '1221', '1405', '2202', '2203', '2211', '2221'];
 
