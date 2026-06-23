@@ -55,19 +55,6 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
         manualOpening = await sqliteService.getBankOpeningBalance(accountNumber, periodStart);
       }
 
-      // Diagnostic: surface the underlying query parameters and result so the
-      // user can verify why cards show 0 in devtools when balances look empty.
-      const bindings = await sqliteService.getBankAccountBindings();
-      console.info('[CashOverview]', {
-        accountSetId: sqliteService.accountSetId,
-        accountNumber,
-        periodStart,
-        periodEnd,
-        result,
-        bindingsCount: bindings.length,
-        bindings,
-      });
-
       setData({
         ...result,
         manualOpening,
