@@ -937,7 +937,7 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
 
       const totalItems = subjectEntriesForVoucher.length + validPartnerEntries.length + validBankEntries.length + includedAssets.length + (!isBalanced && adjustmentSubject.code ? 1 : 0);
       setSaved(true);
-      showToast('success', `期初数据已保存，共 ${totalItems} 条`);
+      showToast('success', postedOpeningVoucher ? '期初凭证已更新' : `期初数据已保存，共 ${totalItems} 条`);
     } catch (error) {
       console.error('[opening-balance] save failed', {
         accountSetId,
@@ -1463,18 +1463,18 @@ export function SetupStepOpening({ accountSetId, onBalancedChange, accounting }:
               </span>
             </div>
           )}
-          <div className="flex items-center gap-2 ml-auto">
-            <Button
-              onClick={handleSave}
-              disabled={loading || !canSaveOpening}
-              className="bg-blue-600 hover:bg-blue-700"
-              title={!canSaveOpening ? `借贷差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，请补录对方科目（如实收资本）或选择补平科目` : undefined}
-            >
-              {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 入账中...</> : (
-                lockedOpeningVoucher ? '重新入账' : '完成期初'
-              )}
-            </Button>
-          </div>
+          {!lockedOpeningVoucher && (
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                onClick={handleSave}
+                disabled={loading || !canSaveOpening}
+                className="bg-blue-600 hover:bg-blue-700"
+                title={!canSaveOpening ? `借贷差额 ${diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}，请补录对方科目（如实收资本）或选择补平科目` : undefined}
+              >
+                {loading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> 入账中...</> : '完成期初'}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
