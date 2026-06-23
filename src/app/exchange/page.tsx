@@ -72,6 +72,12 @@ export default function ExchangePage() {
 
   const [tab, setTab] = useState<TabValue>('preview');
   const [period, setPeriod] = useState(() => {
+    const current = useAccountSetStore.getState().getCurrentAccountSet();
+    const openPeriod = (current?.accountingPeriods || []).find(p => p.isCurrent || p.status === 'open');
+    if (openPeriod) return `${openPeriod.year}-${String(openPeriod.month).padStart(2, '0')}`;
+    if (current?.currentPeriod && current.currentPeriod.length >= 7) {
+      return current.currentPeriod.substring(0, 7);
+    }
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
