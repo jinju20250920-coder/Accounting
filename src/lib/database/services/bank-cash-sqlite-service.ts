@@ -31,9 +31,31 @@ export async function getBankOpeningBalanceDetailQuery(
   accountNumber: string,
   periodStart: string,
 ): Promise<BankOpeningBalanceDetail | null> {
-  const result = await service.querySingleAsync<BankOpeningBalanceDetail>(
+  // Try strict equality first (covers manuals saved with the exact queried period).
+  let result = await service.querySingleAsync<BankOpeningBalanceDetail>(
     `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
     [accountSetId, accountNumber, periodStart],
+  );
+  if (result) return result;
+
+  // Fallback 1: latest manual at or before the queried period (handles setup
+  // saving manuals at the account-set start month while the cash console is
+  // viewed in a later month).
+  result = await service.querySingleAsync<BankOpeningBalanceDetail>(
+    `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances
+     WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7)
+     ORDER BY periodStart DESC LIMIT 1`,
+    [accountSetId, accountNumber, periodStart],
+  );
+  if (result) return result;
+
+  // Fallback 2: latest manual regardless of period (handles period misalignment
+  // where the manual was saved for a later month than the queried one).
+  result = await service.querySingleAsync<BankOpeningBalanceDetail>(
+    `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances
+     WHERE accountSetId = ? AND accountNumber = ?
+     ORDER BY periodStart DESC LIMIT 1`,
+    [accountSetId, accountNumber],
   );
   return result ?? null;
 }
@@ -167,21 +189,34 @@ export async function getCashOverviewQuery(
     // that case. We then layer in any transactions between the manual period
     // and the queried period so the opening stays correct after imports.
     interface ManualRow { balance: number; periodStart: string }
-    const manualBalance = await service.querySingleAsync<ManualRow>(
+    let manualBalance = await service.querySingleAsync<ManualRow>(
       `SELECT balance, periodStart FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7) ORDER BY periodStart DESC LIMIT 1`,
       [accountSetId, ourAccount, periodStart],
     );
+    // Fallback: if no manual matches the period filter, use the latest manual
+    // for this account regardless of period (handles period misalignment).
+    if (!manualBalance) {
+      manualBalance = await service.querySingleAsync<ManualRow>(
+        `SELECT balance, periodStart FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? ORDER BY periodStart DESC LIMIT 1`,
+        [accountSetId, ourAccount],
+      );
+    }
     if (manualBalance?.balance != null) {
       const manualPeriodStart = manualBalance.periodStart.length >= 7
         ? `${manualBalance.periodStart.substring(0, 7)}-01`
         : manualBalance.periodStart;
-      const sinceResult = await service.querySingleAsync<SumsRow>(
-        `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
-        [accountSetId, ourAccount, manualPeriodStart, periodStart],
-      );
-      const sinceCredit = sinceResult?.totalCredit || 0;
-      const sinceDebit = sinceResult?.totalDebit || 0;
-      openingBalance = Math.round((manualBalance.balance + sinceCredit - sinceDebit) * 100) / 100;
+      // Only add delta if manual's period is before queried period.
+      if (manualPeriodStart < periodStart) {
+        const sinceResult = await service.querySingleAsync<SumsRow>(
+          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
+          [accountSetId, ourAccount, manualPeriodStart, periodStart],
+        );
+        const sinceCredit = sinceResult?.totalCredit || 0;
+        const sinceDebit = sinceResult?.totalDebit || 0;
+        openingBalance = Math.round((manualBalance.balance + sinceCredit - sinceDebit) * 100) / 100;
+      } else {
+        openingBalance = Math.round(manualBalance.balance * 100) / 100;
+      }
     }
   } else {
     // "全部账户" aggregation: sum the latest manual opening per bank (at or
@@ -189,7 +224,7 @@ export async function getCashOverviewQuery(
     // period and the queried periodStart. Transactions before any manual
     // opening are intentionally excluded (manual opening replaces them).
     interface BankManualRow { accountNumber: string; balance: number; periodStart: string }
-    const bankManuals = await service.queryAllAsync<BankManualRow>(
+    let bankManuals = await service.queryAllAsync<BankManualRow>(
       `SELECT b.accountNumber, b.balance, b.periodStart
        FROM bank_opening_balances b
        INNER JOIN (
@@ -201,6 +236,24 @@ export async function getCashOverviewQuery(
        WHERE b.accountSetId = ?`,
       [accountSetId, periodStart, accountSetId],
     );
+    // Fallback: if no manuals match the period filter (e.g., manuals were saved
+    // for a later period than the queried one), use the latest manual per account
+    // regardless of period. This ensures the cards show actual opening balances
+    // instead of 0 when the manual's period doesn't align with the queried period.
+    if (bankManuals.length === 0) {
+      bankManuals = await service.queryAllAsync<BankManualRow>(
+        `SELECT b.accountNumber, b.balance, b.periodStart
+         FROM bank_opening_balances b
+         INNER JOIN (
+           SELECT accountNumber, MAX(periodStart) as maxPeriod
+           FROM bank_opening_balances
+           WHERE accountSetId = ?
+           GROUP BY accountNumber
+         ) m ON b.accountNumber = m.accountNumber AND b.periodStart = m.maxPeriod
+         WHERE b.accountSetId = ?`,
+        [accountSetId, accountSetId],
+      );
+    }
     if (bankManuals.length > 0) {
       let totalOpening = 0;
       const coveredAccounts = new Set<string>();
@@ -210,18 +263,24 @@ export async function getCashOverviewQuery(
         const manualPeriodStart = m.periodStart.length >= 7
           ? `${m.periodStart.substring(0, 7)}-01`
           : m.periodStart;
-        const sinceResult = await service.querySingleAsync<SumsRow>(
-          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
-          [accountSetId, m.accountNumber, manualPeriodStart, periodStart],
-        );
-        totalOpening += (sinceResult?.totalCredit || 0) - (sinceResult?.totalDebit || 0);
+        // Only add delta if manual's period is before queried period.
+        // If manual's period is at or after queried period, the manual IS the opening.
+        if (manualPeriodStart < periodStart) {
+          const sinceResult = await service.querySingleAsync<SumsRow>(
+            `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
+            [accountSetId, m.accountNumber, manualPeriodStart, periodStart],
+          );
+          totalOpening += (sinceResult?.totalCredit || 0) - (sinceResult?.totalDebit || 0);
+        }
       }
       // For banks without any manual opening, fall back to transactions before periodStart.
-      const uncoveredResult = await service.querySingleAsync<SumsRow>(
-        `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND date < ? AND ourAccount NOT IN (${bankManuals.map(() => '?').join(',')})`,
-        [accountSetId, periodStart, ...bankManuals.map(m => m.accountNumber)],
-      );
-      totalOpening += (uncoveredResult?.totalCredit || 0) - (uncoveredResult?.totalDebit || 0);
+      if (coveredAccounts.size > 0) {
+        const uncoveredResult = await service.querySingleAsync<SumsRow>(
+          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND date < ? AND ourAccount NOT IN (${bankManuals.map(() => '?').join(',')})`,
+          [accountSetId, periodStart, ...bankManuals.map(m => m.accountNumber)],
+        );
+        totalOpening += (uncoveredResult?.totalCredit || 0) - (uncoveredResult?.totalDebit || 0);
+      }
       openingBalance = Math.round(totalOpening * 100) / 100;
     }
   }

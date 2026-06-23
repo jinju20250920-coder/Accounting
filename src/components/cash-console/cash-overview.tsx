@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
+import { waitForDbInit } from '@/hooks/useDatabaseSync';
 
 interface CashOverviewProps {
   accountNumber: string;
@@ -42,12 +43,30 @@ export function CashOverview({ accountNumber, periodStart, periodEnd, refreshKey
   const loadOverview = async () => {
     setLoading(true);
     try {
+      // Wait for DatabaseSyncWrapper to finish initializing and set the real
+      // accountSetId. Without this, the first render queries with the
+      // placeholder 'default' accountSetId and returns 0 for everything.
+      await waitForDbInit();
+
       const result = await sqliteService.getCashOverview(accountNumber, periodStart, periodEnd);
 
       let manualOpening: number | null = null;
       if (accountNumber) {
         manualOpening = await sqliteService.getBankOpeningBalance(accountNumber, periodStart);
       }
+
+      // Diagnostic: surface the underlying query parameters and result so the
+      // user can verify why cards show 0 in devtools when balances look empty.
+      const bindings = await sqliteService.getBankAccountBindings();
+      console.info('[CashOverview]', {
+        accountSetId: sqliteService.accountSetId,
+        accountNumber,
+        periodStart,
+        periodEnd,
+        result,
+        bindingsCount: bindings.length,
+        bindings,
+      });
 
       setData({
         ...result,

@@ -23,6 +23,7 @@ import { matchBankTransaction } from '@/lib/accounting';
 import { autoMatchBankSubjects } from '@/lib/bank-match';
 import { getCurrentService } from '@/lib/database';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
+// (waitForDbInit already imported above)
 import { BankRulesDialog } from '@/components/bank-rules-dialog';
 import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
 import type { PreviewEntry } from '@/components/voucher-preview-dialog';
@@ -36,15 +37,21 @@ export default function ImportPage() {
   const subjects = useSubjectStore(s => s.subjects);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Zone 1 state
-  const [periodFrom, setPeriodFrom] = useState(() => {
+  // Zone 1 state — sync default to account set's current open period so the
+  // cards show the period where vouchers actually live (e.g. user's current
+  // accounting period is May → cards show May data, not empty June).
+  const initialPeriod = (() => {
+    const current = useAccountSetStore.getState().getCurrentAccountSet();
+    const openPeriod = (current?.accountingPeriods || []).find(p => p.isCurrent || p.status === 'open');
+    if (openPeriod) return `${openPeriod.year}-${String(openPeriod.month).padStart(2, '0')}`;
+    if (current?.currentPeriod && current.currentPeriod.length >= 7) {
+      return current.currentPeriod.substring(0, 7);
+    }
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
-  const [periodTo, setPeriodTo] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  })();
+  const [periodFrom, setPeriodFrom] = useState(initialPeriod);
+  const [periodTo, setPeriodTo] = useState(initialPeriod);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedAccountNumber, setSelectedAccountNumber] = useState('');
   const [selectedAccountCurrency, setSelectedAccountCurrency] = useState<string | undefined>();
@@ -90,6 +97,9 @@ export default function ImportPage() {
 
   const loadOpeningBalance = async () => {
     try {
+      // Wait for DatabaseSyncWrapper to set the real accountSetId before querying,
+      // otherwise we get 0 from the placeholder 'default' accountSetId.
+      await waitForDbInit();
       const result = await sqliteService.getCashOverview(selectedAccountNumber, periodStart, periodEnd);
       setOpeningBalance(result.openingBalance);
     } catch (e) {

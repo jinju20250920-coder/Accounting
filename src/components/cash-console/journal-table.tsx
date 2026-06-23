@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/toast';
 import { Search, X, ChevronLeft, ChevronRight, FileText, Lock, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { isMonetarySubject } from '@/lib/fx-monetary';
+import { waitForDbInit } from '@/hooks/useDatabaseSync';
 
 interface JournalTableProps {
   accountNumber: string;
@@ -396,6 +397,7 @@ export function JournalTable({
     }
     (async () => {
       try {
+        await waitForDbInit();
         const detail = await sqliteService.getBankOpeningBalanceDetail(accountNumber, periodStart.substring(0, 7));
         if (detail && (detail.foreignBalance != null || detail.exchangeRate != null)) {
           setOpeningFx({ foreignBalance: detail.foreignBalance ?? null, exchangeRate: detail.exchangeRate ?? null });
@@ -415,6 +417,9 @@ export function JournalTable({
   const loadEntries = async () => {
     setLoading(true);
     try {
+      // Wait for DatabaseSyncWrapper to set the real accountSetId before querying,
+      // otherwise we get empty results from the placeholder 'default' accountSetId.
+      await waitForDbInit();
       const result = await sqliteService.getJournalEntries(accountNumber || '', periodStart, periodEnd, {
         statusFilter: statusFilter || undefined,
         page,
@@ -585,8 +590,11 @@ export function JournalTable({
 
   const hasAnyData = statusCounts.pending + statusCounts.matched + statusCounts.posted > 0;
   const hasOpening = openingBalance !== 0;
+  // In "全部账户" mode the aggregated opening row is always meaningful —
+  // don't hide the table just because no transactions exist in the period.
+  const isAllAccounts = !accountNumber;
 
-  if (!hasAnyData && !hasOpening && !loading) {
+  if (!isAllAccounts && !hasAnyData && !hasOpening && !loading) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-8 text-center text-slate-400">
         暂无流水数据，请导入银行流水
@@ -693,19 +701,27 @@ export function JournalTable({
           {isForeignAccount && (
             <span
               className="w-14 text-center shrink-0"
-              title={openingFx.exchangeRate ? `原币: ${openingFx.foreignBalance != null ? formatMoney(openingFx.foreignBalance) : '-'} 汇率: ${openingFx.exchangeRate}` : undefined}
+              title={openingFx.exchangeRate ? `币别: ${accountCurrencyMap[accountNumber!] || ''}\n入账汇率: ${openingFx.exchangeRate.toFixed(4)}\n原币余额: ${openingFx.foreignBalance != null ? formatMoney(openingFx.foreignBalance) : '-'}` : undefined}
             >
-              <div className="font-medium">
+              <div className="text-xs font-semibold text-amber-800">
                 {accountCurrencyMap[accountNumber!] || ''}
-                {openingFx.exchangeRate ? `@${openingFx.exchangeRate}` : ''}
               </div>
+              {openingFx.exchangeRate ? (
+                <div className="text-[10px] text-amber-700 mt-0.5 leading-tight">
+                  汇率 {openingFx.exchangeRate.toFixed(4)}
+                </div>
+              ) : (
+                <div className="text-[10px] text-slate-400 mt-0.5">汇率 -</div>
+              )}
               {openingFx.foreignBalance != null ? (
-                <div className="text-[10px] text-slate-400 mt-0.5">{formatMoney(openingFx.foreignBalance)}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">
+                  原 {formatMoney(openingFx.foreignBalance)}
+                </div>
               ) : null}
             </span>
           )}
-          <span className="w-20 truncate text-slate-500 shrink-0" title={accountNumber ? (bankNameMap[accountNumber] || '') : ''}>
-            {accountNumber ? (bankNameMap[accountNumber] || '') : ''}
+          <span className="w-20 truncate text-slate-500 shrink-0" title={accountNumber ? (bankNameMap[accountNumber] || '') : '全部账户汇总'}>
+            {accountNumber ? (bankNameMap[accountNumber] || '') : '汇总'}
           </span>
           <span className="w-24 shrink-0" />
           <span className="w-24 shrink-0" />
