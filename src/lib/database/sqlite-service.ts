@@ -440,6 +440,8 @@ class SQLiteService {
     await this.migrateDropAssetCategoriesCodeUnique();
     // 迁移：按 (code, accountSetId) 去重资产分类，并建复合唯一索引防重
     await this.migrateDedupAssetCategories();
+    // 迁移：为每个账套补录缺失的细分资产分类（电子设备/运输工具/办公家具/机器设备/房屋建筑物）
+    await this.migrateBackfillGranularAssetCategories();
   }
 
   /**
@@ -678,6 +680,106 @@ class SQLiteService {
       }
     } catch (err) {
       console.error('[FA depreciationStartDate migration] 失败:', err);
+    }
+  }
+
+  /**
+   * 给每个账套补录缺失的细分资产分类。当 DEFAULT_CATEGORIES 从 6 个细分类型
+   * （电子设备/运输工具/办公家具/机器设备/房屋建筑物/无形资产）缩成 2 个大类
+   * （固定资产/无形资产）后，老账套保留旧数据，但新账套只能拿到 2 个默认。
+   * 现已恢复全部 7 个默认分类，本迁移为所有账套补齐缺失的 5 个细分类型，
+   * 让用户不用手动通过「核算规则」对话框逐个新建。幂等：每个 (code, accountSetId)
+   * 已存在即跳过。
+   */
+  private async migrateBackfillGranularAssetCategories(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      const db = this.dbInstance;
+
+      const GRANULAR_DEFAULTS: Array<{
+        code: string;
+        name: string;
+        assetType: string;
+        usefulLifeYears: number;
+        expenseSubjectCode: string;
+        description: string;
+        sortOrder: number;
+      }> = [
+        { code: 'ELECTRONIC', name: '电子设备', assetType: 'fixed', usefulLifeYears: 3, expenseSubjectCode: '660204', description: '包括电脑、打印机、复印机、投影仪等办公电子设备', sortOrder: 2 },
+        { code: 'VEHICLE', name: '运输工具', assetType: 'fixed', usefulLifeYears: 4, expenseSubjectCode: '660204', description: '包括公司车辆、货车、摩托车等交通工具', sortOrder: 3 },
+        { code: 'FURNITURE', name: '办公家具', assetType: 'fixed', usefulLifeYears: 5, expenseSubjectCode: '660204', description: '包括办公桌椅、文件柜、会议桌等家具', sortOrder: 4 },
+        { code: 'MACHINERY', name: '机器设备', assetType: 'fixed', usefulLifeYears: 10, expenseSubjectCode: '410502', description: '包括生产设备、机器工具、仪器仪表等', sortOrder: 5 },
+        { code: 'BUILDING', name: '房屋建筑物', assetType: 'fixed', usefulLifeYears: 20, expenseSubjectCode: '660204', description: '包括厂房、办公楼、仓库等建筑物', sortOrder: 6 },
+      ];
+
+      // 取所有有资产分类记录的 accountSetId（去重，含 NULL）
+      const acctRows = db.exec(
+        `SELECT DISTINCT accountSetId FROM assetCategories`
+      );
+      const accountSetIds: (string | null)[] = (acctRows[0]?.values ?? []).map(r => (r[0] == null ? null : String(r[0])));
+      if (accountSetIds.length === 0) return;
+
+      const now = new Date().toISOString();
+      let insertedCount = 0;
+
+      db.exec('BEGIN');
+      try {
+        const insertStmt = db.prepare(`
+          INSERT INTO assetCategories (
+            id, code, name, assetType, defaultUsefulLifeYears,
+            defaultDepreciationMethod, defaultSalvageRate,
+            assetSubjectCode, depreciationSubjectCode, expenseSubjectCode,
+            description, sortOrder, enabled, accountSetId, createTime, updateTime
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        try {
+          for (const accountSetId of accountSetIds) {
+            for (const cat of GRANULAR_DEFAULTS) {
+              // 复合唯一索引已存在（由 migrateDedupAssetCategories 创建），先查再插避免约束错误
+              const existing = db.exec(
+                `SELECT 1 FROM assetCategories WHERE code = ? AND COALESCE(accountSetId, '') = COALESCE(?, '') LIMIT 1`,
+                [cat.code, accountSetId ?? '']
+              );
+              if (existing[0]?.values?.length) continue;
+
+              const id = `cat-${cat.code}-${accountSetId ?? 'global'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+              insertStmt.run([
+                id,
+                cat.code,
+                cat.name,
+                cat.assetType,
+                cat.usefulLifeYears,
+                'straight_line',
+                0.05,
+                '1501',
+                '1502',
+                cat.expenseSubjectCode,
+                cat.description,
+                cat.sortOrder,
+                1,
+                accountSetId,
+                now,
+                now,
+              ]);
+              insertedCount++;
+            }
+          }
+        } finally {
+          insertStmt.free();
+        }
+
+        db.exec('COMMIT');
+        if (insertedCount > 0) {
+          await this.persist();
+          console.log(`[assetCategories backfill] 已为 ${accountSetIds.length} 个账套补录 ${insertedCount} 个细分分类`);
+        }
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
+    } catch (err) {
+      console.error('[assetCategories backfill migration] 失败:', err);
     }
   }
 
