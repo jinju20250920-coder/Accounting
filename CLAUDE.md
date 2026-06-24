@@ -531,227 +531,101 @@ npm run lint
 
 ---
 
-## 已实现功能清单
+## 已实现功能清单（架构概览）
 
-- ✅ 核心类型定义（types/index.ts，1000+行）
-- ✅ 会计引擎基础功能（lib/accounting.ts）
-- ✅ 自动化模板引擎（lib/template-engine.ts，4个系统模板）
-- ✅ 基础UI组件和布局（shadcn/ui 16个组件）
-- ✅ 凭证录入Store（useVoucherStore）+ Excel-like网格
-- ✅ 科目管理Store（useSubjectStore）- 层级树形显示、CRUD、冻结
-- ✅ AI智能匹配（L1关键词 + L2用户偏好）
-- ✅ 用户偏好学习（useUserPreferenceStore）
-- ✅ 审计日志（useAuditStore）
-- ✅ 银行流水导入 - AI智能匹配、批量生成凭证
-- ✅ 发票管理（进项/销项）- Excel导入、自动生成凭证、核销
-- ✅ 报表查询 - 科目余额表、资产负债表、损益表、现金流量表
-- ✅ 往来管理 - 账龄分析、核销
-- ✅ 账套管理 - 多账套、OPFS存储、期初余额
-- ✅ 数据持久化 - SQLite数据库 + OPFS
-- ✅ 基础档案 - 科目、部门、项目、币别、往来单位、常用摘要、凭证模板
-- ✅ 固定资产管理 - 折旧计算（4种方法）
-- ✅ 无形资产管理 - 摊销计算
-- ✅ 待摊费用管理
-- ✅ 会计引擎 - 科目余额计算、凭证字号、借贷平衡
-- ✅ 银行流水解析器 - 配置驱动，14家内置银行（建行/工行/农行/招行/中行等）
-- ✅ 银行格式自动识别 - detectBank 评分检测，自动匹配最佳配置
-- ✅ 自定义格式映射向导 - FieldMappingCoach 5步向导，模糊自动匹配列字段（置信度评分）
-- ✅ 双层表头合并 - 解析引擎自动合并相邻行表头（如建行格式）
-- ✅ 数据起始行设置 - 支持表头与数据之间有空行/小计行的格式
-- ✅ 银行账户管理 - 引导式新增向导，编辑模式，Excel批量导入，第15+银行支持
-- ✅ 资金管理页 - 多银行汇总表、按月/日筛选、凭证明细弹窗
-- ✅ 流水去重 - 导入时按 date+voucherNo+transactionSerialNo 去重，入账时防重复
-- ✅ 银行账户名校验 - 导入时检查银行户名与账套公司名是否一致
-- ✅ 银行子科目自动匹配 - 导入时自动匹配/创建1002子科目（bankAccountNumber字段）
-- ✅ 业务单据号 - 入账凭证docNo使用 账户明细编号-交易流水号
-- ✅ 流水匹配规则页UI重构 - Popover科目选择、行内编辑抽屉、搜索过滤、标签化
-- ✅ 发票凭证模板引擎集成 - generateInvoiceVoucher 走模板引擎+规则引擎，关键词科目映射，税率匹配，科目校验
-- ✅ 发票科目映射规则配置 - InvoiceSubjectConfigDialog 组件，invoice_subject_rules 表持久化，业务组驱动
-- ✅ 发票Store数据库统一 - 全部 CRUD 使用 sqliteService（getDb() helper），修复列名不匹配问题，accountSetId同步
-- ✅ 业务组优先级功能 - 支持业务组优先级配置，上移/下移调整优先级，列表按优先级排序显示
-- ✅ 发票智能规则引擎 - 纯逻辑模块，6种动作类型，条件匹配+动作执行分离
-- ✅ 科目下拉选择器 - SubjectPopover组件，支持模糊搜索、Portal渲染、清空选择
-- ✅ 供应商矩阵表格 - 白名单改为行=供应商、列=业务组的单选矩阵模式
-- ✅ 往来卡片下拉选择 - PartnerPopover组件，供应商名称从往来卡片下拉选择
-- ✅ Popover Portal渲染 - 使用createPortal渲染到body，避免overflow截断
-- ✅ 业务组编辑面板重构 - 从Drawer抽屉改为弹出式双栏布局（左：基础信息+科目规则+关键词，右：蓝色凭证预览+税金逻辑+操作按钮），Framer Motion动画，计税/自动匹配开关，灰色自动匹配开关
-- ✅ 全局设置功能开关 - 配置按钮改为Switch开关（自动税金科目、重复检查、报销人识别）
-- ✅ 税金科目自动生成 - 基础科目+税率自动生成完整税金科目代码
-- ✅ 供应商重复检查 - 防止添加重复供应商到同一业务组
-- ✅ 科目accountSetId同步 - initializeSubjects前同步sqliteService.accountSetId，修复刷新后数据丢失
-- ✅ 发票业务组字段 - Invoice.groupName记录匹配的业务组名称，进项/销项发票页面可编辑选择业务组
-- ✅ 科目自动创建 - 凭证生成时自动创建不存在的科目（如税金子科目），避免生成失败
-- ✅ 发票删除保护 - 已生成凭证的发票不可删除，删除按钮置灰+Toast提示
-- ✅ 发票导入业务组匹配 - 3级匹配：供应商白名单→业务组关键词(按优先级)→keywordRules
-- ✅ 员工报销不计税 - 业务组taxSubject为空时跳过税金分录，模板引擎过滤空科目
-- ✅ 编辑业务组重置修复 - taxSubject/autoTax使用!==undefined替代||，避免空字符串被重置
-- ✅ 发票日期显示 - 仅显示年月日(YYYY-MM-DD)，不显示时间
-- ✅ 业务组编辑面板重构 - 从Drawer抽屉改为弹出式双栏布局（左：基础信息+科目规则+关键词，右：蓝色凭证预览+税金逻辑+操作按钮），Framer Motion动画，计税/自动匹配开关，灰色自动匹配开关
+> 历史修复详见 git log。此处仅记录当前架构事实和非显而易见的设计决策。
 
-- ✅ 供应商自动学习 - 用户手动修改发票业务组时自动保存供应商→业务组映射，下次导入自动匹配
-- ✅ 往来卡片联动 - 业务组requirePartnerCard开关控制是否自动创建往来卡片（员工报销默认关闭）
-- ✅ 模板引擎自动平衡 - 借贷不平衡时自动调整较小侧而非报错
-- ✅ 科目覆盖falsy修复 - 空字符串科目覆盖不再被||回退到默认科目
-- ✅ 关键词多词拆分匹配 - "维修费用"拆为"维修"+"费用"分别匹配
-- ✅ 凭证摘要业务组名称 - 使用业务组名称替代科目编号作为摘要
-- ✅ 凭证列表往来列 - 详情弹窗增加往来/辅助列，显示供应商/客户名称
-- ✅ 发票导入自动创建往来卡片 - 匹配业务组后根据requirePartnerCard决定是否创建
-- ✅ sql.js参数化查询修复 - 所有Store统一使用db.prepare().run().free()模式，修复固定资产/待摊费用/无形资产Store的数据库操作
-- ✅ 固定资产批量标签打印 - 数量>1的资产生成多个标签，格式如"FA0001 1/10"
-- ✅ 固定资产入账规则配置 - 双栏布局对话框，Portal科目选择器，折旧参数与科目映射
-- ✅ 会计期间endDate修复 - 使用本地日期方法避免toISOString时区问题，提取getMonthEndDate工具函数
-- ✅ 资产编号持久化 - 从现有编码提取最大值+1，避免重复编号
-- ✅ 资产时序账凭证修正 - VoucherCorrectionDialog组件，红字冲销+蓝字重录引导
-- ✅ 固定资产导出优化 - 导出模板使用中文列标题，增加折旧开始/结束日期字段
-- ✅ 资产导入模板简化 - 移除费用科目字段，简化导入流程
-- ✅ 科目层级计算优化 - 添加科目时优先基于上级科目计算层级（上级层级+1），而非仅根据代码长度
-- ✅ 科目分类结转保护 - 科目有下级科目时禁止修改分类/借贷方向，防止会计核算混乱
-- ✅ 科目凭证数据保护 - 已有凭证数据的科目禁止修改上级科目，只能禁用
-- ✅ 科目编辑警告提示 - 选择上级科目时显示黄色警告，已有凭证时显示红色警告并禁用上级科目选择
-- ✅ 工资页面 - 工资计算明细网格、批量导入、计提凭证生成、设置对话框（地区/科目/税率）、员工下拉选择器（Portal渲染）
-- ✅ 工资默认设置 - 地区根据公司地址自动推断（inferRegionFromAddress）、计提凭证科目从科目列表自动匹配预填、账套默认科目4级回退
-- ✅ 往来单位字段持久化修复 - isEmployee角色丢失（resolvePartnerType未处理）、bankName/defaultSubjectCode/defaultSubjectName未写入INSERT SQL、部门/证件/雇佣日期/工资科目字段全链路持久化
-- ✅ 雇员卡片扩展 - 证件类型/证件号码/雇佣开始日期/雇佣结束日期、导入/导出模板含4个新字段、编码自动大写+唯一性校验
-- ✅ 数据库迁移补全 - departments/projects表创建迁移加入ensureInitialized()链、partners表bankName列迁移、subjects表type/balance/description/frozen列迁移
-- ✅ 快速添加子科目 - 科目树每个节点右侧增加"+"按钮，点击自动生成子科目（继承父科目属性）
-- ✅ 默认科目层级修复 - 1503/1702/1703 改为一级科目，避免错误缩进显示
-- ✅ 资金管理控制台 - 4区布局（账户选择器+概览卡片+操作中心+日记账明细表），替代原导入页
-- ✅ 日记账明细表 - 全字段（序号/日期/摘要/对方账号/对应科目/收入/支出/余额/状态/银行/备注/凭证编号/复选框），内联科目编辑，已入账锁定
-- ✅ 凭证印章 - VoucherStamp组件（已入账=红/草稿=灰/审核=蓝/已冲销=深红），凭证详情弹窗右上角显示
-- ✅ 期间范围选择 - 从单月选择改为起止期间范围，导入后自动扩展范围覆盖流水日期
-- ✅ 凭证生成账期校验 - 预览生成凭证时检查交易日期是否在当前会计期间内
-- ✅ 银行科目自动匹配/创建 - 导入时自动匹配ourAccount到1002子科目，不存在则创建（提取为bank-match.ts共享模块）
-- ✅ 手动记一笔 - ManualEntryDialog组件，支持手动录入银行流水（source='manual'）
-- ✅ 银行列显示 - 通过bank_account_bindings查找BANK_BRANDS显示银行简称（如"建行"）
-- ✅ 对方账号字段 - 日记账明细表显示对方户名
-- ✅ 状态标签修复 - 已生成凭证显示"已入账"Badge而非凭证号，凭证号改为可点击链接
-- ✅ Tab切换修复 - 空数据tab不再隐藏整个tab栏，使用statusCounts判断hasAnyData
-- ✅ 代码简化 - 提取bank-match.ts共享模块消除重复，统一formatMoney替代内联formatAmount，清除debug日志
-- ✅ 账套隔离架构统一 - 移除独立文件模式，改为共享全局数据库 + accountSetId 过滤单一模式，删除2152行冗余代码
-- ✅ 用户管理 - 本地账号密码登录、用户CRUD、启用/禁用、密码重置
-- ✅ 权限管理 - 预设角色（管理员/会计/出纳）、自定义角色、权限矩阵配置
-- ✅ 权限控制 - usePermission Hook、Sidebar菜单权限过滤、页面按钮权限控制
-- ✅ 账套用户授权 - account_set_users 表控制用户对账套的访问和角色
-- ✅ 审计日志联动 - 操作记录关联真实用户信息
-- ✅ 设置向导 - 10步条件流程（公司→模板→规则→币种→银行→往来→资产→项目→期初→完成），自由导航，条件步骤
-- ✅ 纳税人类型与行业税率推荐 - 小规模(3%/1%)、一般纳税人按行业推荐(商贸13%/服务业6%/建筑业9%等)，可手动调整
-- ✅ 行业模板 - 科技/制造/服务/餐饮/商贸/建筑6个预设模板，包含科目体系和默认配置
-- ✅ 科目自行导入 - 除预设模板外，支持Excel自行导入科目列表（科目代码/名称/借贷方向）
-- ✅ 凭证编号设置 - 公司信息步骤可选凭证字（记/收/付/转）、编号周期（按月/按年/连续）、序号位数（3/4/5位），实时预览编号格式，配置写入 voucherNumbering 字段
-- ✅ 凭证编号生成集成 - generateVoucherNo 从 currentAccountSet.voucherNumbering 读取配置（word/period/digits），支持按月/按年/连续三种编号周期，按周期自动重置序号
-- ✅ 分类凭证字 - 可选开启分类模式：收款用「收」、付款用「付」、转账用「记」，各凭证字独立编号；业务规则步骤配置 useClassified + classifiedWords；generateVoucherNo 支持 voucherType 参数自动选取凭证字
-- ✅ 凭证号硬编码统一 - import/page.tsx 和 transaction-import.tsx 统一使用 store 的 generateVoucherNo，消灭 3 处硬编码 `记-` 前缀
-- ✅ 资金管理页收款/付款筛选 - 日记账明细表增加全部/收款/付款 Tab 筛选（directionFilter）
-- ✅ 期初月结集成 - 期初余额保存后弹出月结向导，对启用月份执行结账确认
-- ✅ 核算方式配置 - 往来/银行/固定资产三个维度可选卡片管理或明细科目管理
-- ✅ sqlite-service 类型化重构 - 14个域提取到 services/ 模块，`any` 从 169 降到 53，文件从 4634 行降到 3427 行
-- ✅ 部门/项目核算开关 - 业务规则步骤可选启用部门核算（含内联部门列表）和项目核算（条件步骤），项目核算启用后新增项目维护步骤
-- ✅ 登录死锁修复 - migrateBackfillVoucherEntryFxFields 中 queryAllAsync 调用 ensureInitialized 造成循环依赖，改为直接使用 dbInstance 查询
-- ✅ 数据库迁移健壮性 - vouchers 表自动补齐 creator/reviewer/poster 等列；users 表兼容有无 salt 列的 schema；admin 用户使用 DELETE+INSERT 确保 hash 正确
-- ✅ 首次使用体验重构 - 移除硬编码默认 set_001 账套，FirstTimeWrapper 检测无账套时自动创建最小记录并跳转到完整 SetupWizard（/setup?mode=create），删除旧的 FirstTimeWizard（4步对话框）
-- ✅ 登录页优化 - 首次使用提示（蓝色信息框）、关闭浏览器自动填充（autoComplete="new-password"）
-- ✅ AccountSet 字段精简 - 移除 unifiedSocialCreditCode 字段，税务信息仅保留 taxNo（纳税人识别号）
-- ✅ 待摊费用导入 - prepaid/page.tsx 增加导入按钮 + Dialog，调用 parsePrepaidExpensesExcel 解析 Excel，走 usePrepaidExpenseStore.importFromExcel 入库
-- ✅ 资金管理汇总卡片优化 - CashOverview 增加聚合范围徽章（全部账户合计/当前账户）+ 期间范围；"全部账户"时不再显示对账差异；getCashOverviewQuery 在 ourAccount='' 时聚合所有银行手动期初 + 期内流水
-- ✅ 银行账户选择器显示账户别名+币种 - account-selector.tsx 优先用 aliasName 作为显示名，非 CNY 账户右侧显示橙色币种徽章
-- ✅ 银行账户列表新增"账户别名"列 - settings/bank-accounts/page.tsx 在银行名称和账号之间增加 aliasName 列
-- ✅ 授权管理对话框 UI 重构 - 白色系统风格 DialogHeader + 图标徽章 + 输入框 h-11 + "可选" Badge + 套餐卡片含 CheckCircle2 功能列表 + 永久授权后缀
-- ✅ 永久授权套餐 - defaultPricingPlans 改为 ¥199/1账套、¥299/5账套、¥399/不限账套（永久）；PricingPlan.duration 增加 'lifetime' 类型；UI 按 duration 显示 / 永久 | / 年 | / 月
-- ✅ pricingPlans 不持久化 - partialize 移除 pricingPlans + merge/migrate 丢弃旧缓存，保证套餐配置永远以代码 defaultPricingPlans 为准（version: 2）
-- ✅ 资金管理控制台期初行可见 - JournalTable 早返回条件改为「无流水且无期初余额」才显示空状态，避免有银行期初但无流水时整张表被吞；期初行改为黄色高亮（bg-amber-50/70 + 锁图标），与正常流水行视觉区分
-- ✅ 银行子科目默认标记为货币性 - setup-step-bank 保存 1002 子科目时显式写入 isMonetary=true，期末汇兑损益预览能正确识别新建银行账户
-- ✅ isMonetary 迁移移除 localStorage 短路 - migrateBackfillSubjectIsMonetary 不再依赖 localStorage 标记，迁移本身只更新 isMonetary=0 的行（SQL 级幂等），确保账套初始化后新建的银行/应收/应付子科目也能被回填
-- ✅ 汇兑损益页自动预览 - 月份/账套切换时若当前期间未入账，自动触发 handlePreview；空状态文案从「选择会计期间后点击预览重估」改为「无外币余额需要重估，或该期间已入账」
-- ✅ 汇兑损益历史 scope 切换 - 历史 Tab 新增「当前期间 / 全部期间」切换按钮，默认仅显示当前月份的历史记录
-- ✅ 期初保存调试与 accountSetId 同步 - setup-step-opening 在 handleSave 入口同步 sqliteService.accountSetId；保存前后增加 console.info 日志（条目数、借贷合计、verify 回读），失败 toast 附带错误消息
-- ✅ 期初页面往来 Tab 改为只读 - 往来单位及余额统一在「往来单位」步骤维护，期初页仅供查看；提示用户回到往来步骤修改
-- ✅ 往来单位 Excel 导入多币别 - PARTNER_IMPORT_HEADERS 新增 币别/期初原币余额/期初汇率/期初本币余额 4 列；导入时若币别非 CNY 则按 原币×汇率 计算本币余额；列表列宽优化（名称/银行账号列加宽）
-- ✅ 往来卡片表单外币期初 - settings/auxiliary/page.tsx 默认币别选非 CNY 时显示"期初原币余额 + 期初汇率"输入框（绑定 Partner.openingForeignBalance/openingExchangeRate），实时预览本币=原币×汇率；切回 CNY 自动清空
-- ✅ 往来明细账原币列 - partner-detail.tsx 新增 币别徽章/原币金额/汇率 3 列，仅外币行显示，CNY 行用 em-dash 占位
-- ✅ 账龄分析表明细原币列 - aging-report.tsx 明细弹窗与 Excel 导出新增 币别/原币金额/汇率 3 列；AgingDetail 类型扩展 currencyCode/originalAmount/exchangeRate 由 getAgingDetails 回填；账龄分桶仍按本币汇总
-- ✅ 核销汇兑损益自动生成 - useClearingStore.processBatchClearing 检测同币别外币对，按借/贷本币差额计算实现汇兑损益（AR: credit-debit；AP: debit-credit），累计后调用 generateFxSettlementVoucher 生成一张汇总凭证，优先计入 660303（汇兑损益）科目，回退到 6603，无科目则跳过；汇兑损益 >=0.01 才入账
-- ✅ 期末调汇分录往来挂账 - buildFxRevaluationVoucher 对 sourceType=receivable 的调整分录加 customerName + auxiliary.customer，payable 加 supplierName + auxiliary.supplier；保证总账与明细账相符（CAS 19 货币性项目期末按即期汇率折算），往来明细账/账龄表能读到调汇分录，否则 GL≠∑明细账
-- ✅ 期末调汇按往来单位分桶 - loadMonetaryBalances 改为按 (subjectCode, currencyCode, partnerName) 聚合外币分录，partnerName 从 entry.customerName/supplierName/auxiliary 提取；之前按 (subjectCode, currencyCode) 聚合把所有客户合并成一桶，导致 partnerName 回退到 subjectName（"应收账款"），调整分录挂错对象
-- ✅ 调汇失败错误透传 - exchange/page.tsx handleConfirm catch 改为 showToast(error.message)，把期间关账、科目缺失等底层错误直接显示给用户，不再只显示"确认失败"
-- ✅ 调汇红冲后允许重做 - initializeRevaluationRuns 加载 fx_revaluation_runs 时同步关联凭证状态：若 voucher.status=reversed 则把 run.status 也置为 reversed，避免 hasFinalizedFxRevaluationRun 误判为"已入账不能重估"卡住用户重做
-- ✅ 调汇预览银行去重 - loadMonetaryBalances 银行期初回退的 bucket key 从 `${code}-${currency}` 改为 `${code}-${currency}-`，与凭证聚合 key `${code}-${currency}-${partnerName}` 格式对齐；否则两套 key 产生两个 bank 桶，pre 渲染出重复的建行行
-- ✅ 调汇历史状态中文化 - exchange/page.tsx 历史记录 Badge 增加 reversed 分支显示「已红冲」，与「已确认」「已过账」保持中文一致，不再泄漏英文枚举值
-- ✅ 调汇避免跨月重复计算 - loadMonetaryBalances 拆分为 foreignAgg（仅外币分录累加原币）+ baseAgg（所有货币性科目分录累加本币，含 currencyCode='' 的调汇分录），按 (subject, partner) 合并；之前 currencyCode='' 过滤跳过上期调汇分录，导致 6 月账面本币读成原始值，重估出与 5 月完全相同的损失
-- ✅ 调汇 0 差异也展示明细 - buildFxRevaluationPreview 移除 `< 0.005` 过滤，引入 'none' 方向（gainLossDirection 类型扩展为 'gain' | 'loss' | 'none'）；voucher 构建跳过 none 行不生成 0 金额分录；handlePreview 不再因 items 空早返回；净差异 < 0.005 时禁用「确认并生成凭证」并加 tooltip；空状态仅在真无外币余额时显示
-- ✅ 调汇页面 UI 优化 - KPI 卡片用 formatSignedAmount 统一格式化（abs<0.005 显示 "0.00" 浅灰 text-slate-400，收益 emerald-600/损失 rose-600），字号 text-2xl font-bold；表格 table-fixed + 固定列宽（类型 70px/来源 130px/币种 70px/方向 70px），数字列平分剩余空间消除横向滚动；TabsList 改为 grid-cols-2 w-full max-w-md 通栏；方向 Badge 无差异用 bg-gray-100 text-gray-500 弱化
-- ✅ 调汇历史明细切换修复 - handleViewDetail 立即清空旧 detailLines + setDetailLoading(true) 让切换可见；detailRequestRef 防 race condition（连续点击多行只采纳最新请求）；明细标题显示 period+状态 Badge + ring-2 ring-blue-200/60 蓝色边框；眼睛/删除按钮加 type="button" 和 title
-- ✅ 调汇历史删除按钮移除 - 删除 run 会留下孤立凭证破坏关联，应通过凭证红冲流程撤销；同步移除 handleDeleteRun 函数、deleteRevaluationRun store 引用、Trash2 图标
-- ✅ 调汇凭证号可点击 + 明细 Dialog 化 - 凭证号改为蓝色下划线按钮，点击通过 run.voucherId 调 getVoucher 加载完整凭证，弹出只读 VoucherReadOnlyView Dialog（日期/状态/摘要/分录表/合计）；明细从行内展开改为独立 Dialog，每行点击都打开新弹窗，避免行内展开时切换行数据相同用户感觉"没反应"
-- ✅ 调汇分录账期跟随原始发票 - VoucherEntry 新增 sourceEntryId/sourceVoucherDate 字段（entries 表 schema + 迁移 + CRUD），buildFxRevaluationVoucher 对 AR/AP 调整分录写入 CSV sourceEntryId 与 MIN 日期 sourceVoucherDate，loadMonetaryBalances 按往来分桶捕获原始发票分录 ID 与日期，calculateAgingData/getAgingDetails 优先用 sourceVoucherDate 计算账龄。CAS 19 货币性项目调汇不再让汇兑差额落入"未逾期"桶，与原始发票同账期对齐
-- ✅ 红冲凭证日期一致性 - createReverseVoucher 默认 reverseDate 改用原凭证日期（fallback 链：参数→原日期→今天），usePeriodManagementStore 新增 getPeriodByYearMonth/isPeriodClosed，新建 ReverseVoucherDialog（ChineseDatePicker + 「用原日期/用今天」快捷 ghost 按钮 + 跨月黄色警告 + 关账红色拦截 + 双重校验），voucher-list handleReverse 改为弹 Dialog 让用户确认日期，避免跨月红冲造成历史月份余额停留在调汇后状态
-- ✅ 红冲联动资产时序账 - voucher-list handleReverseConfirm 新增 Promise.all 并行调用三个 store 的 reverseAssetChangesByVoucherId / reverseAmortizationByVoucherId：FA 写 fieldName='voucher_reversal' 反向变动行 + UPDATE fixedAssets 回退原值/累计折旧/净值 + depreciationRecords 回退 draft；无形资产和待摊费用按 voucherId 查 amortizationRecords，UPDATE 实体表余额回退 + amortizationRecords 回退 draft。避免总账红冲后辅助账停留在原凭证入账状态
-- ✅ 固定资产时序账日期跟随凭证 - postDepreciationRecords 中按 record.voucherId 查 voucher 实际日期作为 changeDate / lastDepreciationDate，缺失才回退 ${period}-01，避免「凭证 5/31 但 FA 明细 6/01」的显示不一致
-- ✅ 账套 setup 与 FA 卡片折旧开始日期一致 - SetupStepFixedAssets 表头拆为「购置日期」+「开始折旧日期」两列，FixedAssetSetupPayload 增加 depreciationStartDate 字段，buildFixedAssetSetupPayload 优先采用显式录入；FA 卡片保存（fixed/page.tsx）改为优先读 formData.depreciationStartDate，缺失才按规则推算（固定资产 next_month、无形资产 current_month）；FIXED_ASSET_INSERT_SQL 显式写入 depreciationStartDate 列；sqlite-service 新增 migrateBackfillFixedAssetDepreciationStartDate 迁移，LEFT JOIN assetCategories 按规则回填历史 NULL 值，避免 setup 写入 2026-01-01 但卡片展示 2026-02-01 的双口径不一致
-- ✅ FA 卡片折旧开始月份溢出修复 - fixed/page.tsx 折旧时间预览（line 621-628）原用纯字符串拼接 `d.getMonth() + 1 + 1`，December(11)→12→"13"，未处理跨年。改为 JS Date 溢出计算 `new Date(year, getMonth() + (rule==='current_month'?0:1), 1)`，让 12月自动滚到次年 1月（2025-12-31 → 2026-01-01）。同时预览也优先采用 formData.depreciationStartDate，与保存逻辑（line 244-262）口径一致
-- ✅ 账套设置固定资产表单重构 - SetupStepFixedAssets 编辑行原为「整行替换为输入框」，10 字段硬塞表格列宽导致残值两个 Input 重叠 + 中文日期溢出。改为「点击编辑→下方展开 colSpan=11 面板」的行内展开抽屉模式（CLAUDE.md 既有约定）：两行 grid（lg:grid-cols-6），第一行资产名称/分类/原值/累计折旧/账面价值(只读)/年限，第二行残值率/残值金额/购置日期/开始折旧日期/折旧方法/[保存|取消]。新增资产表单同步重构。ChineseDatePicker 新增 displayFormat?: 'chinese' | 'iso' prop（默认 chinese），iso 模式显示 YYYY-MM-DD 用于紧凑布局
-- ✅ 无形/待摊费用独立时序账 - 新增 intangibleChangeRecords + prepaidChangeRecords 两张表（schema 镜像 assetChangeRecords，字段名改为 amortizationChange / accumulatedAmortizationBalance）；两个 store（useIntangibleAssetStore / usePrepaidExpenseStore）新增 logIntangibleChange/logPrepaidChange、getIntangibleChangeRecords/getPrepaidChangeRecords、clearIntangibleChangeRecords/clearPrepaidChangeRecords；postAmortizationRecords 追加 log；reverseAmortizationByVoucherId 追加 voucher_reversal 反向行；新弹窗组件 IntangibleTimelineLedger + PrepaidTimelineLedger；FA 页无形资产行 History 按钮分支到对应弹窗，prepaid 页 BookOpen 按钮触发新弹窗
-- ✅ FA 时序账无形资产双写 - 由于无形资产已合并到 fixedAssets 表（按 category.assetType='intangible' 区分），useFixedAssetStore.postDepreciationRecords + reverseAssetChangesByVoucherId 在写 assetChangeRecords 的同时，对无形资产额外写 intangibleChangeRecords（assetId = fixedAssets.id），保证 IntangibleTimelineLedger 能读到新数据；IntangibleTimelineLedger 合并读取 useFixedAssetStore.assets（assetType=intangible）+ useIntangibleAssetStore.assets（legacy）
-- ✅ VoucherCorrectionDialog 日期选择 - 复用 ReverseVoucherDialog UX：reversalDate state + ChineseDatePicker + 「用原日期/用今天」ghost 按钮 + 跨月黄色警告 + 关账红色拦截（targetPeriodClosed）+ 双重校验；替换原 hardcoded today，红字凭证日期/月份序号基于 effectiveDate 而非当前期间
-- ✅ VoucherCorrectionDialog 通用化 - 接受 assetType: 'fixed' | 'intangible' | 'prepaid' prop，按类型分发到对应 store 的 logXxxChange；3 种时序账均支持「修正」按钮单条向导（红字冲销+蓝字重录引导）
+### 凭证与状态机
+- 凭证状态机：`draft` → `review` → `posted` → `reversed`（`calculateVoucherStatus` 验证）
+- 红冲凭证：`createReverseVoucher` + `ReverseVoucherDialog`（ChineseDatePicker + 跨月黄色警告 + 关账红色拦截 + 双重校验，默认用原凭证日期）
+- 红冲联动：`voucher-list/handleReverseConfirm` 并行调用 `reverseAssetChangesByVoucherId` / `reverseAmortizationByVoucherId` 回退 FA/无形/待摊 时序账 + 实体表余额
+- 凭证编号：`voucherNumbering` 字段（word/period/digits），支持按月/按年/连续；可选分类凭证字（收款用「收」、付款用「付」、转账用「记」），各凭证字独立编号
+- 凭证印章：`VoucherStamp` 显示状态徽章（已入账=红/草稿=灰/审核=蓝/已冲销=深红）
+- 凭证列表：详情弹窗含往来列、辅助列；凭证号可点击查看只读视图
+
+### 账套与权限
+- 账套隔离：共享全局 SQLite + `accountSetId` 过滤（已统一，无独立文件模式，`deleteAccountSet` 用事务删 30+ 表）
+- 设置向导：10步条件流程（公司→模板→规则→币种→银行→往来→资产→项目→期初→完成），自由导航
+- 行业模板：科技/制造/服务/餐饮/商贸/建筑 6 个预设；支持 Excel 自行导入科目
+- 纳税人类型推荐：小规模(3%/1%)、一般纳税人按行业推荐（商贸13%/服务业6%/建筑业9%等）
+- 用户管理：本地账号（SHA-256+salt）、预设角色（管理员/会计/出纳）、自定义角色、权限矩阵
+- 账套用户授权：`account_set_users` 表（优先于全局 `user_roles`）
+- 审计日志：关联 `useAuthStore.currentUser` 真实用户
+- 永久授权套餐：`defaultPricingPlans`（version 2，不持久化，永远以代码为准）
+- 首次使用：FirstTimeWrapper 检测无账套时跳转 `/setup?mode=create`
+
+### 银行与资金
+- 银行流水解析：14家内置银行（建行/工行/农行/招行/中行等）+ 自定义格式（`custom_bank_configs` 表）
+- 银行格式自动识别：`detectBank` 评分检测
+- 自定义格式配置：`FieldMappingCoach` 5步向导（模糊自动匹配 + 双层表头合并 + `dataStartRow`）
+- 银行账户管理：引导式新增、编辑模式、Excel 批量导入、第15+银行走格式配置向导
+- 资金管理控制台：4区布局（账户选择器+概览卡片+操作中心+日记账明细表），起止期间范围选择
+- 银行子科目自动匹配：`bank-match.ts`（导入时匹配/创建 1002 子科目，写入 `isMonetary=true`）
+- 流水去重 key：`date+voucherNo+transactionSerialNo`
+- 业务单据号：账户明细编号-交易流水号
+- 手动记一笔：`ManualEntryDialog`（source='manual'）
+- 银行列：`bank_account_bindings` → `BANK_BRANDS` 简称（如"建行"）
+- 资金中心：结算总看板、账龄分布、结算预警、到期日历、往来单位结算
+
+### 发票与税
+- 发票自动凭证：模板引擎 + 规则引擎（`invoice-rule-engine.ts`）+ 业务组优先级
+- 业务组配置：关键词 + 合作伙伴类型 → 3 科目槽位（借/贷/税）；优先级上移/下移；重复供应商检查
+- 税金科目自动生成：基础科目代码 + 税率 → 完整税金科目（如 `2221 + 13%` → `22210113`）
+- 供应商白名单：矩阵表格（行=供应商，列=业务组，单选）
+- 供应商自动学习：`supplier_subject_mapping` 表（sellerName → groupName），`requirePartnerCard` 控制卡片创建
+- 发票删除保护：已生成凭证的发票不可删除
+- 员工报销不计税：业务组 `taxSubject` 为空时跳过税金分录
+
+### 资产（固定资产/无形资产/待摊费用统一表）
+- 三类资产共用 `fixedAssets` 表，按 `category.assetType` 区分；时序账 `assetChangeRecords` + `intangibleChangeRecords` + `prepaidChangeRecords` 三张镜像 schema
+- 折旧/摊销：4 种方法（直线/双倍余额/年数总和/工作量法）
+- FA 卡片：双栏入账规则配置（Portal 科目选择器）、批量标签打印（"FA0001 1/10"）、Excel 导入导出
+- 资产编号：从现有编码提取 max+1，避免重复
+- FA 时序账日期跟随凭证（`postDepreciationRecords` 用 voucher 实际日期，避免凭证/明细日期错位）
+- `VoucherCorrectionDialog`：红字冲销 + 蓝字重录引导，支持 `assetType: 'fixed' | 'intangible' | 'prepaid'`
+
+### 工资
+- 工资批次/明细/计算配置（`payroll-sqlite-service`）
+- 地区推断（`inferRegionFromAddress`）、计提凭证科目 4 级回退
+- 员工下拉选择器（Portal 渲染）
+- 雇员卡片扩展：证件类型/号码、雇佣起止日期、导入/导出模板对应字段
+
+### 期初与汇兑
+- 期初余额：科目/往来/银行/资产 4 Tab，行级入账状态（未入账/部分入账/已入账）；往来 Tab 只读（统一在往来步骤维护）
+- 期初保存：stable voucher ID `opening_balance_${accountSetId}`（re-save 替换不重复）
+- 期初月结集成：保存后弹出月结向导，对启用月份执行结账确认
+- 核算方式配置：3 维度（往来/银行/固定资产）可选卡片管理或明细科目管理
+- 期末调汇：CAS 19 货币性项目按期末即期汇率折算；按 (subjectCode, currencyCode, partnerName) 分桶
+- 调汇分录账期跟随原始发票：`sourceEntryId` / `sourceVoucherDate` 字段透传，账龄不落入"未逾期"桶
+- 调汇红冲重做：`run.status` 跟随 `voucher.status`，reversed 后可重新预览
+- 核销汇兑损益自动生成：`processBatchClearing` 检测同币别外币对，差额计入 660303（回退 6603）
+
+### 会计引擎
+- 模板引擎：4 系统模板（销售/采购/银行收款/银行付款），公式解释器支持 `{total_amount}` 等变量与运算
+- AI 双层匹配：L1 `keyword-rules.json` + L2 `useUserPreferenceStore`（双向匹配 + 时间权重）
+- 关键词多词拆分匹配（"维修费用"拆为"维修"+"费用"）
+- 多币别：往来/银行支持外币期初（原币×汇率），账龄明细展示原币列
+
+### 数据库
+- SQLite 类型化委托：14 个 `services/` 模块（`any` 从 169 降到 53）
+- 写操作 `SqliteDatabaseLike`（prepare/run/free），读操作 `SimpleQueryService`（queryAllAsync/querySingleAsync）
+- 自动迁移：vouchers/users/subjects/departments/projects/partners 等表 schema 适配
+- `migrateBackfill*` 系列：迁移用 SQL 级幂等，不依赖 localStorage 短路
 
 ### 待完善功能
-1. **凭证记账/冲销** - `voucher-list/page.tsx` 中的 `handlePost`、`handleReverse` 仅弹提示，未调用会计引擎
-2. **往来单位合并** - `settings/auxiliary/page.tsx` 显示"合并功能开发中..."
-3. **项目删除** - `settings/projects/page.tsx` 未实现删除
-4. **自定义报表** - `reports/page.tsx` 3个按钮无 onClick
-5. **现金流量表** - 计算逻辑简化，需更复杂分析
-6. **模板引擎与银行流水集成** - `template-engine.ts` 的银行模板（bank_deposit/bank_payment）未与银行导入流程集成
-7. **往来卡片辅助核算** - 生成凭证时往来科目分录未写入auxiliary字段中的供应商/客户卡片信息（已部分实现：auxiliary存储名称，凭证列表显示往来列）
-8. **销项发票业务组** - 销项发票页面暂未实现业务组配置（仅进项发票有业务组规则）
-9. **DataAdapter 适配层** - 未来 Electron/服务器双部署需抽象 DataAdapter（LocalAdapter=better-sqlite3, RemoteAdapter=PostgreSQL API）
-10. **后端认证** - 当前为本地账号密码，后续对接后端 API 实现手机/邮箱登录
-11. **行级权限** - 当前仅菜单/按钮级权限，未来可扩展到数据行级隔离
-
----
-
-## 设计理念
-
-### 模板驱动 vs 硬编码
-**传统方式（硬编码）**：
-```typescript
-// ❌ 销售发票需要写代码处理
-if (type === 'sale_invoice') {
-  entries.push({
-    subject: '1122',
-    debit: totalAmount
-  });
-  // ... 更多硬编码逻辑
-}
-```
-
-**模板驱动方式**：
-```typescript
-// ✅ 配置即可，无需写代码
-{
-  "id": "tpl_sale_invoice",
-  "triggerType": "invoice_import",
-  "entries": [
-    { "subject": "1122", "direction": "debit", "formula": "{total_amount}" }
-  ]
-}
-```
-
-### 扩展性优势
-- **新增业务类型**：只需在UI中添加新模板，无需修改代码
-- **税率调整**：修改模板中的公式即可
-- **科目变更**：调整模板中的科目代码
-- **无需开发**：财务人员可以在界面中配置自己的模板
+1. **往来单位合并** - `settings/auxiliary/page.tsx` 显示"合并功能开发中..."
+2. **项目删除** - `settings/projects/page.tsx` 未实现删除
+3. **自定义报表** - `reports/page.tsx` 3个按钮无 onClick
+4. **现金流量表** - 计算逻辑简化，需更复杂分析
+5. **模板引擎与银行流水集成** - `template-engine.ts` 的银行模板（bank_deposit/bank_payment）未与银行导入流程集成
+6. **往来卡片辅助核算** - 生成凭证时往来科目分录已写 auxiliary 名称，但客户/供应商卡片 ID 关联待完善
+7. **DataAdapter 适配层** - 未来 Electron/服务器双部署需抽象 DataAdapter（LocalAdapter=better-sqlite3, RemoteAdapter=PostgreSQL API）
+8. **后端认证** - 当前为本地账号密码，后续对接后端 API 实现手机/邮箱登录
+9. **行级权限** - 当前仅菜单/按钮级权限，未来可扩展到数据行级隔离
 
 ---
 
 ## 代码质量与最佳实践
-
-### 当前代码状态
-- ✅ 类型定义完整：typescript严格模式
-- ✅ 组件分离：UI组件与业务逻辑分离
-- ✅ 数据持久化：SQLite数据库 + Zustand persist 双层架构
-- ✅ 22个 Zustand Store 覆盖所有功能模块
-- ⚠️ 错误处理：需要完善全局错误处理
 
 ### 代码规范
 - 使用ESLint + TypeScript严格模式
@@ -797,53 +671,6 @@ if (type === 'sale_invoice') {
     - **Portal 渲染**：下拉列表必须通过 Portal 渲染，避免被父容器 `overflow: hidden` 截断
     - ✅ 已有组件：`SubjectPopover`（科目）、`PartnerPopover`（往来单位）
     - ✅ 待改造：固定资产卡片中的部门、供应商、科目字段
-
----
-
-## 创新特性
-
-### 1. 科目层级树形显示
-- 层级缩进：一级科目无缩进，二级科目向右缩进24px，三级科目继续缩进
-- 展开/折叠：支持点击箭头展开或折叠子科目
-- 冻结状态：支持科目冻结，冻结的科目显示特殊标识
-
-### 2. 双层AI匹配架构
-- L1规则库：行业通用规则（keyword-rules.json）
-- L2学习库：用户个性化偏好（useUserPreferenceStore）
-- 智能排序：用户偏好优先于预设规则
-- 持续学习：用户每次修改都记录并优化
-- 已集成到银行流水智能匹配
-
-### 3. 严格的状态机管理
-```
-draft → review → posted → reversed
-```
-- 不可逆流程：已记账凭证不能直接修改
-- 自动冲销：createReverseVoucher()生成红冲凭证
-- 状态追踪：完整的状态变更历史
-- 错误预防：calculateVoucherStatus()验证操作合法性
-
-### 4. 发票导入自动凭证
-- 导入发票时可选"导入后自动生成凭证"
-- 进项发票：借-材料采购/进项税，贷-应付账款
-- 销项发票：借-应收账款，贷-主营业务收入/销项税
-- 自动生成凭证字号，批量处理
-- 智能规则引擎：6种动作类型，按优先级匹配业务组
-- 税金科目自动生成：基础科目代码 + 税率 → 完整税金科目（如 2221 + 13%进项 → 22210113）
-
-### 5. 统一往来单位管理架构
-- **单一卡片原则**：一个公司在系统中只有一个唯一ID
-- **多身份支持**：通过checkbox同时勾选"客户"、"供应商"或"两者皆是"
-- **Tab切换**：全部 | 客户 | 供应商，支持按类型筛选
-- **合并/关联功能**：解决历史数据重复问题（开发中）
-- **明细账合并查看**：支持"显示全部往来"功能，将应收应付数据合并展示
-
-### 6. 模块化架构
-- 清晰分层：UI层（components）→ 业务层（lib）→ 数据层（stores + database）
-- 松耦合：各模块独立，便于维护和扩展
-- 类型安全：完整的TypeScript类型定义
-- 组件复用：shadcn/ui组件库保证UI一致性
-- 科目树组件：SubjectTreeNode 组件递归渲染层级结构，使用内联样式动态计算缩进
 
 ---
 
