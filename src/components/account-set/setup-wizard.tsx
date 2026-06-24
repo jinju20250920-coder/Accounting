@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -31,6 +31,48 @@ import { SetupStepFixedAssets } from './setup-step-fixed-assets';
 import { SetupStepProjects } from './setup-step-projects';
 import { SetupStepComplete } from './setup-step-complete';
 import { canNavigateSetupStep, canProceedFromSetupStep, computeSetupSteps } from '@/lib/setup-step-rules';
+
+interface PersistedWizardState {
+  currentStepId: string;
+  visitedSteps: string[];
+  progress: SetupProgress;
+  selectedTemplate: string | null;
+}
+
+function makeStorageKey(accountSetId: string): string {
+  return `setup-wizard-progress-${accountSetId}`;
+}
+
+function loadPersistedState(accountSetId: string): PersistedWizardState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(makeStorageKey(accountSetId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedWizardState;
+    if (!parsed || typeof parsed !== 'object' || !parsed.currentStepId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedState(accountSetId: string, state: PersistedWizardState): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(makeStorageKey(accountSetId), JSON.stringify(state));
+  } catch {
+    // quota errors are non-fatal — wizard still works without persistence
+  }
+}
+
+function clearPersistedState(accountSetId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(makeStorageKey(accountSetId));
+  } catch {
+    // ignore
+  }
+}
 
 export interface SetupProgress {
   completed: string[];
@@ -93,19 +135,61 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     enableProject,
   }), [mode, accounting, enableProject]);
 
+  const persisted = useMemo(() => loadPersistedState(accountSetId), [accountSetId]);
+
   const [currentStep, setCurrentStep] = useState(0);
   // Track visited steps by ID (not index) to survive STEPS array recomputation
   const [visitedSteps, setVisitedSteps] = useState<Set<string>>(new Set([STEPS[0]?.id || 'company']));
-  const [progress, setProgress] = useState<SetupProgress>({
-    completed: [],
-    current: STEPS[0]?.id || 'company',
-    skippedOptional: [],
-    openingBalanced: false,
-    taxConfigured: false,
-    payrollConfigured: false,
-    assetConfigured: false,
-    invoiceRulesConfigured: false,
+  const [progress, setProgress] = useState<SetupProgress>(() => {
+    return persisted?.progress ?? {
+      completed: [],
+      current: STEPS[0]?.id || 'company',
+      skippedOptional: [],
+      openingBalanced: false,
+      taxConfigured: false,
+      payrollConfigured: false,
+      assetConfigured: false,
+      invoiceRulesConfigured: false,
+    };
   });
+  const [selectedTemplate, setSelectedTemplateState] = useState<string | null>(() => {
+    return persisted?.selectedTemplate ?? null;
+  });
+
+  // Restore current step + visited from persisted state on mount (or when accountSetId changes).
+  // Runs after STEPS is computed so we can map persisted stepId → index.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    if (restored) return;
+    if (!persisted) {
+      setRestored(true);
+      return;
+    }
+    const idx = STEPS.findIndex(s => s.id === persisted.currentStepId);
+    if (idx >= 0) {
+      setCurrentStep(idx);
+    }
+    const visited = new Set(persisted.visitedSteps);
+    visited.add(STEPS[idx >= 0 ? idx : 0]?.id || 'company');
+    setVisitedSteps(visited);
+    if (persisted.selectedTemplate) {
+      setSelectedTemplateState(persisted.selectedTemplate);
+    }
+    setRestored(true);
+  }, [persisted, STEPS, restored]);
+
+  // Persist on changes (after initial restore is complete)
+  useEffect(() => {
+    if (!restored) return;
+    const stepId = STEPS[currentStep]?.id;
+    if (!stepId) return;
+    savePersistedState(accountSetId, {
+      currentStepId: stepId,
+      visitedSteps: Array.from(visitedSteps),
+      progress,
+      selectedTemplate,
+    });
+  }, [restored, accountSetId, currentStep, visitedSteps, progress, selectedTemplate, STEPS]);
 
   // Shared state across steps
   const [companyData, setCompanyData] = useState(initialData || {
@@ -124,7 +208,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     enableDate: '',
     startDate: '',
   });
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const setSelectedTemplate = setSelectedTemplateState;
 
   const markCompleted = useCallback((stepId: string) => {
     setProgress(prev => ({
@@ -211,9 +295,10 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
       ...prev,
       completed: STEPS.map(s => s.id),
     }));
+    clearPersistedState(accountSetId);
     showToast('success', '账套设置完成，欢迎使用金桔财务系统！');
     onComplete();
-  }, [onComplete, showToast, STEPS]);
+  }, [onComplete, showToast, STEPS, accountSetId]);
 
   const canGoNext = (): boolean => {
     const step = STEPS[currentStep];
