@@ -292,21 +292,6 @@ function generateDisposalPreviewData(
 // 默认资产分类
 const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime' | 'accountSetId'>[] = [
   {
-    code: 'FIXED',
-    name: '固定资产',
-    assetType: 'fixed',
-    defaultUsefulLifeYears: 5,
-    defaultDepreciationMethod: 'straight_line',
-    defaultSalvageRate: 0.05,
-    depreciationStartRule: 'next_month',
-    assetSubjectCode: '1501',
-    depreciationSubjectCode: '1502',
-    expenseSubjectCode: '660204',
-    description: '企业持有的为生产商品、提供劳务、出租或经营管理而持有的使用寿命超过1年的有形资产',
-    sortOrder: 1,
-    enabled: true,
-  },
-  {
     code: 'ELECTRONIC',
     name: '电子设备',
     assetType: 'fixed',
@@ -318,7 +303,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
     description: '包括电脑、打印机、复印机、投影仪等办公电子设备',
-    sortOrder: 2,
+    sortOrder: 1,
     enabled: true,
   },
   {
@@ -333,7 +318,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
     description: '包括公司车辆、货车、摩托车等交通工具',
-    sortOrder: 3,
+    sortOrder: 2,
     enabled: true,
   },
   {
@@ -348,7 +333,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
     description: '包括办公桌椅、文件柜、会议桌等家具',
-    sortOrder: 4,
+    sortOrder: 3,
     enabled: true,
   },
   {
@@ -363,7 +348,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '410502',
     description: '包括生产设备、机器工具、仪器仪表等',
-    sortOrder: 5,
+    sortOrder: 4,
     enabled: true,
   },
   {
@@ -378,7 +363,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     depreciationSubjectCode: '1502',
     expenseSubjectCode: '660204',
     description: '包括厂房、办公楼、仓库等建筑物',
-    sortOrder: 6,
+    sortOrder: 5,
     enabled: true,
   },
   {
@@ -393,7 +378,7 @@ const DEFAULT_CATEGORIES: Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'
     depreciationSubjectCode: '1702',
     expenseSubjectCode: '660204',
     description: '企业拥有或控制的没有实物形态的可辨认非货币性资产，如软件、专利权、商标权等',
-    sortOrder: 7,
+    sortOrder: 6,
     enabled: true,
   },
 ];

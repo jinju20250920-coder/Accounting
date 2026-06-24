@@ -705,11 +705,11 @@ class SQLiteService {
         description: string;
         sortOrder: number;
       }> = [
-        { code: 'ELECTRONIC', name: '电子设备', assetType: 'fixed', usefulLifeYears: 3, expenseSubjectCode: '660204', description: '包括电脑、打印机、复印机、投影仪等办公电子设备', sortOrder: 2 },
-        { code: 'VEHICLE', name: '运输工具', assetType: 'fixed', usefulLifeYears: 4, expenseSubjectCode: '660204', description: '包括公司车辆、货车、摩托车等交通工具', sortOrder: 3 },
-        { code: 'FURNITURE', name: '办公家具', assetType: 'fixed', usefulLifeYears: 5, expenseSubjectCode: '660204', description: '包括办公桌椅、文件柜、会议桌等家具', sortOrder: 4 },
-        { code: 'MACHINERY', name: '机器设备', assetType: 'fixed', usefulLifeYears: 10, expenseSubjectCode: '410502', description: '包括生产设备、机器工具、仪器仪表等', sortOrder: 5 },
-        { code: 'BUILDING', name: '房屋建筑物', assetType: 'fixed', usefulLifeYears: 20, expenseSubjectCode: '660204', description: '包括厂房、办公楼、仓库等建筑物', sortOrder: 6 },
+        { code: 'ELECTRONIC', name: '电子设备', assetType: 'fixed', usefulLifeYears: 3, expenseSubjectCode: '660204', description: '包括电脑、打印机、复印机、投影仪等办公电子设备', sortOrder: 1 },
+        { code: 'VEHICLE', name: '运输工具', assetType: 'fixed', usefulLifeYears: 4, expenseSubjectCode: '660204', description: '包括公司车辆、货车、摩托车等交通工具', sortOrder: 2 },
+        { code: 'FURNITURE', name: '办公家具', assetType: 'fixed', usefulLifeYears: 5, expenseSubjectCode: '660204', description: '包括办公桌椅、文件柜、会议桌等家具', sortOrder: 3 },
+        { code: 'MACHINERY', name: '机器设备', assetType: 'fixed', usefulLifeYears: 10, expenseSubjectCode: '410502', description: '包括生产设备、机器工具、仪器仪表等', sortOrder: 4 },
+        { code: 'BUILDING', name: '房屋建筑物', assetType: 'fixed', usefulLifeYears: 20, expenseSubjectCode: '660204', description: '包括厂房、办公楼、仓库等建筑物', sortOrder: 5 },
       ];
 
       // 取所有有资产分类记录的 accountSetId（去重，含 NULL）
@@ -721,9 +721,50 @@ class SQLiteService {
 
       const now = new Date().toISOString();
       let insertedCount = 0;
+      let removedFixedCount = 0;
 
       db.exec('BEGIN');
       try {
+        // 1) 清理：移除父级「固定资产」分类（code='FIXED'），将引用了它的资产先迁移到 ELECTRONIC
+        for (const accountSetId of accountSetIds) {
+          const fixedRows = db.exec(
+            `SELECT id FROM assetCategories WHERE code = 'FIXED' AND COALESCE(accountSetId, '') = COALESCE(?, '')`,
+            [accountSetId ?? '']
+          );
+          const fixedIds = (fixedRows[0]?.values ?? []).map(r => String(r[0]));
+          if (fixedIds.length === 0) continue;
+
+          // 找到该账套的 ELECTRONIC 分类用作迁移目标
+          const elecRows = db.exec(
+            `SELECT id FROM assetCategories WHERE code = 'ELECTRONIC' AND COALESCE(accountSetId, '') = COALESCE(?, '') LIMIT 1`,
+            [accountSetId ?? '']
+          );
+          const electronicId = elecRows[0]?.values?.[0]?.[0];
+          const targetCategoryId = electronicId != null ? String(electronicId) : null;
+
+          if (targetCategoryId) {
+            const reassignStmt = db.prepare(
+              `UPDATE fixedAssets SET categoryId = ?, categoryName = '电子设备' WHERE categoryId IN (${fixedIds.map(() => '?').join(', ')})`
+            );
+            try {
+              reassignStmt.run([targetCategoryId, ...fixedIds]);
+            } finally {
+              reassignStmt.free();
+            }
+          }
+
+          const deleteStmt = db.prepare(
+            `DELETE FROM assetCategories WHERE id IN (${fixedIds.map(() => '?').join(', ')})`
+          );
+          try {
+            deleteStmt.run(fixedIds);
+            removedFixedCount += fixedIds.length;
+          } finally {
+            deleteStmt.free();
+          }
+        }
+
+        // 2) 补录：为每个账套插入缺失的细分分类
         const insertStmt = db.prepare(`
           INSERT INTO assetCategories (
             id, code, name, assetType, defaultUsefulLifeYears,
@@ -770,9 +811,9 @@ class SQLiteService {
         }
 
         db.exec('COMMIT');
-        if (insertedCount > 0) {
+        if (insertedCount > 0 || removedFixedCount > 0) {
           await this.persist();
-          console.log(`[assetCategories backfill] 已为 ${accountSetIds.length} 个账套补录 ${insertedCount} 个细分分类`);
+          console.log(`[assetCategories backfill] 补录 ${insertedCount} 个细分分类，移除 ${removedFixedCount} 个父级「固定资产」分类`);
         }
       } catch (e) {
         db.exec('ROLLBACK');
