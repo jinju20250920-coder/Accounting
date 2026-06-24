@@ -5,6 +5,20 @@ import { persist } from 'zustand/middleware';
 import { getMonthEndDate, getMonthStartDate } from '@/lib/utils';
 import type { PayrollTaxRuleSet } from '@/lib/payroll-tax-rules';
 
+// 社保公积金费率（业务规则页 + 工资模块共享）
+export interface SocialFundRates {
+  pensionCompany: number;
+  pensionPersonal: number;
+  medicalCompany: number;
+  medicalPersonal: number;
+  unemploymentCompany: number;
+  unemploymentPersonal: number;
+  injuryCompany: number;
+  maternityCompany: number;
+  housingFundCompany: number;
+  housingFundPersonal: number;
+}
+
 // 会计期间接口
 export interface AccountingPeriod {
   id: string;
@@ -90,6 +104,13 @@ export interface AccountSet {
     hasForeignCurrency?: boolean;
     enableDepartment?: boolean;
     enableProject?: boolean;
+    // 业务规则页扩展字段
+    taxpayerType?: 'general' | 'small';
+    enabledTaxRates?: number[];
+    socialFundRates?: SocialFundRates;
+    salaryPayDay?: number;
+    defaultInputGroups?: boolean;
+    defaultOutputGroups?: boolean;
   };
 
   payrollRegionId?: string;

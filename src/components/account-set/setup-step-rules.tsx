@@ -19,9 +19,16 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
-import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useAccountSetStore, type SocialFundRates } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
-import { inferRegionFromAddress } from '@/lib/payroll-defaults';
+import {
+  PAYROLL_REGION_PRESETS,
+  getPayrollRegionPreset,
+  inferRegionFromAddress,
+  type PayrollRegionId,
+} from '@/lib/payroll-defaults';
+import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import type { DepreciationMethod } from '@/types';
 
 type SectionKey = 'tax' | 'tracking' | 'payroll' | 'asset' | 'invoice';
 
@@ -102,7 +109,8 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const [taxBaseSubject] = useState('2221');
 
   // Payroll settings
-  const [socialFundRates, setSocialFundRates] = useState({
+  const [payrollRegion, setPayrollRegion] = useState<PayrollRegionId>('generic');
+  const [socialFundRates, setSocialFundRates] = useState<SocialFundRates>({
     pensionCompany: 0.16,
     pensionPersonal: 0.08,
     medicalCompany: 0.095,
@@ -116,14 +124,13 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   });
   const [salaryPayDay, setSalaryPayDay] = useState(15);
 
-  // Asset settings
-  const [assetCategories, setAssetCategories] = useState([
-    { name: '电子设备', code: '160101', usefulLife: 36, depreciationMethod: 'straight-line' },
-    { name: '运输设备', code: '160102', usefulLife: 48, depreciationMethod: 'straight-line' },
-    { name: '办公设备', code: '160103', usefulLife: 60, depreciationMethod: 'straight-line' },
-    { name: '机械设备', code: '160104', usefulLife: 120, depreciationMethod: 'straight-line' },
-    { name: '房屋建筑', code: '160105', usefulLife: 240, depreciationMethod: 'straight-line' },
-  ]);
+  // Asset settings — categories come from useFixedAssetStore (already seeded with
+  // 6 defaults: 电子设备/运输工具/办公家具/机器设备/房屋建筑物/无形资产).
+  // Local overrides hold pending edits that haven't been saved yet.
+  const assetCategoriesFromStore = useFixedAssetStore(s => s.categories);
+  const updateCategoryInStore = useFixedAssetStore(s => s.updateCategory);
+  const initializeDefaultCategories = useFixedAssetStore(s => s.initializeDefaultCategories);
+  const [assetOverrides, setAssetOverrides] = useState<Record<string, { usefulLifeYears: number; depreciationMethod: DepreciationMethod }>>({});
 
   // Invoice settings
   const [defaultInputGroups, setDefaultInputGroups] = useState(true);
@@ -206,8 +213,8 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   useEffect(() => {
     markDirty('tracking');
   }, [partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject, departmentList, markDirty]);
-  useEffect(() => { markDirty('payroll'); }, [socialFundRates, salaryPayDay, markDirty]);
-  useEffect(() => { markDirty('asset'); }, [assetCategories, markDirty]);
+  useEffect(() => { markDirty('payroll'); }, [payrollRegion, socialFundRates, salaryPayDay, markDirty]);
+  useEffect(() => { markDirty('asset'); }, [assetOverrides, markDirty]);
   useEffect(() => { markDirty('invoice'); }, [defaultInputGroups, defaultOutputGroups, markDirty]);
 
   const toggleSection = (section: string) => {
@@ -224,21 +231,38 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     if (accountSet?.payrollTaxRules) {
       // Use defaults if not set
     }
-    // Load existing tracking methods from account set
+    // Load existing tracking methods + business-rule fields from account set
     if (accountSet?.accounting) {
-      if (accountSet.accounting.partnerTrackingMethod) setPartnerTrackingMethod(accountSet.accounting.partnerTrackingMethod);
-      if (accountSet.accounting.bankTrackingMethod) setBankTrackingMethod(accountSet.accounting.bankTrackingMethod);
-      if (accountSet.accounting.assetTrackingMethod) setAssetTrackingMethod(accountSet.accounting.assetTrackingMethod);
-      if (accountSet.accounting.hasForeignCurrency !== undefined) setHasForeignCurrency(accountSet.accounting.hasForeignCurrency);
-      if (accountSet.accounting.enableDepartment !== undefined) setEnableDepartment(accountSet.accounting.enableDepartment);
-      if (accountSet.accounting.enableProject !== undefined) setEnableProject(accountSet.accounting.enableProject);
+      const a = accountSet.accounting;
+      if (a.partnerTrackingMethod) setPartnerTrackingMethod(a.partnerTrackingMethod);
+      if (a.bankTrackingMethod) setBankTrackingMethod(a.bankTrackingMethod);
+      if (a.assetTrackingMethod) setAssetTrackingMethod(a.assetTrackingMethod);
+      if (a.hasForeignCurrency !== undefined) setHasForeignCurrency(a.hasForeignCurrency);
+      if (a.enableDepartment !== undefined) setEnableDepartment(a.enableDepartment);
+      if (a.enableProject !== undefined) setEnableProject(a.enableProject);
+      if (a.taxpayerType) setTaxpayerType(a.taxpayerType);
+      if (Array.isArray(a.enabledTaxRates) && a.enabledTaxRates.length > 0) setEnabledTaxRates(a.enabledTaxRates);
+      if (a.socialFundRates) setSocialFundRates(a.socialFundRates);
+      if (typeof a.salaryPayDay === 'number') setSalaryPayDay(a.salaryPayDay);
+      if (typeof a.defaultInputGroups === 'boolean') setDefaultInputGroups(a.defaultInputGroups);
+      if (typeof a.defaultOutputGroups === 'boolean') setDefaultOutputGroups(a.defaultOutputGroups);
+    }
+    // Restore payroll region (prefer explicit setting, then infer from address, then generic)
+    if (accountSet?.payrollRegionId) {
+      setPayrollRegion(accountSet.payrollRegionId as PayrollRegionId);
+    } else if (accountSet?.address) {
+      setPayrollRegion(inferRegionFromAddress(accountSet.address));
     }
     // Load existing classified words config
     if (accountSet?.voucherNumbering) {
       if (accountSet.voucherNumbering.useClassified !== undefined) setUseClassifiedWords(accountSet.voucherNumbering.useClassified);
       if (accountSet.voucherNumbering.classifiedWords) setClassifiedWords(accountSet.voucherNumbering.classifiedWords);
     }
-  }, [accountSetId]);
+    // Ensure asset categories are seeded (defensive — store usually seeds on init)
+    if (useFixedAssetStore.getState().categories.length === 0) {
+      initializeDefaultCategories().catch(() => { /* ignore */ });
+    }
+  }, [accountSetId, initializeDefaultCategories]);
 
   // Auto-save tracking methods when component unmounts (user navigates away)
   useEffect(() => {
@@ -265,10 +289,20 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const handleSaveTax = async () => {
     setSaving('tax');
     try {
+      const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      if (accountSet) {
+        useAccountSetStore.getState().updateAccountSet(accountSet.id, {
+          accounting: {
+            ...accountSet.accounting,
+            taxpayerType,
+            enabledTaxRates,
+          },
+        });
+      }
+
       if (sqliteService.accountSetId !== accountSetId) {
         sqliteService.setAccountSetId(accountSetId);
       }
-
       await sqliteService.addAuditLog({
         id: `config_tax_rates_${Date.now()}`,
         type: 'create',
@@ -278,7 +312,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
         userId: 'system',
         timestamp: new Date().toISOString(),
         accountSetId,
-      });
+      }).catch(() => { /* audit log is best-effort */ });
 
       setSavedSections(prev => {
         const next = new Set(prev) as Set<SectionKey>;
@@ -296,25 +330,37 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     }
   };
 
+  const handleRegionChange = (regionId: PayrollRegionId) => {
+    setPayrollRegion(regionId);
+    const preset = getPayrollRegionPreset(regionId);
+    const si = preset.socialInsurance;
+    const hf = preset.housingFund;
+    setSocialFundRates({
+      pensionCompany: si.pension.employerRate,
+      pensionPersonal: si.pension.employeeRate,
+      medicalCompany: si.medical.employerRate,
+      medicalPersonal: si.medical.employeeRate,
+      unemploymentCompany: si.unemployment.employerRate,
+      unemploymentPersonal: si.unemployment.employeeRate,
+      injuryCompany: si.injury.employerRate,
+      maternityCompany: si.maternity.employerRate,
+      housingFundCompany: hf.enabled ? hf.employerRate : 0,
+      housingFundPersonal: hf.enabled ? hf.employeeRate : 0,
+    });
+  };
+
   const handleSavePayroll = async () => {
     setSaving('payroll');
     try {
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
       if (accountSet) {
-        const regionId = inferRegionFromAddress(accountSet.address || '');
         useAccountSetStore.getState().updateAccountSet(accountSet.id, {
-          payrollRegionId: regionId,
-        });
-
-        await sqliteService.addAuditLog({
-          id: `config_social_fund_${Date.now()}`,
-          type: 'create',
-          entityType: 'template',
-          entityId: accountSet.id,
-          details: JSON.stringify(socialFundRates),
-          userId: 'system',
-          timestamp: new Date().toISOString(),
-          accountSetId,
+          payrollRegionId: payrollRegion,
+          accounting: {
+            ...accountSet.accounting,
+            socialFundRates,
+            salaryPayDay,
+          },
         });
 
         const depts = departmentList.split(',').map((d, i) => ({
@@ -351,6 +397,14 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const handleSaveAsset = async () => {
     setSaving('asset');
     try {
+      // Push each pending override to the fixed-asset store
+      for (const [categoryId, override] of Object.entries(assetOverrides)) {
+        await updateCategoryInStore(categoryId, {
+          defaultUsefulLifeYears: override.usefulLifeYears,
+          defaultDepreciationMethod: override.depreciationMethod,
+        });
+      }
+      setAssetOverrides({});
       setSavedSections(prev => {
         const next = new Set(prev) as Set<SectionKey>;
         next.add('asset');
@@ -359,7 +413,8 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       clearDirty('asset');
       onProgressChange({ assetConfigured: true });
       showToast('success', '固定资产配置已保存');
-    } catch {
+    } catch (error) {
+      console.error('Save asset config failed:', error);
       showToast('error', '保存固定资产配置失败');
     } finally {
       setSaving(null);
@@ -369,6 +424,16 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const handleSaveInvoiceRules = async () => {
     setSaving('invoice');
     try {
+      const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
+      if (accountSet) {
+        useAccountSetStore.getState().updateAccountSet(accountSet.id, {
+          accounting: {
+            ...accountSet.accounting,
+            defaultInputGroups,
+            defaultOutputGroups,
+          },
+        });
+      }
       setSavedSections(prev => {
         const next = new Set(prev) as Set<SectionKey>;
         next.add('invoice');
@@ -377,7 +442,8 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       clearDirty('invoice');
       onProgressChange({ invoiceRulesConfigured: true });
       showToast('success', '发票业务组配置已保存');
-    } catch {
+    } catch (error) {
+      console.error('Save invoice config failed:', error);
       showToast('error', '保存发票配置失败');
     } finally {
       setSaving(null);
@@ -731,6 +797,23 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
           {expandedSections.has('payroll') && (
             <div className="px-4 pb-4 border-t">
               <div className="space-y-4 pt-2">
+                {/* 社保公积金地区 */}
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <Label className="text-sm font-medium shrink-0">社保公积金地区</Label>
+                  <select
+                    value={payrollRegion}
+                    onChange={(e) => handleRegionChange(e.target.value as PayrollRegionId)}
+                    className="px-3 py-1.5 border border-slate-200 rounded-md text-sm bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  >
+                    {PAYROLL_REGION_PRESETS.map(preset => (
+                      <option key={preset.id} value={preset.id}>{preset.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-slate-500">
+                    {getPayrollRegionPreset(payrollRegion).description}
+                  </span>
+                </div>
+
                 {/* 社保费率 */}
                 <div>
                   <div className="flex items-center gap-2 mb-3">
@@ -815,62 +898,74 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-slate-600">资产类别</th>
+                        <th className="px-3 py-2 text-left font-medium text-slate-600">资产类型</th>
                         <th className="px-3 py-2 text-left font-medium text-slate-600">折旧方法</th>
-                        <th className="px-3 py-2 text-right font-medium text-slate-600">折旧年限(月)</th>
+                        <th className="px-3 py-2 text-right font-medium text-slate-600">折旧年限(年)</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {assetCategories.map((cat, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="px-3 py-2">
-                            <Input
-                              value={cat.name}
-                              onChange={(e) => {
-                                const next = [...assetCategories];
-                                next[i] = { ...next[i], name: e.target.value };
-                                setAssetCategories(next);
-                              }}
-                              className="h-8 text-sm"
-                              autoComplete="off"
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <select
-                              value={cat.depreciationMethod}
-                              onChange={(e) => {
-                                const next = [...assetCategories];
-                                next[i] = { ...next[i], depreciationMethod: e.target.value };
-                                setAssetCategories(next);
-                              }}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            >
-                              <option value="straight-line">直线法</option>
-                              <option value="double-declining">双倍余额递减法</option>
-                              <option value="sum-of-years">年数总和法</option>
-                            </select>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Input
-                              type="number"
-                              value={cat.usefulLife}
-                              onChange={(e) => {
-                                const next = [...assetCategories];
-                                next[i] = { ...next[i], usefulLife: parseInt(e.target.value) || 36 };
-                                setAssetCategories(next);
-                              }}
-                              className="h-8 text-sm text-right"
-                              autoComplete="off"
-                            />
+                      {assetCategoriesFromStore.length === 0 && (
+                        <tr className="border-t">
+                          <td colSpan={4} className="px-3 py-6 text-center text-slate-400">
+                            暂无资产分类，将在固定资产模块中初始化
                           </td>
                         </tr>
-                      ))}
+                      )}
+                      {assetCategoriesFromStore.map((cat) => {
+                        const override = assetOverrides[cat.id];
+                        const method = override?.depreciationMethod ?? cat.defaultDepreciationMethod;
+                        const usefulLife = override?.usefulLifeYears ?? cat.defaultUsefulLifeYears;
+                        return (
+                          <tr key={cat.id} className="border-t">
+                            <td className="px-3 py-2 text-slate-900">{cat.name}</td>
+                            <td className="px-3 py-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${cat.assetType === 'intangible' ? 'bg-purple-50 text-purple-600' : 'bg-amber-50 text-amber-600'}`}>
+                                {cat.assetType === 'intangible' ? '无形资产' : '固定资产'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={method}
+                                onChange={(e) => {
+                                  setAssetOverrides(prev => ({
+                                    ...prev,
+                                    [cat.id]: { usefulLifeYears: usefulLife, depreciationMethod: e.target.value as DepreciationMethod },
+                                  }));
+                                }}
+                                className="w-full px-2 py-1 border rounded text-sm"
+                              >
+                                <option value="straight_line">直线法</option>
+                                <option value="double_declining">双倍余额递减法</option>
+                                <option value="sum_of_years">年数总和法</option>
+                                <option value="units_of_production">工作量法</option>
+                              </select>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                type="number"
+                                value={usefulLife}
+                                onChange={(e) => {
+                                  const years = parseInt(e.target.value) || 1;
+                                  setAssetOverrides(prev => ({
+                                    ...prev,
+                                    [cat.id]: { usefulLifeYears: years, depreciationMethod: method },
+                                  }));
+                                }}
+                                className="h-8 text-sm text-right"
+                                min={1}
+                                autoComplete="off"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
                 <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
                   <Info className="h-3.5 w-3.5 inline mr-1" />
-                  以上为默认配置，实际使用时可在固定资产模块中单独调整每项资产的折旧参数
+                  以上为各类资产的默认折旧参数，实际使用时可在固定资产模块中单独调整每项资产的折旧设置
                 </div>
 
                 <div className="flex justify-end">
