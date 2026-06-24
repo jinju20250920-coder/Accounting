@@ -264,27 +264,47 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     }
   }, [accountSetId, initializeDefaultCategories]);
 
-  // Auto-save tracking methods when component unmounts (user navigates away)
+  // Auto-save tracking methods only on real unmount (user navigates away).
+  // Using a ref because a cleanup-with-deps pattern fires on every dep change,
+  // which races with the load effect: stale closure values from the previous
+  // render get written back to the store and clobber freshly-loaded saved data.
+  const trackingValuesRef = useRef({
+    partnerTrackingMethod,
+    bankTrackingMethod,
+    assetTrackingMethod,
+    hasForeignCurrency,
+    enableDepartment,
+    enableProject,
+  });
+  useEffect(() => {
+    trackingValuesRef.current = {
+      partnerTrackingMethod,
+      bankTrackingMethod,
+      assetTrackingMethod,
+      hasForeignCurrency,
+      enableDepartment,
+      enableProject,
+    };
+  }, [partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject]);
+
   useEffect(() => {
     return () => {
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
-      if (accountSet) {
-        const current = accountSet.accounting || {};
-        const updated = { partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject };
-        if (current.partnerTrackingMethod !== updated.partnerTrackingMethod ||
-            current.bankTrackingMethod !== updated.bankTrackingMethod ||
-            current.assetTrackingMethod !== updated.assetTrackingMethod ||
-            current.hasForeignCurrency !== updated.hasForeignCurrency ||
-            current.enableDepartment !== updated.enableDepartment ||
-            current.enableProject !== updated.enableProject) {
-          useAccountSetStore.getState().updateAccountSet(accountSet.id, {
-            accounting: { ...current, ...updated },
-          });
-        }
+      if (!accountSet) return;
+      const current = accountSet.accounting || {};
+      const updated = trackingValuesRef.current;
+      if (current.partnerTrackingMethod !== updated.partnerTrackingMethod ||
+          current.bankTrackingMethod !== updated.bankTrackingMethod ||
+          current.assetTrackingMethod !== updated.assetTrackingMethod ||
+          current.hasForeignCurrency !== updated.hasForeignCurrency ||
+          current.enableDepartment !== updated.enableDepartment ||
+          current.enableProject !== updated.enableProject) {
+        useAccountSetStore.getState().updateAccountSet(accountSet.id, {
+          accounting: { ...current, ...updated },
+        });
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency]);
+  }, []);
 
   const handleSaveTax = async () => {
     setSaving('tax');
