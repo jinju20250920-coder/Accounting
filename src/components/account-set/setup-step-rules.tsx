@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -22,6 +22,34 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useToast } from '@/components/ui/toast';
 import { inferRegionFromAddress } from '@/lib/payroll-defaults';
+
+type SectionKey = 'tax' | 'tracking' | 'payroll' | 'asset' | 'invoice';
+
+function makeSavedStorageKey(accountSetId: string): string {
+  return `setup-rules-saved-${accountSetId}`;
+}
+
+function loadSavedSections(accountSetId: string): Set<SectionKey> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(makeSavedStorageKey(accountSetId));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return new Set(parsed.filter((v): v is SectionKey => typeof v === 'string'));
+    return new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function persistSavedSections(accountSetId: string, sections: Set<SectionKey>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(makeSavedStorageKey(accountSetId), JSON.stringify(Array.from(sections)));
+  } catch {
+    // quota / serialization errors are non-fatal
+  }
+}
 
 interface SetupStepRulesProps {
   accountSetId: string;
@@ -135,8 +163,52 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
 
   // Saving state
   const [saving, setSaving] = useState<string | null>(null);
-  const [savedSections, setSavedSections] = useState<Set<string>>(new Set());
+  const [savedSections, setSavedSections] = useState<Set<SectionKey>>(() => loadSavedSections(accountSetId));
+  const [dirtySections, setDirtySections] = useState<Set<SectionKey>>(new Set());
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['tax', 'payroll', 'tracking']));
+
+  // Persist saved sections whenever they change
+  useEffect(() => {
+    persistSavedSections(accountSetId, savedSections);
+  }, [accountSetId, savedSections]);
+
+  // During the initial hydration tick, ignore state changes triggered by
+  // the auto-recommend and load-existing use effects. Without this guard,
+  // those effects would mark every section dirty on mount.
+  const isHydratingRef = useRef(true);
+  useEffect(() => {
+    const t = window.setTimeout(() => { isHydratingRef.current = false; }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const markDirty = useCallback((section: SectionKey) => {
+    if (isHydratingRef.current) return;
+    setDirtySections(prev => {
+      if (prev.has(section)) return prev;
+      const next = new Set(prev);
+      next.add(section);
+      return next;
+    });
+  }, []);
+
+  const clearDirty = useCallback((section: SectionKey) => {
+    setDirtySections(prev => {
+      if (!prev.has(section)) return prev;
+      const next = new Set(prev);
+      next.delete(section);
+      return next;
+    });
+  }, []);
+
+  // Per-section dirty watchers — fire markDirty when relevant fields change
+  // after hydration completes.
+  useEffect(() => { markDirty('tax'); }, [taxpayerType, enabledTaxRates, markDirty]);
+  useEffect(() => {
+    markDirty('tracking');
+  }, [partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject, departmentList, markDirty]);
+  useEffect(() => { markDirty('payroll'); }, [socialFundRates, salaryPayDay, markDirty]);
+  useEffect(() => { markDirty('asset'); }, [assetCategories, markDirty]);
+  useEffect(() => { markDirty('invoice'); }, [defaultInputGroups, defaultOutputGroups, markDirty]);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => {
@@ -208,7 +280,12 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
         accountSetId,
       });
 
-      setSavedSections(prev => new Set(prev).add('tax'));
+      setSavedSections(prev => {
+        const next = new Set(prev) as Set<SectionKey>;
+        next.add('tax');
+        return next;
+      });
+      clearDirty('tax');
       onProgressChange({ taxConfigured: true });
       showToast('success', '税务配置已保存');
     } catch (error) {
@@ -255,7 +332,12 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
         await sqliteService.saveDepartments(depts);
       }
 
-      setSavedSections(prev => new Set(prev).add('payroll'));
+      setSavedSections(prev => {
+        const next = new Set(prev) as Set<SectionKey>;
+        next.add('payroll');
+        return next;
+      });
+      clearDirty('payroll');
       onProgressChange({ payrollConfigured: true });
       showToast('success', '工资社保配置已保存');
     } catch (error) {
@@ -269,7 +351,12 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const handleSaveAsset = async () => {
     setSaving('asset');
     try {
-      setSavedSections(prev => new Set(prev).add('asset'));
+      setSavedSections(prev => {
+        const next = new Set(prev) as Set<SectionKey>;
+        next.add('asset');
+        return next;
+      });
+      clearDirty('asset');
       onProgressChange({ assetConfigured: true });
       showToast('success', '固定资产配置已保存');
     } catch {
@@ -282,7 +369,12 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const handleSaveInvoiceRules = async () => {
     setSaving('invoice');
     try {
-      setSavedSections(prev => new Set(prev).add('invoice'));
+      setSavedSections(prev => {
+        const next = new Set(prev) as Set<SectionKey>;
+        next.add('invoice');
+        return next;
+      });
+      clearDirty('invoice');
       onProgressChange({ invoiceRulesConfigured: true });
       showToast('success', '发票业务组配置已保存');
     } catch {
@@ -317,7 +409,12 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
           },
         });
       }
-      setSavedSections(prev => new Set(prev).add('tracking'));
+      setSavedSections(prev => {
+        const next = new Set(prev) as Set<SectionKey>;
+        next.add('tracking');
+        return next;
+      });
+      clearDirty('tracking');
       showToast('success', '核算方式已保存');
       if (enableProject) {
         onProjectSetupRequested?.();
@@ -382,7 +479,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             <div className="flex-1 text-left">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-900">发票与税务</span>
-                {savedSections.has('tax') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
+                {savedSections.has('tax') && !dirtySections.has('tax') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
               <p className="text-xs text-slate-500">纳税人类型、适用税率、税金科目配置</p>
             </div>
@@ -457,7 +554,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                 </div>
 
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={handleSaveTax} disabled={saving === 'tax'} className="bg-blue-600 hover:bg-blue-700">
+                  <Button size="sm" onClick={handleSaveTax} disabled={saving === 'tax' || !dirtySections.has('tax')} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'tax' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
                     保存税务配置
                   </Button>
@@ -477,7 +574,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             <div className="flex-1 text-left">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-900">核算方式</span>
-                {savedSections.has('tracking') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
+                {savedSections.has('tracking') && !dirtySections.has('tracking') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
               <p className="text-xs text-slate-500">往来、银行、固定资产使用卡片管理或明细科目管理</p>
             </div>
@@ -604,7 +701,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                 </div>
 
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={handleSaveTrackingMethod} disabled={saving === 'tracking'} className="bg-blue-600 hover:bg-blue-700">
+                  <Button size="sm" onClick={handleSaveTrackingMethod} disabled={saving === 'tracking' || !dirtySections.has('tracking')} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'tracking' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
                     保存核算方式
                   </Button>
@@ -624,7 +721,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             <div className="flex-1 text-left">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-900">工资与社保</span>
-                {savedSections.has('payroll') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
+                {savedSections.has('payroll') && !dirtySections.has('payroll') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
               <p className="text-xs text-slate-500">社保公积金费率、工资发放日</p>
             </div>
@@ -682,7 +779,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                 </div>
 
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={handleSavePayroll} disabled={saving === 'payroll'} className="bg-blue-600 hover:bg-blue-700">
+                  <Button size="sm" onClick={handleSavePayroll} disabled={saving === 'payroll' || !dirtySections.has('payroll')} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'payroll' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
                     保存工资社保配置
                   </Button>
@@ -703,7 +800,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             <div className="flex-1 text-left">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-900">固定资产</span>
-                {savedSections.has('asset') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
+                {savedSections.has('asset') && !dirtySections.has('asset') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
               <p className="text-xs text-slate-500">资产类别、折旧方法、折旧年限</p>
             </div>
@@ -777,7 +874,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                 </div>
 
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={handleSaveAsset} disabled={saving === 'asset'} className="bg-blue-600 hover:bg-blue-700">
+                  <Button size="sm" onClick={handleSaveAsset} disabled={saving === 'asset' || !dirtySections.has('asset')} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'asset' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
                     保存固定资产配置
                   </Button>
@@ -798,7 +895,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             <div className="flex-1 text-left">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-900">发票业务组</span>
-                {savedSections.has('invoice') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
+                {savedSections.has('invoice') && !dirtySections.has('invoice') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
               <p className="text-xs text-slate-500">进项/销项发票默认业务组，根据行业模板预设</p>
             </div>
@@ -842,7 +939,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                 </div>
 
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={handleSaveInvoiceRules} disabled={saving === 'invoice'} className="bg-blue-600 hover:bg-blue-700">
+                  <Button size="sm" onClick={handleSaveInvoiceRules} disabled={saving === 'invoice' || !dirtySections.has('invoice')} className="bg-blue-600 hover:bg-blue-700">
                     {saving === 'invoice' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
                     保存发票配置
                   </Button>
