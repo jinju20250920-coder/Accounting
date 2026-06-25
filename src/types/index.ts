@@ -1592,6 +1592,10 @@ export interface EngineContext {
   assetMappings: AssetCategoryMapping[];
   allRules: InvoiceSmartRule[];
   baseTaxSubject?: string;
+  // 小规模纳税人跳过进项/销项税额分录生成
+  taxpayerType?: 'general' | 'small';
+  // 启用税率白名单（%），用于校验发票税率是否被允许
+  enabledTaxRates?: number[];
 }
 
 // 发票筛选条件

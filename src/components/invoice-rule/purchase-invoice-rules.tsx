@@ -584,6 +584,22 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
       )}
 
       <Tabs defaultValue="templates" className="w-full" orientation="horizontal">
+        {(() => {
+          const acct = useAccountSetStore.getState().getCurrentAccountSet();
+          const tType = acct?.accounting?.taxpayerType;
+          if (tType === 'small') {
+            return (
+              <Alert className="mb-4 border-amber-200 bg-amber-50">
+                <Info className="h-4 w-4 text-amber-600" />
+                <AlertTitle className="text-amber-800">当前为小规模纳税人</AlertTitle>
+                <AlertDescription className="text-amber-700 text-sm">
+                  进项发票生成凭证时不会产生进项税额分录，税额将并入费用/资产科目。业务组中配置的税金科目会被自动忽略。
+                </AlertDescription>
+              </Alert>
+            );
+          }
+          return null;
+        })()}
         <TabsList className="mb-6">
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <Settings2 className="h-4 w-4" />

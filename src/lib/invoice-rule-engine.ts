@@ -317,7 +317,11 @@ export function executeActions(context: EngineContext): ActionResult {
     expenseKeywords,
     assetMappings,
     baseTaxSubject,
+    taxpayerType,
   } = context;
+
+  // 小规模纳税人不生成税金分录：所有税额并入费用/收入科目
+  const suppressTaxSubject = taxpayerType === 'small';
 
   // No rule matched — apply default logic
   if (!matchedRule) {
@@ -338,9 +342,12 @@ export function executeActions(context: EngineContext): ActionResult {
     };
 
     // Apply dynamic tax subject logic even when no rule matches
-    const taxSubject = getDynamicTaxSubject(invoice, baseTaxSubject);
-    if (taxSubject) {
-      defaultResult.subjectOverrides['tax'] = taxSubject;
+    // (skipped for small taxpayers — they don't claim input VAT)
+    if (!suppressTaxSubject) {
+      const taxSubject = getDynamicTaxSubject(invoice, baseTaxSubject);
+      if (taxSubject) {
+        defaultResult.subjectOverrides['tax'] = taxSubject;
+      }
     }
 
     // Apply automatic fixed asset classification based on amount threshold
@@ -407,9 +414,12 @@ export function executeActions(context: EngineContext): ActionResult {
   }
 
   // Apply dynamic tax subject logic (overrides any rule-defined tax subject)
-  const taxSubject = getDynamicTaxSubject(invoice, baseTaxSubject);
-  if (taxSubject) {
-    subjectOverrides['tax'] = taxSubject;
+  // Small taxpayers skip VAT generation entirely.
+  if (!suppressTaxSubject) {
+    const taxSubject = getDynamicTaxSubject(invoice, baseTaxSubject);
+    if (taxSubject) {
+      subjectOverrides['tax'] = taxSubject;
+    }
   }
 
   // Apply automatic fixed asset classification if not explicitly set by rule
@@ -426,11 +436,18 @@ export function executeActions(context: EngineContext): ActionResult {
   // Apply overrides with hardcoded priority: reimbursement > supplier > override
   for (const tier of overrideTier) {
     for (const [slot, val] of Object.entries(tier)) {
+      // Small taxpayers never get a tax subject slot
+      if (suppressTaxSubject && slot === 'tax') continue;
       // Don't override tax subject if dynamic tax logic has already set it
       if (slot !== 'tax' || !subjectOverrides['tax']) {
         subjectOverrides[slot] = val;
       }
     }
+  }
+
+  // Final safety: if small taxpayer somehow ended up with a tax override, drop it
+  if (suppressTaxSubject) {
+    delete subjectOverrides['tax'];
   }
 
   // If no auxiliary action was set, still set docNo

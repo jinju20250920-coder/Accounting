@@ -555,6 +555,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       const expenseCategory = detectExpenseCategory(invoice, expenseKeywords);
 
       // 4. 构建 EngineContext 并执行动作，得到 ActionResult
+      const currentAccountSetForTax = useAccountSetStore.getState().getCurrentAccountSet();
+      const taxpayerType = currentAccountSetForTax?.accounting?.taxpayerType;
+      const enabledTaxRates = currentAccountSetForTax?.accounting?.enabledTaxRates;
       const engineContext: EngineContext = {
         invoice,
         matchedRule,
@@ -565,6 +568,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         assetMappings,
         allRules: rules,
         baseTaxSubject,
+        taxpayerType,
+        enabledTaxRates,
       };
       const result = executeActions(engineContext);
 
@@ -619,6 +624,15 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
           }
         } catch (e) {
           console.warn('读取业务组配置失败:', e);
+        }
+      }
+
+      // 5.6 小规模纳税人强制压制税金分录（即使业务组配了税金科目也不生成）
+      // 模板引擎会自动把税额并入借方（费用/资产）以满足借贷平衡
+      if (taxpayerType === 'small') {
+        const taxEntryId = slotMap['tax'];
+        if (taxEntryId) {
+          mappedOverrides[taxEntryId] = { code: '', name: '' };
         }
       }
 
