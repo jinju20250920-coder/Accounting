@@ -79,6 +79,12 @@ function payrollVoucherDate(period: string): string {
   const year = Number(yearText);
   const month = Number(monthText);
   if (!Number.isInteger(year) || !Number.isInteger(month)) return new Date().toISOString().slice(0, 10);
+  // Honor account-set salaryPayDay if set to a valid day (1-28); otherwise default to month end.
+  const acct = useAccountSetStore.getState().getCurrentAccountSet();
+  const configuredDay = acct?.accounting?.salaryPayDay;
+  if (typeof configuredDay === 'number' && configuredDay >= 1 && configuredDay <= 28) {
+    return `${yearText}-${monthText}-${String(configuredDay).padStart(2, '0')}`;
+  }
   const lastDay = new Date(year, month, 0).getDate();
   return `${yearText}-${monthText}-${String(lastDay).padStart(2, '0')}`;
 }

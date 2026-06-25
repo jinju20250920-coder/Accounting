@@ -28,7 +28,54 @@ import {
   type PayrollRegionId,
 } from '@/lib/payroll-defaults';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
+import { usePayrollStore } from '@/stores/usePayrollStore';
+import { createBlankPayrollCalculationConfig, type PayrollCalculationConfig } from '@/lib/payroll';
 import type { DepreciationMethod } from '@/types';
+
+// Map PayrollCalculationConfig (canonical, in usePayrollStore) → flat SocialFundRates
+// used by the setup wizard form.
+function payrollConfigToSocialFundRates(config: PayrollCalculationConfig): SocialFundRates {
+  const si = config.socialInsurance;
+  const hf = config.housingFund;
+  return {
+    pensionCompany: si.pension.employerRate,
+    pensionPersonal: si.pension.employeeRate,
+    medicalCompany: si.medical.employerRate,
+    medicalPersonal: si.medical.employeeRate,
+    unemploymentCompany: si.unemployment.employerRate,
+    unemploymentPersonal: si.unemployment.employeeRate,
+    injuryCompany: si.injury.employerRate,
+    maternityCompany: si.maternity.employerRate,
+    housingFundCompany: hf.employerRate,
+    housingFundPersonal: hf.employeeRate,
+  };
+}
+
+// Apply setup-form SocialFundRates onto an existing PayrollCalculationConfig,
+// preserving individualTax / taxRules / contribution bases.
+function applySocialFundRatesToConfig(
+  existing: PayrollCalculationConfig,
+  rates: SocialFundRates,
+): PayrollCalculationConfig {
+  const si = existing.socialInsurance;
+  return {
+    ...existing,
+    socialInsurance: {
+      ...si,
+      pension: { ...si.pension, employerRate: rates.pensionCompany, employeeRate: rates.pensionPersonal },
+      medical: { ...si.medical, employerRate: rates.medicalCompany, employeeRate: rates.medicalPersonal },
+      unemployment: { ...si.unemployment, employerRate: rates.unemploymentCompany, employeeRate: rates.unemploymentPersonal },
+      injury: { ...si.injury, employerRate: rates.injuryCompany },
+      maternity: { ...si.maternity, employerRate: rates.maternityCompany },
+    },
+    housingFund: {
+      ...existing.housingFund,
+      employerRate: rates.housingFundCompany,
+      employeeRate: rates.housingFundPersonal,
+      enabled: rates.housingFundCompany > 0 || rates.housingFundPersonal > 0,
+    },
+  };
+}
 
 type SectionKey = 'tax' | 'tracking' | 'payroll' | 'asset' | 'invoice';
 
@@ -262,6 +309,22 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     if (useFixedAssetStore.getState().categories.length === 0) {
       initializeDefaultCategories().catch(() => { /* ignore */ });
     }
+    // Load canonical payroll config from usePayrollStore (single source of truth for rates).
+    // Overrides accounting.socialFundRates when available.
+    if (accountSet?.currentPeriod && sqliteService.accountSetId !== accountSetId) {
+      sqliteService.setAccountSetId(accountSetId);
+    }
+    const period = accountSet?.currentPeriod?.substring(0, 7);
+    if (period) {
+      usePayrollStore.getState().loadPeriod(period)
+        .then(() => {
+          const canonical = usePayrollStore.getState().config?.config;
+          if (canonical) {
+            setSocialFundRates(payrollConfigToSocialFundRates(canonical));
+          }
+        })
+        .catch(() => { /* fall back to AccountSet-provided rates */ });
+    }
   }, [accountSetId, initializeDefaultCategories]);
 
   // Auto-save tracking methods only on real unmount (user navigates away).
@@ -374,6 +437,22 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     try {
       const accountSet = useAccountSetStore.getState().getCurrentAccountSet();
       if (accountSet) {
+        if (sqliteService.accountSetId !== accountSetId) {
+          sqliteService.setAccountSetId(accountSetId);
+        }
+
+        // Write to canonical store (usePayrollStore) so /payroll page sees the same rates
+        const period = accountSet.currentPeriod?.substring(0, 7);
+        if (period) {
+          try {
+            await usePayrollStore.getState().loadPeriod(period);
+          } catch { /* ignore — will create fresh */ }
+          const existing = usePayrollStore.getState().config?.config ?? createBlankPayrollCalculationConfig();
+          const nextConfig = applySocialFundRatesToConfig(existing, socialFundRates);
+          await usePayrollStore.getState().saveConfig(period, nextConfig);
+        }
+
+        // Update AccountSet (region + salaryPayDay for quick read; socialFundRates kept as fallback cache)
         useAccountSetStore.getState().updateAccountSet(accountSet.id, {
           payrollRegionId: payrollRegion,
           accounting: {
@@ -392,9 +471,6 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
           frozen: false,
           accountSetId,
         }));
-        if (sqliteService.accountSetId !== accountSetId) {
-          sqliteService.setAccountSetId(accountSetId);
-        }
         await sqliteService.saveDepartments(depts);
       }
 
