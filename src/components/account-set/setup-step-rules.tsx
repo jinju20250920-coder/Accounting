@@ -15,6 +15,7 @@ import {
   Loader2,
   Info,
   Settings2,
+  Globe,
   FolderOpen,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
@@ -186,6 +187,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   // Tracking method settings
   const [partnerTrackingMethod, setPartnerTrackingMethod] = useState<'card' | 'subject'>('card');
   const [assetTrackingMethod, setAssetTrackingMethod] = useState<'card' | 'subject'>('card');
+  const [hasForeignCurrency, setHasForeignCurrency] = useState(false);
 
   // Department & Project settings
   const [enableDepartment, setEnableDepartment] = useState(true);
@@ -257,7 +259,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   useEffect(() => { markDirty('tax'); }, [taxpayerType, enabledTaxRates, markDirty]);
   useEffect(() => {
     markDirty('tracking');
-  }, [partnerTrackingMethod, assetTrackingMethod, enableDepartment, enableProject, departmentList, markDirty]);
+  }, [partnerTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject, departmentList, markDirty]);
   useEffect(() => { markDirty('payroll'); }, [payrollRegion, socialFundRates, salaryPayDay, markDirty]);
   useEffect(() => { markDirty('asset'); }, [assetOverrides, markDirty]);
   useEffect(() => { markDirty('invoice'); }, [defaultInputGroups, defaultOutputGroups, markDirty]);
@@ -281,6 +283,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       const a = accountSet.accounting;
       if (a.partnerTrackingMethod) setPartnerTrackingMethod(a.partnerTrackingMethod);
       if (a.assetTrackingMethod) setAssetTrackingMethod(a.assetTrackingMethod);
+      if (a.hasForeignCurrency !== undefined) setHasForeignCurrency(a.hasForeignCurrency);
       if (a.enableDepartment !== undefined) setEnableDepartment(a.enableDepartment);
       if (a.enableProject !== undefined) setEnableProject(a.enableProject);
       if (a.taxpayerType) setTaxpayerType(a.taxpayerType);
@@ -330,6 +333,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   const trackingValuesRef = useRef({
     partnerTrackingMethod,
     assetTrackingMethod,
+    hasForeignCurrency,
     enableDepartment,
     enableProject,
   });
@@ -337,10 +341,11 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     trackingValuesRef.current = {
       partnerTrackingMethod,
       assetTrackingMethod,
+      hasForeignCurrency,
       enableDepartment,
       enableProject,
     };
-  }, [partnerTrackingMethod, assetTrackingMethod, enableDepartment, enableProject]);
+  }, [partnerTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject]);
 
   useEffect(() => {
     return () => {
@@ -350,6 +355,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       const updated = trackingValuesRef.current;
       if (current.partnerTrackingMethod !== updated.partnerTrackingMethod ||
           current.assetTrackingMethod !== updated.assetTrackingMethod ||
+          current.hasForeignCurrency !== updated.hasForeignCurrency ||
           current.enableDepartment !== updated.enableDepartment ||
           current.enableProject !== updated.enableProject) {
         useAccountSetStore.getState().updateAccountSet(accountSet.id, {
@@ -584,6 +590,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
             ...accountSet.accounting,
             partnerTrackingMethod,
             assetTrackingMethod,
+            hasForeignCurrency,
             enableDepartment,
             enableProject,
           },
@@ -797,6 +804,31 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                     </div>
                   </div>
                 ))}
+
+                {/* 外币业务开关 — 控制下一步「币种汇率」是否显示 */}
+                <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-center gap-3">
+                    <Globe className="h-5 w-5 text-amber-600" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">外币业务</p>
+                      <p className="text-xs text-slate-500">启用后下一步将显示「币种汇率」维护页，支持外币核算与期末调汇</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white border rounded-lg p-0.5">
+                    <button
+                      onClick={() => setHasForeignCurrency(false)}
+                      className={`px-3 py-1.5 text-xs rounded-md transition-all ${!hasForeignCurrency ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      无外币
+                    </button>
+                    <button
+                      onClick={() => setHasForeignCurrency(true)}
+                      className={`px-3 py-1.5 text-xs rounded-md transition-all ${hasForeignCurrency ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      有外币
+                    </button>
+                  </div>
+                </div>
 
                 {/* 部门核算开关 */}
                 <div className="space-y-3">
