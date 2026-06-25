@@ -30,7 +30,8 @@ import {
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { usePayrollStore } from '@/stores/usePayrollStore';
 import { createBlankPayrollCalculationConfig, type PayrollCalculationConfig } from '@/lib/payroll';
-import type { DepreciationMethod } from '@/types';
+import { getIndustryTemplate } from '@/lib/data/industry-templates';
+import type { DepreciationMethod, PurchaseInvoiceRuleConfig } from '@/types';
 
 // Map PayrollCalculationConfig (canonical, in usePayrollStore) → flat SocialFundRates
 // used by the setup wizard form.
@@ -530,6 +531,44 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
           },
         });
       }
+
+      // Seed purchase invoice business groups from industry template on first enable.
+      // Sales-side has no rule config table yet — only the flag is persisted above.
+      if (defaultInputGroups && industryTemplate) {
+        const template = getIndustryTemplate(industryTemplate);
+        if (template && template.businessGroups.length > 0) {
+          const existing = await sqliteService.getPurchaseInvoiceRuleConfig();
+          const existingNames = new Set((existing.businessGroups ?? []).map(g => g.name));
+          const newGroups: PurchaseInvoiceRuleConfig['businessGroups'] = template.businessGroups
+            .filter(g => g.partnerType !== 'customer')
+            .filter(g => !existingNames.has(g.name))
+            .map((g, idx) => ({
+              id: `tpl_${industryTemplate}_${Date.now()}_${idx}_${g.name}`,
+              name: g.name,
+              debitSubject: g.debitSubject,
+              debitSubjectName: g.debitSubjectName,
+              taxSubject: g.taxSubject,
+              taxSubjectName: g.taxSubjectName,
+              creditSubject: g.creditSubject,
+              creditSubjectName: g.creditSubjectName,
+              partnerType: g.partnerType,
+              priority: g.priority,
+              isPreset: true,
+              autoTax: !!g.taxSubject,
+              keywords: g.keywords,
+              requirePartnerCard: g.partnerType !== 'employee',
+            }));
+          if (newGroups.length > 0) {
+            const nextConfig: PurchaseInvoiceRuleConfig = {
+              ...existing,
+              businessGroups: [...(existing.businessGroups ?? []), ...newGroups],
+              updateTime: new Date().toISOString(),
+            };
+            await sqliteService.savePurchaseInvoiceRuleConfig(nextConfig);
+          }
+        }
+      }
+
       setSavedSections(prev => {
         const next = new Set(prev) as Set<SectionKey>;
         next.add('invoice');
