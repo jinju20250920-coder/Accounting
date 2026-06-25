@@ -15,7 +15,6 @@ import {
   Loader2,
   Info,
   Settings2,
-  Globe,
   FolderOpen,
 } from 'lucide-react';
 import { sqliteService } from '@/lib/database/sqlite-service';
@@ -186,9 +185,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
 
   // Tracking method settings
   const [partnerTrackingMethod, setPartnerTrackingMethod] = useState<'card' | 'subject'>('card');
-  const [bankTrackingMethod, setBankTrackingMethod] = useState<'card' | 'subject'>('card');
   const [assetTrackingMethod, setAssetTrackingMethod] = useState<'card' | 'subject'>('card');
-  const [hasForeignCurrency, setHasForeignCurrency] = useState(false);
 
   // Department & Project settings
   const [enableDepartment, setEnableDepartment] = useState(true);
@@ -260,7 +257,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   useEffect(() => { markDirty('tax'); }, [taxpayerType, enabledTaxRates, markDirty]);
   useEffect(() => {
     markDirty('tracking');
-  }, [partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject, departmentList, markDirty]);
+  }, [partnerTrackingMethod, assetTrackingMethod, enableDepartment, enableProject, departmentList, markDirty]);
   useEffect(() => { markDirty('payroll'); }, [payrollRegion, socialFundRates, salaryPayDay, markDirty]);
   useEffect(() => { markDirty('asset'); }, [assetOverrides, markDirty]);
   useEffect(() => { markDirty('invoice'); }, [defaultInputGroups, defaultOutputGroups, markDirty]);
@@ -283,9 +280,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
     if (accountSet?.accounting) {
       const a = accountSet.accounting;
       if (a.partnerTrackingMethod) setPartnerTrackingMethod(a.partnerTrackingMethod);
-      if (a.bankTrackingMethod) setBankTrackingMethod(a.bankTrackingMethod);
       if (a.assetTrackingMethod) setAssetTrackingMethod(a.assetTrackingMethod);
-      if (a.hasForeignCurrency !== undefined) setHasForeignCurrency(a.hasForeignCurrency);
       if (a.enableDepartment !== undefined) setEnableDepartment(a.enableDepartment);
       if (a.enableProject !== undefined) setEnableProject(a.enableProject);
       if (a.taxpayerType) setTaxpayerType(a.taxpayerType);
@@ -334,22 +329,18 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
   // render get written back to the store and clobber freshly-loaded saved data.
   const trackingValuesRef = useRef({
     partnerTrackingMethod,
-    bankTrackingMethod,
     assetTrackingMethod,
-    hasForeignCurrency,
     enableDepartment,
     enableProject,
   });
   useEffect(() => {
     trackingValuesRef.current = {
       partnerTrackingMethod,
-      bankTrackingMethod,
       assetTrackingMethod,
-      hasForeignCurrency,
       enableDepartment,
       enableProject,
     };
-  }, [partnerTrackingMethod, bankTrackingMethod, assetTrackingMethod, hasForeignCurrency, enableDepartment, enableProject]);
+  }, [partnerTrackingMethod, assetTrackingMethod, enableDepartment, enableProject]);
 
   useEffect(() => {
     return () => {
@@ -358,9 +349,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
       const current = accountSet.accounting || {};
       const updated = trackingValuesRef.current;
       if (current.partnerTrackingMethod !== updated.partnerTrackingMethod ||
-          current.bankTrackingMethod !== updated.bankTrackingMethod ||
           current.assetTrackingMethod !== updated.assetTrackingMethod ||
-          current.hasForeignCurrency !== updated.hasForeignCurrency ||
           current.enableDepartment !== updated.enableDepartment ||
           current.enableProject !== updated.enableProject) {
         useAccountSetStore.getState().updateAccountSet(accountSet.id, {
@@ -594,9 +583,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
           accounting: {
             ...accountSet.accounting,
             partnerTrackingMethod,
-            bankTrackingMethod,
             assetTrackingMethod,
-            hasForeignCurrency,
             enableDepartment,
             enableProject,
           },
@@ -777,7 +764,7 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                 <span className="font-medium text-slate-900">核算方式</span>
                 {savedSections.has('tracking') && !dirtySections.has('tracking') && <Badge className="bg-green-50 text-green-600 text-xs">已保存</Badge>}
               </div>
-              <p className="text-xs text-slate-500">往来、银行、固定资产使用卡片管理或明细科目管理</p>
+              <p className="text-xs text-slate-500">往来、固定资产使用卡片管理或明细科目管理</p>
             </div>
             {expandedSections.has('tracking') ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
           </button>
@@ -787,7 +774,6 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
               <div className="space-y-4 pt-3">
                 {[
                   { key: 'partner' as const, label: '往来核算', desc: '客户/供应商使用往来卡片（推荐）或按明细科目管理', value: partnerTrackingMethod, set: setPartnerTrackingMethod, cardLabel: '往来卡片', subjectLabel: '明细科目' },
-                  { key: 'bank' as const, label: '银行核算', desc: '银行账户使用银行卡片或按明细科目管理', value: bankTrackingMethod, set: setBankTrackingMethod, cardLabel: '银行卡片', subjectLabel: '明细科目' },
                   { key: 'asset' as const, label: '固定资产核算', desc: '固定资产使用资产卡片或按明细科目管理', value: assetTrackingMethod, set: setAssetTrackingMethod, cardLabel: '资产卡片', subjectLabel: '明细科目' },
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
@@ -811,31 +797,6 @@ export function SetupStepRules({ accountSetId, taxpayerType: propTaxpayerType, i
                     </div>
                   </div>
                 ))}
-
-                {/* 外币业务开关 */}
-                <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
-                  <div className="flex items-center gap-3">
-                    <Globe className="h-5 w-5 text-amber-600" />
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">外币业务</p>
-                      <p className="text-xs text-slate-500">启用后可设置币种和汇率，支持外币核算</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 bg-white border rounded-lg p-0.5">
-                    <button
-                      onClick={() => setHasForeignCurrency(false)}
-                      className={`px-3 py-1.5 text-xs rounded-md transition-all ${!hasForeignCurrency ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      无外币
-                    </button>
-                    <button
-                      onClick={() => setHasForeignCurrency(true)}
-                      className={`px-3 py-1.5 text-xs rounded-md transition-all ${hasForeignCurrency ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      有外币
-                    </button>
-                  </div>
-                </div>
 
                 {/* 部门核算开关 */}
                 <div className="space-y-3">
