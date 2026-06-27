@@ -575,9 +575,13 @@ npm run lint
 - 供应商自动学习：`supplier_subject_mapping` 表（sellerName → groupName），`requirePartnerCard` 控制卡片创建
 - 发票删除保护：已生成凭证的发票不可删除
 - 员工报销不计税：业务组 `taxSubject` 为空时跳过税金分录
+- 小规模纳税人 VAT 抑制：`taxpayerType === 'small'` 时规则引擎跳过税金科目生成，业务组税金 override 一律 drop，模板引擎 auto-balance 把税额并入最后借方（费用/资产）分录。合规要求，非 bug
+- 行业模板种子联动：勾选 `defaultInputGroups` 时保存 setup rules，会把行业模板的非客户业务组 seed 进 `purchase_invoice_rule_config`（按 name 去重）。**销项侧暂无规则配置表**（仅持久化 flag），是已知 asymmetry
 
 ### 资产（固定资产/无形资产/待摊费用统一表）
 - 三类资产共用 `fixedAssets` 表，按 `category.assetType` 区分；时序账 `assetChangeRecords` + `intangibleChangeRecords` + `prepaidChangeRecords` 三张镜像 schema
+- 默认分类仅细粒度：电子设备/运输工具/办公家具/机器设备/房屋建筑物 + 无形资产，**无父级"固定资产"分类**（backfill 把现有 `FIXED` 引用迁到 `ELECTRONIC` 后清理；新增分类不要重建父级）
+- 默认分类来源：`useFixedAssetStore`（非组件 local state），新增/编辑通过 store 持久化
 - 折旧/摊销：4 种方法（直线/双倍余额/年数总和/工作量法）
 - FA 卡片：双栏入账规则配置（Portal 科目选择器）、批量标签打印（"FA0001 1/10"）、Excel 导入导出
 - 资产编号：从现有编码提取 max+1，避免重复
