@@ -280,7 +280,11 @@
       "Bash(npx.cmd tsc *)",
       "Bash(npx.cmd eslint *)",
       "mcp__ide__getDiagnostics",
-      "Bash(awk *)"
+      "Bash(awk *)",
+      "Bash(mkdir -p \"D:/StarCitizen\")",
+      "Read(//d//**)",
+      "mcp__zai-mcp-server__diagnose_error_screenshot",
+      "Skill(update-config)"
     ]
   }
 }
