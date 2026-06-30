@@ -5,6 +5,8 @@ import { sqliteService } from '@/lib/database/sqlite-service';
 import { hashPassword, verifyPassword } from '@/lib/auth-utils';
 import { generateId } from '@/lib/utils';
 
+type SqlValue = string | number | Uint8Array | null;
+
 export interface UserRecord {
   id: string;
   username: string;
@@ -91,7 +93,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       const result = db.exec(`SELECT id, username, displayName, email, phone, status, lastLoginTime, createTime, updateTime FROM users ORDER BY createTime`);
       if (!result[0]?.values) { set({ users: [] }); return; }
 
-      const users: UserRecord[] = result[0].values.map((row: any[]) => ({
+      const users: UserRecord[] = result[0].values.map((row: SqlValue[]) => ({
         id: row[0], username: row[1], displayName: row[2], email: row[3],
         phone: row[4], status: row[5], lastLoginTime: row[6], createTime: row[7], updateTime: row[8],
       }));
@@ -132,7 +134,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       const db = await sqliteService.getDatabase();
       const now = new Date().toISOString();
       const fields: string[] = [];
-      const values: any[] = [];
+      const values: SqlValue[] = [];
 
       if (updates.displayName !== undefined) { fields.push('displayName = ?'); values.push(updates.displayName); }
       if (updates.email !== undefined) { fields.push('email = ?'); values.push(updates.email); }
@@ -297,7 +299,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       const result = db.exec(`SELECT id, name, displayName, description, isSystem, createTime, updateTime FROM roles ORDER BY isSystem DESC, createTime`);
       if (!result[0]?.values) { set({ roles: [] }); return; }
 
-      const roles: RoleRecord[] = result[0].values.map((row: any[]) => ({
+      const roles: RoleRecord[] = result[0].values.map((row: SqlValue[]) => ({
         id: row[0], name: row[1], displayName: row[2], description: row[3],
         isSystem: row[4], createTime: row[5], updateTime: row[6],
       }));
@@ -332,7 +334,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       const db = await sqliteService.getDatabase();
       const now = new Date().toISOString();
       const fields: string[] = [];
-      const values: any[] = [];
+      const values: SqlValue[] = [];
 
       if (updates.displayName !== undefined) { fields.push('displayName = ?'); values.push(updates.displayName); }
       if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
@@ -382,7 +384,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       const result = db.exec(`SELECT id, name, category, description FROM permissions ORDER BY category, id`);
       if (!result[0]?.values) { set({ permissions: [] }); return; }
 
-      const permissions: PermissionRecord[] = result[0].values.map((row: any[]) => ({
+      const permissions: PermissionRecord[] = result[0].values.map((row: SqlValue[]) => ({
         id: row[0], name: row[1], category: row[2], description: row[3],
       }));
       set({ permissions });
@@ -398,9 +400,9 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       if (!result[0]?.values) { set({ rolePermissions: {} }); return; }
 
       const rpMap: Record<string, string[]> = {};
-      for (const row of result[0].values as any[][]) {
-        const roleId = row[0];
-        const permId = row[1];
+      for (const row of result[0].values as SqlValue[][]) {
+        const roleId = String(row[0]);
+        const permId = String(row[1]);
         if (!rpMap[roleId]) rpMap[roleId] = [];
         rpMap[roleId].push(permId);
       }
@@ -445,7 +447,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
 
       if (!result[0]?.values) { set({ accountSetUsers: [] }); return; }
 
-      const accountSetUsers: AccountSetUserRecord[] = result[0].values.map((row: any[]) => ({
+      const accountSetUsers: AccountSetUserRecord[] = result[0].values.map((row: SqlValue[]) => ({
         accountSetId: row[0], userId: row[1], roleId: row[2],
         username: row[3], displayName: row[4], roleName: row[5],
       }));

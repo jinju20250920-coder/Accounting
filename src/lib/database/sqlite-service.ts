@@ -240,7 +240,7 @@ class SQLiteService {
   private _initPromise: Promise<void> | null = null; // 防止并发初始化
 
   /** 写操作后立即持久化到 OPFS/localStorage/磁盘 */
-  private async persist(): Promise<void> {
+  async persist(): Promise<void> {
     try {
       const { sqliteManager } = await import('./sqlite-manager');
       await sqliteManager.save();

@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import type { FixedAsset } from '@/types';
 
 // 导出Excel文件
-export const exportToExcel = <T extends Record<string, any>>(
+export const exportToExcel = <T extends Record<string, unknown>>(
   data: T[],
   filename: string,
   headers: { key: string; label: string }[] = []
@@ -38,7 +38,7 @@ export const exportToExcel = <T extends Record<string, any>>(
 };
 
 // 导入Excel文件
-export const importFromExcel = <T extends Record<string, any>>(
+export const importFromExcel = <T extends Record<string, unknown>>(
   file: File,
   headers: { key: string; label: string; required?: boolean }[]
 ): Promise<T[]> => {
@@ -55,11 +55,11 @@ export const importFromExcel = <T extends Record<string, any>>(
         const worksheet = workbook.Sheets[firstSheetName];
 
         // 转换为JSON数据
-        const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+        const jsonData: Record<string, unknown>[] = XLSX.utils.sheet_to_json(worksheet);
 
         // 验证和处理数据
         const processedData = jsonData.map((row, index) => {
-          const result: any = {};
+          const result: Record<string, unknown> = {};
 
           headers.forEach(({ key, label, required }) => {
             const value = row[label];
@@ -97,9 +97,9 @@ export const exportTemplate = <T>(
   headers: { key: string; label: string; placeholder?: string }[]
 ) => {
   // 使用 headers 的 label 作为列标题
-  const rowWithLabels: Record<string, any> = {};
+  const rowWithLabels: Record<string, unknown> = {};
   headers.forEach(({ key, label }) => {
-    rowWithLabels[label] = (sampleData as any)[key];
+    rowWithLabels[label] = (sampleData as Record<string, unknown>)[key];
   });
 
   const ws = XLSX.utils.json_to_sheet([rowWithLabels]);
@@ -132,7 +132,7 @@ export const parseFixedAssetsExcel = async (file: File) => {
   ];
 
   try {
-    const data = await importFromExcel<any>(file, headers);
+    const data = await importFromExcel<Record<string, unknown>>(file, headers);
     return { data, errors: [] };
   } catch (error: unknown) {
     return { data: [], errors: [error instanceof Error ? error.message : String(error)] };
@@ -165,7 +165,7 @@ export const exportFixedAssetsToExcel = (assets: FixedAsset[]) => {
     status: asset.status === 'active' ? '在用' : asset.status === 'disposed' ? '已处置' : '已提足',
   }));
 
-  exportToExcel(data, '固定资产', headers as any);
+  exportToExcel(data, '固定资产', headers);
 };
 
 export const generateAssetImportTemplate = (type: 'fixed' | 'intangible' | 'prepaid') => {
@@ -241,7 +241,7 @@ export const generateAssetImportTemplate = (type: 'fixed' | 'intangible' | 'prep
   };
 
   const { sampleData, headers } = templates[type];
-  exportTemplate(type === 'fixed' ? '固定资产导入' : type === 'intangible' ? '无形资产导入' : '待摊费用导入', sampleData, headers as any);
+  exportTemplate(type === 'fixed' ? '固定资产导入' : type === 'intangible' ? '无形资产导入' : '待摊费用导入', sampleData, headers);
 };
 
 // 折旧方法名称转换

@@ -13,6 +13,7 @@ import type {
   InvoiceType,
   InvoicePaymentStatus,
   EngineContext,
+  OverrideSubjectAction,
 } from '@/types';
 
 interface InvoiceStore {
@@ -544,8 +545,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       let baseTaxSubject: string | undefined;
       if (matchedRule) {
         const taxAction = matchedRule.actions.find(
-          (a: any) => a.type === 'overrideSubject' && a.slot === 'tax'
-        ) as any;
+          (a): a is OverrideSubjectAction => a.type === 'overrideSubject' && a.slot === 'tax'
+        );
         if (taxAction?.subjectCode) {
           baseTaxSubject = taxAction.subjectCode;
         }
@@ -804,7 +805,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
                 enableCashFlow: false,
                 disabled: false,
                 block: false,
-              } as any);
+              });
             }
 
             // 科目方式下，清空往来卡片信息
@@ -1084,11 +1085,11 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       if (invoiceResult.length > 0 && invoiceResult[0].values) {
         const columns = invoiceResult[0].columns;
         for (const row of invoiceResult[0].values) {
-          const invoice: any = {};
+          const invoice: Record<string, unknown> = {};
           columns.forEach((col: string, idx: number) => {
             invoice[col] = row[idx];
           });
-          invoices.push(invoice as Invoice);
+          invoices.push(invoice as unknown as Invoice);
         }
       }
 
@@ -1101,11 +1102,11 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       if (recResult.length > 0 && recResult[0].values) {
         const columns = recResult[0].columns;
         for (const row of recResult[0].values) {
-          const rec: any = {};
+          const rec: Record<string, unknown> = {};
           columns.forEach((col: string, idx: number) => {
             rec[col] = row[idx];
           });
-          reconciliations.push(rec as InvoiceReconciliation);
+          reconciliations.push(rec as unknown as InvoiceReconciliation);
         }
       }
 

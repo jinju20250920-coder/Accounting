@@ -33,8 +33,8 @@ interface VoucherTemplateStore {
   exportTemplateToJSON: (id: string) => string;
 
   // Excel 导入导出
-  importTemplatesFromExcel: (data: any[], validationData?: TemplateValidationData) => Promise<{ success: number; failed: number; errors: string[] }>;
-  exportTemplatesToExcel: () => any[];
+  importTemplatesFromExcel: (data: Record<string, unknown>[], validationData?: TemplateValidationData) => Promise<{ success: number; failed: number; errors: string[] }>;
+  exportTemplatesToExcel: () => Record<string, unknown>[];
 
   // 初始化
   initializeTemplates: () => Promise<void>;
@@ -221,12 +221,12 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
       // 验证模版数据
-      const validTemplates: VoucherFullTemplate[] = parsed.templates.map((template: any) => ({
+      const validTemplates: VoucherFullTemplate[] = parsed.templates.map((template: Record<string, unknown>) => ({
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        name: template.name || '未命名模版',
-        description: template.description || '',
-        voucherType: template.voucherType || 'general',
-        entries: template.entries || [],
+        name: (template.name as string) || '未命名模版',
+        description: (template.description as string) || '',
+        voucherType: (template.voucherType as VoucherFullTemplate['voucherType']) || 'general',
+        entries: (template.entries as VoucherFullTemplate['entries']) || [],
         createTime: new Date().toISOString(),
         updateTime: new Date().toISOString(),
         accountSetId: currentAccountSet?.id
@@ -259,12 +259,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
   },
 
   // Excel 导入凭证模版
-  importTemplatesFromExcel: async (data: any[], validationData?: {
-    subjects: { code: string }[];
-    departments: { code: string }[];
-    projects: { code: string }[];
-    currencies: { code: string }[];
-  }) => {
+  importTemplatesFromExcel: async (data, validationData) => {
     const errors: string[] = [];
     let success = 0;
     let failed = 0;
@@ -272,9 +267,11 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
     const newTemplates: VoucherFullTemplate[] = [];
 
     // 按模版分组处理
-    const templateMap = new Map<string, any[]>();
+    const templateMap = new Map<string, Array<{ row: Record<string, unknown>; index: number }>>();
+    const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+
     data.forEach((row, index) => {
-      const templateName = row['模版名称'];
+      const templateName = str(row['模版名称']);
       if (!templateName) {
         failed++;
         errors.push(`第${index + 2}行：模版名称不能为空`);
@@ -298,21 +295,21 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
 
     // 处理每个模版
     templateMap.forEach((templateRows, templateName) => {
-      const templateDescription = templateRows[0].row['模版描述'];
-      const voucherType = templateRows[0].row['凭证类型'];
+      const templateDescription = str(templateRows[0].row['模版描述']);
+      const voucherType = str(templateRows[0].row['凭证类型']);
 
       const entries: VoucherTemplateEntry[] = [];
       let hasValidEntries = false;
       let templateValid = true;
 
       templateRows.forEach(({ row, index }) => {
-        const subjectCode = row['科目代码'];
-        const subjectName = row['科目名称'];
+        const subjectCode = str(row['科目代码']);
+        const subjectName = str(row['科目名称']);
         const debit = Number(row['借方']);
         const credit = Number(row['贷方']);
-        const deptCode = row['部门代码'];
-        const projectCode = row['项目代码'];
-        const currencyCode = row['币别代码'];
+        const deptCode = str(row['部门代码']);
+        const projectCode = str(row['项目代码']);
+        const currencyCode = str(row['币别代码']);
 
         // 校验科目代码（仅在 validationData 存在时）
         if (validationData && subjectCode && subjectCode.trim()) {
@@ -353,14 +350,14 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
             subjectName: subjectName || '',
             debit: !isNaN(debit) ? debit : 0,
             credit: !isNaN(credit) ? credit : 0,
-            deptCode: row['部门代码'] || '',
-            projectCode: row['项目代码'] || '',
-            summary: row['摘要'] || '',
-            currencyCode: row['币别代码'] || '',
-            currencyName: row['币别名称'] || '',
-            cashFlowItem: row['现金流量项目'] || '',
-            customerName: row['客户名称'] || '',
-            supplierName: row['供应商名称'] || ''
+            deptCode: str(row['部门代码']) || '',
+            projectCode: str(row['项目代码']) || '',
+            summary: str(row['摘要']) || '',
+            currencyCode: str(row['币别代码']) || '',
+            currencyName: str(row['币别名称']) || '',
+            cashFlowItem: str(row['现金流量项目']) || '',
+            customerName: str(row['客户名称']) || '',
+            supplierName: str(row['供应商名称']) || ''
           };
 
           entries.push(entry);
@@ -369,11 +366,17 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
       });
 
       if (templateValid && hasValidEntries) {
+        const validVoucherTypes = ['general', 'receipt', 'payment', 'transfer', 'closing'] as const;
+        type VoucherType = typeof validVoucherTypes[number];
+        const vType: VoucherType = (validVoucherTypes as readonly string[]).includes(voucherType)
+          ? (voucherType as VoucherType)
+          : 'general';
+
         const newTemplate: VoucherFullTemplate = {
           id: Date.now().toString() + '_' + templateName,
           name: templateName,
           description: templateDescription || '',
-          voucherType: voucherType || 'general',
+          voucherType: vType,
           entries,
           createTime: new Date().toISOString(),
           updateTime: new Date().toISOString(),
@@ -405,7 +408,7 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
   // Excel 导出凭证模版
   exportTemplatesToExcel: () => {
     const state = get();
-    const exportData: any[] = [];
+    const exportData: Record<string, unknown>[] = [];
 
     state.templates.forEach(template => {
       template.entries.forEach(entry => {

@@ -538,8 +538,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         return;
       }
 
-      const service = getCurrentService() as any;
-      const db = await service.getDatabase?.();
+      const service = getCurrentService();
+      const db = await service?.getDatabase?.();
       if (!db || typeof db.prepare !== 'function') {
         set({ fxError: '当前数据库不支持删除汇率记录' });
         return;
@@ -548,7 +548,7 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
       const stmt = db.prepare('DELETE FROM fxRates WHERE id = ? AND accountSetId = ?');
       stmt.run([id, current.accountSetId]);
       stmt.free?.();
-      await service.persist?.();
+      await service?.persist();
 
       set({
         fxRates: state.fxRates.filter(item => item.id !== id),
@@ -569,8 +569,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
   initializeRevaluationRuns: async () => {
     try {
       set({ revaluationLoading: true, revaluationError: null });
-      const service = getCurrentService() as any;
-      if (service.getFxRevaluationRuns) {
+      const service = getCurrentService();
+      if (service?.getFxRevaluationRuns) {
         const runs = await service.getFxRevaluationRuns();
         // 与凭证状态同步：若关联凭证已被红冲（status=reversed），将 run 也标记为 reversed，
         // 否则 hasFinalizedFxRevaluationRun 会一直挡着用户重做调汇。
@@ -581,9 +581,9 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
           for (const v of allVouchers || []) {
             if (v?.id) voucherStatusMap.set(v.id, v.status);
           }
-          syncedRuns = runs.map((run: any) => {
+          syncedRuns = runs.map((run): FxRevaluationRun => {
             if (run.status === 'posted' && run.voucherId && voucherStatusMap.get(run.voucherId) === 'reversed') {
-              return { ...run, status: 'reversed' as const };
+              return { ...run, status: 'reversed' };
             }
             return run;
           });
@@ -603,8 +603,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
   saveRevaluationRun: async (run, lines) => {
     try {
       set({ revaluationError: null });
-      const service = getCurrentService() as any;
-      if (service.saveFxRevaluationRun) {
+      const service = getCurrentService();
+      if (service?.saveFxRevaluationRun) {
         await service.saveFxRevaluationRun(run);
         if (lines && lines.length > 0 && service.saveFxRevaluationRunLines) {
           await service.saveFxRevaluationRunLines(lines);
@@ -621,8 +621,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
   deleteRevaluationRun: async (id) => {
     try {
       set({ revaluationError: null });
-      const service = getCurrentService() as any;
-      if (service.deleteFxRevaluationRun) {
+      const service = getCurrentService();
+      if (service?.deleteFxRevaluationRun) {
         await service.deleteFxRevaluationRun(id);
         set({ revaluationRuns: get().revaluationRuns.filter(r => r.id !== id) });
       }
@@ -634,8 +634,8 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
 
   getRevaluationRunLines: async (runId) => {
     try {
-      const service = getCurrentService() as any;
-      if (service.getFxRevaluationRunLines) {
+      const service = getCurrentService();
+      if (service?.getFxRevaluationRunLines) {
         return await service.getFxRevaluationRunLines(runId);
       }
       return [];

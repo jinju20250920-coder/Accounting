@@ -230,7 +230,7 @@ export interface FxRevaluationRun {
   accountSetId: string;
   period: string;
   baseCurrency: string;
-  status: 'draft' | 'previewed' | 'confirmed' | 'posted';
+  status: 'draft' | 'previewed' | 'confirmed' | 'posted' | 'reversed';
   previewData?: string;
   voucherId?: string;
   voucherNo?: string;

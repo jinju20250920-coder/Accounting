@@ -37,9 +37,9 @@ interface AuditRecord {
   entityType: 'voucher' | 'subject' | 'account_set' | 'template' | 'system';
   entityId: string;
   entityName?: string;
-  details: any;
-  oldValue?: any;
-  newValue?: any;
+  details: Record<string, unknown>;
+  oldValue?: unknown;
+  newValue?: unknown;
   ipAddress: string;
   userAgent: string;
   result: 'success' | 'failed' | 'pending';
@@ -91,11 +91,11 @@ interface AuditStore {
 }
 
 // 迁移函数
-const migrateV1ToV2 = (state: any) => {
+const migrateV1ToV2 = (state: { records?: Array<Record<string, unknown>>; [k: string]: unknown }) => {
   if (!state.records) return state;
 
   // 添加result字段到所有记录
-  const migratedRecords = state.records.map((record: any) => ({
+  const migratedRecords = state.records.map((record) => ({
     ...record,
     result: record.result || 'success'
   }));
@@ -155,11 +155,15 @@ export const useAuditStore = create<AuditStore>()(
           }
           if (query.keyword) {
             const keyword = query.keyword.toLowerCase();
-            filtered = filtered.filter(r =>
-              r.entityName?.toLowerCase().includes(keyword) ||
-              r.details.summary?.toLowerCase().includes(keyword) ||
-              r.details.voucherNo?.toLowerCase().includes(keyword)
-            );
+            filtered = filtered.filter(r => {
+              const summary = String(r.details.summary ?? '');
+              const voucherNo = String(r.details.voucherNo ?? '');
+              return (
+                r.entityName?.toLowerCase().includes(keyword) ||
+                summary.toLowerCase().includes(keyword) ||
+                voucherNo.toLowerCase().includes(keyword)
+              );
+            });
           }
         }
 
@@ -309,12 +313,17 @@ export const useAuditStore = create<AuditStore>()(
 
       searchRecords: (keyword) => {
         const state = get();
-        return state.records.filter(r =>
-          r.entityName?.toLowerCase().includes(keyword.toLowerCase()) ||
-          r.details.summary?.toLowerCase().includes(keyword.toLowerCase()) ||
-          r.details.voucherNo?.toLowerCase().includes(keyword.toLowerCase()) ||
-          r.userName.toLowerCase().includes(keyword.toLowerCase())
-        );
+        const kw = keyword.toLowerCase();
+        return state.records.filter(r => {
+          const summary = String(r.details.summary ?? '');
+          const voucherNo = String(r.details.voucherNo ?? '');
+          return (
+            r.entityName?.toLowerCase().includes(kw) ||
+            summary.toLowerCase().includes(kw) ||
+            voucherNo.toLowerCase().includes(kw) ||
+            r.userName.toLowerCase().includes(kw)
+          );
+        });
       },
 
       getRecentActivity: (limit = 10) => {
@@ -331,7 +340,7 @@ export function logVoucherAction(
   voucherId: string,
   voucherNo: string,
   operation: OperationType,
-  details: any,
+  details: Record<string, unknown>,
   result: 'success' | 'failed' = 'success',
   errorMessage?: string,
 ) {
