@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -11,7 +10,6 @@ import { ChineseDatePicker } from '@/components/ui/chinese-date-picker'
 import { Label } from '@/components/ui/label'
 import {
   Save,
-  Copy,
   PlusCircle,
   ArrowRight,
   Monitor,

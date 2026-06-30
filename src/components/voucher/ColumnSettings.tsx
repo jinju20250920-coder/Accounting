@@ -1,10 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
-import { Settings, GripVertical, X, Eye, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Settings } from 'lucide-react';
 
 // 所有可显示的字段
 const COLUMN_FIELDS = [

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AlertTriangle, RefreshCw, FolderOpen, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,13 +8,12 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toast';
 import { sqliteService } from '@/lib/database/sqlite-service';
-import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
+import { fileHandleManager } from '@/lib/database/file-handle-manager';
 import { FilePickerDialog } from './file-picker-dialog';
 
 export type FileAccessErrorType =

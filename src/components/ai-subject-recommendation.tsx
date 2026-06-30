@@ -3,12 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  Lightbulb, TrendingUp, Zap, AlertCircle, CheckCircle, X,
-  Brain, Target, Clock, BarChart3
+  Lightbulb, TrendingUp, Zap, AlertCircle, CheckCircle,
+  Brain, Target, BarChart3
 } from 'lucide-react';
 import { useUserPreferenceStore } from '@/stores';
 import { getSubjects } from '@/lib/accounting';

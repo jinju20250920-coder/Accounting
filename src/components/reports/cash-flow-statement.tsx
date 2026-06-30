@@ -8,11 +8,9 @@ import {
   Download,
   Printer,
   Filter,
-  DollarSign,
   ArrowRight,
   ArrowLeft,
   TrendingUp,
-  TrendingDown,
   Activity,
   AlertCircle,
   CheckCircle

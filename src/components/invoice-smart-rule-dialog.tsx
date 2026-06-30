@@ -21,21 +21,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerDescription,
-  DrawerFooter,
-} from '@/components/ui/drawer';
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover } from '@/components/ui/popover';
 import { useToast } from '@/components/ui/toast';
 import {
@@ -45,21 +36,12 @@ import {
   Edit2,
   Search,
   Info,
-  ChevronDown,
-  ChevronUp,
   ToggleLeft,
   ToggleRight,
   X,
-  Download,
-  Upload,
   FileText,
   ArrowRight,
-  CheckCircle,
-  GripVertical,
-  ArrowUp,
-  ArrowDown,
 } from 'lucide-react';
-import { ExpenseListImportDialog } from './expense-list-import-dialog';
 import { PurchaseInvoiceRules as NewPurchaseInvoiceRules } from './invoice-rule/purchase-invoice-rules';
 import type {
   InvoiceSmartRule,
@@ -78,10 +60,8 @@ import type {
   ExpenseKeywordCategory,
   DepreciationMethod,
   SupplierSubjectMapping,
-  ExpenseReimbursement,
   AssetCategoryMapping,
   SupplierType,
-  PurchaseInvoiceRuleConfig,
 } from '@/types';
 
 /** 紧凑科目选择器：Popover + 模糊搜索 + Badge 已选状态 */

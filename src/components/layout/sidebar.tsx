@@ -9,25 +9,18 @@ import {
   FileText,
   Calculator,
   FileSpreadsheet,
-  TrendingUp,
   Users,
   Building2,
   RefreshCw,
   Upload,
-  Activity,
   Settings,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
   FolderKanban,
-  List,
   Check,
   Key,
-  CreditCard,
   Package,
-  Lightbulb,
-  Clock,
-  ArrowDownCircle,
   LogOut,
   KeyRound,
   User,
@@ -40,7 +33,7 @@ import {
   Star,
   Tag,
 } from 'lucide-react';
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,

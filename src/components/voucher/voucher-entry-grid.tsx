@@ -11,13 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { SimpleSelect, SelectOption } from '@/components/ui/select';
-import { SubjectSearch } from './subject-search';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ColumnSettings } from './ColumnSettings';
 import { SmartSubjectSelector, AmountInputWithPreview } from './smart-subject-selector';
 import { ClearingManager } from './clearing-manager';
 import { SummaryPicker } from './summary-picker';
@@ -33,11 +28,10 @@ interface ColumnItem {
   label: string;
   visible: boolean;
 }
-import { Plus, Trash2, Calculator, FileText, Save, Send, RotateCcw, CheckCircle, XCircle, Settings, Building, Building2, User, X, ChevronDown, Database, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, FileText, Send, RotateCcw, CheckCircle, XCircle, Settings, X, ChevronDown, FileSpreadsheet } from 'lucide-react';
 import { smartPasteHandler } from '@/lib/paste-handler';
 import { validateSubjectExists } from '@/lib/accounting';
 import { ColumnSort } from './ColumnSort';
-import { DatabaseManager } from '@/components/DatabaseManager';
 import { useSubjectStore } from '@/stores';
 // TODO: 安装 pinyin-pro 包实现拼音简码支持
 // import { pinyin } from 'pinyin-pro';
@@ -95,8 +89,6 @@ export function VoucherEntryGrid() {
   }, []);
   const {
     currentEntries,
-    voucherDate,
-    voucherNo,
     isBalanced,
     totalDebit,
     totalCredit,
@@ -107,10 +99,6 @@ export function VoucherEntryGrid() {
     saveVoucher,
     clearVoucher,
     pasteEntries,
-    addToLedger,
-    createVoucher,
-    getLedgerEntries,
-    ledgerEntries
   } = useVoucherStore();
 
   // 直接使用 store 中的 currentEntries，避免双重状态管理导致的同步问题

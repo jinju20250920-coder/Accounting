@@ -60,7 +60,7 @@ export function SettlementDashboard() {
   // Period date range
   const periodRange = useMemo(() => {
     const end = new Date(cutoffDate);
-    let start = new Date(end);
+    const start = new Date(end);
     switch (period) {
       case '7d': start.setDate(start.getDate() - 7); break;
       case '30d': start.setDate(start.getDate() - 30); break;

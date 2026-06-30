@@ -14,23 +14,12 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Building2,
-  RefreshCw,
-  Download,
-  Upload,
-  Calendar,
   FolderKanban,
   CheckCircle,
   AlertCircle,
   Trash2,
   Plus,
   Edit2,
-  FolderOpen,
-  Settings,
-  Clock,
-  Play,
-  Pause,
-  RotateCcw,
-  ChevronRight,
   Users
 } from 'lucide-react';
 import { PeriodManagement } from '@/components/account-set/period-management';
@@ -40,7 +29,6 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import type { AccountSet } from '@/stores/useAccountSetStore';
 import { accountSetDbManager } from '@/lib/database/account-set-db-manager';
 import { fileHandleManager, FileHandleManager } from '@/lib/database/file-handle-manager';
-import { AccountSetMembersDialog } from '@/components/account-set/account-set-members-dialog';
 import initSqlJs from 'sql.js';
 
 interface AccountSetFormData {
