@@ -39,47 +39,52 @@ function VoucherDetailDialog({ open, onOpenChange, voucherNo }: {
   const [detail, setDetail] = useState<VoucherDetail | null>(null);
   const subjects = useSubjectStore(s => s.subjects);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- fetch-on-open pattern: clear stale detail synchronously, then async-load voucher rows. */
   useEffect(() => {
-    if (open && voucherNo) {
-      loadVoucher(voucherNo);
-    } else {
+    if (!open || !voucherNo) {
       setDetail(null);
+      return;
     }
-  }, [open, voucherNo]);
-
-  const loadVoucher = async (vNo: string) => {
-    try {
-      const db = await sqliteService.getDatabase();
-      if (!db) { setDetail(null); return; }
-      const result = db.exec(
-        'SELECT id, voucherNo, date, status, summary FROM vouchers WHERE voucherNo = ? LIMIT 1',
-        [vNo]
-      );
-      if (!result[0]?.values?.length) { setDetail(null); return; }
-      const row = result[0].values[0];
-      const voucherId = row[0] as string;
-      const subjectMap = new Map(subjects.map(s => [s.code, s.name]));
-      const entriesResult = db.exec(
-        'SELECT subjectCode, subjectName, debit, credit, summary FROM entries WHERE voucherId = ?',
-        [voucherId]
-      );
-      const entries = (entriesResult[0]?.values || []).map((e: any[]) => ({
-        subjectCode: e[0] || '',
-        subjectName: subjectMap.get(e[0]) || e[1] || '',
-        debit: e[2] || 0,
-        credit: e[3] || 0,
-        summary: e[4] || '',
-      }));
-      setDetail({
-        id: voucherId,
-        voucherNo: row[1] as string,
-        date: row[2] as string,
-        summary: (row[4] as string) || '',
-        status: (row[3] as string) || 'draft',
-        entries,
-      });
-    } catch { setDetail(null); }
-  };
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = await sqliteService.getDatabase();
+        if (cancelled) return;
+        if (!db) { setDetail(null); return; }
+        const result = db.exec(
+          'SELECT id, voucherNo, date, status, summary FROM vouchers WHERE voucherNo = ? LIMIT 1',
+          [voucherNo]
+        );
+        if (cancelled) return;
+        if (!result[0]?.values?.length) { setDetail(null); return; }
+        const row = result[0].values[0];
+        const voucherId = row[0] as string;
+        const subjectMap = new Map(subjects.map(s => [s.code, s.name]));
+        const entriesResult = db.exec(
+          'SELECT subjectCode, subjectName, debit, credit, summary FROM entries WHERE voucherId = ?',
+          [voucherId]
+        );
+        if (cancelled) return;
+        const entries = (entriesResult[0]?.values || []).map((e: any[]) => ({
+          subjectCode: e[0] || '',
+          subjectName: subjectMap.get(e[0]) || e[1] || '',
+          debit: e[2] || 0,
+          credit: e[3] || 0,
+          summary: e[4] || '',
+        }));
+        setDetail({
+          id: voucherId,
+          voucherNo: row[1] as string,
+          date: row[2] as string,
+          summary: (row[4] as string) || '',
+          status: (row[3] as string) || 'draft',
+          entries,
+        });
+      } catch { if (!cancelled) setDetail(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [open, voucherNo, subjects]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

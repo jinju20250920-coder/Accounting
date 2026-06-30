@@ -87,22 +87,28 @@ export function SearchableSelect({
   }, [open]);
 
   // 计算下拉框位置 - 强制向下展开
-  const dropdownStyle = useMemo((): React.CSSProperties | null => {
-    if (!open || !buttonRef.current) return null;
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties | null>(null);
+  /* eslint-disable react-hooks/set-state-in-effect -- position must be measured from the live DOM after the trigger renders; setState is the only way to surface the computed rect back to the next render. */
+  useEffect(() => {
+    if (!open || !buttonRef.current) {
+      setDropdownStyle(null);
+      return;
+    }
 
     const rect = buttonRef.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
     const maxHeight = Math.min(280, spaceBelow - 8); // 留8px底部空间
 
-    return {
+    setDropdownStyle({
       position: 'fixed' as const,
       top: rect.bottom + 4, // 始终向下，sideOffset=4
       left: rect.left,
       width: rect.width, // 与输入框宽度一致
       zIndex: 9999,
       maxHeight: Math.max(maxHeight, 120), // 最小120px高度
-    };
+    });
   }, [open]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div className={`relative ${className}`}>

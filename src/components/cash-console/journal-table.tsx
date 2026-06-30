@@ -207,44 +207,49 @@ function VoucherDetailDialog({
   const [detail, setDetail] = useState<VoucherDetail | null>(null);
   const subjects = useSubjectStore(s => s.subjects);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- fetch-on-open: setDetail(null) clears stale state synchronously while the new fetch is in flight; cannot derive from props because voucher history is async server data. */
   useEffect(() => {
-    if (open && voucherNo) {
-      loadVoucher(voucherNo);
-    } else {
+    if (!open || !voucherNo) {
       setDetail(null);
+      return;
     }
-  }, [open, voucherNo]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const vouchers = await sqliteService.getAllVouchers();
+        const voucher = vouchers.find((v: any) => v.voucherNo === voucherNo);
+        if (cancelled) return;
+        if (!voucher) { setDetail(null); return; }
 
-  const loadVoucher = async (vNo: string) => {
-    try {
-      const vouchers = await sqliteService.getAllVouchers();
-      const voucher = vouchers.find((v: any) => v.voucherNo === vNo);
-      if (!voucher) { setDetail(null); return; }
+        const subjectMap = new Map(subjects.map(s => [s.code, s.name]));
 
-      const subjectMap = new Map(subjects.map(s => [s.code, s.name]));
-
-      setDetail({
-        id: voucher.id,
-        voucherNo: voucher.voucherNo,
-        date: voucher.date,
-        summary: voucher.summary || '',
-        status: voucher.status || 'draft',
-        entries: (voucher.entries || []).map((e: any) => ({
-          subjectCode: e.subjectCode || '',
-          subjectName: subjectMap.get(e.subjectCode) || e.subjectName || '',
-          debit: e.debit || 0,
-          credit: e.credit || 0,
-          summary: e.summary || '',
-          currencyCode: e.currencyCode || '',
-          originalAmount: e.originalAmount || 0,
-          exchangeRate: e.exchangeRate || 0,
-        })),
-      });
-    } catch (e) {
-      console.error('Failed to load voucher', e);
-      setDetail(null);
-    }
-  };
+        setDetail({
+          id: voucher.id,
+          voucherNo: voucher.voucherNo,
+          date: voucher.date,
+          summary: voucher.summary || '',
+          status: voucher.status || 'draft',
+          entries: (voucher.entries || []).map((e: any) => ({
+            subjectCode: e.subjectCode || '',
+            subjectName: subjectMap.get(e.subjectCode) || e.subjectName || '',
+            debit: e.debit || 0,
+            credit: e.credit || 0,
+            summary: e.summary || '',
+            currencyCode: e.currencyCode || '',
+            originalAmount: e.originalAmount || 0,
+            exchangeRate: e.exchangeRate || 0,
+          })),
+        });
+      } catch (e) {
+        if (!cancelled) {
+          console.error('Failed to load voucher', e);
+          setDetail(null);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, voucherNo, subjects]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
 
   return (

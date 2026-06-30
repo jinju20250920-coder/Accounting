@@ -76,54 +76,45 @@ export function AILearningDashboard() {
   const [aiInsights, setAiInsights] = useState<string[]>([]);
 
   // 加载统计数据
-  useEffect(() => {
-    loadStats();
-    loadRecentRecords();
-    generateInsights();
-  }, [preferences]);
-
-  const loadStats = () => {
-    const stats = getStatistics();
+  const recalcStats = () => {
+    const fresh = getStatistics();
     setStats({
-      totalRecords: stats.totalMatches,
-      successRate: stats.successRate,
-      topSubjects: stats.mostUsedSubjects,
+      totalRecords: fresh.totalMatches,
+      successRate: fresh.successRate,
+      topSubjects: fresh.mostUsedSubjects,
       topPartners: [] // 可以从 aiLearningEngine 获取
     });
-  };
-
-  const loadRecentRecords = () => {
-    // 从 AI 引擎获取最近的记录
     setRecentRecords([]);
-  };
 
-  const generateInsights = () => {
     const insights: string[] = [];
-
-    if (stats.successRate > 0.8) {
+    if (fresh.successRate > 0.8) {
       insights.push('🎯 AI 匹配准确率优秀，继续保持！');
-    } else if (stats.successRate > 0.6) {
+    } else if (fresh.successRate > 0.6) {
       insights.push('📈 AI 匹配表现良好，还有提升空间');
     } else {
       insights.push('💡 建议多使用 AI 推荐，提高匹配准确率');
     }
 
-    // 分析常用科目
-    if (stats.topSubjects.length > 0) {
-      const topSubject = stats.topSubjects[0];
+    if (fresh.mostUsedSubjects.length > 0) {
+      const topSubject = fresh.mostUsedSubjects[0];
       insights.push(`🏆 最常用科目: ${topSubject.subject} (${topSubject.count}次)`);
     }
 
-    // 检查是否有长时间未学习的摘要
     const oldPreferences = preferences.filter(p =>
       Date.now() - p.timestamp > 30 * 24 * 60 * 60 * 1000
     );
     if (oldPreferences.length > 10) {
       insights.push(`📂 已学习 ${oldPreferences.length} 条偏好记录，建议定期清理`);
     }
-
     setAiInsights(insights);
   };
+
+  /* eslint-disable react-hooks/set-state-in-effect -- recalc pulls from external preference store; local state is the only way to surface results to render. */
+  useEffect(() => {
+    recalcStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferences]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleExport = () => {
     setIsExporting(true);
@@ -152,8 +143,7 @@ export function AILearningDashboard() {
     if (success) {
       setImportData('');
       setShowImportDialog(false);
-      loadStats();
-      generateInsights();
+      recalcStats();
     }
     setIsImporting(false);
   };
@@ -161,8 +151,7 @@ export function AILearningDashboard() {
   const handleClearPreferences = () => {
     if (confirm('确定要清空所有学习记录吗？此操作不可恢复。')) {
       clearPreferences();
-      loadStats();
-      generateInsights();
+      recalcStats();
     }
   };
 

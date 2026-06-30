@@ -756,10 +756,6 @@ function ExpenseListTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
-  useEffect(() => {
-    if (accountSetId) loadRecords();
-  }, [accountSetId]);
-
   const loadRecords = async () => {
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -769,6 +765,11 @@ function ExpenseListTab() {
       console.error('加载费用清单失败:', e);
     }
   };
+
+  useEffect(() => {
+    if (accountSetId) loadRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSetId]);
 
   const filteredRecords = records.filter(r => {
     if (!searchQuery) return true;

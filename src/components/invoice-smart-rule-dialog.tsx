@@ -230,10 +230,6 @@ function SalesInvoiceRules() {
   const [enableProjectTracking, setEnableProjectTracking] = useState(false);
   const [autoExtractInvoiceNo, setAutoExtractInvoiceNo] = useState(true);
 
-  useEffect(() => {
-    if (accountSetId) loadData();
-  }, [accountSetId]);
-
   const loadData = async () => {
     try {
       // 加载收入分类规则（模拟）
@@ -247,6 +243,11 @@ function SalesInvoiceRules() {
       showToast('error', '加载数据失败');
     }
   };
+
+  useEffect(() => {
+    if (accountSetId) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSetId]);
 
   return (
     <div className="space-y-6">
@@ -421,10 +422,6 @@ function StrategyTab() {
   const [catSubjectCode, setCatSubjectCode] = useState('');
   const [catSubjectName, setCatSubjectName] = useState('');
 
-  useEffect(() => {
-    if (accountSetId) loadData();
-  }, [accountSetId]);
-
   const loadData = async () => {
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -449,6 +446,11 @@ function StrategyTab() {
       console.error('加载策略失败:', e);
     }
   };
+
+  useEffect(() => {
+    if (accountSetId) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSetId]);
 
   const saveStrategy = async (updates: Partial<AuxiliaryStrategyConfig>) => {
     if (!strategy) return;
@@ -785,10 +787,6 @@ function RulesTab({ invoiceType }: { invoiceType: 'input' | 'output' }) {
   const [formConditions, setFormConditions] = useState<SmartRuleCondition[]>([]);
   const [formActions, setFormActions] = useState<SmartRuleAction[]>([]);
 
-  useEffect(() => {
-    if (accountSetId) loadRules();
-  }, [accountSetId]);
-
   const loadRules = async () => {
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -798,6 +796,11 @@ function RulesTab({ invoiceType }: { invoiceType: 'input' | 'output' }) {
       console.error('加载规则失败:', e);
     }
   };
+
+  useEffect(() => {
+    if (accountSetId) loadRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSetId]);
 
   const filteredRules = rules.filter((r) => {
     if (!searchQuery) return true;
@@ -1801,10 +1804,6 @@ function SupplierMappingTab() {
     creditCode: '', creditName: '',
   });
 
-  useEffect(() => {
-    if (accountSetId) loadMappings();
-  }, [accountSetId]);
-
   const loadMappings = async () => {
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -1822,6 +1821,11 @@ function SupplierMappingTab() {
       console.error('加载供应商映射失败:', e);
     }
   };
+
+  useEffect(() => {
+    if (accountSetId) loadMappings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSetId]);
 
   const groups = [...new Set(allMappings.map(m => m.groupName))].sort();
   const currentMappings = allMappings
@@ -2229,10 +2233,6 @@ function AssetCategoryTab() {
     residualRate: 5,
   });
 
-  useEffect(() => {
-    if (accountSetId) loadMappings();
-  }, [accountSetId]);
-
   const loadMappings = async () => {
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -2242,6 +2242,11 @@ function AssetCategoryTab() {
       console.error('加载资产类别映射失败:', e);
     }
   };
+
+  useEffect(() => {
+    if (accountSetId) loadMappings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSetId]);
 
   const handleSaveNew = async () => {
     if (!newForm.assetCategory.trim()) {

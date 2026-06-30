@@ -168,12 +168,6 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
   const [formSubjectNames, setFormSubjectNames] = useState<Record<string, string>>({});
 
   // 加载规则
-  useEffect(() => {
-    if (open && accountSetId) {
-      loadRules();
-    }
-  }, [open, accountSetId]);
-
   const loadRules = async () => {
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -183,6 +177,14 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
       console.error('加载规则失败:', e);
     }
   };
+
+  /* eslint-disable react-hooks/set-state-in-effect -- fetch-on-open pattern: async load of server-side rule config. */
+  useEffect(() => {
+    if (!open || !accountSetId) return;
+    loadRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, accountSetId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 开始编辑
   const startEdit = (rule: InvoiceSubjectRule) => {

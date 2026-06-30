@@ -24,19 +24,19 @@ export function BankFormatSelector({ value, onChange, detectionResult }: BankFor
   const [customConfigs, setCustomConfigs] = useState<CustomBankConfig[]>([]);
 
   useEffect(() => {
-    loadCustomConfigs();
+    let cancelled = false;
+    (async () => {
+      try {
+        await waitForDbInit();
+        const service = getCurrentService() as SqliteServiceType;
+        const configs = await service.getCustomBankConfigs();
+        if (!cancelled) setCustomConfigs(configs);
+      } catch {
+        // Ignore errors, custom configs will be empty
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
-
-  const loadCustomConfigs = async () => {
-    try {
-      await waitForDbInit();
-      const service = getCurrentService() as SqliteServiceType;
-      const configs = await service.getCustomBankConfigs();
-      setCustomConfigs(configs);
-    } catch {
-      // Ignore errors, custom configs will be empty
-    }
-  };
 
   return (
     <div className="flex items-center gap-2">

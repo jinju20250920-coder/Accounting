@@ -35,68 +35,69 @@ export function AccountSelector({ selectedAccountId, onSelectAccount }: AccountS
   const subjects = useSubjectStore(s => s.subjects);
 
   useEffect(() => {
-    loadAccounts();
-  }, [subjects]);
+    let cancelled = false;
+    (async () => {
+      const options: AccountOption[] = [];
 
-  const loadAccounts = async () => {
-    const options: AccountOption[] = [];
+      // "全部账户" option — no ourAccount filter, shows all transactions
+      options.push({
+        id: 'all-accounts',
+        label: '全部账户',
+        bankName: '全部',
+        accountNumber: '',
+        icon: '📊',
+      });
 
-    // "全部账户" option — no ourAccount filter, shows all transactions
-    options.push({
-      id: 'all-accounts',
-      label: '全部账户',
-      bankName: '全部',
-      accountNumber: '',
-      icon: '📊',
-    });
+      // 加载银行账户绑定
+      try {
+        const bindings = await sqliteService.getBankAccountBindings();
+        for (const binding of bindings) {
+          const brand = BANK_BRANDS[binding.bankId];
+          const lastFour = binding.accountNumber?.slice(-4) || '';
+          const bankShort = brand?.short || binding.bankName || '银行';
+          const alias = binding.aliasName?.trim();
+          // 统一格式：银行简称 + 账户别名 + 账号后四位
+          const parts = [bankShort];
+          if (alias) parts.push(alias);
+          if (lastFour) parts.push(`****${lastFour}`);
+          const label = parts.join(' ');
+          options.push({
+            id: binding.id || binding.bankId,
+            label,
+            bankName: bankShort,
+            accountNumber: binding.accountNumber || '',
+            brandColor: brand?.color,
+            icon: '🏦',
+            currency: binding.currency,
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to load bank account bindings', e);
+      }
 
-    // 加载银行账户绑定
-    try {
-      const bindings = await sqliteService.getBankAccountBindings();
-      for (const binding of bindings) {
-        const brand = BANK_BRANDS[binding.bankId];
-        const lastFour = binding.accountNumber?.slice(-4) || '';
-        const bankShort = brand?.short || binding.bankName || '银行';
-        const alias = binding.aliasName?.trim();
-        // 统一格式：银行简称 + 账户别名 + 账号后四位
-        const parts = [bankShort];
-        if (alias) parts.push(alias);
-        if (lastFour) parts.push(`****${lastFour}`);
-        const label = parts.join(' ');
+      // 添加现金日记账选项
+      const cashSubject = subjects.find(s => s.code === '1001');
+      if (cashSubject) {
         options.push({
-          id: binding.id || binding.bankId,
-          label,
-          bankName: bankShort,
-          accountNumber: binding.accountNumber || '',
-          brandColor: brand?.color,
-          icon: '🏦',
-          currency: binding.currency,
+          id: 'cash-journal',
+          label: '现金日记账',
+          bankName: '现金',
+          accountNumber: '1001',
+          isCash: true,
         });
       }
-    } catch (e) {
-      console.warn('Failed to load bank account bindings', e);
-    }
 
-    // 添加现金日记账选项
-    const cashSubject = subjects.find(s => s.code === '1001');
-    if (cashSubject) {
-      options.push({
-        id: 'cash-journal',
-        label: '现金日记账',
-        bankName: '现金',
-        accountNumber: '1001',
-        isCash: true,
-      });
-    }
+      if (cancelled) return;
+      setAccounts(options);
 
-    setAccounts(options);
-
-    // 自动选择"全部账户"
-    if (options.length > 0 && !selectedAccountId) {
-      const first = options[0];
-      onSelectAccount(first.id, first.accountNumber, first.currency);
-    }
-  };
+      // 自动选择"全部账户"
+      if (options.length > 0 && !selectedAccountId) {
+        const first = options[0];
+        onSelectAccount(first.id, first.accountNumber, first.currency);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [subjects, selectedAccountId, onSelectAccount]);
 
   return (
     <div className="flex items-center gap-2">
