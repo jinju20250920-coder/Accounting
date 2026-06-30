@@ -134,8 +134,8 @@ export const parseFixedAssetsExcel = async (file: File) => {
   try {
     const data = await importFromExcel<any>(file, headers);
     return { data, errors: [] };
-  } catch (error: any) {
-    return { data: [], errors: [error.message] };
+  } catch (error: unknown) {
+    return { data: [], errors: [error instanceof Error ? error.message : String(error)] };
   }
 };
 

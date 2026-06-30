@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { refreshVoucherStore, formatNumber } from '@/lib/utils';
 import {
   Search,
   Calculator,
@@ -30,6 +29,7 @@ import {
 } from 'lucide-react';
 import { getAmortizationMethodName, getPrepaidExpenseTypeName } from '@/lib/amortization';
 import { validateAccountingPeriod } from '@/lib/accounting';
+import { formatNumber, refreshVoucherStore, getErrorMessage } from '@/lib/utils';
 import type { PrepaidExpense, AmortizationRecord, BatchAmortizationResult } from '@/types';
 
 const formatAmount = formatNumber;
@@ -249,8 +249,8 @@ export function AmortizationDialog({ open, onOpenChange }: AmortizationDialogPro
       setPreviewResult(null);
       setShowPreviewDialog(false);
       initialize();
-    } catch (error: any) {
-      showToast('error', error.message || '摊销处理失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '摊销处理失败');
     } finally {
       setIsProcessing(false);
     }

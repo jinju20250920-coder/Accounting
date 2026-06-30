@@ -59,7 +59,7 @@ import { getDepreciationMethodName, calculateEstimatedMonthlyDepreciation, getDe
 import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
 import { getAssetDatePeriod } from '@/lib/asset-date';
-import { formatNumber, refreshVoucherStore, generateId } from '@/lib/utils';
+import { formatNumber, refreshVoucherStore, generateId, getErrorMessage } from '@/lib/utils';
 import type { FixedAsset, AssetCategory } from '@/types';
 
 // 资产卡片对话框组件
@@ -316,8 +316,8 @@ function AssetCardDialog({
       } else {
         showToast('success', '资产已保存');
       }
-    } catch (error: any) {
-      showToast('error', error.message || '保存失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '保存失败');
     }
   };
 
@@ -1025,8 +1025,8 @@ export default function FixedAssetsPage() {
       }
       setShowAddDialog(false);
       setSelectedAsset(null);
-    } catch (error: any) {
-      showToast('error', error.message || '操作失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '操作失败');
     }
   };
 
@@ -1036,8 +1036,8 @@ export default function FixedAssetsPage() {
       await deleteAsset(selectedAsset.id);
       showToast('success', '资产删除成功');
       setSelectedAsset(null);
-    } catch (error: any) {
-      showToast('error', error.message || '删除失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '删除失败');
     }
   };
 
@@ -1124,8 +1124,8 @@ export default function FixedAssetsPage() {
       } else {
         showToast('warning', '入账失败，请检查取得规则配置');
       }
-    } catch (error: any) {
-      showToast('error', error.message || '入账失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '入账失败');
     }
   };
 
@@ -1210,8 +1210,8 @@ export default function FixedAssetsPage() {
       const importResult = await importAssetsFromExcel(importData);
       showToast('success', `成功导入 ${importResult.success} 条资产${importResult.errors.length > 0 ? `，${importResult.errors.length} 条失败` : ''}`);
       setShowImportDialog(false);
-    } catch (error: any) {
-      showToast('error', error.message || '导入失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '导入失败');
     } finally {
       setImporting(false);
     }

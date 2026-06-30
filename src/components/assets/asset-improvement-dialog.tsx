@@ -1,5 +1,6 @@
 'use client';
 
+import { getErrorMessage } from '@/lib/utils';
 import React, { useState, useMemo } from 'react';
 import {
   Dialog,
@@ -129,8 +130,8 @@ export function AssetChangeDialog({
       setReason('');
       setNewCategoryId('');
       setNewDepartmentCode('');
-    } catch (error: any) {
-      showToast('error', error.message || '操作失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '操作失败');
     } finally {
       setLoading(false);
     }

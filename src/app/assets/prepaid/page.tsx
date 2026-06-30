@@ -16,7 +16,7 @@ import { PrepaidTimelineLedger } from '@/components/assets/prepaid-change-record
 import { useToast } from '@/hooks/use-toast';
 import { Search, Plus, Calculator, History, Pencil, Trash2, FileText, RotateCcw, Upload, Download, BookOpen } from 'lucide-react';
 import { sqliteService } from '@/lib/database';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, getErrorMessage } from '@/lib/utils';
 import { getPrepaidExpenseTypeName } from '@/lib/amortization';
 import { parsePrepaidExpensesExcel, generateAssetImportTemplate } from '@/lib/parser';
 import type { PrepaidExpense, PrepaidExpenseType, AmortizationMethod, AmortizationRecord } from '@/types';
@@ -333,8 +333,8 @@ export default function PrepaidExpensePage() {
         `成功导入 ${importResult.success} 条${importResult.errors.length > 0 ? `，${importResult.errors.length} 条失败` : ''}${errMsg}`,
       );
       setShowImportDialog(false);
-    } catch (error: any) {
-      showToast('error', error.message || '导入失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '导入失败');
     } finally {
       setImporting(false);
     }
@@ -384,8 +384,8 @@ export default function PrepaidExpensePage() {
         setHistoryRecords(records);
       }
       initialize();
-    } catch (error: any) {
-      showToast('error', error.message || '更正失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '更正失败');
     } finally {
       setCorrecting(false);
     }

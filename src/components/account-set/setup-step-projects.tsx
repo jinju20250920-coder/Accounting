@@ -1,5 +1,6 @@
 'use client';
 
+import { getErrorMessage } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -90,8 +91,8 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
       setNewCode('');
       setNewName('');
       setNewType('income');
-    } catch (error: any) {
-      showToast('error', `添加失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `添加失败：${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -100,8 +101,8 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
   const handleDelete = async (id: string) => {
     try {
       await deleteProject(id);
-    } catch (error: any) {
-      showToast('error', `删除失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `删除失败：${getErrorMessage(error)}`);
     }
   };
 
@@ -148,8 +149,8 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
       } else {
         showToast('warning', '未找到有效数据');
       }
-    } catch (error: any) {
-      showToast('error', `导入失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `导入失败：${getErrorMessage(error)}`);
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';

@@ -1,5 +1,6 @@
 'use client';
 
+import { getErrorMessage } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -187,8 +188,8 @@ export function SetupStepTemplate({
       } else {
         showToast('warning', '未找到有效科目数据');
       }
-    } catch (error: any) {
-      showToast('error', `导入失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `导入失败：${getErrorMessage(error)}`);
     } finally {
       setImporting(false);
     }

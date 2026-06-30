@@ -25,7 +25,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
-import { refreshVoucherStore } from '@/lib/utils';
 import { getAssetDatePeriod } from '@/lib/asset-date';
 import {
   Search,
@@ -40,6 +39,7 @@ import {
 import type { FixedAsset, DepreciationRecord, BatchDepreciationResult, AssetCategory } from '@/types';
 import { getDepreciationMethodName, getDepreciationStartRule } from '@/lib/depreciation';
 import { validateAccountingPeriod } from '@/lib/accounting';
+import { refreshVoucherStore, getErrorMessage } from '@/lib/utils';
 
 // 格式化金额（不带货币符号）
 const formatAmount = (value: number | undefined | null): string => {
@@ -322,8 +322,8 @@ export function DepreciationDialog({
       setPreviewResult(null);
       setShowPreviewDialog(false);
       initialize();
-    } catch (error: any) {
-      showToast('error', error.message || '折旧处理失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '折旧处理失败');
     } finally {
       setIsProcessing(false);
     }
@@ -335,8 +335,8 @@ export function DepreciationDialog({
       await postDepreciationRecords(recordIds);
       showToast('success', '记账成功');
       initialize();
-    } catch (error: any) {
-      showToast('error', error.message || '记账失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '记账失败');
     }
   };
 

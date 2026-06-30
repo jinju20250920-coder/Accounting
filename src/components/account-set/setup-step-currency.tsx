@@ -1,5 +1,6 @@
 'use client';
 
+import { getErrorMessage } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -88,8 +89,8 @@ export function SetupStepCurrency({ accountSetId }: SetupStepCurrencyProps) {
       });
 
       showToast('success', `已添加 ${preset.name}(${preset.code})`);
-    } catch (error: any) {
-      showToast('error', `添加失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `添加失败：${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -120,8 +121,8 @@ export function SetupStepCurrency({ accountSetId }: SetupStepCurrencyProps) {
       setCustomName('');
       setCustomRate(0);
       showToast('success', `已添加 ${customName}`);
-    } catch (error: any) {
-      showToast('error', `添加失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `添加失败：${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -142,8 +143,8 @@ export function SetupStepCurrency({ accountSetId }: SetupStepCurrencyProps) {
         createdBy: 'system',
       });
       showToast('success', `已更新 ${currency.name} 汇率`);
-    } catch (error: any) {
-      showToast('error', `更新汇率失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `更新汇率失败：${getErrorMessage(error)}`);
     }
   };
 
@@ -151,8 +152,8 @@ export function SetupStepCurrency({ accountSetId }: SetupStepCurrencyProps) {
     try {
       await deleteCurrency(id);
       showToast('success', '已删除');
-    } catch (error: any) {
-      showToast('error', `删除失败：${error.message}`);
+    } catch (error: unknown) {
+      showToast('error', `删除失败：${getErrorMessage(error)}`);
     }
   };
 

@@ -44,7 +44,7 @@ import {
   ACQUISITION_TYPE_NAMES,
   type AssetAcquisitionRule,
 } from '@/lib/asset-acquisition-rule';
-import { getDefaultAssetTypeSubjectConfig } from '@/lib/utils';
+import { getDefaultAssetTypeSubjectConfig, getErrorMessage } from '@/lib/utils';
 import type { AssetCategory, DepreciationMethod, AssetFinancialSettings } from '@/types';
 
 // 科目选择器组件 - Portal 模式（compact 模式用于表格内）
@@ -525,8 +525,8 @@ export function AssetCategoryDialog({
       }
       setShowEditDialog(false);
       setSelectedCategory(null);
-    } catch (error: any) {
-      showToast('error', error.message || '操作失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '操作失败');
     }
   };
 
@@ -534,8 +534,8 @@ export function AssetCategoryDialog({
     try {
       await deleteCategory(category.id);
       showToast('success', '分类删除成功');
-    } catch (error: any) {
-      showToast('error', error.message || '删除失败');
+    } catch (error: unknown) {
+      showToast('error', getErrorMessage(error) || '删除失败');
     }
   };
 
