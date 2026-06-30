@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { Voucher } from '@/lib/database/service';
+import type { VoucherEntry, VoucherTemplate, BankTransaction } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 import { assertAccountingDateEditable } from '@/lib/period-closing';
 import { resolveVoucherWord } from '@/lib/voucher-numbering';
@@ -84,7 +85,7 @@ interface VoucherStore {
 
   // Actions
   addEntry: () => void;
-  updateEntry: (id: string, field: string, value: any) => void;
+  updateEntry: (id: string, field: string, value: unknown) => void;
   removeEntry: (id: string) => void;
   updateVoucherDate: (date: string) => Promise<void>;
   updateVoucherSummary: (summary: string) => void;
@@ -106,24 +107,29 @@ interface VoucherStore {
   getSubjectBalance: (subjectCode: string) => SubjectBalance | null;
   updateSettings: (newSettings: Partial<VoucherStore['settings']>) => void;
   cleanupOldData: (cutoffDate: string) => void;
-  addVoucherFromTransactions: (transactionData: any) => void;
+  addVoucherFromTransactions: (transactionData: {
+    id: string;
+    date: string;
+    description: string;
+    entries: Array<{ subject: string; subjectName?: string; debit?: number; credit?: number }>;
+  }) => void;
 
   // Session management (Side-by-Side)
   setActiveVoucher: (voucherId: string) => void;
   createVoucher: () => void;
   copyVoucher: (voucherId: string) => void;
   saveVoucherAndCreateNext: () => void;
-  pasteEntries: (entries: any[]) => void;
+  pasteEntries: (entries: VoucherEntry[]) => void;
 
   // 模板操作
-  loadTemplate: (template: any, loadAmounts: boolean) => void;
+  loadTemplate: (template: VoucherTemplate, loadAmounts: boolean) => void;
 
   // 初始化
   initialize: () => Promise<void>;
 }
 
 // 辅助函数：创建默认分录
-const createDefaultEntry = (voucherId: string, index?: number): any => ({
+const createDefaultEntry = (voucherId: string, index?: number): VoucherEntry => ({
   id: index !== undefined ? `entry_${voucherId}_${index}` : `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
   voucherId,
   date: new Date().toISOString().split('T')[0],
@@ -261,7 +267,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     };
   }),
 
-  updateEntry: (id: string, field: string, value: any) => set((state) => {
+  updateEntry: (id: string, field: string, value: unknown) => set((state) => {
     const entries = state.currentEntries.map(entry =>
       entry.id === id ? { ...entry, [field]: value } : entry
     );
@@ -574,11 +580,11 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   },
 
   // 从银行交易记录生成凭证
-  addVoucherFromBankTransactions: async (bankTransactions: any[], bankAccountId: string) => {
+  addVoucherFromBankTransactions: async (bankTransactions: BankTransaction[], bankAccountId: string) => {
     const state = get();
     const now = new Date().toISOString();
     const bankBindings = await getCurrentService().getBankAccountBindings().catch(() => []);
-    const matchedBinding = bankBindings.find((binding: any) =>
+    const matchedBinding = bankBindings.find(binding =>
       binding.id === bankAccountId
       || binding.accountNumber === bankAccountId
       || binding.accountNumber === bankTransactions?.[0]?.ourAccount
@@ -600,10 +606,10 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         const voucherNo = await generateVoucherNo(transaction.date, voucherType);
 
         // 创建凭证分录
-        const entries: any[] = [];
+        const entries: VoucherEntry[] = [];
 
         // 交易分录（对方科目）
-        const transactionEntry: any = {
+        const transactionEntry: VoucherEntry = {
           id: `entry_${voucherId}_0`,
           voucherId,
           date: transaction.date,
@@ -624,7 +630,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
         entries.push(transactionEntry);
 
         // 银行存款分录（平衡分录）
-        const bankEntry: any = {
+        const bankEntry: VoucherEntry = {
           id: `entry_${voucherId}_1`,
           voucherId,
           date: transaction.date,
@@ -666,7 +672,12 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
   },
 
   // 从交易记录生成凭证（保持旧接口）
-  addVoucherFromTransactions: async (transactionData: any) => {
+  addVoucherFromTransactions: async (transactionData: {
+    id: string;
+    date: string;
+    description: string;
+    entries: Array<{ subject: string; subjectName?: string; debit?: number; credit?: number }>;
+  }) => {
     const state = get();
     const now = new Date().toISOString();
 
@@ -676,13 +687,13 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     // 创建凭证分录
     assertVoucherDateEditable(transactionData.date, '生成凭证');
 
-    const entries: any[] = transactionData.entries.map((entry: any, index: number) => ({
+    const entries: VoucherEntry[] = transactionData.entries.map((entry, index) => ({
       id: `entry_${Date.now()}_${index}`,
       voucherId: transactionData.id,
       date: transactionData.date,
       summary: transactionData.description,
       subjectCode: entry.subject,
-      subjectName: entry.subjectName,
+      subjectName: entry.subjectName ?? '',
       debit: entry.debit || 0,
       credit: entry.credit || 0
     }));
@@ -878,7 +889,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     }
   },
 
-  pasteEntries: (entries: any[]) => {
+  pasteEntries: (entries: VoucherEntry[]) => {
     const state = get();
 
     // Add entries to current voucher
@@ -924,7 +935,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     );
   },
 
-  loadTemplate: async (template: any, loadAmounts: boolean) => {
+  loadTemplate: async (template: VoucherTemplate, loadAmounts: boolean) => {
     const state = get();
     const now = new Date().toISOString();
     const newId = Date.now().toString();
@@ -934,7 +945,7 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const voucherNo = await generateVoucherNo(state.voucherDate);
 
     // Create new entries from template
-    const newEntries = template.entries.map((entry: any, index: number) => ({
+    const newEntries: VoucherEntry[] = template.entries.map((entry, index) => ({
       ...createDefaultEntry(newId, index),
       summary: entry.summary || '',
       subjectCode: entry.subjectCode || '',
