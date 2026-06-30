@@ -226,7 +226,7 @@ function SalesInvoiceRules() {
   const [autoCustomerTracking, setAutoCustomerTracking] = useState(true);
   const [autoCustomerCreation, setAutoCustomerCreation] = useState(true);
   const [autoTaxSubject, setAutoTaxSubject] = useState(true);
-  const [revenueRules, setRevenueRules] = useState<any[]>([]);
+  const [revenueRules, setRevenueRules] = useState<Array<{ id: number; keywords: string; subject: string; taxSubject: string; notes: string }>>([]);
   const [enableProjectTracking, setEnableProjectTracking] = useState(false);
   const [autoExtractInvoiceNo, setAutoExtractInvoiceNo] = useState(true);
 
@@ -1165,7 +1165,7 @@ function RuleForm({
         </div>
         <div>
           <Label className="text-xs text-slate-500">发票类型</Label>
-          <Select value={formInvoiceType} onValueChange={(v) => setFormInvoiceType(v as any)}>
+          <Select value={formInvoiceType} onValueChange={(v) => setFormInvoiceType(v as 'input' | 'output' | 'both')}>
             <SelectTrigger className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="input">进项</SelectItem>
@@ -1247,9 +1247,9 @@ function ConditionRow({
       : (condition as TextCondition).values?.join(', ') || ''
   );
 
-  const handleFieldChange = (field: string) => {
+  const handleFieldChange = (field: 'goodsName' | 'sellerName' | 'notes' | 'totalAmount' | 'taxRate' | 'supplierInList') => {
     setValuesText('');
-    onChange({ field: field as any });
+    onChange({ field } as Partial<SmartRuleCondition>);
   };
 
   const handleValuesChange = (text: string) => {
@@ -2290,7 +2290,7 @@ function AssetCategoryTab() {
     }
   };
 
-  const handleUpdateField = async (mapping: AssetCategoryMapping, field: string, value: any) => {
+  const handleUpdateField = async (mapping: AssetCategoryMapping, field: keyof AssetCategoryMapping, value: unknown) => {
     const updated = { ...mapping, [field]: value, updateTime: new Date().toISOString() };
     if (field === 'keywords' && typeof value === 'string') {
       updated.keywords = (value as string).split(/[,，]/).map(k => k.trim()).filter(Boolean);
@@ -2406,7 +2406,7 @@ function AssetCategoryTab() {
 
 function AssetRow({ mapping, onUpdate, onDelete }: {
   mapping: AssetCategoryMapping;
-  onUpdate: (m: AssetCategoryMapping, field: string, value: any) => void;
+  onUpdate: (m: AssetCategoryMapping, field: keyof AssetCategoryMapping, value: unknown) => void;
   onDelete: () => void;
 }) {
   const [editingKeywords, setEditingKeywords] = useState(false);

@@ -5,11 +5,16 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PieChart, AlertTriangle } from 'lucide-react';
 import { calculateAgingData, type AgingConfig, type AgingMode } from '@/lib/accounting';
 import { useVoucherStore } from '@/stores/useVoucherStore';
+import type { Partner, RecRelation, Voucher } from '@/types';
+
+interface ClearingStoreLike {
+  recRelations: RecRelation[];
+}
 
 interface AgingDistributionProps {
   cutoffDate: string;
-  partners: any[];
-  clearingStore: any;
+  partners: Partner[];
+  clearingStore: ClearingStoreLike;
 }
 
 function formatMoney(amount: number): string {
@@ -35,9 +40,9 @@ export function AgingDistribution({ cutoffDate, partners, clearingStore }: Aging
   const { buckets, totalAmount } = useMemo(() => {
     // Use voucherStore which has vouchers with entries already loaded
     const postedVouchers = voucherStore.vouchers.filter(
-      (v: any) => v.status === 'posted' && v.date <= cutoffDate
+      (v: Voucher) => v.status === 'posted' && v.date <= cutoffDate
     );
-    const allEntries = postedVouchers.flatMap((v: any) => v.entries || []);
+    const allEntries = postedVouchers.flatMap(v => v.entries || []);
 
     const config: AgingConfig = {
       mode: 'month' as AgingMode,
@@ -48,8 +53,8 @@ export function AgingDistribution({ cutoffDate, partners, clearingStore }: Aging
 
     const recRelations = clearingStore.recRelations || [];
     const agingPartners = partners
-      .filter((p: any) => !p.frozen)
-      .map((p: any) => ({ code: p.code, name: p.name, isCustomer: p.isCustomer, isSupplier: p.isSupplier }));
+      .filter(p => !('frozen' in p && p.frozen))
+      .map(p => ({ code: p.code, name: p.name, isCustomer: p.isCustomer, isSupplier: p.isSupplier }));
 
     const isAR = tab === 'ar';
     const agingResults = calculateAgingData(allEntries, config, agingPartners, recRelations, isAR);

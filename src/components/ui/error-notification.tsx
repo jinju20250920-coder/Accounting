@@ -4,7 +4,7 @@ import React from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X, RefreshCw, Info, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, RefreshCw, AlertCircle } from 'lucide-react';
 import { useErrorHandling } from '@/hooks/useErrorHandling';
 
 interface ErrorNotificationProps {
@@ -13,7 +13,7 @@ interface ErrorNotificationProps {
   context?: {
     component?: string;
     action?: string;
-    data?: any;
+    data?: Record<string, unknown>;
   };
   onDismiss?: () => void;
   onRetry?: () => void;
@@ -176,18 +176,24 @@ export function ErrorNotification({
   );
 }
 
+interface ErrorNotificationContext {
+  component?: string;
+  action?: string;
+  data?: Record<string, unknown>;
+}
+
 // 错误通知管理器
 export function useErrorNotifications() {
   const [notifications, setNotifications] = React.useState<{
     id: string;
     error: Error;
-    context: any;
+    context?: ErrorNotificationContext;
     autoHide: boolean;
   }[]>([]);
 
   const showError = (
     error: Error,
-    context?: any,
+    context?: ErrorNotificationContext,
     options: {
       autoHide?: boolean;
       duration?: number;
@@ -210,14 +216,14 @@ export function useErrorNotifications() {
 
   const showSuccess = (
     message: string,
-    context?: any,
+    context?: ErrorNotificationContext,
     options: {
       autoHide?: boolean;
       duration?: number;
     } = {}
   ) => {
     const error = new Error(message);
-    (error as any).name = 'Success';
+    Object.defineProperty(error, 'name', { value: 'Success', configurable: true });
     showError(error, context, { ...options, autoHide: true });
   };
 

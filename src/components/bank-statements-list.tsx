@@ -13,7 +13,7 @@ import { waitForDbInit } from '@/hooks/useDatabaseSync';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
 import { ChineseMonthPicker } from '@/components/ui/chinese-month-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import type { BankTransaction } from '@/types';
+import type { BankTransaction, Voucher } from '@/types';
 
 /** 格式化日期为中文：2026-04-10 → 2026年04月10日 */
 const fmtDate = (d: string) => {
@@ -35,7 +35,7 @@ export function BankStatementsList() {
   const [dayRange, setDayRange] = useState({ from: '', to: '' });
   const [sortField, setSortField] = useState<'date' | 'amount'>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [voucherDetail, setVoucherDetail] = useState<any>(null);
+  const [voucherDetail, setVoucherDetail] = useState<Voucher | null>(null);
   const [showVoucherDialog, setShowVoucherDialog] = useState(false);
 
   useEffect(() => { loadTransactions(); }, []);
@@ -46,7 +46,7 @@ export function BankStatementsList() {
       await waitForDbInit();
       const service = getCurrentService();
       const all = await service.getAllBankTransactions();
-      setAllTransactions(all.filter((tx: any) => tx.status === 'voucher_generated'));
+      setAllTransactions(all.filter(tx => tx.status === 'voucher_generated'));
     } catch (error) {
       console.error('加载银行流水失败:', error);
     } finally {
@@ -429,7 +429,7 @@ export function BankStatementsList() {
                     </tr>
                   </thead>
                   <tbody>
-                    {voucherDetail.entries?.map((entry: any) => (
+                    {voucherDetail.entries?.map(entry => (
                       <tr key={entry.id} className="hover:bg-slate-50">
                         <td className="p-2 border-b text-xs">{entry.summary || '-'}</td>
                         <td className="p-2 border-b text-xs">
@@ -446,10 +446,10 @@ export function BankStatementsList() {
                     <tr className="bg-slate-50 font-medium text-xs">
                       <td className="p-2" colSpan={2}>合计</td>
                       <td className="p-2 text-right font-mono text-blue-600">
-                        {voucherDetail.entries?.reduce((s: number, e: any) => s + (e.debit || 0), 0).toFixed(2)}
+                        {voucherDetail.entries?.reduce((s, e) => s + (e.debit || 0), 0).toFixed(2)}
                       </td>
                       <td className="p-2 text-right font-mono text-blue-600">
-                        {voucherDetail.entries?.reduce((s: number, e: any) => s + (e.credit || 0), 0).toFixed(2)}
+                        {voucherDetail.entries?.reduce((s, e) => s + (e.credit || 0), 0).toFixed(2)}
                       </td>
                     </tr>
                   </tbody>

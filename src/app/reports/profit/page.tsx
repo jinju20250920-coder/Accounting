@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Download, Printer, Calendar, Settings, Edit3, Save } from 'lucide-react';
 import { SubjectLinkageConfigurator } from '@/components/reports/subject-linkage-configurator';
+import type { ReportRow } from '@/stores/useReportConfigStore';
 import * as XLSX from 'xlsx';
 
 const formatAmount = (amount: number): string => {
@@ -29,7 +30,7 @@ export default function ProfitPage() {
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [isEditMode, setIsEditMode] = useState(false);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
-  const [editingRow, setEditingRow] = useState<any>(null);
+  const [editingRow, setEditingRow] = useState<ReportRow | null>(null);
   const mounted = useMounted();
 
   const voucherStore = useVoucherStore();
@@ -43,11 +44,14 @@ export default function ProfitPage() {
   }, []);
 
   const subjectTree = useMemo(() => {
-    const roots: any[] = [], map = new Map();
+    type SubjectNode = { code: string; name: string; children: SubjectNode[] };
+    const roots: SubjectNode[] = [];
+    const map = new Map<string, SubjectNode>();
     subjectStore.subjects.forEach(s => map.set(s.code, { code: s.code, name: s.name, children: [] }));
     subjectStore.subjects.forEach(s => {
       const node = map.get(s.code);
-      if (s.parentId && map.has(s.parentId)) map.get(s.parentId).children.push(node);
+      if (!node) return;
+      if (s.parentId && map.has(s.parentId)) map.get(s.parentId)!.children.push(node);
       else roots.push(node);
     });
     return roots;
@@ -114,7 +118,7 @@ export default function ProfitPage() {
     return amounts.debit - amounts.credit;
   };
 
-  const calculateRowAmount = (row: any, amountMap: Map<string, { debit: number; credit: number }>, rows: any[]): number => {
+  const calculateRowAmount = (row: ReportRow, amountMap: Map<string, { debit: number; credit: number }>, rows: ReportRow[]): number => {
     if (row.rowType === 'header') return 0;
 
     // 小计和总计行：累加前面的数据行
@@ -142,7 +146,7 @@ export default function ProfitPage() {
   };
 
   // 标准利润表配置
-  const standardProfitRows = [
+  const standardProfitRows: ReportRow[] = [
     { id: 'revenue_header', rowName: '一、营业收入', rowType: 'header', formula: 'none', linkedSubjectCodes: [], order: 1, section: 'revenue', rowNo: '1', indent: 0 },
     { id: 'main_revenue', rowName: '减：营业成本', rowType: 'data', formula: 'subtract', linkedSubjectCodes: ['6401'], order: 2, section: 'cost', rowNo: '2', indent: 0 },
     { id: 'tax_surcharges', rowName: '税金及附加', rowType: 'data', formula: 'subtract', linkedSubjectCodes: ['6402'], order: 3, section: 'expense', rowNo: '3', indent: 0 },
@@ -184,10 +188,10 @@ export default function ProfitPage() {
 
   const handleExport = () => {
     try {
-      const exportData: any[] = [];
+      const exportData: (string | number)[][] = [];
       exportData.push(['项目', '行次', '本年累计金额', '本月(季)金额']);
       reportData.forEach(row => {
-        exportData.push([row.rowName, row.rowNo, formatAmount(row.yearAmount), formatAmount(row.periodAmount)]);
+        exportData.push([row.rowName, row.rowNo ?? '', formatAmount(row.yearAmount), formatAmount(row.periodAmount)]);
       });
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
@@ -299,7 +303,7 @@ export default function ProfitPage() {
     window.print();
   };
 
-  const openConfigDialog = (row: any) => {
+  const openConfigDialog = (row: ReportRow) => {
     setEditingRow(row);
     setConfigDialogOpen(true);
   };
