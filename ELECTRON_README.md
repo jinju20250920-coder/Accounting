@@ -152,7 +152,7 @@ ai-finance-assistant/
 │   └── lib/
 │       └── database/
 │           └── sqlite-manager.ts  # 数据库管理（支持 Electron 和浏览器）
-├── next.config.js       # Next.js 配置
+├── next.config.ts       # Next.js 配置
 ├── electron-builder.yml  # 打包配置
 └── package.json
 ```
