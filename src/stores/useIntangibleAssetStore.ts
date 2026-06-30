@@ -13,6 +13,7 @@
 import { create } from 'zustand';
 import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
+import { getErrorMessage } from '@/lib/utils';
 import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
 import {
   calculateAmortization,
@@ -172,8 +173,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
       }));
 
       return newAsset;
-    } catch (error: any) {
-      set({ error: error.message || '添加资产失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '添加资产失败' });
       throw error;
     }
   },
@@ -238,8 +239,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         assets: state.assets.map(a => a.id === id ? updatedAsset : a),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '更新资产失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '更新资产失败' });
       throw error;
     }
   },
@@ -280,8 +281,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         ),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '删除资产失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '删除资产失败' });
       throw error;
     }
   },
@@ -422,8 +423,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         amortizationRecords: [...state.amortizationRecords, ...records],
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '保存摊销记录失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '保存摊销记录失败' });
       throw error;
     }
   },
@@ -500,8 +501,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         }),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '记账失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '记账失败' });
       throw error;
     }
   },
@@ -748,8 +749,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         });
 
         success++;
-      } catch (error: any) {
-        errors.push(`行 ${importedAssets.indexOf(item) + 1}: ${error.message}`);
+      } catch (error: unknown) {
+        errors.push(`行 ${importedAssets.indexOf(item) + 1}: ${getErrorMessage(error)}`);
       }
     }
 
@@ -882,9 +883,9 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         amortizationRecords,
         loading: false,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('初始化无形资产Store失败:', error);
-      set({ loading: false, error: error.message || '初始化失败' });
+      set({ loading: false, error: getErrorMessage(error) || '初始化失败' });
     }
   },
 
@@ -1029,8 +1030,8 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
       }));
 
       return { voucherId, voucherNo };
-    } catch (error: any) {
-      set({ error: error.message || '生成摊销凭证失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '生成摊销凭证失败' });
       throw error;
     }
   },

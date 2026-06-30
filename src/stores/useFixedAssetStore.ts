@@ -12,7 +12,7 @@ import {
 } from '@/lib/depreciation';
 import { CodeRuleManager, generateCode } from '@/lib/code-generator';
 import { ACCOUNT_CODES } from '@/lib/accounting';
-import { getDefaultAssetTypeSubjectConfig, refreshVoucherStore } from '@/lib/utils';
+import { getDefaultAssetTypeSubjectConfig, refreshVoucherStore, getErrorMessage } from '@/lib/utils';
 import { getAssetDatePeriod, normalizeAssetDate } from '@/lib/asset-date';
 import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
 import type {
@@ -536,9 +536,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }));
 
       return newAsset;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('添加资产失败:', error);
-      const errorMsg = error?.message || error?.toString() || '添加资产失败';
+      const errorMsg = getErrorMessage(error) || '添加资产失败';
       set({ error: errorMsg });
       throw new Error(errorMsg);
     }
@@ -635,8 +635,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         assets: state.assets.map(a => a.id === id ? updatedAsset : a),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '更新资产失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '更新资产失败' });
       throw error;
     }
   },
@@ -684,8 +684,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         depreciationRecords: state.depreciationRecords.filter(r => r.assetId !== id),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '删除资产失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '删除资产失败' });
       throw error;
     }
   },
@@ -755,8 +755,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
 
       return newCategory;
-    } catch (error: any) {
-      set({ error: error.message || '添加分类失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '添加分类失败' });
       throw error;
     }
   },
@@ -801,8 +801,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         categories: state.categories.map(c => c.id === id ? updatedCategory : c),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '更新分类失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '更新分类失败' });
       throw error;
     }
   },
@@ -827,8 +827,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         categories: state.categories.filter(c => c.id !== id),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '删除分类失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '删除分类失败' });
       throw error;
     }
   },
@@ -974,8 +974,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         depreciationRecords: [...state.depreciationRecords, ...records],
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '保存折旧记录失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '保存折旧记录失败' });
       throw error;
     }
   },
@@ -1098,8 +1098,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         }),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '记账失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '记账失败' });
       throw error;
     }
   },
@@ -1197,8 +1197,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         } as any);
 
         success++;
-      } catch (error: any) {
-        errors.push(`行 ${importedAssets.indexOf(item) + 1}: ${error.message}`);
+      } catch (error: unknown) {
+        errors.push(`行 ${importedAssets.indexOf(item) + 1}: ${getErrorMessage(error)}`);
       }
     }
 
@@ -1545,9 +1545,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           }
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('初始化固定资产Store失败:', error);
-      set({ loading: false, error: error.message || '初始化失败' });
+      set({ loading: false, error: getErrorMessage(error) || '初始化失败' });
     }
   },
 
@@ -1747,8 +1747,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }));
 
       return { voucherId, voucherNo };
-    } catch (error: any) {
-      set({ error: error.message || '生成折旧凭证失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '生成折旧凭证失败' });
       throw error;
     }
   },
@@ -1925,8 +1925,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       });
 
       return { voucherId, voucherNo };
-    } catch (error: any) {
-      set({ error: error.message || '生成取得凭证失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '生成取得凭证失败' });
       throw error;
     }
   },
@@ -2113,8 +2113,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         voucherNo: improvement.voucherNo,
         reason: improvement.reason,
       });
-    } catch (error: any) {
-      set({ error: error.message || '资产改造失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '资产改造失败' });
       throw error;
     }
   },
@@ -2183,8 +2183,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         voucherNo: disposal.voucherNos?.[0],
         reason: disposal.reason,
       });
-    } catch (error: any) {
-      set({ error: error.message || '资产处置失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '资产处置失败' });
       throw error;
     }
   },
@@ -2310,7 +2310,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         now,
       ]);
       stmt.free();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.warn('记录资产变动失败:', error);
     }
   },
@@ -2333,7 +2333,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       stmt.run([assetId]);
       stmt.free();
       console.log('已清空资产变动记录:', assetId);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.warn('清空资产变动记录失败:', error);
       throw error;
     }
@@ -2672,8 +2672,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       await refreshVoucherStore();
 
       return newAssets;
-    } catch (error: any) {
-      set({ error: error.message || '资产拆分失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '资产拆分失败' });
       throw error;
     }
   },
@@ -2802,8 +2802,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       await get().initialize();
 
       return mergedAsset;
-    } catch (error: any) {
-      set({ error: error.message || '资产合并失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '资产合并失败' });
       throw error;
     }
   },

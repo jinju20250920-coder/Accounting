@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { getCurrentManager } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import { calculatePeriodAmount } from '@/lib/amortization';
-import { generateId } from '@/lib/utils';
+import { generateId, getErrorMessage } from '@/lib/utils';
 import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
 import type {
   PrepaidExpense,
@@ -167,8 +167,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       }));
 
       return newExpense;
-    } catch (error: any) {
-      set({ error: error.message || '添加待摊费用失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '添加待摊费用失败' });
       throw error;
     }
   },
@@ -237,8 +237,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         expenses: state.expenses.map(e => e.id === id ? updatedExpense : e),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '更新待摊费用失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '更新待摊费用失败' });
       throw error;
     }
   },
@@ -279,8 +279,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         ),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '删除待摊费用失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '删除待摊费用失败' });
       throw error;
     }
   },
@@ -393,8 +393,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         amortizationRecords: [...state.amortizationRecords, ...records],
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '保存摊销记录失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '保存摊销记录失败' });
       throw error;
     }
   },
@@ -482,8 +482,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         }),
         error: null,
       }));
-    } catch (error: any) {
-      set({ error: error.message || '记账失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '记账失败' });
       throw error;
     }
   },
@@ -744,8 +744,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         });
 
         success++;
-      } catch (error: any) {
-        errors.push(`行 ${importedExpenses.indexOf(item) + 1}: ${error.message}`);
+      } catch (error: unknown) {
+        errors.push(`行 ${importedExpenses.indexOf(item) + 1}: ${getErrorMessage(error)}`);
       }
     }
 
@@ -875,9 +875,9 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         amortizationRecords,
         loading: false,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('初始化待摊费用Store失败:', error);
-      set({ loading: false, error: error.message || '初始化失败' });
+      set({ loading: false, error: getErrorMessage(error) || '初始化失败' });
     }
   },
 
@@ -1040,8 +1040,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       }));
 
       return { voucherId, voucherNo };
-    } catch (error: any) {
-      set({ error: error.message || '生成摊销凭证失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '生成摊销凭证失败' });
       throw error;
     }
   },
@@ -1238,8 +1238,8 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
       }));
 
       return { voucherId, voucherNo };
-    } catch (error: any) {
-      set({ error: error.message || '更正摊销失败' });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) || '更正摊销失败' });
       throw error;
     }
   },

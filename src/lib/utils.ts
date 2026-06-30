@@ -7,6 +7,17 @@ export function cn(...inputs: ClassValue[]) {
 
 export const generateId = () => `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 
+/** Safely extract a human-readable message from any thrown value. */
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const msg = (error as { message: unknown }).message;
+    return typeof msg === 'string' ? msg : String(error);
+  }
+  return String(error);
+}
+
 /**
  * 获取月份的最后一天日期 (YYYY-MM-DD 格式)
  * @param year 年份
