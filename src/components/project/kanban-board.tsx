@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,24 +19,13 @@ export function KanbanBoard() {
     getTasksByStatus
   } = useProjectStore();
 
-  const [filteredTasks, setFilteredTasks] = useState({
-    todo: [],
-    in_progress: [],
-    in_review: [],
-    done: [],
-    blocked: []
-  });
-
-  useEffect(() => {
-    // 按状态分组任务
-    setFilteredTasks({
-      todo: getTasksByStatus('todo'),
-      in_progress: getTasksByStatus('in_progress'),
-      in_review: getTasksByStatus('in_review'),
-      done: getTasksByStatus('done'),
-      blocked: getTasksByStatus('blocked')
-    });
-  }, [tasks, getTasksByStatus]);
+  const filteredTasks = useMemo(() => ({
+    todo: getTasksByStatus('todo'),
+    in_progress: getTasksByStatus('in_progress'),
+    in_review: getTasksByStatus('in_review'),
+    done: getTasksByStatus('done'),
+    blocked: getTasksByStatus('blocked')
+  }), [tasks, getTasksByStatus]);
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
     e.dataTransfer.setData('taskId', taskId);

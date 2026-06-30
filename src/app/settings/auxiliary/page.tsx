@@ -148,6 +148,12 @@ export default function AuxiliaryDataPage() {
   const hasInitializedPartnersRef = useRef(false);
 
   const [partners, setPartners] = useState<Partner[]>(partnerStore.partners);
+  // 渲染期同步 store → 本地 state（避免 effect 级联渲染）
+  const [prevStorePartners, setPrevStorePartners] = useState(partnerStore.partners);
+  if (partnerStore.partners !== prevStorePartners) {
+    setPrevStorePartners(partnerStore.partners);
+    setPartners(partnerStore.partners);
+  }
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
@@ -171,10 +177,6 @@ export default function AuxiliaryDataPage() {
     void partnerStore.initializePartners();
     void currencyStore.initializeCurrencies();
   }, [partnerStore, currencyStore]);
-
-  useEffect(() => {
-    setPartners(partnerStore.partners);
-  }, [partnerStore.partners]);
 
   const [formData, setFormData] = useState({
     code: '',

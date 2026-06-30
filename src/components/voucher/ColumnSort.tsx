@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { useMounted } from '@/hooks/useMounted';
 import {
   DndContext,
   closestCenter,
@@ -88,11 +89,7 @@ function SortableItem({ column, onToggleVisibility }: { column: ColumnItem; onTo
 }
 
 export function ColumnSort({ columns, onReorder, onToggleVisibility }: ColumnSortProps) {
-  const [isClient, setIsClient] = useState(false);
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  const isClient = useMounted();
 
   const sensors = useSensors(
     useSensor(PointerSensor),

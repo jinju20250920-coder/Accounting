@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { PieChart, AlertTriangle } from 'lucide-react';
 import { calculateAgingData, type AgingConfig, type AgingMode } from '@/lib/accounting';
@@ -29,12 +29,10 @@ const BUCKET_COLORS = [
 
 export function AgingDistribution({ cutoffDate, partners, clearingStore }: AgingDistributionProps) {
   const [tab, setTab] = useState<'ar' | 'ap'>('ar');
-  const [buckets, setBuckets] = useState<number[]>([0, 0, 0, 0, 0]);
-  const [totalAmount, setTotalAmount] = useState(0);
 
   const voucherStore = useVoucherStore();
 
-  useEffect(() => {
+  const { buckets, totalAmount } = useMemo(() => {
     // Use voucherStore which has vouchers with entries already loaded
     const postedVouchers = voucherStore.vouchers.filter(
       (v: any) => v.status === 'posted' && v.date <= cutoffDate
@@ -68,8 +66,7 @@ export function AgingDistribution({ cutoffDate, partners, clearingStore }: Aging
       agg[4] += r.buckets.overdue6;
     }
 
-    setBuckets(agg);
-    setTotalAmount(total);
+    return { buckets: agg, totalAmount: total };
   }, [cutoffDate, partners, clearingStore.recRelations, tab, voucherStore.vouchers]);
 
   const hasOverdue = buckets[1] + buckets[2] + buckets[3] + buckets[4] > 0;

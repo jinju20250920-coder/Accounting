@@ -75,12 +75,15 @@ export function ChineseMonthPicker({ value, onChange, className, placeholder = '
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
+  // 渲染期同步 value → 视图年份（避免 effect 级联渲染）
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     if (value) {
       const y = parseInt(value.split('-')[0]);
       if (!isNaN(y)) setViewYear(y);
     }
-  }, [value]);
+  }
 
   const displayValue = value
     ? `${value.split('-')[0]}年${parseInt(value.split('-')[1])}月`

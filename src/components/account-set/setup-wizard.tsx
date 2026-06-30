@@ -159,6 +159,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
   // Restore current step + visited from persisted state on mount (or when accountSetId changes).
   // Runs after STEPS is computed so we can map persisted stepId → index.
   const [restored, setRestored] = useState(false);
+  /* eslint-disable react-hooks/set-state-in-effect -- one-time restore from persisted storage; needs STEPS which is computed post-render */
   useEffect(() => {
     if (restored) return;
     if (!persisted) {
@@ -177,6 +178,7 @@ export function SetupWizard({ accountSetId, onComplete, mode = 'create', initial
     }
     setRestored(true);
   }, [persisted, STEPS, restored]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Persist on changes (after initial restore is complete)
   useEffect(() => {

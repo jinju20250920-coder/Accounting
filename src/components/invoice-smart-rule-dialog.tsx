@@ -1681,6 +1681,7 @@ function SubjectPopoverPopup({
     );
   }, []);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- positioning side-effect on open; reposition reads layout from refs */
   useEffect(() => {
     if (open) {
       reposition();
@@ -1692,6 +1693,7 @@ function SubjectPopoverPopup({
       };
     }
   }, [open, reposition]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (code && name) {
     return (

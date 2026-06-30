@@ -83,7 +83,10 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
+  // 渲染期同步 value → 视图年月（避免 effect 级联渲染）
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     if (value) {
       const parts = value.split('-');
       const y = parseInt(parts[0]);
@@ -93,7 +96,7 @@ export function ChineseDatePicker({ value, onChange, className, placeholder = '�
         setViewMonth(m);
       }
     }
-  }, [value]);
+  }
 
   const displayValue = value
     ? (displayFormat === 'iso'

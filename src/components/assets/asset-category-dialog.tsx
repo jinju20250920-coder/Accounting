@@ -210,7 +210,11 @@ function CategoryEditDialog({
     enabled: true,
   });
 
-  useEffect(() => {
+  // 渲染期同步 prop → state（避免 effect 级联渲染）
+  const [prevCategoryKey, setPrevCategoryKey] = useState(`${category?.id ?? 'new'}-${open}`);
+  const currentKey = `${category?.id ?? 'new'}-${open}`;
+  if (currentKey !== prevCategoryKey) {
+    setPrevCategoryKey(currentKey);
     if (category) {
       setFormData(category);
     } else {
@@ -227,7 +231,7 @@ function CategoryEditDialog({
         enabled: true,
       });
     }
-  }, [category, open]);
+  }
 
   const handleSubmit = () => {
     if (!formData.name?.trim()) return;

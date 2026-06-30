@@ -1,6 +1,6 @@
 // src/components/invoice-rule/components/subject-variable-input.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -29,10 +29,8 @@ export function SubjectVariableInput({
   className,
   disabled,
 }: SubjectVariableInputProps) {
-  const [displayValue, setDisplayValue] = useState('');
-
-  useEffect(() => {
-    // 检测变量并渲染为Badge
+  // 检测变量并渲染为 Badge（纯派生，用 useMemo）
+  const displayValue = useMemo(() => {
     const variableRegex = /{{[\u4e00-\u9fa5a-zA-Z0-9]+}}/g;
     let match;
     let lastIndex = 0;
@@ -57,7 +55,7 @@ export function SubjectVariableInput({
       parts.push(value.slice(lastIndex));
     }
 
-    setDisplayValue(parts.join(''));
+    return parts.join('');
   }, [value]);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {

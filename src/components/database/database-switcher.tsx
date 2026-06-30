@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Database, HardDrive, Download, Upload, Save, Database as DatabaseIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -8,12 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { setDatabaseType, getDatabaseType, DatabaseType, getCurrentManager } from '@/lib/database';
 
 export function DatabaseSwitcher() {
-  const [currentDb, setCurrentDb] = useState<DatabaseType>('indexeddb');
+  const [currentDb, setCurrentDb] = useState<DatabaseType>(() => getDatabaseType());
   const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    setCurrentDb(getDatabaseType());
-  }, []);
 
   const handleSwitchDb = async (type: DatabaseType) => {
     setDatabaseType(type);

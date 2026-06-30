@@ -159,7 +159,10 @@ export function BusinessGroupEditor({ onSave, onCancel, defaultValues }: Busines
   const [saving, setSaving] = useState(false);
   const [flashDone, setFlashDone] = useState(false);
 
-  useEffect(() => {
+  // 渲染期同步 defaultValues → 表单（避免 effect 级联渲染）
+  const [prevDefaultValues, setPrevDefaultValues] = useState(defaultValues);
+  if (defaultValues !== prevDefaultValues) {
+    setPrevDefaultValues(defaultValues);
     if (defaultValues) {
       const isCustom = !PRESET_PARTNER_TYPES.includes(defaultValues.partnerType);
       setFormData({
@@ -185,7 +188,7 @@ export function BusinessGroupEditor({ onSave, onCancel, defaultValues }: Busines
       setFormData({ name: '', debitSubject: '', debitSubjectName: '', taxSubject: '2221.01.{{税率}}', taxSubjectName: '', creditSubject: '', creditSubjectName: '', partnerType: '供应商', customPartnerType: '', assetThreshold: 5000, description: '', isPreset: false, autoTax: true, requirePartnerCard: true, keywords: [], keywordInput: '' });
       setShowCustomPartnerType(false);
     }
-  }, [defaultValues]);
+  }
 
   const handleSubmit = async () => {
     if (!formData.name.trim()) return;

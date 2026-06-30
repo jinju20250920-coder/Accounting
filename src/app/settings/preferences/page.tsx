@@ -23,16 +23,16 @@ export default function PreferencesPage() {
 
   const [partnerTrackingMethod, setPartnerTrackingMethod] = useState<'subject' | 'card'>('card');
 
-  // 初始化设置值 - 从当前账套读取
-  useEffect(() => {
-    const currentAccountSet = getCurrentAccountSet();
-    if (currentAccountSet?.accounting?.partnerTrackingMethod) {
-      setPartnerTrackingMethod(currentAccountSet.accounting.partnerTrackingMethod);
-    } else if (settings.accounting?.partnerTrackingMethod) {
-      // 向后兼容：如果账套没有设置，使用全局设置
-      setPartnerTrackingMethod(settings.accounting.partnerTrackingMethod);
-    }
-  }, [settings.accounting, getCurrentAccountSet]);
+  // 渲染期同步 store → 本地 state（避免 effect 级联渲染）
+  const currentAccountSet = getCurrentAccountSet();
+  const storeMethod = currentAccountSet?.accounting?.partnerTrackingMethod
+    ?? settings.accounting?.partnerTrackingMethod
+    ?? 'card';
+  const [prevStoreMethod, setPrevStoreMethod] = useState(storeMethod);
+  if (storeMethod !== prevStoreMethod) {
+    setPrevStoreMethod(storeMethod);
+    setPartnerTrackingMethod(storeMethod);
+  }
 
   // 保存设置 - 保存到当前账套
   const handleSaveSettings = async () => {

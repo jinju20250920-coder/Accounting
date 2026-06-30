@@ -767,6 +767,7 @@ export function VoucherEntryGrid() {
   };
 
   // 确保至少有一列是可见的
+  /* eslint-disable react-hooks/set-state-in-effect -- self-healing: restore defaults if user hides every column */
   useEffect(() => {
     const hasVisibleColumns = Object.values(columnVisibility).some(visible => visible);
     if (!hasVisibleColumns) {
@@ -789,6 +790,7 @@ export function VoucherEntryGrid() {
       }
     }
   }, [columnVisibility]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 确保有足够的显示行
   const displayEntries = [...entries];
