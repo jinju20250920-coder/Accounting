@@ -5,8 +5,8 @@ import type { DateHandler } from './types';
  * Used by: ABC, CITIC, CMBC, Ping An, Industrial, CCB, Shanghai, BOCOM, Huaxia
  */
 export class ISODateHandler implements DateHandler {
-  parse(raw: any, timeRaw?: any): { date: string; time?: string } {
-    const str = String(raw || '').trim();
+  parse(raw: unknown, timeRaw?: unknown): { date: string; time?: string } {
+    const str = String(raw ?? '').trim();
     if (!str) return { date: '' };
 
     // If datetime combined (e.g. "2024-01-26 16:30:12")
@@ -34,7 +34,7 @@ export class ISODateHandler implements DateHandler {
  * Used by: ICBC
  */
 export class ExcelSerialDateHandler implements DateHandler {
-  parse(raw: any, timeRaw?: any): { date: string; time?: string } {
+  parse(raw: unknown, timeRaw?: unknown): { date: string; time?: string } {
     const num = Number(raw);
     if (isNaN(num) || num <= 0) return { date: '' };
 
@@ -55,8 +55,8 @@ export class ExcelSerialDateHandler implements DateHandler {
  * Used by: BOC, SPDB
  */
 export class CompactDateHandler implements DateHandler {
-  parse(raw: any, timeRaw?: any): { date: string; time?: string } {
-    const str = String(raw || '').trim();
+  parse(raw: unknown, timeRaw?: unknown): { date: string; time?: string } {
+    const str = String(raw ?? '').trim();
     const match = str.match(/^(\d{4})(\d{2})(\d{2})$/);
     if (match) {
       return {
@@ -86,8 +86,8 @@ export class CompactDateHandler implements DateHandler {
 export class CustomFormatDateHandler implements DateHandler {
   constructor(private pattern: string = 'yyyy-MM-dd-HHmm') {}
 
-  parse(raw: any, timeRaw?: any): { date: string; time?: string } {
-    const str = String(raw || '').trim();
+  parse(raw: unknown, timeRaw?: unknown): { date: string; time?: string } {
+    const str = String(raw ?? '').trim();
     if (!str) return { date: '' };
 
     if (this.pattern === 'yyyy-MM-dd-HHmm') {

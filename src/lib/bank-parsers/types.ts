@@ -61,7 +61,7 @@ export interface BankParserConfig {
 
 /** Date handler plugin interface */
 export interface DateHandler {
-  parse(raw: any, timeRaw?: any): { date: string; time?: string };
+  parse(raw: unknown, timeRaw?: unknown): { date: string; time?: string };
 }
 
 /** Bank account binding record */

@@ -174,10 +174,10 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       // 继承父科目的部分属性
       enableDept: parentSubject?.enableDept || false,
       enableProject: parentSubject?.enableProject || false,
-      isCustomer: (subject as any).isCustomer || parentSubject?.isCustomer || false,
-      isSupplier: (subject as any).isSupplier || parentSubject?.isSupplier || false,
-      isEmployee: (subject as any).isEmployee || false,
-      enableCashFlow: (subject as any).enableCashFlow || false,
+      isCustomer: subject.isCustomer || parentSubject?.isCustomer || false,
+      isSupplier: subject.isSupplier || parentSubject?.isSupplier || false,
+      isEmployee: subject.isEmployee || false,
+      enableCashFlow: subject.enableCashFlow || false,
     };
 
     try {
@@ -499,7 +499,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       const currentAccountSet = accountSetStore.getCurrentAccountSet();
 
       // 为默认科目添加缺失的字段
-      const initializedSubjects = (defaultSubjects as any[]).map((subject, index) => {
+      const initializedSubjects = (defaultSubjects as Subject[]).map((subject, _index) => {
         const now = new Date().toISOString();
         return {
           ...subject,
@@ -568,13 +568,13 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
 
       if (subjects.length > 0) {
         // 检查是否缺少基础科目（如1001库存现金、1002银行存款等）
-        const defaultCodes = (defaultSubjects as any[]).map(s => s.code);
+        const defaultCodes = (defaultSubjects as Subject[]).map(s => s.code);
         const existingCodes = new Set(subjects.map(s => s.code));
         const missingCodes = defaultCodes.filter((code: string) => !existingCodes.has(code));
 
         if (missingCodes.length > 0) {
           // 补充缺失的默认科目
-          const missingSubjects = (defaultSubjects as any[])
+          const missingSubjects = (defaultSubjects as Subject[])
             .filter(s => !existingCodes.has(s.code))
             .map(subject => {
               const now = new Date().toISOString();
@@ -606,8 +606,8 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
         }
 
         // 如果科目存在但没有 isCustomer/isSupplier 字段（或者值不正确），强制更新
-        const subject1122 = subjects.find((s: any) => s.code === '1122');
-        const subject2202 = subjects.find((s: any) => s.code === '2202');
+        const subject1122 = subjects.find(s => s.code === '1122');
+        const subject2202 = subjects.find(s => s.code === '2202');
 
         if (subject1122 && !subject1122.isCustomer) {
           await getCurrentService().saveSubjects([{ ...subject1122, isCustomer: true, enableDept: true, enableProject: true }]);
@@ -630,7 +630,7 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       }
 
       // 为默认科目添加缺失的字段
-      const initializedSubjects = (defaultSubjects as any[]).map((subject, index) => {
+      const initializedSubjects = (defaultSubjects as Subject[]).map((subject, _index) => {
         const now = new Date().toISOString();
         return {
           ...subject,

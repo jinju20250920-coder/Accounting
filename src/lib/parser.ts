@@ -86,7 +86,7 @@ export async function parseBankStatementV1(file: File): Promise<ParseResult> {
 
   // 注意：旧版使用 firstSheet.data，但 XLSX 读取方式已改变
   // 这里保留代码结构，但实际已不再使用
-  const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+  const jsonData = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1 });
 
   for (let rowIndex = 0; rowIndex < jsonData.length; rowIndex++) {
     const row = jsonData[rowIndex];
@@ -395,7 +395,7 @@ export async function parseFixedAssetsExcel(file: File): Promise<AssetParseResul
     };
   }
 
-  const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+  const jsonData = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1 });
   const data: ParsedFixedAsset[] = [];
   const errors: Array<{ row: number; message: string }> = [];
 
@@ -410,10 +410,10 @@ export async function parseFixedAssetsExcel(file: File): Promise<AssetParseResul
       assetCode: row[0]?.toString()?.trim(),
       assetName: row[1]?.toString()?.trim(),
       categoryName: row[2]?.toString()?.trim(),
-      originalValue: parseFloat(row[3]) || 0,
-      salvageValue: parseFloat(row[4]) || 0,
+      originalValue: parseFloat(String(row[3])) || 0,
+      salvageValue: parseFloat(String(row[4])) || 0,
       depreciationMethod: row[5]?.toString()?.trim(),
-      usefulLifeYears: parseInt(row[6]) || undefined,
+      usefulLifeYears: parseInt(String(row[6]), 10) || undefined,
       acquisitionDate: parseExcelDate(row[7]),
       departmentCode: row[8]?.toString()?.trim(),
       notes: row[9]?.toString()?.trim(),
@@ -462,7 +462,7 @@ export async function parseIntangibleAssetsExcel(file: File): Promise<AssetParse
     };
   }
 
-  const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+  const jsonData = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1 });
   const data: ParsedIntangibleAsset[] = [];
   const errors: Array<{ row: number; message: string }> = [];
 
@@ -476,10 +476,10 @@ export async function parseIntangibleAssetsExcel(file: File): Promise<AssetParse
       assetCode: row[0]?.toString()?.trim(),
       assetName: row[1]?.toString()?.trim(),
       assetType: row[2]?.toString()?.trim(),
-      originalValue: parseFloat(row[3]) || 0,
-      residualValue: parseFloat(row[4]) || 0,
+      originalValue: parseFloat(String(row[3])) || 0,
+      residualValue: parseFloat(String(row[4])) || 0,
       amortizationMethod: row[5]?.toString()?.trim(),
-      usefulLifeYears: parseInt(row[6]) || undefined,
+      usefulLifeYears: parseInt(String(row[6]), 10) || undefined,
       acquisitionDate: parseExcelDate(row[7]),
       registrationNo: row[8]?.toString()?.trim(),
       departmentCode: row[9]?.toString()?.trim(),
@@ -529,7 +529,7 @@ export async function parsePrepaidExpensesExcel(file: File): Promise<AssetParseR
     };
   }
 
-  const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+  const jsonData = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1 });
   const data: ParsedPrepaidExpense[] = [];
   const errors: Array<{ row: number; message: string }> = [];
 
@@ -543,11 +543,11 @@ export async function parsePrepaidExpensesExcel(file: File): Promise<AssetParseR
       expenseCode: row[0]?.toString()?.trim(),
       expenseName: row[1]?.toString()?.trim(),
       expenseType: row[2]?.toString()?.trim(),
-      originalAmount: parseFloat(row[3]) || 0,
+      originalAmount: parseFloat(String(row[3])) || 0,
       paymentDate: parseExcelDate(row[4]),
       startDate: parseExcelDate(row[5]),
       endDate: parseExcelDate(row[6]),
-      amortizationPeriods: parseInt(row[7]) || undefined,
+      amortizationPeriods: parseInt(String(row[7]), 10) || undefined,
       prepaidSubjectCode: row[8]?.toString()?.trim(),
       expenseSubjectCode: row[9]?.toString()?.trim(),
       supplierName: row[10]?.toString()?.trim(),
@@ -583,7 +583,7 @@ export async function parsePrepaidExpensesExcel(file: File): Promise<AssetParseR
 /**
  * 解析Excel日期格式
  */
-function parseExcelDate(value: any): string | undefined {
+function parseExcelDate(value: unknown): string | undefined {
   if (!value) return undefined;
 
   // 如果是数字（Excel序列号）
@@ -613,10 +613,90 @@ function parseExcelDate(value: any): string | undefined {
 
 // ==================== 资产导出功能 ====================
 
+interface FixedAssetExportRow {
+  assetCode?: string;
+  assetName?: string;
+  categoryName?: string;
+  originalValue?: number;
+  salvageValue?: number;
+  accumulatedDepreciation?: number;
+  netValue?: number;
+  depreciationMethod?: string;
+  usefulLifeYears?: number;
+  acquisitionDate?: string;
+  depreciationStartDate?: string;
+  depreciationEndDate?: string;
+  status?: string;
+  departmentCode?: string;
+  notes?: string;
+}
+
+interface IntangibleAssetExportRow {
+  assetCode?: string;
+  assetName?: string;
+  assetType?: string;
+  originalValue?: number;
+  residualValue?: number;
+  accumulatedAmortization?: number;
+  netValue?: number;
+  amortizationMethod?: string;
+  usefulLifeYears?: number;
+  acquisitionDate?: string;
+  status?: string;
+  registrationNo?: string;
+  expenseSubjectCode?: string;
+  notes?: string;
+}
+
+interface PrepaidExpenseExportRow {
+  expenseCode?: string;
+  expenseName?: string;
+  expenseType?: string;
+  originalAmount?: number;
+  amortizedAmount?: number;
+  remainingAmount?: number;
+  amortizationPeriods?: number;
+  amortizedPeriods?: number;
+  periodAmount?: number;
+  paymentDate?: string;
+  startDate?: string;
+  endDate?: string;
+  status?: string;
+  supplierName?: string;
+  invoiceNo?: string;
+  expenseSubjectCode?: string;
+  notes?: string;
+}
+
+interface DepreciationRecordExportRow {
+  period?: string;
+  assetCode?: string;
+  assetName?: string;
+  periodDepreciation?: number;
+  accumulatedDepreciation?: number;
+  netValueAfter?: number;
+  status?: string;
+  voucherNo?: string;
+  notes?: string;
+}
+
+interface AmortizationRecordExportRow {
+  period?: string;
+  entityCode?: string;
+  entityName?: string;
+  entityType?: 'intangible' | 'prepaid';
+  periodAmortization?: number;
+  accumulatedAmortization?: number;
+  remainingAmount?: number;
+  status?: string;
+  voucherNo?: string;
+  notes?: string;
+}
+
 /**
  * 导出固定资产到Excel
  */
-export function exportFixedAssetsToExcel(assets: any[]): void {
+export function exportFixedAssetsToExcel(assets: FixedAssetExportRow[]): void {
   const headers = [
     '资产编码', '资产名称', '分类', '原值', '残值', '累计折旧', '净值',
     '折旧方法', '使用年限', '购置日期', '折旧开始日期', '折旧结束日期', '状态', '部门编号', '备注'
@@ -646,7 +726,7 @@ export function exportFixedAssetsToExcel(assets: any[]): void {
 /**
  * 导出无形资产到Excel
  */
-export function exportIntangibleAssetsToExcel(assets: any[]): void {
+export function exportIntangibleAssetsToExcel(assets: IntangibleAssetExportRow[]): void {
   const headers = [
     '资产编码', '资产名称', '资产类型', '原值', '残值', '累计摊销', '净值',
     '摊销方法', '使用年限', '购置日期', '状态', '登记号', '费用科目', '备注'
@@ -675,7 +755,7 @@ export function exportIntangibleAssetsToExcel(assets: any[]): void {
 /**
  * 导出待摊费用到Excel
  */
-export function exportPrepaidExpensesToExcel(expenses: any[]): void {
+export function exportPrepaidExpensesToExcel(expenses: PrepaidExpenseExportRow[]): void {
   const headers = [
     '费用编码', '费用名称', '费用类型', '原始金额', '已摊销金额', '剩余金额',
     '摊销期数', '已摊销期数', '每期金额', '支付日期', '开始日期', '结束日期',
@@ -708,7 +788,7 @@ export function exportPrepaidExpensesToExcel(expenses: any[]): void {
 /**
  * 导出折旧记录到Excel
  */
-export function exportDepreciationRecordsToExcel(records: any[]): void {
+export function exportDepreciationRecordsToExcel(records: DepreciationRecordExportRow[]): void {
   const headers = [
     '期间', '资产编码', '资产名称', '本期折旧', '累计折旧', '折旧后净值',
     '状态', '凭证号', '备注'
@@ -732,7 +812,7 @@ export function exportDepreciationRecordsToExcel(records: any[]): void {
 /**
  * 导出摊销记录到Excel
  */
-export function exportAmortizationRecordsToExcel(records: any[]): void {
+export function exportAmortizationRecordsToExcel(records: AmortizationRecordExportRow[]): void {
   const headers = [
     '期间', '实体编码', '实体名称', '实体类型', '本期摊销', '累计摊销', '剩余金额',
     '状态', '凭证号', '备注'
@@ -757,7 +837,7 @@ export function exportAmortizationRecordsToExcel(records: any[]): void {
 /**
  * 通用Excel导出函数
  */
-function exportToExcel(data: any[][], fileName: string): void {
+function exportToExcel(data: (string | number | boolean)[][], fileName: string): void {
   const worksheet = XLSX.utils.aoa_to_sheet(data);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
