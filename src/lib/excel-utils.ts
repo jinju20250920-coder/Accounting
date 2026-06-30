@@ -5,7 +5,7 @@ import type { FixedAsset } from '@/types';
 export const exportToExcel = <T extends Record<string, any>>(
   data: T[],
   filename: string,
-  headers: { key: keyof T; label: string }[] = []
+  headers: { key: string; label: string }[] = []
 ) => {
   if (data.length === 0) {
     throw new Error('没有可导出的数据');
@@ -14,13 +14,13 @@ export const exportToExcel = <T extends Record<string, any>>(
   // 如果没有提供headers，使用数据的第一个对象的键
   const finalHeaders = headers.length > 0
     ? headers
-    : Object.keys(data[0]).map(key => ({ key: key as keyof T, label: String(key) }));
+    : Object.keys(data[0]).map(key => ({ key, label: String(key) }));
 
   // 创建工作簿
   const ws = XLSX.utils.json_to_sheet(data.map(item => {
-    const row: any = {};
+    const row: Record<string, unknown> = {};
     finalHeaders.forEach(({ key, label }) => {
-      row[label] = item[key];
+      row[label] = item[key as keyof T];
     });
     return row;
   }));
@@ -40,7 +40,7 @@ export const exportToExcel = <T extends Record<string, any>>(
 // 导入Excel文件
 export const importFromExcel = <T extends Record<string, any>>(
   file: File,
-  headers: { key: keyof T & string; label: string; required?: boolean }[]
+  headers: { key: string; label: string; required?: boolean }[]
 ): Promise<T[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

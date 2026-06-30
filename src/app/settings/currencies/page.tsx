@@ -522,16 +522,16 @@ export default function CurrenciesPage() {
     };
 
     const headers = [
-      { key: '币别代码' as any, label: '币别代码', placeholder: '例如：USD、EUR' },
-      { key: '币别名称' as any, label: '币别名称', placeholder: '例如：美元、欧元' },
-      { key: '货币符号' as any, label: '货币符号', placeholder: '例如：$、€' },
-      { key: '精度' as any, label: '精度', placeholder: '0/1/2/4' },
-      { key: '汇率' as any, label: '汇率', placeholder: '7.25' },
-      { key: '汇率开始日期' as any, label: '汇率开始日期', placeholder: 'YYYY-MM-DD' },
-      { key: '损益科目代码' as any, label: '损益科目代码', placeholder: '例如：6603' },
-      { key: '损益科目名称' as any, label: '损益科目名称', placeholder: '例如：财务费用' },
-      { key: '记账本位币' as any, label: '记账本位币', placeholder: '是/否' },
-      { key: '状态' as any, label: '状态', placeholder: '正常/已禁用' }
+      { key: '币别代码', label: '币别代码', placeholder: '例如：USD、EUR' },
+      { key: '币别名称', label: '币别名称', placeholder: '例如：美元、欧元' },
+      { key: '货币符号', label: '货币符号', placeholder: '例如：$、€' },
+      { key: '精度', label: '精度', placeholder: '0/1/2/4' },
+      { key: '汇率', label: '汇率', placeholder: '7.25' },
+      { key: '汇率开始日期', label: '汇率开始日期', placeholder: 'YYYY-MM-DD' },
+      { key: '损益科目代码', label: '损益科目代码', placeholder: '例如：6603' },
+      { key: '损益科目名称', label: '损益科目名称', placeholder: '例如：财务费用' },
+      { key: '记账本位币', label: '记账本位币', placeholder: '是/否' },
+      { key: '状态', label: '状态', placeholder: '正常/已禁用' }
     ];
 
     exportTemplate('币别数据', sampleData, headers);
@@ -550,16 +550,16 @@ export default function CurrenciesPage() {
       showToast('info', '正在导入数据...');
 
       const headers = [
-        { key: 'code' as any, label: '币别代码', required: true },
-        { key: 'name' as any, label: '币别名称', required: true },
-        { key: 'symbol' as any, label: '货币符号', required: false },
-        { key: 'precision' as any, label: '精度', required: false },
-        { key: 'exchangeRate' as any, label: '汇率', required: false },
-        { key: 'rateStartDate' as any, label: '汇率开始日期', required: false },
-        { key: 'gainLossSubjectCode' as any, label: '损益科目代码', required: false },
-        { key: 'gainLossSubjectName' as any, label: '损益科目名称', required: false },
-        { key: 'isBase' as any, label: '记账本位币', required: false },
-        { key: 'disabled' as any, label: '状态', required: false }
+        { key: 'code', label: '币别代码', required: true },
+        { key: 'name', label: '币别名称', required: true },
+        { key: 'symbol', label: '货币符号', required: false },
+        { key: 'precision', label: '精度', required: false },
+        { key: 'exchangeRate', label: '汇率', required: false },
+        { key: 'rateStartDate', label: '汇率开始日期', required: false },
+        { key: 'gainLossSubjectCode', label: '损益科目代码', required: false },
+        { key: 'gainLossSubjectName', label: '损益科目名称', required: false },
+        { key: 'isBase', label: '记账本位币', required: false },
+        { key: 'disabled', label: '状态', required: false }
       ];
 
       const importedData = await importFromExcel<Omit<Currency, 'id' | 'createdAt' | 'updatedAt'>>(file, headers);

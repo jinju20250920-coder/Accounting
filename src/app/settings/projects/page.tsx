@@ -287,13 +287,13 @@ export default function ProjectsPage() {
       '创建日期': '2024-01-01'
     };
     exportTemplate('项目数据', sampleData, [
-      { key: 'code' as any, label: '项目代码', placeholder: '如：PRJ001、1001、PROJ-A' },
-      { key: 'name' as any, label: '项目名称', placeholder: '输入项目名称' },
-      { key: 'type' as any, label: '项目类型', placeholder: '收入类/成本类/其他类' },
-      { key: 'startDate' as any, label: '开始日期', placeholder: 'YYYY-MM-DD' },
-      { key: 'endDate' as any, label: '结束日期', placeholder: '留空表示项目仍在进行中' },
-      { key: 'frozen' as any, label: '状态', placeholder: '活跃/已冻结/已关闭' },
-      { key: 'createdDate' as any, label: '创建日期', placeholder: 'YYYY-MM-DD' }
+      { key: 'code', label: '项目代码', placeholder: '如：PRJ001、1001、PROJ-A' },
+      { key: 'name', label: '项目名称', placeholder: '输入项目名称' },
+      { key: 'type', label: '项目类型', placeholder: '收入类/成本类/其他类' },
+      { key: 'startDate', label: '开始日期', placeholder: 'YYYY-MM-DD' },
+      { key: 'endDate', label: '结束日期', placeholder: '留空表示项目仍在进行中' },
+      { key: 'frozen', label: '状态', placeholder: '活跃/已冻结/已关闭' },
+      { key: 'createdDate', label: '创建日期', placeholder: 'YYYY-MM-DD' }
     ]);
   };
 
@@ -306,12 +306,12 @@ export default function ProjectsPage() {
 
       // 定义Excel表格头映射
       const headers = [
-        { key: 'code' as any, label: '项目代码', required: true },
-        { key: 'name' as any, label: '项目名称', required: true },
-        { key: 'type' as any, label: '项目类型', required: true },
-        { key: 'startDate' as any, label: '开始日期', required: true },
-        { key: 'endDate' as any, label: '结束日期', required: false },
-        { key: 'frozen' as any, label: '状态', required: false }
+        { key: 'code', label: '项目代码', required: true },
+        { key: 'name', label: '项目名称', required: true },
+        { key: 'type', label: '项目类型', required: true },
+        { key: 'startDate', label: '开始日期', required: true },
+        { key: 'endDate', label: '结束日期', required: false },
+        { key: 'frozen', label: '状态', required: false }
       ];
 
       const importedData = await importFromExcel<Project>(file, headers);

@@ -256,12 +256,12 @@ export default function DepartmentsPage() {
     }));
 
     exportToExcel(exportData, '部门数据', [
-      { key: 'code' as any, label: '部门代码' },
-      { key: 'name' as any, label: '部门名称' },
-      { key: 'parentId' as any, label: '上级部门' },
-      { key: 'frozen' as any, label: '状态' },
-      { key: 'createdDate' as any, label: '创建日期' },
-      { key: 'lastModifiedDate' as any, label: '最后修改' }
+      { key: 'code', label: '部门代码' },
+      { key: 'name', label: '部门名称' },
+      { key: 'parentId', label: '上级部门' },
+      { key: 'frozen', label: '状态' },
+      { key: 'createdDate', label: '创建日期' },
+      { key: 'lastModifiedDate', label: '最后修改' }
     ]);
   };
 
@@ -273,10 +273,10 @@ export default function DepartmentsPage() {
       '状态': '正常'
     };
     exportTemplate('部门数据', sampleData, [
-      { key: 'code' as any, label: '部门代码', placeholder: '如：DEPT001、SA、TECH' },
-      { key: 'name' as any, label: '部门名称', placeholder: '输入部门名称' },
-      { key: 'parentId' as any, label: '上级部门', placeholder: '（顶级部门）' },
-      { key: 'frozen' as any, label: '状态', placeholder: '正常/已冻结' }
+      { key: 'code', label: '部门代码', placeholder: '如：DEPT001、SA、TECH' },
+      { key: 'name', label: '部门名称', placeholder: '输入部门名称' },
+      { key: 'parentId', label: '上级部门', placeholder: '（顶级部门）' },
+      { key: 'frozen', label: '状态', placeholder: '正常/已冻结' }
     ]);
   };
 
@@ -289,10 +289,10 @@ export default function DepartmentsPage() {
 
       // 定义Excel表格头映射
       const headers = [
-        { key: 'code' as any, label: '部门代码', required: true },
-        { key: 'name' as any, label: '部门名称', required: true },
-        { key: 'parentId' as any, label: '上级部门', required: false },
-        { key: 'frozen' as any, label: '状态', required: false }
+        { key: 'code', label: '部门代码', required: true },
+        { key: 'name', label: '部门名称', required: true },
+        { key: 'parentId', label: '上级部门', required: false },
+        { key: 'frozen', label: '状态', required: false }
       ];
 
       const importedData = await importFromExcel<Department>(file, headers);
