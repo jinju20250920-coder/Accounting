@@ -86,7 +86,7 @@ export default function SubjectsPage() {
   const subjectTree = buildSubjectTree();
   const selectedSubject = selectedSubjectId ? subjects.find(s => s.id === selectedSubjectId) : null;
 
-  function buildSubjectTree(parentId: string | null = null, level: number = 1): any[] {
+  function buildSubjectTree(parentId: string | null = null, level: number = 1): Array<Subject & { children: ReturnType<typeof buildSubjectTree>; level: number; expanded: boolean }> {
     // 如果有搜索查询，先计算所有需要显示的科目
     const visibleSubjectIds = new Set<string>();
 
@@ -191,17 +191,18 @@ export default function SubjectsPage() {
             enableProject: pendingParentSubject.enableProject,
             enableForeign: pendingParentSubject.enableForeign,
             foreignCurrency: pendingParentSubject.foreignCurrency || '',
-            isCustomer: (pendingParentSubject as any).isCustomer || false,
-            isSupplier: (pendingParentSubject as any).isSupplier || false,
+            isCustomer: pendingParentSubject.isCustomer || false,
+            isSupplier: pendingParentSubject.isSupplier || false,
             isEmployee: false,
-            enableCashFlow: (pendingParentSubject as any).enableCashFlow || false,
+            enableCashFlow: pendingParentSubject.enableCashFlow || false,
             disabled: false,
             block: false,
             subjectType: pendingParentSubject.subjectType
           };
 
           // 保存同名二级科目
-          await addSubject(sameNameChild as any);
+          const { id: _omit, ...sameNameChildPayload } = sameNameChild;
+          await addSubject(sameNameChildPayload);
 
           // 迁移凭证数据
           const migratedCount = await sqliteService.migrateSubjectVouchers(
@@ -219,7 +220,25 @@ export default function SubjectsPage() {
 
       // 保存用户输入的子科目
       console.log('新增科目:', formData);
-      addSubject(formData as any);
+      const addSubjectPayload = {
+        code: formData.code,
+        name: formData.name,
+        parentId: formData.parentId || null,
+        level: 1,
+        direction: formData.direction as 'debit' | 'credit',
+        enableDept: formData.enableDept,
+        enableProject: formData.enableProject,
+        enableForeign: formData.enableForeign,
+        foreignCurrency: formData.foreignCurrency,
+        isCustomer: formData.isCustomer,
+        isSupplier: formData.isSupplier,
+        isEmployee: formData.isEmployee,
+        enableCashFlow: formData.enableCashFlow,
+        disabled: false,
+        block: false,
+        subjectType: (formData.subjectType || undefined) as Subject['subjectType'],
+      };
+      addSubject(addSubjectPayload);
       showToast('success', '科目添加成功');
     }
 
@@ -265,10 +284,10 @@ export default function SubjectsPage() {
             enableProject: parentSubject.enableProject,
             enableForeign: parentSubject.enableForeign,
             foreignCurrency: parentSubject.foreignCurrency || '',
-            isCustomer: (parentSubject as any).isCustomer || false,
-            isSupplier: (parentSubject as any).isSupplier || false,
-            isEmployee: (parentSubject as any).isEmployee || false,
-            enableCashFlow: (parentSubject as any).enableCashFlow || false,
+            isCustomer: parentSubject.isCustomer || false,
+            isSupplier: parentSubject.isSupplier || false,
+            isEmployee: parentSubject.isEmployee || false,
+            enableCashFlow: parentSubject.enableCashFlow || false,
             isMonetary: parentSubject.isMonetary ?? inferIsMonetary(parentSubject.code),
             block: false,
             subjectType: parentSubject.subjectType || ''
@@ -293,10 +312,10 @@ export default function SubjectsPage() {
         enableProject: parentSubject.enableProject,
         enableForeign: parentSubject.enableForeign,
         foreignCurrency: parentSubject.foreignCurrency || '',
-        isCustomer: (parentSubject as any).isCustomer || false,
-        isSupplier: (parentSubject as any).isSupplier || false,
-        isEmployee: (parentSubject as any).isEmployee || false,
-        enableCashFlow: (parentSubject as any).enableCashFlow || false,
+        isCustomer: parentSubject.isCustomer || false,
+        isSupplier: parentSubject.isSupplier || false,
+        isEmployee: parentSubject.isEmployee || false,
+        enableCashFlow: parentSubject.enableCashFlow || false,
         isMonetary: parentSubject.isMonetary ?? inferIsMonetary(parentSubject.code),
         block: false,
         subjectType: parentSubject.subjectType || ''
@@ -407,10 +426,10 @@ export default function SubjectsPage() {
       enableProject: subject.enableProject,
       enableForeign: subject.enableForeign,
       foreignCurrency: subject.foreignCurrency || '',
-      isCustomer: (subject as any).isCustomer || false,
-      isSupplier: (subject as any).isSupplier || false,
-      isEmployee: (subject as any).isEmployee || false,
-      enableCashFlow: (subject as any).enableCashFlow || false,
+      isCustomer: subject.isCustomer || false,
+      isSupplier: subject.isSupplier || false,
+      isEmployee: subject.isEmployee || false,
+      enableCashFlow: subject.enableCashFlow || false,
       isMonetary: subject.isMonetary ?? inferIsMonetary(subject.code),
       block: subject.block,
       subjectType: subject.subjectType || ''
@@ -454,10 +473,10 @@ export default function SubjectsPage() {
       '外币核算': subject.enableForeign ? '是' : '否',
       '外币': subject.foreignCurrency || '',
       '汇兑重估': subject.isMonetary ? '是' : '否',
-      '客户': (subject as any).isCustomer ? '是' : '否',
-      '供应商': (subject as any).isSupplier ? '是' : '否',
-      '雇员': (subject as any).isEmployee ? '是' : '否',
-      '现金流量': (subject as any).enableCashFlow ? '是' : '否',
+      '客户': subject.isCustomer ? '是' : '否',
+      '供应商': subject.isSupplier ? '是' : '否',
+      '雇员': subject.isEmployee ? '是' : '否',
+      '现金流量': subject.enableCashFlow ? '是' : '否',
       '状态': subject.block ? '停用' : (subject.disabled ? '禁用' : '正常')
     }));
 
@@ -483,21 +502,21 @@ export default function SubjectsPage() {
       '状态': '正常'
     };
     exportTemplate('科目数据', sampleData, [
-      { key: 'code' as any, label: '科目代码', placeholder: '如：1001、100101' },
-      { key: 'name' as any, label: '科目名称', placeholder: '输入科目名称' },
-      { key: 'parentId' as any, label: '上级科目', placeholder: '留空表示顶级科目' },
-      { key: 'direction' as any, label: '借贷方向', placeholder: '借方/贷方' },
-      { key: 'isLeaf' as any, label: '是否末级', placeholder: '是/否' },
-      { key: 'enableDept' as any, label: '部门核算', placeholder: '是/否' },
-      { key: 'enableProject' as any, label: '项目核算', placeholder: '是/否' },
-      { key: 'enableForeign' as any, label: '外币核算', placeholder: '是/否' },
-      { key: 'foreignCurrency' as any, label: '外币', placeholder: '如：USD、CNY' },
-      { key: 'isMonetary' as any, label: '汇兑重估', placeholder: '是/否（货币性项目）' },
-      { key: 'isCustomer' as any, label: '客户', placeholder: '是/否' },
-      { key: 'isSupplier' as any, label: '供应商', placeholder: '是/否' },
-      { key: 'isEmployee' as any, label: '雇员', placeholder: '是/否' },
-      { key: 'enableCashFlow' as any, label: '现金流量', placeholder: '是/否' },
-      { key: 'disabled' as any, label: '状态', placeholder: '正常/禁用/停用' }
+      { key: 'code', label: '科目代码', placeholder: '如：1001、100101' },
+      { key: 'name', label: '科目名称', placeholder: '输入科目名称' },
+      { key: 'parentId', label: '上级科目', placeholder: '留空表示顶级科目' },
+      { key: 'direction', label: '借贷方向', placeholder: '借方/贷方' },
+      { key: 'isLeaf', label: '是否末级', placeholder: '是/否' },
+      { key: 'enableDept', label: '部门核算', placeholder: '是/否' },
+      { key: 'enableProject', label: '项目核算', placeholder: '是/否' },
+      { key: 'enableForeign', label: '外币核算', placeholder: '是/否' },
+      { key: 'foreignCurrency', label: '外币', placeholder: '如：USD、CNY' },
+      { key: 'isMonetary', label: '汇兑重估', placeholder: '是/否（货币性项目）' },
+      { key: 'isCustomer', label: '客户', placeholder: '是/否' },
+      { key: 'isSupplier', label: '供应商', placeholder: '是/否' },
+      { key: 'isEmployee', label: '雇员', placeholder: '是/否' },
+      { key: 'enableCashFlow', label: '现金流量', placeholder: '是/否' },
+      { key: 'disabled', label: '状态', placeholder: '正常/禁用/停用' }
     ]);
   };
 
@@ -510,24 +529,24 @@ export default function SubjectsPage() {
 
       // 定义Excel表格头映射
       const headers = [
-        { key: 'code' as any, label: '科目代码', required: true },
-        { key: 'name' as any, label: '科目名称', required: true },
-        { key: 'parentId' as any, label: '上级科目', required: false },
-        { key: 'direction' as any, label: '借贷方向', required: true },
-        { key: 'isLeaf' as any, label: '是否末级', required: false },
-        { key: 'enableDept' as any, label: '部门核算', required: false },
-        { key: 'enableProject' as any, label: '项目核算', required: false },
-        { key: 'enableForeign' as any, label: '外币核算', required: false },
-        { key: 'foreignCurrency' as any, label: '外币', required: false },
-        { key: 'isMonetary' as any, label: '汇兑重估', required: false },
-        { key: 'isCustomer' as any, label: '客户', required: false },
-        { key: 'isSupplier' as any, label: '供应商', required: false },
-        { key: 'isEmployee' as any, label: '雇员', required: false },
-        { key: 'enableCashFlow' as any, label: '现金流量', required: false },
-        { key: 'disabled' as any, label: '状态', required: false }
+        { key: 'code', label: '科目代码', required: true },
+        { key: 'name', label: '科目名称', required: true },
+        { key: 'parentId', label: '上级科目', required: false },
+        { key: 'direction', label: '借贷方向', required: true },
+        { key: 'isLeaf', label: '是否末级', required: false },
+        { key: 'enableDept', label: '部门核算', required: false },
+        { key: 'enableProject', label: '项目核算', required: false },
+        { key: 'enableForeign', label: '外币核算', required: false },
+        { key: 'foreignCurrency', label: '外币', required: false },
+        { key: 'isMonetary', label: '汇兑重估', required: false },
+        { key: 'isCustomer', label: '客户', required: false },
+        { key: 'isSupplier', label: '供应商', required: false },
+        { key: 'isEmployee', label: '雇员', required: false },
+        { key: 'enableCashFlow', label: '现金流量', required: false },
+        { key: 'disabled', label: '状态', required: false }
       ];
 
-      const importedData = await importFromExcel<Subject>(file, headers);
+      const importedData = await importFromExcel<Subject>(file, headers as { key: keyof Subject; label: string; required?: boolean }[]);
 
       // 处理导入数据
       const validSubjects = importedData.filter(subject => {
@@ -556,7 +575,7 @@ export default function SubjectsPage() {
           isSupplier: subject.isSupplier || false,
           isEmployee: subject.isEmployee || false,
           enableCashFlow: subject.enableCashFlow || false,
-          isMonetary: (subject as any).isMonetary ?? inferIsMonetary(subject.code),
+          isMonetary: subject.isMonetary ?? inferIsMonetary(subject.code),
           disabled: subject.disabled || false,
           block: false
         });
@@ -968,16 +987,16 @@ export default function SubjectsPage() {
               <div>
                 <label className="text-sm font-medium text-slate-700">往来科目</label>
                 <div className="flex flex-wrap gap-2 mt-1">
-                  <Badge variant={(selectedSubject as any).isCustomer ? 'default' : 'outline'}>客户</Badge>
-                  <Badge variant={(selectedSubject as any).isSupplier ? 'default' : 'outline'}>供应商</Badge>
-                  <Badge variant={(selectedSubject as any).isEmployee ? 'default' : 'outline'}>雇员</Badge>
+                  <Badge variant={selectedSubject.isCustomer ? 'default' : 'outline'}>客户</Badge>
+                  <Badge variant={selectedSubject.isSupplier ? 'default' : 'outline'}>供应商</Badge>
+                  <Badge variant={selectedSubject.isEmployee ? 'default' : 'outline'}>雇员</Badge>
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-slate-700">现金流量</label>
                 <div className="flex gap-2 mt-1">
-                  <Badge variant={(selectedSubject as any).enableCashFlow ? 'default' : 'outline'}>
-                    {(selectedSubject as any).enableCashFlow ? '已启用' : '未启用'}
+                  <Badge variant={selectedSubject.enableCashFlow ? 'default' : 'outline'}>
+                    {selectedSubject.enableCashFlow ? '已启用' : '未启用'}
                   </Badge>
                 </div>
               </div>

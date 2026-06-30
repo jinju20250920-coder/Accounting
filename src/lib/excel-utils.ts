@@ -40,7 +40,7 @@ export const exportToExcel = <T extends Record<string, any>>(
 // 导入Excel文件
 export const importFromExcel = <T extends Record<string, any>>(
   file: File,
-  headers: { key: keyof T; label: string; required?: boolean }[]
+  headers: { key: keyof T & string; label: string; required?: boolean }[]
 ): Promise<T[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -94,7 +94,7 @@ export const importFromExcel = <T extends Record<string, any>>(
 export const exportTemplate = <T>(
   filename: string,
   sampleData: T,
-  headers: { key: keyof T; label: string; placeholder?: string }[]
+  headers: { key: string; label: string; placeholder?: string }[]
 ) => {
   // 使用 headers 的 label 作为列标题
   const rowWithLabels: Record<string, any> = {};
