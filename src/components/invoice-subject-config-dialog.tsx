@@ -178,13 +178,11 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
     }
   };
 
-  /* eslint-disable react-hooks/set-state-in-effect -- fetch-on-open pattern: async load of server-side rule config. */
   useEffect(() => {
     if (!open || !accountSetId) return;
     loadRules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, accountSetId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 开始编辑
   const startEdit = (rule: InvoiceSubjectRule) => {

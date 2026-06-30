@@ -54,7 +54,7 @@ export function ClearingCell({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck="false"
-          name={`clearing-${entryId || Math.random().toString(36).substr(2, 9)}`}
+          name={`clearing-${entryId ?? 'input'}`}
           style={{ height: '56px', borderRadius: 0 }}
         />
         <Button

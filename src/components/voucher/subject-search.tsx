@@ -45,12 +45,13 @@ export function SubjectSearch({
 }: SubjectSearchProps) {
   const [searchText, setSearchText] = useState(value || '');
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set(['1002', '6601']));
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setSearchText(value || '');
+  }
 
   const { subjects } = useSubjectStore();
-
-  useEffect(() => {
-    setSearchText(value || '');
-  }, [value]);
 
   const subjectTree = useMemo(() => {
     const map = new Map<string, Subject & { children: Subject[] }>();
@@ -193,7 +194,7 @@ export function SubjectSearch({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck="false"
-          name={`subject-search-${Math.random().toString(36).substr(2, 9)}`}
+          name="subject-search-input"
         />
       </div>
 

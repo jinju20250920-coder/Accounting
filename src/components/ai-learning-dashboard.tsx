@@ -109,12 +109,10 @@ export function AILearningDashboard() {
     setAiInsights(insights);
   };
 
-  /* eslint-disable react-hooks/set-state-in-effect -- recalc pulls from external preference store; local state is the only way to surface results to render. */
   useEffect(() => {
     recalcStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleExport = () => {
     setIsExporting(true);

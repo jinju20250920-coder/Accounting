@@ -118,12 +118,14 @@ export function SmartSubjectSelector({
   }, [subjects.length, initializeSubjects]);
 
   // 当 value 变化时，退出编辑模式
-  useEffect(() => {
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     if (value) {
       setIsEditing(false);
       setSearchText('');
     }
-  }, [value]);
+  }
 
   // 显示文本
   const displayText = useMemo(() => {
@@ -412,7 +414,7 @@ export function SmartSubjectSelector({
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck="false"
-        name={`subject-search-${dataEntryId || Math.random().toString(36).substr(2, 9)}`}
+        name={`subject-search-${dataEntryId ?? 'input'}`}
       />
 
       {/* 科目选择 Popover */}
