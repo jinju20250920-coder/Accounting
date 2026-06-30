@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useMounted } from '@/hooks/useMounted';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,7 +66,7 @@ interface AccountSetFormData {
 }
 
 export default function SetsPage() {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const router = useRouter();
   const { showToast } = useToast();
   const { vouchers } = useVoucherStore();
@@ -90,7 +91,6 @@ export default function SetsPage() {
   // 选中的账套
   const [selectedSet, setSelectedSet] = useState<AccountSet | null>(null);
 
-  useEffect(() => { setMounted(true); }, []);
 
   // 表单数据
   const [formData, setFormData] = useState<AccountSetFormData>({

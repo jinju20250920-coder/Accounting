@@ -5,6 +5,7 @@ import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useReportConfigStore } from '@/stores/useReportConfigStore';
+import { useMounted } from '@/hooks/useMounted';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChineseDatePicker } from '@/components/ui/chinese-date-picker';
@@ -29,7 +30,7 @@ export default function ProfitPage() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<any>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
   const voucherStore = useVoucherStore();
   const subjectStore = useSubjectStore();
@@ -39,7 +40,6 @@ export default function ProfitPage() {
   useEffect(() => {
     if (voucherStore.vouchers.length === 0) voucherStore.initialize();
     if (subjectStore.subjects.length === 0) subjectStore.initializeSubjects();
-    setMounted(true);
   }, []);
 
   const subjectTree = useMemo(() => {

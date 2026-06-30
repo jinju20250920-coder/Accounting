@@ -63,16 +63,20 @@ export function IntangibleTimelineLedger({ open, onOpenChange, assetId: initialA
   const [correctionRecord, setCorrectionRecord] = useState<any>(null);
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
-  useEffect(() => {
+  // 渲染期同步 prop → state（避免 effect 级联渲染）
+  const [prevInitialAssetId, setPrevInitialAssetId] = useState(initialAssetId);
+  if (initialAssetId !== prevInitialAssetId) {
+    setPrevInitialAssetId(initialAssetId);
     if (initialAssetId) setSelectedAssetId(initialAssetId);
-  }, [initialAssetId]);
+  }
 
   useEffect(() => {
-    if (!open || !selectedAssetId) {
-      setRecords([]);
-      return;
-    }
-    getIntangibleChangeRecords(selectedAssetId).then(setRecords);
+    if (!open || !selectedAssetId) return;
+    let cancelled = false;
+    getIntangibleChangeRecords(selectedAssetId).then(data => {
+      if (!cancelled) setRecords(data);
+    });
+    return () => { cancelled = true; };
   }, [open, selectedAssetId, getIntangibleChangeRecords]);
 
   const refreshRecords = () => {

@@ -32,16 +32,20 @@ export function PrepaidTimelineLedger({ open, onOpenChange, expenseId: initialEx
   const [correctionRecord, setCorrectionRecord] = useState<any>(null);
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
-  useEffect(() => {
+  // 渲染期同步 prop → state（避免 effect 级联渲染）
+  const [prevInitialExpenseId, setPrevInitialExpenseId] = useState(initialExpenseId);
+  if (initialExpenseId !== prevInitialExpenseId) {
+    setPrevInitialExpenseId(initialExpenseId);
     if (initialExpenseId) setSelectedExpenseId(initialExpenseId);
-  }, [initialExpenseId]);
+  }
 
   useEffect(() => {
-    if (!open || !selectedExpenseId) {
-      setRecords([]);
-      return;
-    }
-    getPrepaidChangeRecords(selectedExpenseId).then(setRecords);
+    if (!open || !selectedExpenseId) return;
+    let cancelled = false;
+    getPrepaidChangeRecords(selectedExpenseId).then(data => {
+      if (!cancelled) setRecords(data);
+    });
+    return () => { cancelled = true; };
   }, [open, selectedExpenseId, getPrepaidChangeRecords]);
 
   const refreshRecords = () => {

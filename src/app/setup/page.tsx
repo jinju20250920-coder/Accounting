@@ -1,16 +1,17 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { SetupWizard } from '@/components/account-set/setup-wizard';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useMounted } from '@/hooks/useMounted';
 import { useToast } from '@/components/ui/toast';
 
 export default function SetupPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { showToast } = useToast();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
   const accountSetId = searchParams.get('id') || '';
   const mode = searchParams.get('mode') === 'edit' ? 'edit' as const : 'create' as const;
@@ -18,10 +19,6 @@ export default function SetupPage() {
   const accountSetCode = searchParams.get('code') || '';
   const accountSetStartDate = searchParams.get('startDate') || '';
   const accountSetEnableDate = searchParams.get('enableDate') || '';
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const handleComplete = () => {
     const store = useAccountSetStore.getState();

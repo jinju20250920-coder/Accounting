@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useFixedAssetStore } from '@/stores/useFixedAssetStore';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useMounted } from '@/hooks/useMounted';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -472,7 +473,7 @@ export default function AssetSummaryPage() {
   const { getCurrentAccountSet } = useAccountSetStore();
 
   // 客户端挂载状态
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
   // 获取当前账期（仅在客户端计算）
   const currentPeriod = useMemo(() => {
@@ -494,15 +495,16 @@ export default function AssetSummaryPage() {
   // 初始化
   useEffect(() => {
     initialize();
-    setMounted(true);
   }, [initialize]);
 
-  // 设置初始期间
-  useEffect(() => {
+  // 设置初始期间（渲染期同步，避免 effect 级联）
+  const [prevMounted, setPrevMounted] = useState(false);
+  if (mounted !== prevMounted) {
+    setPrevMounted(mounted);
     if (mounted && !period && currentPeriod) {
       setPeriod(currentPeriod);
     }
-  }, [mounted, period, currentPeriod]);
+  }
 
   // 核心指标计算
   const metrics = useMemo(() => {

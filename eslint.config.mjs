@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Historical SQLite adapter. It contains broad `any` usage across many
     // domains; validate it with TypeScript until it is split and typed by area.
     "src/lib/database/sqlite-service.ts",
+    // Vendored sql.js wasm loader — upstream code, not ours to lint.
+    "public/sqljs/**",
   ]),
 ]);
 

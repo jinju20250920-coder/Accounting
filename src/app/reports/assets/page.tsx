@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { useMounted } from '@/hooks/useMounted';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { useReportConfigStore, type ReportRow } from '@/stores/useReportConfigStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +32,7 @@ export default function AssetsPage() {
   const [editingOpeningCode, setEditingOpeningCode] = useState<string>('');
   const [editingOpeningAmount, setEditingOpeningAmount] = useState<number>(0);
   const [showYearBeginning, setShowYearBeginning] = useState(true); // 是否显示年初余额
-  const [mounted, setMounted] = useState(false); // 客户端挂载状态
+  const mounted = useMounted(); // 客户端挂载状态
 
   const voucherStore = useVoucherStore();
   const subjectStore = useSubjectStore();
@@ -48,7 +49,6 @@ export default function AssetsPage() {
   useEffect(() => {
     if (voucherStore.vouchers.length === 0) voucherStore.initialize();
     if (subjectStore.subjects.length === 0) subjectStore.initializeSubjects();
-    setMounted(true);
   }, []);
 
   // 构建科目树

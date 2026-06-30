@@ -46,6 +46,16 @@ export function ErrorNotification({
     handleClose();
   };
 
+  // 自动隐藏 — 必须在早返回之前调用，避免违反 Hooks 规则
+  React.useEffect(() => {
+    if (autoHide) {
+      const timer = setTimeout(() => {
+        handleClose();
+      }, duration);
+      return () => clearTimeout(timer);
+    }
+  }, [autoHide, duration, handleClose]);
+
   // 如果没有传入错误，从全局错误状态获取
   const errorInfo = errorId ? getErrors(1)[0] : null;
   const currentError = error || (errorInfo ? errorInfo.error : null);
@@ -92,18 +102,6 @@ export function ErrorNotification({
     }
     return 'bg-gray-100 text-gray-800';
   };
-
-  // 自动隐藏
-  React.useEffect(() => {
-    if (autoHide) {
-      const timer = setTimeout(() => {
-        handleClose();
-      }, duration);
-      return () => clearTimeout(timer);
-    }
-  }, [autoHide, duration]);
-
-  if (!currentError) return null;
 
   return (
     <div className={`fixed top-4 right-4 z-50 max-w-md transition-all duration-300 ${

@@ -324,7 +324,6 @@ class SQLiteManager {
     try {
       if (this.useOPFS) {
         const opfsRoot = await (navigator.storage as any).getDirectory();
-        // @ts-ignore - removeEntry 鏄?OPFS API
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
         console.log('Corrupted OPFS database file cleared');
@@ -1980,8 +1979,6 @@ class SQLiteManager {
     try {
       if (this.useOPFS) {
         const opfsRoot = await (navigator.storage as any).getDirectory();
-        // Use removeEntry to delete the database file.
-        // @ts-ignore - removeEntry is part of the OPFS API.
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
       } else {

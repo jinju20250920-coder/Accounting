@@ -35,16 +35,20 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
   const [correctionRecord, setCorrectionRecord] = useState<any>(null);
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
-  useEffect(() => {
+  // 渲染期同步 prop → state（React 19 推荐写法，避免 effect 级联渲染）
+  const [prevInitialAssetId, setPrevInitialAssetId] = useState(initialAssetId);
+  if (initialAssetId !== prevInitialAssetId) {
+    setPrevInitialAssetId(initialAssetId);
     if (initialAssetId) setSelectedAssetId(initialAssetId);
-  }, [initialAssetId]);
+  }
 
   useEffect(() => {
-    if (!open || !selectedAssetId) {
-      setRecords([]);
-      return;
-    }
-    getAssetChangeRecords(selectedAssetId).then(setRecords);
+    if (!open || !selectedAssetId) return;
+    let cancelled = false;
+    getAssetChangeRecords(selectedAssetId).then(data => {
+      if (!cancelled) setRecords(data);
+    });
+    return () => { cancelled = true; };
   }, [open, selectedAssetId, getAssetChangeRecords]);
 
   // 刷新记录
