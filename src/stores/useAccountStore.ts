@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { useVoucherStore } from './useVoucherStore';
 import { useClearingStore } from './useClearingStore';
 import { getCurrentService } from '@/lib/database';
+import subjectsData from '../lib/data/subjects.json';
 
 interface SubjectBalance {
   subjectCode: string;
@@ -97,8 +98,7 @@ const calculateBalanceFromLedger = (subjectCode: string, excludeEntryId?: string
 
   let subjectName = subjectCode;
   try {
-    const subjects = require('../lib/data/subjects.json');
-    const subject = subjects.find((s: any) => s.code === subjectCode);
+    const subject = (subjectsData as Array<{ code: string; name: string }>).find(s => s.code === subjectCode);
     if (subject) subjectName = subject.name;
   } catch {}
 

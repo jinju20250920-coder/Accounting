@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-require-imports -- Electron launcher script; Node CommonJS by design */
 
 const { exec } = require('child_process');
 const fs = require('fs');

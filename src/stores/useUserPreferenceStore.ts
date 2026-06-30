@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { DATA_VERSIONS } from './persistence-config';
+import keywordRules from '@/lib/data/keyword-rules.json';
 
 // 用户偏好接口
 interface Preference {
@@ -144,8 +145,8 @@ export const useUserPreferenceStore = create<PreferenceStore>()((set, get) => ({
 
     // 2. 尝试 L1：在预设规则中寻找匹配
     try {
-      const rules = require('@/lib/data/keyword-rules.json');
-      const l1Match = rules.find((rule: any) =>
+      const rules = keywordRules as Array<{ keyword: string; subject: string; [k: string]: unknown }>;
+      const l1Match = rules.find((rule) =>
         summary.includes(rule.keyword) ||
         rule.keyword.includes(summary)
       );

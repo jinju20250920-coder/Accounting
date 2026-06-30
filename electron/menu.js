@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Electron main-process helper; CommonJS required by Electron runtime */
 const { Menu, dialog } = require('electron');
 const os = require('os');
 
