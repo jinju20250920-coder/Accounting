@@ -287,7 +287,7 @@ class FileHandleManager {
   static isOPFSSupported(): boolean {
     return typeof navigator !== 'undefined' &&
       'storage' in navigator &&
-      'getDirectory' in (navigator.storage as any);
+      'getDirectory' in (navigator.storage as StorageManager & { getDirectory?: () => unknown });
   }
 
   /**

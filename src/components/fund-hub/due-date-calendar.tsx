@@ -5,10 +5,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Calendar, Clock, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { getCurrentService } from '@/lib/database';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
+import type { Partner } from '@/types';
 
 interface DueDateCalendarProps {
   cutoffDate: string;
-  partners: any[];
+  partners: Partner[];
 }
 
 function formatMoney(amount: number): string {

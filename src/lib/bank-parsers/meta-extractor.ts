@@ -31,7 +31,7 @@ export function extractMeta(rawData: string[][], config: BankParserConfig): Bank
     }
 
     if (value) {
-      (info as any)[rule.field] = value;
+      info[rule.field] = value;
     }
   }
 

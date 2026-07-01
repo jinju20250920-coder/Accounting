@@ -239,7 +239,7 @@ export async function ensureSupplierSubjectMappingSchema(input: {
   }
 
   const pragma = input.db.exec('PRAGMA table_info(supplier_subject_mapping)');
-  const columns = (pragma[0]?.values || []).map((row: any[]) => String(row[1]));
+  const columns = (pragma[0]?.values || []).map((row: Array<string | number | Uint8Array | null>) => String(row[1]));
   const expectedColumns = [...SUPPLIER_MAPPING_COLUMNS];
   const needsRebuild = (
     !columns.includes('sellerName') ||

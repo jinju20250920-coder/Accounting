@@ -3,9 +3,10 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, ArrowUpCircle, ArrowDownCircle, Zap } from 'lucide-react';
+import type { BankTransaction } from '@/types';
 
 interface SettlementAlertsProps {
-  transactions: any[];
+  transactions: BankTransaction[];
   cutoffDate: string;
 }
 

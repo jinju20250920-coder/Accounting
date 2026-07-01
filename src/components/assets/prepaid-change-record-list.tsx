@@ -29,7 +29,7 @@ export function PrepaidTimelineLedger({ open, onOpenChange, expenseId: initialEx
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [selectedChangeType, setSelectedChangeType] = useState<string>('');
   const [records, setRecords] = useState<PrepaidChangeRecord[]>([]);
-  const [correctionRecord, setCorrectionRecord] = useState<any>(null);
+  const [correctionRecord, setCorrectionRecord] = useState<PrepaidChangeRecord | null>(null);
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
   // 渲染期同步 prop → state（避免 effect 级联渲染）

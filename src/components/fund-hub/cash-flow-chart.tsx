@@ -3,9 +3,10 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { BarChart3 } from 'lucide-react';
+import type { BankTransaction } from '@/types';
 
 interface CashFlowChartProps {
-  transactions: any[];
+  transactions: BankTransaction[];
   periodRange: { start: string; end: string };
   period: string;
 }

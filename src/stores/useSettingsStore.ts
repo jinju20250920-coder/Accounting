@@ -140,24 +140,25 @@ const defaultSettings: AppSettings = {
 };
 
 // V1到V2的迁移函数
-const migrateV1ToV2 = (state: any) => {
+const migrateV1ToV2 = (state: Record<string, unknown>): Record<string, unknown> => {
   if (!state.settings) return state;
 
+  const oldSettings = state.settings as Record<string, unknown>;
   // 合并旧的设置到新的结构
   const migratedSettings = {
     ...defaultSettings,
-    ...state.settings,
+    ...oldSettings,
     ui: {
       ...defaultSettings.ui,
-      ...(state.settings.ui || {})
+      ...(oldSettings.ui as object || {})
     },
     features: {
       ...defaultSettings.features,
-      ...(state.settings.features || {})
+      ...(oldSettings.features as object || {})
     },
     data: {
       ...defaultSettings.data,
-      ...(state.settings.data || {})
+      ...(oldSettings.data as object || {})
     }
   };
 

@@ -32,7 +32,7 @@ interface Subject {
 interface SmartSubjectSelectorProps {
   value: string;
   subjectName?: string;
-  onSelect: (code: string, name: string, subject?: any) => void;
+  onSelect: (code: string, name: string, subject?: Subject) => void;
   placeholder?: string;
   balance?: number;
   aiRecommendations?: string[];

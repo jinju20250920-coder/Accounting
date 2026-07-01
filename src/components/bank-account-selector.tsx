@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { useSubjectStore } from '@/stores';
+import type { Subject } from '@/types';
 
 interface BankAccountSelectorProps {
   selectedAccountId: string | null;
@@ -30,7 +31,7 @@ export interface BankAccount {
 /**
  * 从科目表动态生成银行账户列表（1002 银行存款的子科目）
  */
-export function getBankAccountsFromSubjects(subjects: any[]): BankAccount[] {
+export function getBankAccountsFromSubjects(subjects: Subject[]): BankAccount[] {
   // 找到 1002 科目
   const bankSubject = subjects.find(s => s.code === '1002');
   if (!bankSubject) return [];

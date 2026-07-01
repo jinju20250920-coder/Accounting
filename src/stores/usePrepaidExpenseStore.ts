@@ -810,7 +810,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
         'SELECT * FROM prepaidExpenses WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY createTime DESC',
         [accountSetId]
       );
-      const expenses: PrepaidExpense[] = expensesResult[0]?.values?.map((row: any[]) => ({
+      const expenses: PrepaidExpense[] = expensesResult[0]?.values?.map((row: Array<string | number | Uint8Array | null>) => ({
         id: row[0],
         expenseCode: row[1],
         expenseName: row[2],
@@ -849,7 +849,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
          ORDER BY period DESC`,
         [accountSetId]
       );
-      const amortizationRecords: AmortizationRecord[] = recordsResult[0]?.values?.map((row: any[]) => ({
+      const amortizationRecords: AmortizationRecord[] = recordsResult[0]?.values?.map((row: Array<string | number | Uint8Array | null>) => ({
         id: row[0],
         entityType: row[1],
         entityId: row[2],

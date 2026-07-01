@@ -139,7 +139,7 @@ function RuleEditDrawer({
         </div>
         <div>
           <Label className="text-xs">适用方向</Label>
-          <select value={form.direction} onChange={e => setForm({ ...form, direction: e.target.value as any })} className="w-full px-2 py-1.5 border rounded-md text-xs h-8">
+          <select value={form.direction} onChange={e => setForm({ ...form, direction: e.target.value as 'in' | 'out' | 'both' })} className="w-full px-2 py-1.5 border rounded-md text-xs h-8">
             <option value="both">双向</option>
             <option value="in">仅流入</option>
             <option value="out">仅流出</option>

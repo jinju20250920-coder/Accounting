@@ -314,7 +314,7 @@ export default function ProjectsPage() {
         { key: 'frozen', label: '状态', required: false }
       ];
 
-      const importedData = await importFromExcel<Project>(file, headers);
+      const importedData = await importFromExcel<Record<string, unknown>>(file, headers) as unknown as Project[];
 
       // 处理导入数据
       const validProjects = importedData.filter(project => {
@@ -455,7 +455,7 @@ export default function ProjectsPage() {
             </div>
             <select
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value as any)}
+              onChange={(e) => setFilterType(e.target.value as 'all' | 'income' | 'cost' | 'other')}
               className="px-4 py-2 border rounded-md text-sm"
             >
               <option value="all">全部类型</option>

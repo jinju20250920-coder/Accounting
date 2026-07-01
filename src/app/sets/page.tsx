@@ -397,7 +397,7 @@ export default function SetsPage() {
 
       if (FileHandleManager.isOPFSSupported()) {
         try {
-          const opfsRoot = await (navigator.storage as any).getDirectory();
+          const opfsRoot = await (navigator.storage as StorageManager & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
           handle = await opfsRoot.getFileHandle(dbFileName, { create: true });
           const writable = await handle.createWritable();
           await writable.write(db.export());

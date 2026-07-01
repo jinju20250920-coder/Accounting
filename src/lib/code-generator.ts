@@ -277,19 +277,19 @@ export class CodeRuleManager {
       );
 
       if (result[0]?.values?.length) {
-        result[0].values.forEach((row: any[]) => {
+        result[0].values.forEach((row: Array<string | number | Uint8Array | null>) => {
           const rule: CodeRule = {
-            id: row[0],
-            name: row[1],
-            prefix: row[2],
-            suffix: row[3],
-            padding: row[4],
-            separator: row[5] as '-' | '_' | '',
+            id: String(row[0] ?? ''),
+            name: String(row[1] ?? ''),
+            prefix: String(row[2] ?? ''),
+            suffix: String(row[3] ?? ''),
+            padding: Number(row[4] ?? 0),
+            separator: String(row[5] ?? '') as '-' | '_' | '',
             autoIncrement: row[6] === 1,
-            resetPeriod: row[7] as ResetPeriod,
-            lastNumber: row[8],
-            lastResetDate: row[9],
-            accountSetId: row[10]
+            resetPeriod: String(row[7] ?? '') as ResetPeriod,
+            lastNumber: Number(row[8] ?? 0),
+            lastResetDate: String(row[9] ?? ''),
+            accountSetId: String(row[10] ?? '')
           };
           this.rules.set(rule.id, rule);
         });

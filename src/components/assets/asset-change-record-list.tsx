@@ -32,7 +32,7 @@ export function AssetTimelineLedger({ open, onOpenChange, assetId: initialAssetI
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [selectedChangeType, setSelectedChangeType] = useState<string>('');
   const [records, setRecords] = useState<AssetChangeRecord[]>([]);
-  const [correctionRecord, setCorrectionRecord] = useState<any>(null);
+  const [correctionRecord, setCorrectionRecord] = useState<AssetChangeRecord | null>(null);
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
   // 渲染期同步 prop → state（React 19 推荐写法，避免 effect 级联渲染）

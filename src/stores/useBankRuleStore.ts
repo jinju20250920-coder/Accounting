@@ -73,11 +73,20 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
       stmt.bind([sqliteService.accountSetId]);
       const existingRules: BankTransactionRule[] = [];
       while (stmt.step()) {
-        const row = stmt.getAsObject() as any;
+        const row = stmt.getAsObject() as Record<string, string | number | Uint8Array | null>;
         existingRules.push({
-          ...row,
+          id: String(row.id ?? ''),
+          accountSetId: row.accountSetId != null ? String(row.accountSetId) : undefined,
+          name: String(row.name ?? ''),
+          keyword: String(row.keyword ?? ''),
+          subjectCode: String(row.subjectCode ?? ''),
+          subjectName: String(row.subjectName ?? ''),
+          direction: String(row.direction ?? '') as BankTransactionRule['direction'],
+          priority: Number(row.priority ?? 0),
           enabled: row.enabled === 1,
           isSystem: row.isSystem === 1,
+          createTime: String(row.createTime ?? ''),
+          updateTime: String(row.updateTime ?? ''),
         });
       }
       stmt.free();
@@ -148,16 +157,19 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
 
       const now = new Date().toISOString();
       const fields: string[] = [];
-      const values: any[] = [];
+      const values: Array<string | number | null> = [];
 
       for (const [key, value] of Object.entries(updates)) {
         if (key === 'id' || key === 'accountSetId') continue;
         if (key === 'enabled' || key === 'isSystem') {
           fields.push(`${key} = ?`);
           values.push(value ? 1 : 0);
-        } else {
+        } else if (typeof value === 'string' || typeof value === 'number') {
           fields.push(`${key} = ?`);
           values.push(value);
+        } else {
+          fields.push(`${key} = ?`);
+          values.push(null);
         }
       }
 

@@ -15,13 +15,14 @@ import { CounterpartySettlement } from './counterparty-settlement';
 import { AgingDistribution } from './aging-distribution';
 import { SettlementAlerts } from './settlement-alerts';
 import { DueDateCalendar } from './due-date-calendar';
+import type { BankTransaction } from '@/types';
 
 type TimePeriod = '7d' | '30d' | '90d' | 'year';
 
 export function SettlementDashboard() {
   const [cutoffDate, setCutoffDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [period, setPeriod] = useState<TimePeriod>('30d');
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [loading, setLoading] = useState(true);
 
   const partnerStore = usePartnerStore();

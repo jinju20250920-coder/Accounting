@@ -89,7 +89,7 @@ export default function DepartmentsPage() {
   const filteredDepts = getFilteredDepartments();
 
   // 递归渲染部门树
-  const renderDepartmentTree = (nodes: any[], level: number = 0) => {
+  const renderDepartmentTree = (nodes: Array<Department & { children?: Department[] }>, level: number = 0) => {
     return nodes.map((node) => {
       const hasChildren = node.children && node.children.length > 0;
       const isExpanded = expandedDepts.has(node.id);
@@ -295,7 +295,7 @@ export default function DepartmentsPage() {
         { key: 'frozen', label: '状态', required: false }
       ];
 
-      const importedData = await importFromExcel<Department>(file, headers);
+      const importedData = await importFromExcel<Record<string, unknown>>(file, headers) as unknown as Department[];
 
       // 处理导入数据
       const validDepts = importedData.filter(dept => {

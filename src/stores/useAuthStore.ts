@@ -170,7 +170,7 @@ export const useAuthStore = create<AuthStore>()(
             // 管理员拥有全部权限
             const permResult = db.exec(`SELECT id FROM permissions`);
             if (permResult[0]?.values) {
-              perms = permResult[0].values.map((r: any[]) => r[0]);
+              perms = permResult[0].values.map((r: Array<string | number | Uint8Array | null>) => String(r[0]));
             }
           } else if (roleId) {
             const rpStmt = db.prepare(`SELECT permissionId FROM role_permissions WHERE roleId = ?`);

@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { useVoucherStore } from './useVoucherStore';
 import { useClearingStore } from './useClearingStore';
 import { getCurrentService } from '@/lib/database';
+import type { VoucherEntry } from '@/types';
 import subjectsData from '../lib/data/subjects.json';
 
 interface SubjectBalance {
@@ -183,7 +184,8 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
     const { recRelations } = useClearingStore.getState();
 
     // 收集所有分录（包括已记账和当前未记账的）
-    const allEntries: any[] = [];
+    type PartnerEntry = VoucherEntry & { voucherStatus: string; isPosted: boolean };
+    const allEntries: PartnerEntry[] = [];
 
     // 只使用已记账凭证进行余额计算
     vouchers.forEach(voucher => {

@@ -815,7 +815,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
         'SELECT * FROM intangibleAssets WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY createTime DESC',
         [accountSetId]
       );
-      const assets: IntangibleAsset[] = assetsResult[0]?.values?.map((row: any[]) => ({
+      const assets: IntangibleAsset[] = assetsResult[0]?.values?.map((row: Array<string | number | Uint8Array | null>) => ({
         id: row[0],
         assetCode: row[1],
         assetName: row[2],
@@ -857,7 +857,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
          ORDER BY period DESC`,
         [accountSetId]
       );
-      const amortizationRecords: AmortizationRecord[] = recordsResult[0]?.values?.map((row: any[]) => ({
+      const amortizationRecords: AmortizationRecord[] = recordsResult[0]?.values?.map((row: Array<string | number | Uint8Array | null>) => ({
         id: row[0],
         entityType: row[1],
         entityId: row[2],

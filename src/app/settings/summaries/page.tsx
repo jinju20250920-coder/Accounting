@@ -97,7 +97,7 @@ export default function SummariesSettingsPage() {
         { key: '摘要内容', label: '摘要内容', required: true }
       ] as const;
 
-      const data = await importFromExcel<{ 摘要内容: string }>(importFile, headers as any);
+      const data = await importFromExcel<{ 摘要内容: string }>(importFile, headers as unknown as Array<{ key: string; label: string; required?: boolean }>);
       const result = await importSummariesFromExcel(data);
       setImportResult(result);
     } catch (error) {

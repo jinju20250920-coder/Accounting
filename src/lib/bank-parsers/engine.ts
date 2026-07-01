@@ -125,7 +125,7 @@ function parseRow(
   row: string[],
   rowIndex: number,
   colIndex: Map<string, number>,
-  dateHandler: { parse: (raw: any, timeRaw?: any) => { date: string; time?: string } },
+  dateHandler: { parse: (raw: string, timeRaw?: string) => { date: string; time?: string } },
   hasSeparatedTime: boolean,
 ): BankTransaction {
   const get = (field: string): string => {

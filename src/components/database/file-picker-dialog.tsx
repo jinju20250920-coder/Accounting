@@ -113,7 +113,7 @@ export function FilePickerDialog({
     try {
       // OPFS 方式不需要用户选择文件
       // 创建 OPFS 文件句柄
-      const opfsRoot = await (navigator.storage as any).getDirectory();
+      const opfsRoot = await (navigator.storage as StorageManager & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
       const fileName = selectedFileName || `${accountSetName}_${new Date().toISOString().slice(0, 10)}.db`;
       const handle = await opfsRoot.getFileHandle(fileName, { create: true });
 

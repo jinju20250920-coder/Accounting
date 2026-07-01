@@ -81,7 +81,7 @@ export default function APReportPage() {
     try {
       // 准备导出数据
       const exportData = agingData.map(item => {
-        const entry: any = {
+        const entry: Record<string, string> = {
           '往来单位': item.partner,
           '当前': formatMoney(item.buckets.current),
           '1期': formatMoney(item.buckets.overdue1),

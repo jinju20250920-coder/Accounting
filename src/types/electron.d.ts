@@ -6,7 +6,7 @@ declare global {
     electronAPI: {
       selectDbFile: () => Promise<string | null>;
       createDbFile: () => Promise<string | null>;
-      saveDb: (data: any) => Promise<string | null>;
+      saveDb: (data: Uint8Array) => Promise<string | null>;
       loadDb: () => Promise<number[] | null>;
       getDbPath: () => Promise<string | null>;
       setDbPath: (path: string) => Promise<boolean>;

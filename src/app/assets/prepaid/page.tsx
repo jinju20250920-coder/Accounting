@@ -65,12 +65,12 @@ function VoucherDetailDialog({ open, onOpenChange, voucherNo }: {
           [voucherId]
         );
         if (cancelled) return;
-        const entries = (entriesResult[0]?.values || []).map((e: any[]) => ({
-          subjectCode: e[0] || '',
-          subjectName: subjectMap.get(e[0]) || e[1] || '',
-          debit: e[2] || 0,
-          credit: e[3] || 0,
-          summary: e[4] || '',
+        const entries = (entriesResult[0]?.values || []).map((e: Array<string | number | Uint8Array | null>) => ({
+          subjectCode: String(e[0] ?? ''),
+          subjectName: subjectMap.get(String(e[0] ?? '')) || String(e[1] ?? ''),
+          debit: Number(e[2] ?? 0),
+          credit: Number(e[3] ?? 0),
+          summary: String(e[4] ?? ''),
         }));
         setDetail({
           id: voucherId,
