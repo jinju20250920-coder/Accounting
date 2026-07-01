@@ -278,7 +278,7 @@ export function ChangeRequestDialog({ change, open = false, onOpenChange }: Chan
                       className={`text-xs ${formData.impact.technical === option.value ? option.color : ''}`}
                       onClick={() => setFormData({
                         ...formData,
-                        impact: { ...formData.impact, technical: option.value as any }
+                        impact: { ...formData.impact, technical: option.value as ChangeRequest['impact']['technical'] }
                       })}
                     >
                       {option.label}
@@ -298,7 +298,7 @@ export function ChangeRequestDialog({ change, open = false, onOpenChange }: Chan
                       className={`text-xs ${formData.impact.business === option.value ? option.color : ''}`}
                       onClick={() => setFormData({
                         ...formData,
-                        impact: { ...formData.impact, business: option.value as any }
+                        impact: { ...formData.impact, business: option.value as ChangeRequest['impact']['business'] }
                       })}
                     >
                       {option.label}
@@ -318,7 +318,7 @@ export function ChangeRequestDialog({ change, open = false, onOpenChange }: Chan
                       className={`text-xs ${formData.impact.schedule === option.value ? option.color : ''}`}
                       onClick={() => setFormData({
                         ...formData,
-                        impact: { ...formData.impact, schedule: option.value as any }
+                        impact: { ...formData.impact, schedule: option.value as ChangeRequest['impact']['schedule'] }
                       })}
                     >
                       {option.label}

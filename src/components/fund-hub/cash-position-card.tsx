@@ -3,13 +3,14 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Wallet, TrendingUp, TrendingDown, Building2, ArrowUpRight, ArrowDownRight, Activity } from 'lucide-react';
+import type { BankTransaction, Subject } from '@/types';
 
 interface CashPositionCardProps {
-  transactions: any[];
-  periodTransactions: any[];
+  transactions: BankTransaction[];
+  periodTransactions: BankTransaction[];
   cutoffDate: string;
   periodLabel: string;
-  subjects: any[];
+  subjects: Subject[];
 }
 
 function formatMoney(amount: number): string {

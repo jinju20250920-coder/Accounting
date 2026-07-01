@@ -131,7 +131,7 @@ export function SetupStepCompany({ data, onChange, lastVoucherFullNo }: SetupSte
             <Label>会计准则</Label>
             <select
               value={data.accountingStandard}
-              onChange={(e) => onChange({ ...data, accountingStandard: e.target.value as any })}
+              onChange={(e) => onChange({ ...data, accountingStandard: e.target.value as 'small-enterprise' | 'enterprise' | 'other' })}
               className="w-full px-3 py-2 border rounded-md"
             >
               <option value="small-enterprise">小企业会计准则</option>
@@ -190,7 +190,7 @@ export function SetupStepCompany({ data, onChange, lastVoucherFullNo }: SetupSte
               <Label>编号周期</Label>
               <select
                 value={data.voucherNoPeriod}
-                onChange={(e) => onChange({ ...data, voucherNoPeriod: e.target.value as any })}
+                onChange={(e) => onChange({ ...data, voucherNoPeriod: e.target.value as 'monthly' | 'yearly' | 'continuous' })}
                 className="w-full px-3 py-2 border rounded-md"
               >
                 <option value="monthly">按月编号（推荐）</option>
@@ -251,7 +251,7 @@ export function SetupStepCompany({ data, onChange, lastVoucherFullNo }: SetupSte
                 <Label>编号周期</Label>
                 <select
                   value={data.voucherNoPeriod}
-                  onChange={(e) => onChange({ ...data, voucherNoPeriod: e.target.value as any })}
+                  onChange={(e) => onChange({ ...data, voucherNoPeriod: e.target.value as 'monthly' | 'yearly' | 'continuous' })}
                   className="w-full px-3 py-2 border rounded-md"
                 >
                   <option value="monthly">按月编号（推荐）</option>

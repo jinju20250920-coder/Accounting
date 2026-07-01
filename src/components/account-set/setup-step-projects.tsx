@@ -112,7 +112,7 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
 
     try {
       const rawData = await importFromExcel<ProjectRow>(file, PROJECT_IMPORT_HEADERS);
-      const toImport: any[] = [];
+      const toImport: ProjectRow[] = [];
       let skipped = 0;
 
       for (const row of rawData) {
@@ -195,7 +195,7 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
           </div>
           <div className="w-28">
             <Label className="text-xs text-slate-500">类型</Label>
-            <select value={newType} onChange={(e) => setNewType(e.target.value as any)} className="h-8 text-sm border rounded px-2 w-full">
+            <select value={newType} onChange={(e) => setNewType(e.target.value as 'income' | 'cost' | 'other')} className="h-8 text-sm border rounded px-2 w-full">
               <option value="income">收入项目</option>
               <option value="cost">成本项目</option>
               <option value="other">其他</option>
@@ -242,7 +242,7 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
                     <Badge variant="outline" className="text-xs">{getTypeBadge(p.type)}</Badge>
                   </td>
                   <td className="px-3 py-2 text-slate-600">{p.startDate || '-'}</td>
-                  <td className="px-3 py-2 text-slate-600">{'remark' in p ? (p as any).remark || '-' : '-'}</td>
+                  <td className="px-3 py-2 text-slate-600">-</td>
                   <td className="px-3 py-1">
                     <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700">
                       <Trash2 className="h-3 w-3" />
@@ -257,7 +257,7 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
         <div className="text-center py-8 text-slate-400">
           <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p>暂无核算项目</p>
-          <p className="text-sm">点击"添加"或"导入Excel"批量录入</p>
+          <p className="text-sm">点击「添加」或「导入Excel」批量录入</p>
         </div>
       )}
     </div>
