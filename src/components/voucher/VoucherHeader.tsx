@@ -53,17 +53,45 @@ export function VoucherHeader() {
   const [templateDescription, setTemplateDescription] = useState('')
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showImportResultDialog, setShowImportResultDialog] = useState(false)
-  const [importPreview, setImportPreview] = useState<any[]>([])
+  const [importPreview, setImportPreview] = useState<ImportedVoucher[]>([])
   const [importFile, setImportFile] = useState<File | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+
+  // 导入分录类型
+  interface ImportedEntry {
+    id: string
+    summary: string
+    subjectCode: string
+    subjectName: string
+    debit: number
+    credit: number
+    deptCode?: string
+    projectCode?: string
+    docNo?: string
+    currencyCode?: string
+    currencyName?: string
+    cashFlowItem?: string
+    customerName?: string
+    supplierName?: string
+  }
+
+  // 导入凭证类型
+  interface ImportedVoucher {
+    voucherNo: string
+    date: string
+    summary: string
+    status: 'draft' | 'review' | 'posted' | 'reversed'
+    voucherType: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing'
+    entries: ImportedEntry[]
+  }
 
   // 导入结果状态
   interface ImportResult {
     voucherNo: string
     status: 'success' | 'failed' | 'warning'
     message: string
-    voucher?: any
-    entries?: any[]
+    voucher?: ImportedVoucher
+    entries?: ImportedEntry[]
   }
   const [importResults, setImportResults] = useState<ImportResult[]>([])
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set())
@@ -99,11 +127,11 @@ export function VoucherHeader() {
           projectCode: entry.projectCode,
           debit: entry.debit || 0,
           credit: entry.credit || 0,
-          currencyCode: (entry as any).currencyCode || '',
-          currencyName: (entry as any).currencyName || '',
-          cashFlowItem: (entry as any).cashFlowItem || '',
-          customerName: (entry as any).customerName || '',
-          supplierName: (entry as any).supplierName || ''
+          currencyCode: entry.currencyCode || '',
+          currencyName: entry.currencyName || '',
+          cashFlowItem: entry.cashFlowItem || '',
+          customerName: entry.customerName || '',
+          supplierName: entry.supplierName || ''
         }))
       })
 
@@ -184,7 +212,7 @@ export function VoucherHeader() {
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data)
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+      const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' })
 
       console.log('Excel 原始数据:', jsonData)
 
@@ -203,9 +231,9 @@ export function VoucherHeader() {
   }
 
   // 解析Excel数据为凭证 - 始终按凭证号分组
-  const parseExcelToVouchers = (data: any[]): any[] => {
+  const parseExcelToVouchers = (data: Record<string, unknown>[]): ImportedVoucher[] => {
     // 辅助函数：解析Excel日期（支持字符串和序列号）
-    const parseExcelDate = (dateValue: any): string => {
+    const parseExcelDate = (dateValue: unknown): string => {
       if (!dateValue) return new Date().toISOString().split('T')[0]
 
       // 如果是数字（Excel日期序列号）
@@ -231,12 +259,12 @@ export function VoucherHeader() {
     }
 
     // 按凭证号分组所有分录
-    const groupedVouchers = new Map<string, any>()
+    const groupedVouchers = new Map<string, ImportedVoucher>()
 
-    data.forEach((row: any) => {
-      const voucherNo = row['凭证号'] || row['凭证字号'] || '记-001'
+    data.forEach((row) => {
+      const voucherNo = String(row['凭证号'] || row['凭证字号'] || '记-001')
       const date = parseExcelDate(row['日期'])
-      const summary = row['摘要'] || ''
+      const summary = String(row['摘要'] || '')
       const debit = Number(row['借方金额'] || row['借方'] || 0) || 0
       const credit = Number(row['贷方金额'] || row['贷方'] || 0) || 0
 
@@ -280,11 +308,11 @@ export function VoucherHeader() {
     console.log('解析结果:', vouchers.map(v => ({
       voucherNo: v.voucherNo,
       entriesCount: v.entries.length,
-      debitTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0),
-      creditTotal: v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0),
+      debitTotal: v.entries.reduce((s, e) => s + (Number(e.debit) || 0), 0),
+      creditTotal: v.entries.reduce((s, e) => s + (Number(e.credit) || 0), 0),
       isBalanced: Math.abs(
-        v.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0) -
-        v.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0)
+        v.entries.reduce((s, e) => s + (Number(e.debit) || 0), 0) -
+        v.entries.reduce((s, e) => s + (Number(e.credit) || 0), 0)
       ) < 0.01
     })))
 
@@ -349,11 +377,11 @@ export function VoucherHeader() {
 
         try {
           // 检查借贷平衡 - 确保数值类型正确
-          const debitTotal = voucherData.entries.reduce((sum: number, e: any) => {
+          const debitTotal = voucherData.entries.reduce((sum, e) => {
             const val = Number(e.debit) || 0
             return sum + val
           }, 0)
-          const creditTotal = voucherData.entries.reduce((sum: number, e: any) => {
+          const creditTotal = voucherData.entries.reduce((sum, e) => {
             const val = Number(e.credit) || 0
             return sum + val
           }, 0)
@@ -373,7 +401,7 @@ export function VoucherHeader() {
           }
 
           // 检查科目代码是否有效
-          const invalidEntries = voucherData.entries.filter((entry: any) => {
+          const invalidEntries = voucherData.entries.filter((entry) => {
             const code = String(entry.subjectCode || '').trim()
             if (code === '') {
               return true
@@ -384,7 +412,7 @@ export function VoucherHeader() {
 
           if (invalidEntries.length > 0) {
             result.status = 'failed'
-            const invalidCodes = invalidEntries.map((e: any) => e.subjectCode || '(空)').join(', ')
+            const invalidCodes = invalidEntries.map((e) => e.subjectCode || '(空)').join(', ')
             result.message = `科目代码格式错误：${invalidCodes}（应为4位或6位数字）`
             results.push(result)
             continue
@@ -399,7 +427,7 @@ export function VoucherHeader() {
           }
 
           // 检查金额是否全部为0
-          const totalAmount = voucherData.entries.reduce((sum: number, e: any) => {
+          const totalAmount = voucherData.entries.reduce((sum, e) => {
             return sum + (Number(e.debit) || 0) + (Number(e.credit) || 0)
           }, 0)
           if (totalAmount === 0) {
@@ -412,7 +440,7 @@ export function VoucherHeader() {
           const newVoucher = {
             ...voucherData,
             id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            entries: voucherData.entries.map((entry: any, idx: number) => ({
+            entries: voucherData.entries.map((entry, idx) => ({
               ...entry,
               id: `entry_${Date.now()}_${idx}`,
               date: voucherData.date,
@@ -832,8 +860,8 @@ export function VoucherHeader() {
                         </thead>
                         <tbody>
                           {importPreview.map((voucher, idx) => {
-                            const debitTotal = voucher.entries.reduce((sum: number, e: any) => sum + (Number(e.debit) || 0), 0)
-                            const creditTotal = voucher.entries.reduce((sum: number, e: any) => sum + (Number(e.credit) || 0), 0)
+                            const debitTotal = voucher.entries.reduce((sum, e) => sum + (Number(e.debit) || 0), 0)
+                            const creditTotal = voucher.entries.reduce((sum, e) => sum + (Number(e.credit) || 0), 0)
                             const isBalanced = Math.abs(debitTotal - creditTotal) < 0.01
                             const diff = Math.abs(debitTotal - creditTotal)
                             return (
@@ -1035,8 +1063,8 @@ export function VoucherHeader() {
                                 {result.entries && (
                                   <>
                                     <span>•</span>
-                                    <span>借方: {result.entries.reduce((s: number, e: any) => s + (Number(e.debit) || 0), 0).toFixed(2)}</span>
-                                    <span>贷方: {result.entries.reduce((s: number, e: any) => s + (Number(e.credit) || 0), 0).toFixed(2)}</span>
+                                    <span>借方: {result.entries.reduce((s, e) => s + (Number(e.debit) || 0), 0).toFixed(2)}</span>
+                                    <span>贷方: {result.entries.reduce((s, e) => s + (Number(e.credit) || 0), 0).toFixed(2)}</span>
                                   </>
                                 )}
                               </div>
@@ -1086,7 +1114,7 @@ export function VoucherHeader() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {result.entries.map((entry: any, entryIdx: number) => (
+                                {result.entries.map((entry, entryIdx) => (
                                   <tr key={entryIdx} className="border-t border-slate-100">
                                     <td className="px-3 py-2">{entry.summary || '-'}</td>
                                     <td className="px-3 py-2 font-mono">{entry.subjectCode || '-'}</td>
@@ -1114,7 +1142,7 @@ export function VoucherHeader() {
                           </div>
 
                           {/* Validation Errors for Entries */}
-                          {isFailed && result.voucher && result.voucher.entries.some((e: any) => {
+                          {isFailed && result.voucher && result.voucher.entries.some((e) => {
                             return !e.subjectCode || e.subjectCode.trim() === '' || !/^\d{4}(\d{2})?$/.test(e.subjectCode)
                           }) && (
                             <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
@@ -1123,11 +1151,11 @@ export function VoucherHeader() {
                                 <div className="text-xs text-amber-800">
                                   <p className="font-semibold mb-1">数据验证警告</p>
                                   <ul className="list-disc list-inside space-y-0.5 text-amber-700">
-                                    {result.voucher.entries.filter((e: any) =>
+                                    {result.voucher.entries.filter((e) =>
                                       !e.subjectCode || e.subjectCode.trim() === '' || !/^\d{4}(\d{2})?$/.test(e.subjectCode)
-                                    ).map((e: any, i: number) => (
+                                    ).map((e, i) => (
                                       <li key={i}>
-                                        分录 {i + 1}: 科目代码 "{e.subjectCode || '(空)'}" 格式错误
+                                        分录 {i + 1}: 科目代码 「{e.subjectCode || '(空)'}」 格式错误
                                       </li>
                                     ))}
                                   </ul>

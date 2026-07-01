@@ -3,7 +3,7 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 export interface FinanceDB extends DBSchema {
   recRelations: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-recRefNo': string;
@@ -15,14 +15,14 @@ export interface FinanceDB extends DBSchema {
   };
   accountSets: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-code': string;
     };
   };
   vouchers: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-date': string;
@@ -32,7 +32,7 @@ export interface FinanceDB extends DBSchema {
   };
   entries: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-voucher': string;
@@ -43,7 +43,7 @@ export interface FinanceDB extends DBSchema {
   };
   subjects: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-code': string;
@@ -52,7 +52,7 @@ export interface FinanceDB extends DBSchema {
   };
   departments: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-code': string;
@@ -60,7 +60,7 @@ export interface FinanceDB extends DBSchema {
   };
   projects: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-code': string;
@@ -68,7 +68,7 @@ export interface FinanceDB extends DBSchema {
   };
   currencies: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-code': string;
@@ -76,7 +76,7 @@ export interface FinanceDB extends DBSchema {
   };
   fxRates: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-rateDate': string;
@@ -85,7 +85,7 @@ export interface FinanceDB extends DBSchema {
   };
   bank_account_bindings: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-accountNumber': string;
@@ -93,7 +93,7 @@ export interface FinanceDB extends DBSchema {
   };
   fxRevaluationRuns: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-period': string;
@@ -101,7 +101,7 @@ export interface FinanceDB extends DBSchema {
   };
   fxRevaluationRunLines: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-runId': string;
@@ -110,7 +110,7 @@ export interface FinanceDB extends DBSchema {
   };
   partners: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
       'by-code': string;
@@ -118,28 +118,28 @@ export interface FinanceDB extends DBSchema {
   };
   voucherTemplates: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
     };
   };
   commonSummaries: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
     };
   };
   userPreferences: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
     };
   };
   auditLogs: {
     key: string;
-    value: any;
+    value: unknown;
     indexes: {
       'by-accountSet': string;
     };
@@ -384,7 +384,7 @@ class DatabaseManager {
     };
   }
 
-  async importData(data: any): Promise<void> {
+  async importData(data: Record<string, unknown>): Promise<void> {
     const db = this.getDatabase();
     const accountSetId = this.getCurrentAccountSetId();
 

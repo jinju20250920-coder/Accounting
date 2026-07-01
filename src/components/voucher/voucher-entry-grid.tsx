@@ -61,7 +61,7 @@ interface VoucherEntry {
 }
 
 // 从@/types导入统一的Partner类型
-import { Partner } from '@/types';
+import { Partner, Currency, Subject } from '@/types';
 
 // 模拟往来单位数据（与 settings/auxiliary 页面保持一致）
 const MOCK_PARTNERS: Partner[] = [
@@ -111,8 +111,8 @@ export function VoucherEntryGrid() {
   const { getBalance } = useAccountStore();
   const currencies = useCurrencyStore((s) => s.currencies);
   const baseCurrency = useAccountSetStore((s) => s.getCurrentAccountSet()?.baseCurrency) || 'CNY';
-  const enabledCurrencies = currencies.filter((c: any) => !c.disabled);
-  const currencyOptions: SelectOption[] = enabledCurrencies.map((c: any) => ({
+  const enabledCurrencies = currencies.filter((c: Currency) => !c.disabled);
+  const currencyOptions: SelectOption[] = enabledCurrencies.map((c) => ({
     value: c.code,
     label: `${c.code} ${c.name}`,
   }));
@@ -121,11 +121,11 @@ export function VoucherEntryGrid() {
   const [focusedCell, setFocusedCell] = useState<{ entryId: string; field: string } | null>(null);
 
   // 每行选中科目元数据跟踪
-  const [selectedSubjectMetadata, setSelectedSubjectMetadata] = useState<Record<string, any>>({});
+  const [selectedSubjectMetadata, setSelectedSubjectMetadata] = useState<Record<string, Record<string, unknown>>>({});
 
   // 部门、项目输入框 refs
-  const deptInputRefs = useRef<Record<string, any>>({});
-  const projectInputRefs = useRef<Record<string, any>>({});
+  const deptInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const projectInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // 模板选择器状态
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
@@ -156,7 +156,7 @@ export function VoucherEntryGrid() {
 
   // 科目搜索下拉显示状态
   const [showSubjectDropdown, setShowSubjectDropdown] = useState<Record<string, boolean>>({});
-  const [filteredSubjects, setFilteredSubjects] = useState<any[]>([]);
+  const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([]);
 
   // 科目输入框 ref，用于定位下拉框
   const subjectInputRefs = useRef<Record<string, HTMLInputElement>>({});
@@ -522,8 +522,8 @@ export function VoucherEntryGrid() {
         const nextInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${nextField}"]`) as HTMLElement;
         if (nextInput) {
           nextInput.focus();
-          if ('select' in nextInput && typeof (nextInput as any).select === 'function') {
-            (nextInput as any).select();
+          if ('select' in nextInput && typeof (nextInput as HTMLInputElement).select === 'function') {
+            (nextInput as HTMLInputElement).select();
           }
         }
       }
@@ -537,8 +537,8 @@ export function VoucherEntryGrid() {
         const prevInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${prevField}"]`) as HTMLElement;
         if (prevInput) {
           prevInput.focus();
-          if ('select' in prevInput && typeof (prevInput as any).select === 'function') {
-            (prevInput as any).select();
+          if ('select' in prevInput && typeof (prevInput as HTMLInputElement).select === 'function') {
+            (prevInput as HTMLInputElement).select();
           }
         }
       }
@@ -552,8 +552,8 @@ export function VoucherEntryGrid() {
         const nextInput = document.querySelector(`[data-entry-id="${nextEntry.id}"][data-field="${field}"]`) as HTMLElement;
         if (nextInput) {
           nextInput.focus();
-          if ('select' in nextInput && typeof (nextInput as any).select === 'function') {
-            (nextInput as any).select();
+          if ('select' in nextInput && typeof (nextInput as HTMLInputElement).select === 'function') {
+            (nextInput as HTMLInputElement).select();
           }
         }
       }
@@ -567,8 +567,8 @@ export function VoucherEntryGrid() {
         const prevInput = document.querySelector(`[data-entry-id="${prevEntry.id}"][data-field="${field}"]`) as HTMLElement;
         if (prevInput) {
           prevInput.focus();
-          if ('select' in prevInput && typeof (prevInput as any).select === 'function') {
-            (prevInput as any).select();
+          if ('select' in prevInput && typeof (prevInput as HTMLInputElement).select === 'function') {
+            (prevInput as HTMLInputElement).select();
           }
         }
       }
@@ -588,8 +588,8 @@ export function VoucherEntryGrid() {
         const nextInput = document.querySelector(`[data-entry-id="${entryId}"][data-field="${nextField}"]`) as HTMLElement;
         if (nextInput) {
           nextInput.focus();
-          if ('select' in nextInput && typeof (nextInput as any).select === 'function') {
-            (nextInput as any).select();
+          if ('select' in nextInput && typeof (nextInput as HTMLInputElement).select === 'function') {
+            (nextInput as HTMLInputElement).select();
           }
         }
       }
