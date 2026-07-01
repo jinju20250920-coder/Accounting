@@ -15,6 +15,8 @@ import { ACCOUNT_CODES } from '@/lib/accounting';
 import { getDefaultAssetTypeSubjectConfig, refreshVoucherStore, getErrorMessage } from '@/lib/utils';
 import { getAssetDatePeriod, normalizeAssetDate } from '@/lib/asset-date';
 import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
+
+type SqlValue = string | number | Uint8Array | null;
 import type {
   FixedAsset,
   DepreciationRecord,
@@ -167,7 +169,16 @@ async function createSubSubjectsForCategory(category: AssetCategory) {
       direction: parent.direction,
       parentId: parent.id,
       level: (parent.level || 1) + 1,
-    } as any);
+      enableDept: false,
+      enableProject: false,
+      enableForeign: false,
+      isCustomer: false,
+      isSupplier: false,
+      isEmployee: false,
+      enableCashFlow: false,
+      disabled: false,
+      block: false,
+    });
   }
 }
 
@@ -1177,7 +1188,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           categoryId: category?.id,
           categoryName: category?.name,
           specification: item.specification,
+          unit: '台',
           quantity: 1,
+          remainingQuantity: 1,
+          unitPrice: item.originalValue,
           originalValue: item.originalValue,
           salvageValue: item.salvageValue || 0,
           depreciableValue: item.originalValue - (item.salvageValue || 0),
@@ -1187,6 +1201,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           usefulLifeYears: item.usefulLifeYears || category?.defaultUsefulLifeYears || 5,
           usefulLifeMonths: (item.usefulLifeYears || category?.defaultUsefulLifeYears || 5) * 12,
           acquisitionDate: item.acquisitionDate,
+          status: 'active',
+          acquisitionType: 'purchase',
           departmentCode: item.departmentCode,
           expenseSubjectCode: item.expenseSubjectCode || category?.expenseSubjectCode || '660204',
           assetSubjectCode: category?.assetSubjectCode || '1501',
@@ -1194,7 +1210,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           supplierName: item.supplierName,
           invoiceNo: item.invoiceNo,
           notes: item.notes,
-        } as any);
+        });
 
         success++;
       } catch (error: unknown) {
@@ -1299,7 +1315,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         'SELECT * FROM assetCategories WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY sortOrder',
         [accountSetId]
       );
-      const categories: AssetCategory[] = categoriesResult[0]?.values?.map((row: any[]) => ({
+      const categories: AssetCategory[] = categoriesResult[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
         code: row[1],
         name: row[2],
@@ -1323,7 +1339,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         'SELECT * FROM fixedAssets WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY createTime DESC',
         [accountSetId]
       );
-      const assets: FixedAsset[] = assetsResult[0]?.values?.map((row: any[]) => ({
+      const assets: FixedAsset[] = assetsResult[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
         assetCode: row[1],
         assetName: row[2],
@@ -1397,7 +1413,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         'SELECT * FROM depreciationRecords WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY period DESC',
         [accountSetId]
       );
-      const depreciationRecords: DepreciationRecord[] = recordsResult[0]?.values?.map((row: any[]) => ({
+      const depreciationRecords: DepreciationRecord[] = recordsResult[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
         assetId: row[1],
         assetCode: row[2],
@@ -2222,7 +2238,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       expenseSubjectCode: '660204',
       status: 'active',
       accountSetId: currentAccountSet.id,
-    } as any);
+    });
 
     return newAsset;
   },
@@ -2244,7 +2260,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         [assetId]
       );
 
-      return result[0]?.values?.map((row: any[]) => ({
+      return result[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
         assetId: row[1],
         assetCode: row[2],
@@ -2528,7 +2544,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 获取现有所有资产编码，用于避免重复
       const existingCodesResult = db.exec('SELECT assetCode FROM fixedAssets WHERE accountSetId = ?', [currentAccountSet.id]);
-      const existingCodes = new Set(existingCodesResult[0]?.values?.map((row: any) => row[0] as string) || []);
+      const existingCodes = new Set(existingCodesResult[0]?.values?.map((row: SqlValue[]) => row[0] as string) || []);
 
       // 辅助函数：创建凭证分录
       const createEntry = (subjectCode: string, subjectName: string, direction: 'debit' | 'credit', debit: number, credit: number, summary: string) => {

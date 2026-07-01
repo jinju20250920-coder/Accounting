@@ -768,7 +768,7 @@ export interface FixedAsset {
   projectName?: string; // 项目名称
 
   // 取得方式
-  acquisitionType: 'invoice' | 'purchase' | 'shareholder_input' | 'surplus' | 'internal_transfer' | 'opening_balance' | 'other'; // 取得方式
+  acquisitionType: 'invoice' | 'purchase' | 'shareholder_input' | 'surplus' | 'internal_transfer' | 'opening_balance' | 'cip_conversion' | 'other'; // 取得方式
   sourceInvoiceId?: string; // 来源发票ID
   sourceVoucherId?: string; // 取得凭证ID
   acquisitionVoucherId?: string; // 取得凭证ID
