@@ -217,7 +217,7 @@ function VoucherDetailDialog({
     (async () => {
       try {
         const vouchers = await sqliteService.getAllVouchers();
-        const voucher = vouchers.find((v: any) => v.voucherNo === voucherNo);
+        const voucher = vouchers.find(v => v.voucherNo === voucherNo);
         if (cancelled) return;
         if (!voucher) { setDetail(null); return; }
 
@@ -229,7 +229,7 @@ function VoucherDetailDialog({
           date: voucher.date,
           summary: voucher.summary || '',
           status: voucher.status || 'draft',
-          entries: (voucher.entries || []).map((e: any) => ({
+          entries: (voucher.entries || []).map(e => ({
             subjectCode: e.subjectCode || '',
             subjectName: subjectMap.get(e.subjectCode) || e.subjectName || '',
             debit: e.debit || 0,
@@ -460,8 +460,8 @@ export function JournalTable({
         ...entry,
         balance: runningBalance,
         currency: accountCurrency || 'CNY',
-        exchangeRate: (entry as any).exchangeRate || undefined,
-        originalAmount: (entry as any).originalAmount || undefined,
+        exchangeRate: entry.exchangeRate || undefined,
+        originalAmount: entry.originalAmount || undefined,
       };
     });
   }, [directionFilteredEntries, openingBalance, accountNumber, accountCurrencyMap]);

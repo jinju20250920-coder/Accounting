@@ -60,7 +60,7 @@ import { getAcquisitionVoucherEntries } from '@/lib/asset-acquisition-rule';
 import { validateAccountingPeriod } from '@/lib/accounting';
 import { getAssetDatePeriod } from '@/lib/asset-date';
 import { formatNumber, refreshVoucherStore, generateId, getErrorMessage } from '@/lib/utils';
-import type { FixedAsset, AssetCategory } from '@/types';
+import type { FixedAsset, AssetCategory, DepreciationMethod, IntangibleAsset } from '@/types';
 
 // 资产卡片对话框组件
 function AssetCardDialog({
@@ -535,7 +535,7 @@ function AssetCardDialog({
                     value={formData.depreciationMethod || 'straight_line'}
                     onValueChange={(v) => setFormData(prev => ({
                       ...prev,
-                      depreciationMethod: v as any
+                      depreciationMethod: v as DepreciationMethod
                     }))}
                   >
                     <SelectTrigger>
@@ -729,7 +729,7 @@ function AssetCardDialog({
                   <Label className="text-xs">入账状态</Label>
                   <Select
                     value={formData.accountingStatus || 'pending'}
-                    onValueChange={(v) => setFormData(prev => ({ ...prev, accountingStatus: v as any }))}
+                    onValueChange={(v) => setFormData(prev => ({ ...prev, accountingStatus: v as 'pending' | 'accounted' | 'depreciating' | 'disposed' }))}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -751,7 +751,7 @@ function AssetCardDialog({
                   </Select>
                   {formData.accountingStatus === 'pending' && (
                     <div className="text-xs text-slate-500">
-                      保存后可在清单中点击"入账"生成取得凭证
+                      保存后可在清单中点击「入账」生成取得凭证
                     </div>
                   )}
                 </div>
@@ -775,7 +775,7 @@ function AssetCardDialog({
                   />
                   {formData.id && (
                     <p className="text-xs text-amber-600">
-                      期初值已锁定。如需修改，请到凭证列表红冲期初凭证（摘要含"期初累计折旧-xxx"），再重新入账。
+                      期初值已锁定。如需修改，请到凭证列表红冲期初凭证（摘要含「期初累计折旧-xxx」），再重新入账。
                     </p>
                   )}
                 </div>
@@ -946,7 +946,7 @@ export default function FixedAssetsPage() {
   const [showBatchLabelDialog, setShowBatchLabelDialog] = useState(false);
   const [showChangeRecordDialog, setShowChangeRecordDialog] = useState(false);
   const [showIntangibleLedger, setShowIntangibleLedger] = useState(false);
-  const [selectedIntangibleAsset, setSelectedIntangibleAsset] = useState<any>(null);
+  const [selectedIntangibleAsset, setSelectedIntangibleAsset] = useState<IntangibleAsset | null>(null);
   const [showDepreciationDialog, setShowDepreciationDialog] = useState(false);
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [accountingAsset, setAccountingAsset] = useState<FixedAsset | null>(null);
@@ -1012,7 +1012,7 @@ export default function FixedAssetsPage() {
         await updateAsset(selectedAsset.id, data);
         showToast('success', '资产更新成功');
       } else {
-        const newAsset = await addAsset(data as any);
+        const newAsset = await addAsset(data as Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'>);
         showToast('success', '资产添加成功');
         // 保存编码规则到数据库（更新 lastNumber）
         const accountSetStore = useAccountSetStore.getState();

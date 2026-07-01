@@ -310,9 +310,9 @@ function ImportDialog({
 
   // 解析单个sheet的数据
   const parseSheetData = (worksheet: XLSX.WorkSheet, sheetName: string): Partial<Invoice>[] => {
-    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
     return jsonData
-      .filter((row: any) => {
+      .filter((row) => {
         // 过滤掉合计行
         const serialNumber = String(row['序号'] || '').trim();
         if (serialNumber.includes('合计')) {
@@ -327,7 +327,7 @@ function ImportDialog({
         }
         return true;
       })
-      .map((row: any) => {
+      .map((row) => {
       // 发票字段读取 - 确保转为字符串并去除空格
       const rawInvoiceCode = String(row['发票代码'] || '').trim();
       const rawInvoiceNumber = String(row['发票号码'] || '').trim();
@@ -348,7 +348,7 @@ function ImportDialog({
       }
 
       // 金额字段解析 - 确保转为数字
-      const parseAmount = (value: any): number => {
+      const parseAmount = (value: unknown): number => {
         if (value === null || value === undefined || value === '') return 0;
         const num = parseFloat(String(value).replace(/,/g, '')); // 去除千分位逗号
         return isNaN(num) ? 0 : num;
@@ -1506,7 +1506,7 @@ export default function InputInvoicePage() {
                                       }
                                       // Check if business group requires partner card
                                       const config = await sqliteService.getPurchaseInvoiceRuleConfig();
-                                      const group = config?.businessGroups?.find((g: any) => g.name === newName);
+                                      const group = config?.businessGroups?.find(g => g.name === newName);
                                       const requireCard = group?.requirePartnerCard !== false;
                                       if (requireCard) {
                                         const existingPartner = await sqliteService.getPartnerByName(invoice.sellerName);

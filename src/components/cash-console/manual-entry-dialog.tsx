@@ -173,7 +173,7 @@ export function ManualEntryDialog({
     try {
       // First try exact date match
       const rates = await sqliteService.getFxRates(d);
-      const match = rates.find((r: any) => r.currencyCode === cur);
+      const match = rates.find(r => r.currencyCode === cur);
       if (match) {
         setExchangeRate(String(match.middleRate));
         setRateSource('auto');
@@ -182,8 +182,8 @@ export function ManualEntryDialog({
       // Fallback: find the most recent rate before this date
       const allRates = await sqliteService.getFxRates();
       const before = allRates
-        .filter((r: any) => r.currencyCode === cur && r.rateDate <= d)
-        .sort((a: any, b: any) => b.rateDate.localeCompare(a.rateDate));
+        .filter(r => r.currencyCode === cur && r.rateDate <= d)
+        .sort((a, b) => b.rateDate.localeCompare(a.rateDate));
       if (before.length > 0) {
         setExchangeRate(String(before[0].middleRate));
         setRateSource('auto');

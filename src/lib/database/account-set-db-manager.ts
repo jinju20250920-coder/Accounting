@@ -4,6 +4,8 @@
  * 所有账套共享全局数据库，通过 accountSetId 字段隔离
  */
 
+type SqlValue = string | number | Uint8Array | null;
+
 import { sqliteService } from './sqlite-service';
 import { buildPartnerInsert } from './services/partner-sqlite-service';
 
@@ -168,7 +170,7 @@ class AccountSetDbManager {
     const result = db.exec(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets ORDER BY createTime`);
     if (!result[0]?.values) return [];
 
-    return result[0].values.map((row: any[]) => ({
+    return result[0].values.map((row: SqlValue[]) => ({
       id: row[0],
       code: row[1],
       name: row[2],
@@ -209,14 +211,14 @@ class AccountSetDbManager {
   /**
    * 导出账套数据（从全局数据库按 accountSetId 过滤）
    */
-  async exportAccountSetData(accountSetId: string): Promise<any> {
+  async exportAccountSetData(accountSetId: string): Promise<Record<string, unknown>> {
     const db = await sqliteService.getDatabase();
 
     const queryTable = (tableName: string) => {
       try {
         const stmt = db.prepare(`SELECT * FROM ${tableName} WHERE accountSetId = ?`);
         stmt.bind([accountSetId]);
-        const rows: any[] = [];
+        const rows: SqlValue[][] = [];
         while (stmt.step()) {
           const row = stmt.get();
           rows.push(row);
@@ -283,7 +285,7 @@ class AccountSetDbManager {
   /**
    * 导入数据到指定账套
    */
-  async importAccountSetData(accountSetId: string, data: any): Promise<void> {
+  async importAccountSetData(accountSetId: string, data: Record<string, unknown>): Promise<void> {
     const db = await sqliteService.getDatabase();
 
     try {
