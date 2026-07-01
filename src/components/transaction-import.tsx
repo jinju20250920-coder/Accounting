@@ -46,7 +46,7 @@ import { BankRulesDialog } from '@/components/bank-rules-dialog';
 import { FieldMappingCoach } from '@/components/field-mapping-coach';
 import { VoucherPreviewDialog, generateDefaultSummary } from '@/components/voucher-preview-dialog';
 import type { PreviewEntry } from '@/components/voucher-preview-dialog';
-import type { BankTransaction, BankStatementParseResult } from '@/types';
+import type { BankTransaction, BankStatementParseResult, BankAccountBinding, VoucherEntry } from '@/types';
 
 interface TransactionRecord {
   id: string;
@@ -73,7 +73,7 @@ interface TransactionRecord {
       amount: tx.debit || 0,
       balance: tx.balance,
       type,
-      status: (tx.status as any) || 'pending'
+      status: (tx.status === 'voucher_generated' ? 'pending' : tx.status) || 'pending'
     };
   };
 
@@ -189,7 +189,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
   const [parseErrors, setParseErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
 
-  const [previewEntries, setPreviewEntries] = useState<any[]>([]);
+  const [previewEntries, setPreviewEntries] = useState<PreviewEntry[]>([]);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [bankInfo, setBankInfo] = useState<{ bankName: string; accountName: string; accountNumber: string } | null>(null);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
@@ -219,7 +219,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
       if (savedTransactions.length > 0) {
         // 只加载未生成凭证的流水
         const pendingTransactions = savedTransactions.filter(
-          (tx: any) => tx.status === 'pending' || tx.status === 'matched'
+          tx => tx.status === 'pending' || tx.status === 'matched'
         );
 
         if (pendingTransactions.length > 0) {
@@ -227,7 +227,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
           setShowPreview(true);
 
           // 恢复批次ID
-          const batchIds = [...new Set(pendingTransactions.map((tx: any) => tx.importBatchId).filter(Boolean))];
+          const batchIds = [...new Set(pendingTransactions.map(tx => tx.importBatchId).filter(Boolean))] as string[];
           if (batchIds.length > 0) {
             setCurrentBatchId(batchIds[0] as string);
           }
@@ -562,7 +562,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
     // 预加载银行账户绑定，用于推断外币币别/汇率/原币金额
     const service = getCurrentService();
     const bankBindings = (await service.getBankAccountBindings?.()) || [];
-    const bindingsByAccount = new Map<string, any>();
+    const bindingsByAccount = new Map<string, BankAccountBinding>();
     for (const b of bankBindings) {
       if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
     }
@@ -586,8 +586,8 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
       const counterpartSubjectName = transaction.matchedSubjectName || '财务费用';
 
       // 外币字段：优先从交易自带 FX 字段推断；其次从银行账户绑定的币别推断；最后从摘要解析 (USD@rate) 兜底
-      const txOriginal = (transaction as any).originalAmount as number | undefined;
-      const txRate = (transaction as any).exchangeRate as number | undefined;
+      const txOriginal = transaction.originalAmount;
+      const txRate = transaction.exchangeRate;
       const summaryFxMatch = (transaction.summary || '').match(/\(([A-Z]{3})@([\d.]+)\)/);
       const summaryCurrency = summaryFxMatch ? summaryFxMatch[1] : undefined;
       const summaryRate = summaryFxMatch ? parseFloat(summaryFxMatch[2]) : undefined;
@@ -668,7 +668,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
 
       // 预加载银行账户绑定，用于外币凭证分录的币别/汇率/原币金额透传
       const bankBindings = (await service.getBankAccountBindings?.()) || [];
-      const bindingsByAccount = new Map<string, any>();
+      const bindingsByAccount = new Map<string, BankAccountBinding>();
       for (const b of bankBindings) {
         if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
       }
@@ -748,7 +748,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
           const voucherNo = await generateVoucherNo(postingDate, voucherType);
 
           // 创建凭证分录
-          const entries: any[] = [];
+          const entries: VoucherEntry[] = [];
 
           // isDebit=true: 银行流水借方=付款(钱流出)
           //   → 银行存款减少(贷方), 对方科目增加(借方,如应付账款)
@@ -759,8 +759,8 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
           // 优先级：流水自带 originalAmount/exchangeRate > 银行卡片币别反推
           const binding = tx.ourAccount ? bindingsByAccount.get(tx.ourAccount) : null;
           const bindingCurrency = binding?.currency || binding?.currencyCode || 'CNY';
-          const txOriginalAmount = (tx as any).originalAmount as number | undefined;
-          const txExchangeRate = (tx as any).exchangeRate as number | undefined;
+          const txOriginalAmount = tx.originalAmount;
+          const txExchangeRate = tx.exchangeRate;
           const isForeignCurrency = bindingCurrency !== 'CNY'
             && ((txOriginalAmount && txOriginalAmount > 0) || (txExchangeRate && txExchangeRate > 0));
           const fxOriginal = isForeignCurrency && txOriginalAmount && txOriginalAmount > 0
@@ -815,7 +815,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
                   enableCashFlow: false,
                   disabled: false,
                   block: false,
-                } as any);
+                });
               }
 
               // 科目方式下，清空往来卡片信息
@@ -967,8 +967,8 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
     try {
       const service = getCurrentService();
       await service.updateBankTransaction(txId, {
-        matchedSubject: null as any,
-        matchedSubjectName: null as any,
+        matchedSubject: null,
+        matchedSubjectName: null,
         status: 'pending'
       });
     } catch (error) {

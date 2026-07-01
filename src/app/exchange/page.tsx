@@ -33,7 +33,7 @@ import {
   type FxRevaluationBankBalance,
   type FxRevaluationOpenItem,
 } from '@/lib/fx-revaluation';
-import type { FxRate, FxRevaluationRun, FxRevaluationRunLine, Voucher } from '@/types';
+import type { FxRate, FxRevaluationRun, FxRevaluationRunLine, Voucher, BankAccountBinding } from '@/types';
 
 // ─── 工具 ───
 
@@ -142,8 +142,8 @@ export default function ExchangePage() {
     try {
       // 1. 获取期末汇率（自动回退到最近日期）
       const periodEnd = getMonthEndDate(period);
-      const service = getCurrentService() as any;
-      const rates: FxRate[] = await (service.getFxRates?.(periodEnd) || []);
+      const service = getCurrentService();
+      const rates: FxRate[] = await (service?.getFxRates?.(periodEnd) || []);
 
       if (rates.length === 0) {
         showToast('warning', `${periodEnd} 及之前均未录入汇率，请先在币别管理中录入汇率`);
@@ -349,8 +349,8 @@ export default function ExchangePage() {
     setVoucherDialogLoading(true);
     setVoucherDialogVoucher(null);
     try {
-      const service = getCurrentService() as any;
-      const voucher = service.getVoucher ? await service.getVoucher(voucherId) : null;
+      const service = getCurrentService();
+      const voucher = service?.getVoucher ? await service.getVoucher(voucherId) : null;
       setVoucherDialogVoucher(voucher || null);
     } catch (e) {
       console.error('Failed to load voucher:', e);
@@ -921,7 +921,7 @@ function formatDateTime(iso?: string): string {
 async function loadMonetaryBalances(
   period: string,
 ): Promise<{ bankBalances: FxRevaluationBankBalance[]; openItems: FxRevaluationOpenItem[] }> {
-  const service = getCurrentService() as any;
+  const service = getCurrentService();
   const periodEnd = getMonthEndDate(period);
 
   // 1. 加载货币性科目集合，建立 code → { direction, name } 映射
@@ -938,10 +938,10 @@ async function loadMonetaryBalances(
   }
 
   // 2. 预加载银行账户绑定
-  const bindingsBySubject = new Map<string, any>();
-  const bindingsByAccount = new Map<string, any>();
+  const bindingsBySubject = new Map<string, BankAccountBinding>();
+  const bindingsByAccount = new Map<string, BankAccountBinding>();
   try {
-    const bindings = service.getBankAccountBindings ? await service.getBankAccountBindings() : [];
+    const bindings = service?.getBankAccountBindings ? await service.getBankAccountBindings() : [];
     for (const b of bindings || []) {
       if (b.subSubjectCode) bindingsBySubject.set(b.subSubjectCode, b);
       if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);

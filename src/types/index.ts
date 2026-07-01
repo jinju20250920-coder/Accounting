@@ -409,6 +409,8 @@ export interface BankTransaction {
   generatedVoucherNo?: string;
   voucherId?: string;
   importBatchId?: string;
+  originalAmount?: number; // 外币原币金额（FX 流水用）
+  exchangeRate?: number; // 外币汇率（FX 流水用）
 }
 
 // 银行流水解析结果
