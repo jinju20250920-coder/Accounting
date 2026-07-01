@@ -242,8 +242,8 @@ function ImportDialog({
 
   // 解析单个sheet的数据
   const parseSheetData = (worksheet: XLSX.WorkSheet): Partial<Invoice>[] => {
-    const jsonData = XLSX.utils.sheet_to_json(worksheet);
-    return jsonData.map((row: any) => {
+    const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
+    return jsonData.map((row) => {
       // 发票字段读取 - 确保转为字符串并去除空格
       const rawInvoiceCode = String(row['发票代码'] || '').trim();
       const rawInvoiceNumber = String(row['发票号码'] || '').trim();
@@ -262,7 +262,7 @@ function ImportDialog({
       }
 
       // 金额字段解析 - 确保转为数字
-      const parseAmount = (value: any): number => {
+      const parseAmount = (value: unknown): number => {
         if (value === null || value === undefined || value === '') return 0;
         const num = parseFloat(String(value).replace(/,/g, '')); // 去除千分位逗号
         return isNaN(num) ? 0 : num;
@@ -1066,7 +1066,7 @@ export default function OutputInvoicePage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <Select value={invoice.groupName || "__default__"} onValueChange={async (v) => { const newName = v === "__default__" ? "" : v; updateInvoice(invoice.id, { groupName: newName }); if (newName && invoice.buyerName) { try { const existing = await sqliteService.getSupplierMappingBySellerName(invoice.buyerName); if (!existing || existing.groupName !== newName) { await sqliteService.saveSupplierMapping({ id: existing?.id || `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`, accountSetId: sqliteService.accountSetId, groupName: newName, sellerName: invoice.buyerName, createTime: existing?.createTime || new Date().toISOString(), updateTime: new Date().toISOString(), }); } const config = await sqliteService.getPurchaseInvoiceRuleConfig(); const group = config?.businessGroups?.find((g: any) => g.name === newName); const requireCard = group?.requirePartnerCard !== false; if (requireCard) { const existingPartner = await sqliteService.getPartnerByName(invoice.buyerName); if (!existingPartner) { await sqliteService.addPartner({ id: `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`, name: invoice.buyerName, code: `C${Date.now().toString(36)}`, type: 'customer', isSupplier: false, isCustomer: true, phone: '', email: '', address: '', bankAccount: '', taxNo: '', remark: '发票自动学习创建', createTime: new Date().toISOString(), updateTime: new Date().toISOString(), }); showToast('info', `已自动学习：${invoice.buyerName} → ${newName}，并创建往来卡片`); } else { showToast('info', `已自动学习：${invoice.buyerName} → ${newName}`); } } else { showToast('info', `已自动学习：${invoice.buyerName} → ${newName}`); } } catch {} } }}><SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__default__">默认</SelectItem>{businessGroupNames.map(name => (<SelectItem key={name} value={name}>{name}</SelectItem>))}</SelectContent></Select>
+                        <Select value={invoice.groupName || "__default__"} onValueChange={async (v) => { const newName = v === "__default__" ? "" : v; updateInvoice(invoice.id, { groupName: newName }); if (newName && invoice.buyerName) { try { const existing = await sqliteService.getSupplierMappingBySellerName(invoice.buyerName); if (!existing || existing.groupName !== newName) { await sqliteService.saveSupplierMapping({ id: existing?.id || `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`, accountSetId: sqliteService.accountSetId, groupName: newName, sellerName: invoice.buyerName, createTime: existing?.createTime || new Date().toISOString(), updateTime: new Date().toISOString(), }); } const config = await sqliteService.getPurchaseInvoiceRuleConfig(); const group = config?.businessGroups?.find(g => g.name === newName); const requireCard = group?.requirePartnerCard !== false; if (requireCard) { const existingPartner = await sqliteService.getPartnerByName(invoice.buyerName); if (!existingPartner) { await sqliteService.addPartner({ id: `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`, name: invoice.buyerName, code: `C${Date.now().toString(36)}`, type: 'customer', isSupplier: false, isCustomer: true, phone: '', email: '', address: '', bankAccount: '', taxNo: '', remark: '发票自动学习创建', createTime: new Date().toISOString(), updateTime: new Date().toISOString(), }); showToast('info', `已自动学习：${invoice.buyerName} → ${newName}，并创建往来卡片`); } else { showToast('info', `已自动学习：${invoice.buyerName} → ${newName}`); } } else { showToast('info', `已自动学习：${invoice.buyerName} → ${newName}`); } } catch {} } }}><SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__default__">默认</SelectItem>{businessGroupNames.map(name => (<SelectItem key={name} value={name}>{name}</SelectItem>))}</SelectContent></Select>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">

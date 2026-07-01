@@ -47,11 +47,11 @@ interface PreferenceStore {
 }
 
 // 迁移函数
-const migrateV1ToV2 = (state: any) => {
+const migrateV1ToV2 = (state: { preferences?: Array<Record<string, unknown>>; [k: string]: unknown }) => {
   if (!state.preferences) return state;
 
   // 添加匹配次数和成功率字段
-  const migratedPreferences = state.preferences.map((pref: any) => ({
+  const migratedPreferences = state.preferences.map((pref) => ({
     ...pref,
     matchedCount: pref.matchedCount || 1,
     successRate: pref.successRate || 1.0
@@ -262,7 +262,7 @@ export const useUserPreferenceStore = create<PreferenceStore>()((set, get) => ({
       }
 
       // 更新时间戳
-      const updatedPreferences = parsed.preferences.map((pref: any) => ({
+      const updatedPreferences = parsed.preferences.map((pref: Preference) => ({
         ...pref,
         id: `pref_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         timestamp: Date.now(),

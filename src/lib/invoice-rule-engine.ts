@@ -505,7 +505,7 @@ export function getDynamicTaxSubject(invoice: Invoice, baseTaxSubject?: string):
  * Get automatic fixed asset card based on amount threshold and asset mappings
  * Default threshold: 5000 yuan
  */
-function getAutomaticFixedAsset(invoice: Invoice, assetMappings: any[]): Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> | null {
+function getAutomaticFixedAsset(invoice: Invoice, assetMappings: AssetCategoryMapping[]): Omit<FixedAsset, 'id' | 'createTime' | 'updateTime'> | null {
   // Default amount threshold for fixed asset classification
   const FIXED_ASSET_THRESHOLD = 5000;
 
@@ -551,7 +551,7 @@ function getAutomaticFixedAsset(invoice: Invoice, assetMappings: any[]): Omit<Fi
 /**
  * Match asset category based on invoice goods name and asset mappings
  */
-function matchAssetCategory(invoice: Invoice, assetMappings: any[]): any | null {
+function matchAssetCategory(invoice: Invoice, assetMappings: AssetCategoryMapping[]): AssetCategoryMapping | null {
   const text = `${invoice.goodsName || ''} ${invoice.notes || ''}`.toLowerCase();
 
   for (const mapping of assetMappings) {

@@ -28,7 +28,12 @@ interface AuxiliarySelectorProps {
     customer?: string;
     supplier?: string;
   };
-  onChange: (auxiliary: any) => void;
+  onChange: (auxiliary: {
+    department?: string;
+    project?: string;
+    customer?: string;
+    supplier?: string;
+  }) => void;
   className?: string;
 }
 
@@ -87,7 +92,7 @@ export function AuxiliarySelector({ value, onChange, className }: AuxiliarySelec
   );
 
   // 处理选择
-  const handleSelect = (option: any) => {
+  const handleSelect = (option: Department | Project | { id: string; name: string; code?: string }) => {
     onChange({
       ...value,
       [selectedType]: option.id || option.code
@@ -229,7 +234,7 @@ export function AuxiliarySelector({ value, onChange, className }: AuxiliarySelec
                     </div>
                     {selectedType === 'project' && 'type' in option && (
                       <span className="text-xs text-slate-500">
-                        {(option as any).type === 'income' ? '收入类' : '成本类'}
+                        {'type' in option && option.type === 'income' ? '收入类' : '成本类'}
                       </span>
                     )}
                   </div>

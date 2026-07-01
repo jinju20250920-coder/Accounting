@@ -53,11 +53,12 @@ export default function AssetsPage() {
 
   // 构建科目树
   const subjectTree = useMemo(() => {
-    const roots: any[] = [], map = new Map();
+    type SubjectNode = { code: string; name: string; children: SubjectNode[] };
+    const roots: SubjectNode[] = [], map = new Map<string, SubjectNode>();
     subjectStore.subjects.forEach(s => map.set(s.code, { code: s.code, name: s.name, children: [] }));
     subjectStore.subjects.forEach(s => {
-      const node = map.get(s.code);
-      if (s.parentId && map.has(s.parentId)) map.get(s.parentId).children.push(node);
+      const node = map.get(s.code)!;
+      if (s.parentId && map.has(s.parentId)) map.get(s.parentId)!.children.push(node);
       else roots.push(node);
     });
     return roots;
@@ -167,7 +168,7 @@ export default function AssetsPage() {
   // 导出Excel
   const handleExport = () => {
     try {
-      const exportData: any[] = [];
+      const exportData: Array<Array<string | number>> = [];
       exportData.push(['资产', '行次', showYearBeginning ? '年初余额' : '期初余额', '期末余额', '负债和所有者权益', '行次', showYearBeginning ? '年初余额' : '期初余额', '期末余额']);
 
       reportData.forEach(row => {
@@ -487,7 +488,7 @@ export default function AssetsPage() {
           <div className="space-y-4">
             <select value={editingOpeningCode} onChange={(e) => { setEditingOpeningCode(e.target.value); setEditingOpeningAmount(openingBalances[e.target.value] || 0); }} className="w-full border rounded px-3 py-2">
               <option value="">-- 选择科目 --</option>
-              {subjectTree.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
+              {subjectTree.map(s => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
             </select>
             <Input type="number" value={editingOpeningAmount} onChange={(e) => setEditingOpeningAmount(parseFloat(e.target.value) || 0)} placeholder="期初余额" />
             <Button onClick={saveOpeningBalance} className="w-full">保存</Button>
