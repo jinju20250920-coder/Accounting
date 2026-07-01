@@ -7,7 +7,7 @@ export interface ErrorContext {
   component?: string;
   action?: string;
   userId?: string;
-  data?: any;
+  data?: Record<string, unknown>;
   timestamp?: number;
 }
 
@@ -224,10 +224,10 @@ export function createError(
   message: string,
   level: ErrorLevel = ErrorLevel.ERROR,
   context?: ErrorContext
-): Error {
-  const error = new Error(message);
-  (error as any).level = level;
-  (error as any).context = context;
+): Error & { level: ErrorLevel; context?: ErrorContext } {
+  const error = new Error(message) as Error & { level: ErrorLevel; context?: ErrorContext };
+  error.level = level;
+  error.context = context;
   return error;
 }
 
@@ -257,7 +257,7 @@ export function withErrorHandling<T>(
 }
 
 // 工具函数：验证 API 响应
-export function validateApiResponse(response: any): { valid: boolean; error?: Error } {
+export function validateApiResponse(response: { error?: { message?: string }; status?: number } | null | undefined): { valid: boolean; error?: Error } {
   if (!response) {
     return {
       valid: false,
@@ -272,7 +272,7 @@ export function validateApiResponse(response: any): { valid: boolean; error?: Er
     };
   }
 
-  if (response.status >= 400) {
+  if (response.status && response.status >= 400) {
     return {
       valid: false,
       error: createError(`请求失败: ${response.status}`, ErrorLevel.ERROR)

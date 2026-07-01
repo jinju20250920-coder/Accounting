@@ -70,7 +70,7 @@ export function SetupStepTemplate({
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
   const [mode, setMode] = useState<'template' | 'custom'>('template');
-  const [importedSubjects, setImportedSubjects] = useState<any[]>([]);
+  const [importedSubjects, setImportedSubjects] = useState<Array<{ code: string; name: string; direction: 'debit' | 'credit'; level: number; parentCode: string | null }>>([]);
   const [importing, setImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -163,8 +163,8 @@ export function SetupStepTemplate({
 
     setImporting(true);
     try {
-      const rawData = await importFromExcel<any>(file, SUBJECT_IMPORT_HEADERS);
-      const subjects: any[] = [];
+      const rawData = await importFromExcel<Record<string, string | number | null>>(file, SUBJECT_IMPORT_HEADERS);
+      const subjects: Array<{ code: string; name: string; direction: 'debit' | 'credit'; level: number; parentCode: string | null }> = [];
       let skipped = 0;
 
       for (const row of rawData) {
@@ -245,7 +245,7 @@ export function SetupStepTemplate({
   };
 
   const handleDownloadSubjectTemplate = () => {
-    exportTemplate<any>(
+    exportTemplate<Record<string, string | number>>(
       '科目导入模板',
       { code: '1001', name: '库存现金', direction: '借', level: 1, parentCode: '' },
       SUBJECT_IMPORT_HEADERS

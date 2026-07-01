@@ -209,7 +209,7 @@ export class AILearningEngine {
   /**
    * 查找精确匹配
    */
-  private findExactMatch(input: any) {
+  private findExactMatch(input: { partnerName: string; summary: string }) {
     // 查找完全匹配的模式
     const candidates = this.records.filter(r =>
       r.pattern.partnerName === input.partnerName &&
@@ -240,7 +240,7 @@ export class AILearningEngine {
   /**
    * 查找对方单位+摘要匹配
    */
-  private findPartnerSummaryMatch(input: any) {
+  private findPartnerSummaryMatch(input: { partnerName: string; summary: string }) {
     const candidates = this.records.filter(r =>
       r.pattern.partnerName === input.partnerName &&
       r.result === 'success' &&
@@ -274,7 +274,7 @@ export class AILearningEngine {
   /**
    * 推荐辅助核算项目
    */
-  private recommendAuxiliary(input: any) {
+  private recommendAuxiliary(input: { partnerName: string; summary: string; amount?: number; departmentOptions?: string[]; projectOptions?: string[] }) {
     const auxiliary: {
       department?: string;
       project?: string;
@@ -331,7 +331,7 @@ export class AILearningEngine {
   /**
    * 获取用户偏好列表
    */
-  private getUserPreferences(): any[] {
+  private getUserPreferences(): Array<{ summary: string; subject: string; timestamp: number }> {
     return this.records
       .filter(r => r.result === 'success')
       .map(r => ({

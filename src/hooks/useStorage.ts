@@ -80,7 +80,7 @@ export function useStorageMonitor() {
   };
 
   const exportStorage = () => {
-    const data: Record<string, any> = {};
+    const data: Record<string, unknown> = {};
     const keys = ['finance-vouchers', 'finance-preferences', 'finance-audit', 'finance-settings'];
 
     keys.forEach(key => {
@@ -153,7 +153,7 @@ export const storageUtils = {
   },
 
   // 压缩审计日志
-  compressAuditLog: (records: any[], maxRecords: number): any[] => {
+  compressAuditLog: <T extends { timestamp: string }>(records: T[], maxRecords: number): T[] => {
     // 按时间倒序排序
     const sorted = [...records].sort((a, b) =>
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
