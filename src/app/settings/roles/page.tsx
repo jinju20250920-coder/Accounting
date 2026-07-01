@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/toast';
 import { useUserStore } from '@/stores/useUserStore';
+import type { RoleRecord } from '@/stores/useUserStore';
 import {
   Dialog,
   DialogContent,
@@ -49,7 +50,7 @@ export default function RolesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showPermDialog, setShowPermDialog] = useState(false);
-  const [editingRole, setEditingRole] = useState<any>(null);
+  const [editingRole, setEditingRole] = useState<RoleRecord | null>(null);
   const [permRoleId, setPermRoleId] = useState('');
   const [selectedPerms, setSelectedPerms] = useState<string[]>([]);
 
@@ -104,7 +105,7 @@ export default function RolesPage() {
     showToast('success', '角色已删除');
   };
 
-  const openEditDialog = (role: any) => {
+  const openEditDialog = (role: RoleRecord) => {
     setEditingRole(role);
     setEditDisplayName(role.displayName);
     setEditDescription(role.description);

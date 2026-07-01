@@ -23,10 +23,10 @@ export function DatabaseSwitcher() {
 
   const handleExportSqlite = async () => {
     try {
-      const manager = getCurrentManager() as any;
+      const manager = getCurrentManager() as unknown as { exportDatabase?: () => Promise<Uint8Array> };
       if (manager.exportDatabase) {
         const data = await manager.exportDatabase();
-        const blob = new Blob([data], { type: 'application/x-sqlite3' });
+        const blob = new Blob([data as unknown as BlobPart], { type: 'application/x-sqlite3' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -47,7 +47,7 @@ export function DatabaseSwitcher() {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
 
-      const manager = getCurrentManager() as any;
+      const manager = getCurrentManager() as { importDatabase?: (data: Uint8Array) => Promise<void> };
       if (manager.importDatabase) {
         await manager.importDatabase(uint8Array);
         alert('Database imported successfully! The page will reload.');

@@ -82,7 +82,7 @@ export default function ARReportPage() {
     try {
       // 准备导出数据
       const exportData = agingData.map(item => {
-        const entry: any = {
+        const entry: Record<string, string> = {
           '往来单位': item.partner,
           '当前': formatMoney(item.buckets.current),
           '1期': formatMoney(item.buckets.overdue1),
@@ -150,7 +150,7 @@ export default function ARReportPage() {
     const postedVouchers = voucherStore.vouchers.filter(v => v.status === 'posted');
     console.log('AR Aging - 已记账凭证数量:', postedVouchers.length);
     console.log('AR Aging - 所有凭证数量:', voucherStore.vouchers.length);
-    console.log('AR Aging - 科目列表:', subjectStore.subjects.map((s: any) => ({ code: s.code, name: s.name, isCustomer: s.isCustomer })));
+    console.log('AR Aging - 科目列表:', subjectStore.subjects.map((s) => ({ code: s.code, name: s.name, isCustomer: s.isCustomer })));
 
     const allEntries = postedVouchers.flatMap(v => v.entries);
     console.log('AR Aging - 已记账凭证的所有分录:', allEntries.map(e => ({ subjectCode: e.subjectCode, debit: e.debit, credit: e.credit })));

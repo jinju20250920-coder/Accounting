@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toast';
 import { useUserStore } from '@/stores/useUserStore';
+import type { UserRecord } from '@/stores/useUserStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import {
   Dialog,
@@ -42,7 +43,7 @@ export default function UsersPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
-  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [resetUserId, setResetUserId] = useState('');
   const [approveUserId, setApproveUserId] = useState('');
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
@@ -132,7 +133,7 @@ export default function UsersPage() {
     showToast('success', newStatus === 'active' ? '用户已启用' : '用户已禁用');
   };
 
-  const openEditDialog = (user: any) => {
+  const openEditDialog = (user: UserRecord) => {
     setEditingUser(user);
     setEditDisplayName(user.displayName);
     setEditEmail(user.email || '');

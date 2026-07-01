@@ -180,7 +180,7 @@ export function DatabaseLocationDialog({
       }
 
       // 在 OPFS 中创建新文件
-      const opfsRoot = await (navigator.storage as any).getDirectory();
+      const opfsRoot = await (navigator.storage as unknown as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
       const fileName = `${accountSetName}_${accountSetId}.db`;
       const handle = await opfsRoot.getFileHandle(fileName, { create: true });
 
@@ -440,7 +440,7 @@ export function DatabaseLocationDialog({
       // 优先使用 OPFS（无需用户交互）
       if (FileHandleManager.isOPFSSupported()) {
         try {
-          const opfsRoot = await (navigator.storage as any).getDirectory();
+          const opfsRoot = await (navigator.storage as unknown as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
           handle = await opfsRoot.getFileHandle(dbFileName, { create: true });
           const writable = await handle.createWritable();
           await writable.write(db.export());

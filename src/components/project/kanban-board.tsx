@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/stores/useProjectStore';
+import type { Task } from '@/stores/useProjectStore';
 import { TaskCard } from './task-card';
 import { TaskDialog } from './task-dialog';
 import { Plus, Search } from 'lucide-react';
@@ -34,7 +35,7 @@ export function KanbanBoard() {
   const handleDrop = (e: React.DragEvent, newStatus: string) => {
     e.preventDefault();
     const taskId = e.dataTransfer.getData('taskId');
-    moveTask(taskId, newStatus as any);
+    moveTask(taskId, newStatus as Task['status']);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -132,7 +133,7 @@ export function KanbanBoard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-4">
-              {filteredTasks[status].map((task: any) => (
+              {filteredTasks[status].map((task: Task) => (
                 <div
                   key={task.id}
                   draggable

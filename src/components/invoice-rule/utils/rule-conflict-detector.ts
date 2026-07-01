@@ -15,7 +15,7 @@ interface BusinessGroup {
 }
 
 // 冲突检测结果
-interface ConflictResult {
+export interface ConflictResult {
   ruleId1: string;
   ruleId2: string;
   businessGroup1: string;

@@ -4,9 +4,20 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Building2, ChevronDown, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
 
+interface BankTransactionRow {
+  date: string;
+  ourAccount?: string;
+  ourBranch?: string;
+  balance?: number | null;
+  debit?: number;
+  credit?: number;
+  summary?: string;
+  counterpartyName?: string;
+}
+
 interface BankSummaryTableProps {
-  transactions: any[];
-  periodTransactions: any[];
+  transactions: BankTransactionRow[];
+  periodTransactions: BankTransactionRow[];
   periodRange: { start: string; end: string };
   periodLabel: string;
   cutoffDate: string;

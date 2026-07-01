@@ -5,11 +5,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Users, ArrowUpRight, ArrowDownRight, ChevronRight } from 'lucide-react';
 import { getCurrentService } from '@/lib/database';
 import { waitForDbInit } from '@/hooks/useDatabaseSync';
+import type { Partner } from '@/types';
 
 interface CounterpartySettlementProps {
   cutoffDate: string;
-  partners: any[];
-  clearingStore: any;
+  partners: Partner[];
+  clearingStore: unknown;
 }
 
 function formatMoney(amount: number): string {

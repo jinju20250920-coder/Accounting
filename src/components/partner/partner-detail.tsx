@@ -17,6 +17,31 @@ import type { Partner } from '@/types';
 import { useClearingStore } from '@/stores/useClearingStore';
 import { useAccountStore } from '@/stores/useAccountStore';
 
+interface PartnerTransaction {
+  id?: string;
+  subjectCode?: string;
+  subjectName?: string;
+  summary?: string;
+  debit?: number;
+  credit?: number;
+  customerName?: string;
+  supplierName?: string;
+  docNo?: string;
+  voucherNo?: string;
+  voucherDate?: string;
+  status?: string;
+  isPosted?: boolean;
+  auxiliary?: { customer?: string; supplier?: string };
+  recAmount?: number;
+  remainingAmount?: number;
+  isCleared?: boolean;
+  currencyCode?: string;
+  currencyName?: string;
+  exchangeRate?: number;
+  originalAmount?: number;
+  localAmount?: number;
+}
+
 interface PartnerDetailProps {
   partner: Partner;
   onBack: () => void;
@@ -28,7 +53,7 @@ export function PartnerDetail({ partner, onBack }: PartnerDetailProps) {
   const { getPartnerBalance } = useAccountStore();
   const [searchText, setSearchText] = useState('');
   const [timeRange, setTimeRange] = useState('all');
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<PartnerTransaction[]>([]);
   const [loading, setLoading] = useState(true);
 
   // 初始化数据
@@ -44,7 +69,7 @@ export function PartnerDetail({ partner, onBack }: PartnerDetailProps) {
     const loadTransactions = () => {
       setLoading(true);
 
-      const allEntries: any[] = [];
+      const allEntries: PartnerTransaction[] = [];
 
       // 添加已记账凭证的分录
       vouchers.forEach(voucher => {

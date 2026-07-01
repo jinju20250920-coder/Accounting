@@ -101,7 +101,7 @@ function SubjectSelector({
       role="button"
       tabIndex={0}
       onClick={handleToggle}
-      onKeyDown={e => e.key === 'Enter' && handleToggle(e as any)}
+      onKeyDown={e => e.key === 'Enter' && handleToggle(e as unknown as React.MouseEvent<HTMLDivElement>)}
       className={`w-full flex items-center justify-between border rounded cursor-pointer bg-white ${
         compact
           ? 'px-2 py-1.5 text-xs hover:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-500'
@@ -520,7 +520,7 @@ export function AssetCategoryDialog({
           assetType: 'fixed',
           sortOrder: categories.length,
           accountSetId: currentAccountSet?.id,
-        } as any);
+        } as Omit<AssetCategory, 'id' | 'createTime' | 'updateTime'>);
         showToast('success', '分类添加成功');
       }
       setShowEditDialog(false);

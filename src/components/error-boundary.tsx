@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { globalErrorHandler, useErrorHandling } from '@/hooks/useErrorHandling';
+import type { ErrorContext } from '@/hooks/useErrorHandling';
 
 interface Props {
   children: ReactNode;
@@ -282,7 +283,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
 // 全局错误上下文，用于在错误边界外部提供错误处理
 export const GlobalErrorContext = React.createContext<{
-  handleError: (error: Error, context?: any) => void;
+  handleError: (error: Error, context?: ErrorContext) => void;
   hasError: boolean;
 }>({
   handleError: () => {},
@@ -294,7 +295,7 @@ export function GlobalErrorProvider({ children }: { children: ReactNode }) {
   const { handleError } = useErrorHandling();
   const [globalError, setGlobalError] = React.useState<Error | null>(null);
 
-  const handleGlobalError = (error: Error, context?: any) => {
+  const handleGlobalError = (error: Error, context?: ErrorContext) => {
     setGlobalError(error);
     handleError(error, context);
 

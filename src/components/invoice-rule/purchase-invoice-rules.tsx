@@ -14,7 +14,8 @@ import { Switch } from '@/components/ui/switch';
 import { Popover } from '@/components/ui/popover';
 import { Settings2, Plus, Trash2, Edit2, Search, Info, ChevronDown, ChevronUp, GripVertical, ArrowUp, ArrowDown, Check, X, Zap, Shield, UserCheck } from 'lucide-react';
 import { BusinessGroupEditor } from './components/business-group-drawer';
-import { RuleConflictDetector } from './utils/rule-conflict-detector';
+import type { BusinessGroupDraft } from './components/business-group-drawer';
+import { RuleConflictDetector, type ConflictResult } from './utils/rule-conflict-detector';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { usePartnerStore } from '@/stores/usePartnerStore';
@@ -185,7 +186,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
 
   const [editingGroup, setEditingGroup] = useState<BusinessGroup | null>(null);
   const [showGroupEditor, setShowGroupEditor] = useState(false);
-  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [conflicts, setConflicts] = useState<ConflictResult[]>([]);
   const [editingRule, setEditingRule] = useState<KeywordRule | null>(null);
   const [showKeywordEditor, setShowKeywordEditor] = useState(false);
   const [keywordForm, setKeywordForm] = useState({
@@ -205,7 +206,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   const [isAddingSupplier, setIsAddingSupplier] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [importPreview, setImportPreview] = useState<{ sellerName: string; estimatedGroup: string; confidence: number }[]>([]);
 
   // 从数据库加载配置
   useEffect(() => {
@@ -271,7 +272,7 @@ export function PurchaseInvoiceRules({ open }: PurchaseInvoiceRulesProps) {
   };
 
   // 保存新业务组或更新
-  const handleSaveNewGroup = (group: any) => {
+  const handleSaveNewGroup = (group: BusinessGroupDraft) => {
     if (editingGroup) {
       // 更新模式
       const newConfig = {

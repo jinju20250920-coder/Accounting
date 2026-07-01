@@ -654,14 +654,19 @@ export default function CurrenciesPage() {
     setBocLoading(true);
 
     try {
-      let data: any;
+      let data: {
+        error?: string;
+        rates?: Array<{ currencyCode: string; currencyName: string; middleRate: number; rateDate: string }>;
+        warnings?: string[];
+        fetchDate?: string;
+      };
       if (isToday) {
         // Today: direct fetch from main page (no captcha needed)
         const params = new URLSearchParams({ currencies: systemCurrencyCodes.join(',') });
         const response = await fetch(`/api/boc-rates?${params}`);
         data = await response.json();
         if (!response.ok) {
-          showToast('error', data.error || '获取汇率失败');
+          showToast('error', data?.error || '获取汇率失败');
           return;
         }
       } else {
@@ -1034,7 +1039,7 @@ export default function CurrenciesPage() {
               <>
                 <div className="space-y-1">
                   <Label className="text-xs">频率</Label>
-                  <select value={autoFetchFrequency} onChange={(e) => setAutoFetchFrequency(e.target.value as any)} className="px-3 py-1.5 border rounded-md text-sm">
+                  <select value={autoFetchFrequency} onChange={(e) => setAutoFetchFrequency(e.target.value as 'daily' | 'weekly' | 'monthly_first' | 'monthly_last')} className="px-3 py-1.5 border rounded-md text-sm">
                     <option value="daily">每天</option>
                     <option value="weekly">每周一</option>
                     <option value="monthly_first">每月第一天</option>

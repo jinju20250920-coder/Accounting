@@ -14,10 +14,27 @@ import { Popover } from '@/components/ui/popover';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { useToast } from '@/components/ui/toast';
 
+export interface BusinessGroupDraft {
+  name: string;
+  debitSubject: string;
+  debitSubjectName: string;
+  taxSubject: string;
+  taxSubjectName?: string;
+  creditSubject: string;
+  creditSubjectName: string;
+  partnerType: string;
+  assetThreshold: number;
+  description: string;
+  isPreset: boolean;
+  autoTax: boolean;
+  keywords: string[];
+  requirePartnerCard: boolean;
+}
+
 interface BusinessGroupEditorProps {
-  onSave: (group: any) => void;
+  onSave: (group: BusinessGroupDraft) => void;
   onCancel: () => void;
-  defaultValues?: any;
+  defaultValues?: Partial<BusinessGroupDraft> & { partnerType: string };
 }
 
 const PRESET_PARTNER_TYPES = ['供应商', '客户', '员工', '其他'];
