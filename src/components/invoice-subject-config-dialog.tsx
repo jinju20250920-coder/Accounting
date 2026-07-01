@@ -190,14 +190,15 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
     setShowAdd(false);
     setFormName(rule.name);
     setFormKeywords((rule.keywords || []).join(', '));
-    setFormType(rule.invoiceType as any);
+    setFormType(rule.invoiceType);
     setFormPriority(rule.priority || 0);
-    setFormTaxRate((rule as any).matchTaxRate != null ? String((rule as any).matchTaxRate * 100) : '');
+    setFormTaxRate(rule.matchTaxRate != null ? String(rule.matchTaxRate * 100) : '');
     const subs: Record<string, string> = {};
     const names: Record<string, string> = {};
     for (const slot of [...INPUT_SLOTS, ...OUTPUT_SLOTS]) {
-      const code = (rule as any)[slot.key] as string | undefined;
-      const name = (rule as any)[slot.key + 'Name'] as string | undefined;
+      const code = rule[slot.key] as string | undefined;
+      const nameKey = (slot.key + 'Name') as keyof InvoiceSubjectRule;
+      const name = rule[nameKey] as string | undefined;
       if (code) subs[slot.key] = code;
       if (name) names[slot.key] = name;
     }
@@ -233,25 +234,27 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
     const now = new Date().toISOString();
     const id = editingId || `rule_${Date.now()}`;
 
-    const rule: any = {
+    const slotAssignments: Record<string, string | null> = {};
+    for (const slot of [...INPUT_SLOTS, ...OUTPUT_SLOTS]) {
+      const code = formSubjects[slot.key] || null;
+      const name = formSubjectNames[slot.key] || null;
+      slotAssignments[slot.key] = code;
+      slotAssignments[slot.key + 'Name'] = name;
+    }
+
+    const existingCreateTime = rules.find(r => r.id === editingId)?.createTime;
+    const rule: InvoiceSubjectRule = {
       id,
       accountSetId: accountSetId!,
       name: formName.trim(),
       keywords,
       invoiceType: formType,
       priority: formPriority,
-      matchTaxRate: formTaxRate ? parseFloat(formTaxRate) / 100 : null,
-      createTime: editingId ? (rules.find(r => r.id === editingId) as any)?.createTime || now : now,
+      matchTaxRate: formTaxRate ? parseFloat(formTaxRate) / 100 : undefined,
+      createTime: existingCreateTime || now,
       updateTime: now,
-    };
-
-    // 填入科目字段
-    for (const slot of [...INPUT_SLOTS, ...OUTPUT_SLOTS]) {
-      const code = formSubjects[slot.key] || null;
-      const name = formSubjectNames[slot.key] || null;
-      rule[slot.key] = code;
-      rule[slot.key + 'Name'] = name;
-    }
+      ...slotAssignments,
+    } as InvoiceSubjectRule;
 
     try {
       sqliteService.setAccountSetId(accountSetId!);
@@ -305,7 +308,7 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
   const getSubjectPreview = (rule: InvoiceSubjectRule) => {
     const parts: string[] = [];
     for (const slot of rule.invoiceType !== 'output' ? INPUT_SLOTS : OUTPUT_SLOTS) {
-      const code = (rule as any)[slot.key];
+      const code = rule[slot.key] as string | undefined;
       if (code) parts.push(code);
     }
     return parts.join(' / ') || '默认';
@@ -327,7 +330,7 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
             <Info className="h-4 w-4 mt-0.5 shrink-0" />
             <div>
               <p className="font-medium mb-1">匹配逻辑</p>
-              <p>导入发票生成凭证时，系统根据"货物名称"匹配关键词规则，覆盖默认科目。</p>
+              <p>导入发票生成凭证时，系统根据「货物名称」匹配关键词规则，覆盖默认科目。</p>
               <p className="mt-1">优先级：关键词规则（优先级数字越大越先） &gt; 默认科目。未配置的科目槽位使用默认值。</p>
               <p className="mt-1">不存在的科目代码会在生成凭证时自动创建。</p>
             </div>
@@ -367,7 +370,7 @@ export function InvoiceSubjectConfigDialog({ open, onOpenChange }: Props) {
                       </div>
                       <span className="text-xs text-slate-400">
                         P{rule.priority}
-                        {(rule as any).matchTaxRate != null && ` · ${(rule as any).matchTaxRate * 100}%`}
+                        {rule.matchTaxRate != null && ` · ${rule.matchTaxRate * 100}%`}
                         {' · '}{getSubjectPreview(rule)}
                       </span>
                     </div>
@@ -444,7 +447,7 @@ function RuleForm({
 }: {
   formName: string; setFormName: (v: string) => void;
   formKeywords: string; setFormKeywords: (v: string) => void;
-  formType: 'input' | 'output' | 'both'; setFormType: (v: any) => void;
+  formType: 'input' | 'output' | 'both'; setFormType: (v: 'input' | 'output' | 'both') => void;
   formPriority: number; setFormPriority: (v: number) => void;
   formTaxRate: string; setFormTaxRate: (v: string) => void;
   formSubjects: Record<string, string>; updateFormSubject: (key: string, code: string) => void;

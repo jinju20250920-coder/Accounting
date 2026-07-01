@@ -19,6 +19,7 @@ import { useToast } from '@/components/ui/toast';
 import { parseBankStatement } from '@/lib/parser';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
 import { getAllConfigs } from '@/lib/bank-parsers/bank-registry';
+import type { BankAccountBinding } from '@/lib/bank-parsers/types';
 import { matchBankTransaction } from '@/lib/accounting';
 import { autoMatchBankSubjects } from '@/lib/bank-match';
 import { getCurrentService } from '@/lib/database';
@@ -77,7 +78,7 @@ export default function ImportPage() {
 
   // Voucher generation state
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | null>(null);
-  const [previewEntries, setPreviewEntries] = useState<any[]>([]);
+  const [previewEntries, setPreviewEntries] = useState<PreviewEntry[]>([]);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -344,7 +345,7 @@ export default function ImportPage() {
 
     // Filter by selected rows if any
     const sourceEntries = journalSelectedIds.size > 0
-      ? result.entries.filter((tx: any) => journalSelectedIds.has(tx.id))
+      ? result.entries.filter((tx) => journalSelectedIds.has(tx.id))
       : result.entries;
 
     if (sourceEntries.length === 0) {
@@ -358,14 +359,14 @@ export default function ImportPage() {
     const periodMap = new Map(
       (currentAccountSet?.accountingPeriods || []).map(p => [`${p.year}-${String(p.month).padStart(2, '0')}`, p])
     );
-    const closedPeriodEntries = sourceEntries.filter((tx: any) => {
+    const closedPeriodEntries = sourceEntries.filter((tx) => {
       const txMonth = tx.date?.substring(0, 7);
       if (!txMonth) return false;
       const pd = periodMap.get(txMonth);
       return pd && (pd.status === 'closed' || pd.status === 'locked');
     });
     if (closedPeriodEntries.length > 0) {
-      const closedMonths = [...new Set(closedPeriodEntries.map((tx: any) => tx.date?.substring(0, 7)))];
+      const closedMonths = [...new Set(closedPeriodEntries.map((tx) => tx.date?.substring(0, 7)))];
       showToast('warning', `有 ${closedPeriodEntries.length} 条流水在已关账期间（${closedMonths.join('、')}），已跳过`);
     }
 
@@ -384,16 +385,16 @@ export default function ImportPage() {
 
     // 预加载银行账户绑定，用于推断外币币别
     const bankBindings = (await service.getBankAccountBindings?.()) || [];
-    const bindingsByAccount = new Map<string, any>();
+    const bindingsByAccount = new Map<string, BankAccountBinding>();
     for (const b of bankBindings) {
       if (b.accountNumber) bindingsByAccount.set(b.accountNumber, b);
     }
 
-    const entries = sourceEntries.map((tx: any) => {
+    const entries = sourceEntries.map((tx) => {
       const isDebit = !!tx.debit;
       const amount = tx.debit || tx.credit || 0;
       const willCreatePartner = !!(tx.counterpartyName &&
-        !existingPartners.some((p: any) =>
+        !existingPartners.some((p) =>
           p.name === tx.counterpartyName || tx.counterpartyName.includes(p.name) || p.name.includes(tx.counterpartyName)
         ));
       const originalSummary = tx.summary || tx.notes || '银行交易';
@@ -533,7 +534,7 @@ export default function ImportPage() {
                 enableDept: false, enableProject: false, enableForeign: false,
                 isCustomer: !isDebit, isSupplier: isDebit, isEmployee: false, enableCashFlow: false,
                 disabled: false, block: false,
-              } as any);
+              });
             }
             customerName = '';
             supplierName = '';

@@ -8,6 +8,7 @@ import {
   useFinancialProjectStore,
   useCurrencyStore
 } from '@/stores';
+import type { VoucherTemplate } from '@/lib/template-engine';
 import {
   Trash2,
   Download,
@@ -39,7 +40,7 @@ export default function TemplatesSettingsPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<any>({});
+  const [editForm, setEditForm] = useState<Record<string, unknown>>({});
 
   const {
     templates,
@@ -148,7 +149,7 @@ export default function TemplatesSettingsPage() {
         { key: '供应商名称', label: '供应商名称' }
       ];
 
-      const data = await importFromExcel<any>(importFile, headers);
+      const data = await importFromExcel<Record<string, string | number | null>>(importFile, headers);
       const result = await importTemplatesFromExcel(data, {
         subjects: subjects || [],
         departments: departments || [],
@@ -188,12 +189,12 @@ export default function TemplatesSettingsPage() {
     return typeMap[type] || type;
   };
 
-  const startEditingTemplate = (template: any) => {
+  const startEditingTemplate = (template: VoucherTemplate) => {
     setEditingTemplate(template.id);
-    setEditForm(JSON.parse(JSON.stringify(template)));
+    setEditForm(JSON.parse(JSON.stringify(template)) as Record<string, unknown>);
   };
 
-  const updateEntryField = (index: number, field: string, value: any) => {
+  const updateEntryField = (index: number, field: string, value: unknown) => {
     setEditForm((prev) => {
       const newEntries = [...prev.entries];
       newEntries[index] = {
@@ -493,7 +494,7 @@ export default function TemplatesSettingsPage() {
                               凭证分录
                             </h4>
                             <div className="space-y-3">
-                              {editForm.entries?.map((entry: any, index: number) => (
+                              {(editForm.entries as Array<Record<string, unknown>> | undefined)?.map((entry, index) => (
                                 <div
                                   key={entry.id}
                                   className="grid grid-cols-1 md:grid-cols-6 gap-3 p-3 border rounded"
@@ -603,7 +604,7 @@ export default function TemplatesSettingsPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {template.entries.map((entry: any) => (
+                                {template.entries.map((entry) => (
                                   <tr
                                     key={entry.id}
                                     className="border-b hover:bg-slate-50"
@@ -633,13 +634,13 @@ export default function TemplatesSettingsPage() {
                             <div className="text-sm font-medium text-slate-700">
                               借方合计：
                               {template.entries
-                                .reduce((sum: number, entry: any) => sum + entry.debit, 0)
+                                .reduce((sum, entry) => sum + entry.debit, 0)
                                 .toFixed(2)}
                             </div>
                             <div className="text-sm font-medium text-slate-700 ml-4">
                               贷方合计：
                               {template.entries
-                                .reduce((sum: number, entry: any) => sum + entry.credit, 0)
+                                .reduce((sum, entry) => sum + entry.credit, 0)
                                 .toFixed(2)}
                             </div>
                           </div>
@@ -658,7 +659,7 @@ export default function TemplatesSettingsPage() {
         <CardContent className="pt-6">
           <h3 className="text-lg font-semibold text-slate-900 mb-4">使用说明</h3>
           <div className="space-y-2 text-sm text-slate-600">
-            <p>• 在凭证录入页面点击"保存为模版"按钮，可将当前凭证保存为模版</p>
+            <p>• 在凭证录入页面点击「保存为模版」按钮，可将当前凭证保存为模版</p>
             <p>• 支持Excel格式的模版导入导出</p>
             <p>• 导入时会自动校验科目、部门、项目、币别代码是否存在</p>
             <p>• 模版包括完整的凭证信息，包括摘要、科目、借方、贷方等</p>
