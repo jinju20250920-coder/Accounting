@@ -2,6 +2,19 @@
 
 import { buildPartnerInsert } from './services/partner-sqlite-service';
 
+type SqlValue = string | number | Uint8Array | null;
+
+interface SqlResult {
+  columns: string[];
+  values: SqlValue[][];
+}
+
+interface SqliteDatabase {
+  exec(sql: string, params?: SqlValue[]): SqlResult[];
+  export(): Uint8Array;
+  run(sql: string, params?: SqlValue[]): void;
+}
+
 // File System Access API types
 interface FileSystemHandleHelper {
   getFile(): Promise<File>;
@@ -25,7 +38,7 @@ const resolveSqlJsWasmPath = (file: string): string => {
 
 class SQLiteManager {
   private static instance: SQLiteManager;
-  private db: any = null;
+  private db: SqliteDatabase | null = null;
   private currentAccountSetId: string | null = null;
   private initPromise: Promise<void> | null = null;
   private autoSaveInterval: NodeJS.Timeout | null = null;
@@ -62,7 +75,7 @@ class SQLiteManager {
         console.log('File System Access API is supported, database can be stored on disk');
       } else {
         // Fallback: detect OPFS
-        this.useOPFS = 'storage' in navigator && 'getDirectory' in (navigator.storage as any);
+        this.useOPFS = 'storage' in navigator && 'getDirectory' in (navigator.storage as Storage & { getDirectory?: unknown });
         if (this.useOPFS) {
           console.log('OPFS is supported, database will be stored in persistent file storage');
         } else {
@@ -123,7 +136,7 @@ class SQLiteManager {
     }
   }
 
-  private async initializeElectronDatabase(SQL: any): Promise<void> {
+  private async initializeElectronDatabase(SQL: { Database: new (data?: Uint8Array) => SqliteDatabase }): Promise<void> {
     // First try the saved database path or fall back to the default path
     let dbPath = await window.electronAPI.getDbPath();
 
@@ -173,10 +186,10 @@ class SQLiteManager {
     }
   }
 
-  private async initializeOPFSDatabase(SQL: any): Promise<void> {
+  private async initializeOPFSDatabase(SQL: { Database: new (data?: Uint8Array) => SqliteDatabase }): Promise<void> {
     try {
       // Get the OPFS root directory.
-      const opfsRoot = await (navigator.storage as any).getDirectory();
+      const opfsRoot = await (navigator.storage as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
 
       // Check whether the database file exists.
       let dbExists = false;
@@ -229,7 +242,7 @@ class SQLiteManager {
     }
   }
 
-  private initializeBrowserDatabase(SQL: any): void {
+  private initializeBrowserDatabase(SQL: { Database: new (data?: Uint8Array) => SqliteDatabase }): void {
     const savedDb = this.loadDatabase();
 
     if (savedDb) {
@@ -305,7 +318,7 @@ class SQLiteManager {
 
     try {
       const writable = await this.opfsHandle.createWritable();
-      await writable.write(data as any);
+      await writable.write(data as BlobPart);
       await writable.close();
 
       if ('sync' in this.opfsHandle && typeof this.opfsHandle.sync === 'function') {
@@ -323,7 +336,7 @@ class SQLiteManager {
   async clearCorruptedData(): Promise<void> {
     try {
       if (this.useOPFS) {
-        const opfsRoot = await (navigator.storage as any).getDirectory();
+        const opfsRoot = await (navigator.storage as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
         console.log('Corrupted OPFS database file cleared');
@@ -376,7 +389,7 @@ class SQLiteManager {
     }
 
     try {
-      const estimate = await (navigator.storage as any).estimate();
+      const estimate = await (navigator.storage as Storage & { estimate(): Promise<{ usage?: number; quota?: number }> }).estimate();
       return {
         usage: estimate.usage || 0,
         quota: estimate.quota || 0
@@ -1357,7 +1370,7 @@ class SQLiteManager {
     return this.currentAccountSetId;
   }
 
-  async getDatabaseAsync(): Promise<any> {
+  async getDatabaseAsync(): Promise<SqliteDatabase | null> {
     if (!this.db) {
       console.warn('SQLite database not initialized, attempting to initialize...');
       try {
@@ -1371,7 +1384,7 @@ class SQLiteManager {
   }
 
   // Synchronous accessor - call init() before use.
-  getDatabase(): any {
+  getDatabase(): SqliteDatabase | null {
     if (!this.db) {
       console.warn('SQLite database not initialized, attempting to initialize...');
       // Do not perform complex async work here.
@@ -1380,7 +1393,7 @@ class SQLiteManager {
     return this.db;
   }
 
-  async getDatabaseSafe(): Promise<any> {
+  async getDatabaseSafe(): Promise<SqliteDatabase> {
     if (!this.db) {
       await this.init();
     }
@@ -1392,7 +1405,7 @@ class SQLiteManager {
   }
 
   // Get the database synchronously; throw if init() has not completed.
-  getDatabaseSync(): any {
+  getDatabaseSync(): SqliteDatabase {
     if (!this.db) {
       throw new Error('Database not initialized. Call init() first.');
     }
@@ -1401,7 +1414,7 @@ class SQLiteManager {
 
 
   // Export as JSON (for compatibility with IndexedDB)
-  async exportData(): Promise<any> {
+  async exportData(): Promise<Record<string, unknown>> {
     const db = this.getDatabase();
     const accountSetId = this.getCurrentAccountSetId();
 
@@ -1411,9 +1424,9 @@ class SQLiteManager {
 
     // Get vouchers
     const vouchersResult = db.exec(`SELECT * FROM vouchers WHERE accountSetId = ?`, [accountSetId]);
-    const vouchers = vouchersResult[0]?.values.map((row: any[], index: number) => {
+    const vouchers = vouchersResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = vouchersResult[0].columns;
-      const voucher: any = {};
+      const voucher: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         voucher[col] = row[idx];
       });
@@ -1424,9 +1437,9 @@ class SQLiteManager {
     const vouchersWithEntries = [];
     for (const voucher of vouchers) {
       const entriesResult = db.exec(`SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`, [voucher.id, accountSetId]);
-      const entries = entriesResult[0]?.values.map((row: any[], index: number) => {
+      const entries = entriesResult[0]?.values.map((row: SqlValue[], index: number) => {
         const columns = entriesResult[0].columns;
-        const entry: any = {};
+        const entry: Record<string, SqlValue> = {};
         columns.forEach((col: string, idx: number) => {
           entry[col] = row[idx];
         });
@@ -1441,9 +1454,9 @@ class SQLiteManager {
 
     // Get other data
     const subjectsResult = db.exec(`SELECT * FROM subjects WHERE accountSetId = ?`, [accountSetId]);
-    const subjects = subjectsResult[0]?.values.map((row: any[], index: number) => {
+    const subjects = subjectsResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = subjectsResult[0].columns;
-      const subject: any = {};
+      const subject: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         subject[col] = row[idx];
       });
@@ -1451,9 +1464,9 @@ class SQLiteManager {
     }) || [];
 
     const departmentsResult = db.exec(`SELECT * FROM departments WHERE accountSetId = ?`, [accountSetId]);
-    const departments = departmentsResult[0]?.values.map((row: any[], index: number) => {
+    const departments = departmentsResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = departmentsResult[0].columns;
-      const dept: any = {};
+      const dept: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         dept[col] = row[idx];
       });
@@ -1461,9 +1474,9 @@ class SQLiteManager {
     }) || [];
 
     const projectsResult = db.exec(`SELECT * FROM projects WHERE accountSetId = ?`, [accountSetId]);
-    const projects = projectsResult[0]?.values.map((row: any[], index: number) => {
+    const projects = projectsResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = projectsResult[0].columns;
-      const project: any = {};
+      const project: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         project[col] = row[idx];
       });
@@ -1471,9 +1484,9 @@ class SQLiteManager {
     }) || [];
 
     const currenciesResult = db.exec(`SELECT * FROM currencies WHERE accountSetId = ?`, [accountSetId]);
-    const currencies = currenciesResult[0]?.values.map((row: any[], index: number) => {
+    const currencies = currenciesResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = currenciesResult[0].columns;
-      const currency: any = {};
+      const currency: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         currency[col] = row[idx];
       });
@@ -1481,9 +1494,9 @@ class SQLiteManager {
     }) || [];
 
     const partnersResult = db.exec(`SELECT * FROM partners WHERE accountSetId = ?`, [accountSetId]);
-    const partners = partnersResult[0]?.values.map((row: any[], index: number) => {
+    const partners = partnersResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = partnersResult[0].columns;
-      const partner: any = {};
+      const partner: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         partner[col] = row[idx];
       });
@@ -1491,9 +1504,9 @@ class SQLiteManager {
     }) || [];
 
     const voucherTemplatesResult = db.exec(`SELECT * FROM voucherTemplates WHERE accountSetId = ?`, [accountSetId]);
-    const voucherTemplates = voucherTemplatesResult[0]?.values.map((row: any[], index: number) => {
+    const voucherTemplates = voucherTemplatesResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = voucherTemplatesResult[0].columns;
-      const template: any = {};
+      const template: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         const value = row[idx];
         template[col] = col === 'entries' || col === 'validations' || col === 'variables' ? JSON.parse(value) : value;
@@ -1502,9 +1515,9 @@ class SQLiteManager {
     }) || [];
 
     const commonSummariesResult = db.exec(`SELECT * FROM commonSummaries WHERE accountSetId = ?`, [accountSetId]);
-    const commonSummaries = commonSummariesResult[0]?.values.map((row: any[], index: number) => {
+    const commonSummaries = commonSummariesResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = commonSummariesResult[0].columns;
-      const summary: any = {};
+      const summary: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         summary[col] = row[idx];
       });
@@ -1520,9 +1533,9 @@ class SQLiteManager {
     }) || [];
 
     const preferencesResult = db.exec(`SELECT * FROM userPreferences WHERE accountSetId = ?`, [accountSetId]);
-    const preferences = preferencesResult[0]?.values.map((row: any[], index: number) => {
+    const preferences = preferencesResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = preferencesResult[0].columns;
-      const pref: any = {};
+      const pref: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         const value = row[idx];
         pref[col] = col === 'value' ? JSON.parse(value) : value;
@@ -1531,9 +1544,9 @@ class SQLiteManager {
     }) || [];
 
     const auditLogsResult = db.exec(`SELECT * FROM auditLogs WHERE accountSetId = ?`, [accountSetId]);
-    const auditLogs = auditLogsResult[0]?.values.map((row: any[], index: number) => {
+    const auditLogs = auditLogsResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = auditLogsResult[0].columns;
-      const log: any = {};
+      const log: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         const value = row[idx];
         log[col] = col === 'details' ? JSON.parse(value) : value;
@@ -1542,9 +1555,9 @@ class SQLiteManager {
     }) || [];
 
     const recRelationsResult = db.exec(`SELECT * FROM recRelations WHERE accountSetId = ?`, [accountSetId]);
-    const recRelations = recRelationsResult[0]?.values.map((row: any[], index: number) => {
+    const recRelations = recRelationsResult[0]?.values.map((row: SqlValue[], index: number) => {
       const columns = recRelationsResult[0].columns;
-      const relation: any = {};
+      const relation: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         relation[col] = row[idx];
       });
@@ -1568,7 +1581,7 @@ class SQLiteManager {
     };
   }
 
-  async importData(data: any): Promise<void> {
+  async importData(data: Record<string, unknown>): Promise<void> {
     const db = this.getDatabase();
     const accountSetId = this.getCurrentAccountSetId();
 
@@ -1978,7 +1991,7 @@ class SQLiteManager {
   async resetDatabase(): Promise<void> {
     try {
       if (this.useOPFS) {
-        const opfsRoot = await (navigator.storage as any).getDirectory();
+        const opfsRoot = await (navigator.storage as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
       } else {

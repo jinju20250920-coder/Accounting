@@ -15,7 +15,8 @@ import type {
   FxRevaluationRunLine as _FxRevaluationRunLine,
   VoucherFullTemplate as _VoucherTemplate,
   CommonSummary as _CommonSummary,
-  UserPreference as _UserPreference
+  UserPreference as _UserPreference,
+  RecRelation as _RecRelation
 } from '@/types';
 
 // Re-export types for stores to import
@@ -62,10 +63,10 @@ class DatabaseService {
 
   // 安全获取所有记录：优先使用索引，失败则回退到全表扫描
   private async getAllFromIndexSafe(
-    storeName: any,
+    storeName: string,
     indexName: string,
-    key?: any
-  ): Promise<any[]> {
+    key?: IDBValidKey
+  ): Promise<unknown[]> {
     try {
       if (key !== undefined) {
         return await this.db.getAllFromIndex(storeName, indexName, key);
@@ -76,7 +77,7 @@ class DatabaseService {
       console.warn(`Index ${indexName} not found, falling back to full scan for ${storeName}`);
       const all = await this.db.getAll(storeName);
       if (key !== undefined) {
-        return all.filter((item: any) => item.accountSetId === key);
+        return all.filter((item) => (item as { accountSetId?: string }).accountSetId === key);
       }
       return all;
     }
@@ -296,7 +297,7 @@ class DatabaseService {
 
   async getAllCurrencies(): Promise<Currency[]> {
     const allCurrencies = await this.getAllFromIndexSafe('currencies', 'by-accountSet', this.accountSetId);
-    return allCurrencies.map((currency: any) => {
+    return allCurrencies.map((currency: Partial<_Currency> & { enabled?: boolean; disabled?: boolean }) => {
       const enabled = currency.enabled ?? !currency.disabled;
       return {
         ...currency,
@@ -355,7 +356,7 @@ class DatabaseService {
 
   async getFxRates(rateDate?: string): Promise<FxRate[]> {
     const allRates = await this.getAllFromIndexSafe('fxRates', 'by-accountSet', this.accountSetId);
-    return (rateDate ? allRates.filter((rate: any) => rate.rateDate === rateDate) : allRates) as FxRate[];
+    return (rateDate ? allRates.filter((rate: _FxRate) => rate.rateDate === rateDate) : allRates) as FxRate[];
   }
 
   async getBankAccountBindings(): Promise<BankAccountBinding[]> {
@@ -379,7 +380,7 @@ class DatabaseService {
 
   async findBankAccountBinding(accountNumber: string): Promise<BankAccountBinding | null> {
     const allBindings = await this.getAllFromIndexSafe('bank_account_bindings', 'by-accountSet', this.accountSetId);
-    return (allBindings.find((binding: any) => binding.accountNumber === accountNumber) || null) as BankAccountBinding | null;
+    return (allBindings.find((binding: _BankAccountBinding) => binding.accountNumber === accountNumber) || null) as BankAccountBinding | null;
   }
 
   async savePartners(partners: Partner[]): Promise<void> {
@@ -464,7 +465,7 @@ class DatabaseService {
 
   async getPreferencesByUser(userId: string): Promise<UserPreference[]> {
     const allPreferences = await this.getAllFromIndexSafe('userPreferences', 'by-accountSet', this.accountSetId);
-    return allPreferences.filter(p => (p as any).userId === userId);
+    return allPreferences.filter(p => (p as _UserPreference).userId === userId);
   }
 
   // ========== 审计日志操作 ==========
@@ -506,7 +507,7 @@ class DatabaseService {
     };
   }
 
-  async importData(data: any) {
+  async importData(data: Record<string, unknown>) {
     const tx = this.db.transaction([
       'vouchers',
       'entries',
@@ -678,7 +679,7 @@ class DatabaseService {
 
   // ========== 数据同步与恢复 ==========
 
-  async syncAllData(stores: any[]) {
+  async syncAllData(stores: Array<Record<string, unknown>>) {
     for (const store of stores) {
       if (store.vouchers) {
         for (const voucher of store.vouchers) {
@@ -723,7 +724,7 @@ class DatabaseService {
   }
 
   async restoreAllData() {
-    const data: any = {};
+    const data: Record<string, unknown> = {};
 
     // 恢复凭证数据
     data.vouchers = await this.getAllVouchers();
@@ -748,7 +749,7 @@ class DatabaseService {
 
   // ========== 核销关系操作 ==========
 
-  async saveRecRelations(relations: any[]): Promise<void> {
+  async saveRecRelations(relations: _RecRelation[]): Promise<void> {
     const tx = this.db.transaction('recRelations', 'readwrite');
 
     for (const relation of relations) {
@@ -762,7 +763,7 @@ class DatabaseService {
     await tx.done;
   }
 
-  async saveRecRelation(relation: any): Promise<void> {
+  async saveRecRelation(relation: _RecRelation): Promise<void> {
     const tx = this.db.transaction('recRelations', 'readwrite');
     const relationWithAccountSet = {
       ...relation,
@@ -772,8 +773,8 @@ class DatabaseService {
     await tx.done;
   }
 
-  async getRecRelations(): Promise<any[]> {
-    return await this.getAllFromIndexSafe('recRelations', 'by-accountSet', this.accountSetId);
+  async getRecRelations(): Promise<_RecRelation[]> {
+    return await this.getAllFromIndexSafe('recRelations', 'by-accountSet', this.accountSetId) as Promise<_RecRelation[]>;
   }
 
   async updateEntryRecRefNo(entryId: string, recRefNo: string): Promise<void> {
@@ -786,17 +787,17 @@ class DatabaseService {
     await tx.done;
   }
 
-  async getRecRelationsByRecRefNo(recRefNo: string): Promise<any[]> {
-    return await this.getAllFromIndexSafe('recRelations', 'by-recRefNo', recRefNo);
+  async getRecRelationsByRecRefNo(recRefNo: string): Promise<_RecRelation[]> {
+    return await this.getAllFromIndexSafe('recRelations', 'by-recRefNo', recRefNo) as Promise<_RecRelation[]>;
   }
 
-  async getRecRelationsByEntryId(entryId: string): Promise<any[]> {
-    const debitRelations = await this.getAllFromIndexSafe('recRelations', 'by-debitEntry', entryId);
-    const creditRelations = await this.getAllFromIndexSafe('recRelations', 'by-creditEntry', entryId);
+  async getRecRelationsByEntryId(entryId: string): Promise<_RecRelation[]> {
+    const debitRelations = await this.getAllFromIndexSafe('recRelations', 'by-debitEntry', entryId) as Promise<_RecRelation[]>;
+    const creditRelations = await this.getAllFromIndexSafe('recRelations', 'by-creditEntry', entryId) as Promise<_RecRelation[]>;
     return [...debitRelations, ...creditRelations];
   }
 
-  async getOutstandingItems(query: any): Promise<any[]> {
+  async getOutstandingItems(query: { partnerName?: string; partnerType?: string }): Promise<unknown[]> {
     console.log('getOutstandingItems called with query:', query);
 
     if (!query.partnerName) {
@@ -841,15 +842,15 @@ class DatabaseService {
       );
     }
 
-    const outstandingItems: any[] = [];
+    const outstandingItems: Array<Record<string, unknown>> = [];
 
-    for (const entry of partnerEntries) {
+    for (const entry of partnerEntries as Array<Record<string, unknown> & { id: string; date: string; debit: number; credit: number; summary?: string; customerName?: string; supplierName?: string; auxiliary?: { customer?: string; supplier?: string } }>) {
       console.log('Processing entry:', entry.id, entry.summary);
 
       const relations = await this.getRecRelationsByEntryId(entry.id);
       console.log('Rec relations for entry:', entry.id, relations);
 
-      const totalRecAmount = relations.reduce((sum: number, rel: any) => {
+      const totalRecAmount = relations.reduce((sum: number, rel: _RecRelation) => {
         return sum + rel.amount;
       }, 0);
 
@@ -898,12 +899,12 @@ class DatabaseService {
     });
 
     const debitSum = outstandingItems
-      .filter(item => item.direction === 'debit')
-      .reduce((sum: number, item: any) => sum + item.remainingAmount, 0);
+      .filter(item => (item as { direction?: string }).direction === 'debit')
+      .reduce((sum: number, item) => sum + (item as { remainingAmount: number }).remainingAmount, 0);
 
     const creditSum = outstandingItems
-      .filter(item => item.direction === 'credit')
-      .reduce((sum: number, item: any) => sum + item.remainingAmount, 0);
+      .filter(item => (item as { direction?: string }).direction === 'credit')
+      .reduce((sum: number, item) => sum + (item as { remainingAmount: number }).remainingAmount, 0);
 
     return debitSum - creditSum;
   }
@@ -911,7 +912,7 @@ class DatabaseService {
   // ========== 数据完整性检查 ==========
 
   async checkDataIntegrity() {
-    const counts: any = {};
+    const counts: Record<string, number> = {};
     counts.vouchers = (await this.db.getAllFromIndex('vouchers', 'by-accountSet', this.accountSetId)).length;
     counts.entries = (await this.db.getAllFromIndex('entries', 'by-accountSet', this.accountSetId)).length;
     counts.subjects = (await this.db.getAllFromIndex('subjects', 'by-accountSet', this.accountSetId)).length;
@@ -971,44 +972,44 @@ class DatabaseService {
   // ========== 银行流水操作 (IndexedDB版本 - 兼容性占位) ==========
   // 注意：项目当前使用SQLite，这些方法主要用于类型兼容
 
-  async saveBankTransaction(_transaction: any): Promise<void> {
+  async saveBankTransaction(_transaction: unknown): Promise<void> {
     console.warn('saveBankTransaction: 请使用SQLite版本');
   }
 
-  async saveBankTransactions(_transactions: any[]): Promise<void> {
+  async saveBankTransactions(_transactions: unknown[]): Promise<void> {
     console.warn('saveBankTransactions: 请使用SQLite版本');
   }
 
-  async getBankTransaction(_id: string): Promise<any | undefined> {
+  async getBankTransaction(_id: string): Promise<unknown | undefined> {
     console.warn('getBankTransaction: 请使用SQLite版本');
     return undefined;
   }
 
-  async getAllBankTransactions(): Promise<any[]> {
+  async getAllBankTransactions(): Promise<unknown[]> {
     console.warn('getAllBankTransactions: 请使用SQLite版本');
     return [];
   }
 
-  async getBankTransactionsByStatus(_status: string): Promise<any[]> {
+  async getBankTransactionsByStatus(_status: string): Promise<unknown[]> {
     console.warn('getBankTransactionsByStatus: 请使用SQLite版本');
     return [];
   }
 
-  async getBankTransactionsByDateRange(_startDate: string, _endDate: string): Promise<any[]> {
+  async getBankTransactionsByDateRange(_startDate: string, _endDate: string): Promise<unknown[]> {
     console.warn('getBankTransactionsByDateRange: 请使用SQLite版本');
     return [];
   }
 
-  async getBankTransactionsByBatch(_batchId: string): Promise<any[]> {
+  async getBankTransactionsByBatch(_batchId: string): Promise<unknown[]> {
     console.warn('getBankTransactionsByBatch: 请使用SQLite版本');
     return [];
   }
 
-  async updateBankTransaction(_id: string, _updates: Partial<any>): Promise<void> {
+  async updateBankTransaction(_id: string, _updates: Record<string, unknown>): Promise<void> {
     console.warn('updateBankTransaction: 请使用SQLite版本');
   }
 
-  async findPostedBankTransaction(_date: string, _voucherNo: string, _transactionSerialNo: string): Promise<any | null> {
+  async findPostedBankTransaction(_date: string, _voucherNo: string, _transactionSerialNo: string): Promise<unknown | null> {
     console.warn('findPostedBankTransaction: 请使用SQLite版本');
     return null;
   }
