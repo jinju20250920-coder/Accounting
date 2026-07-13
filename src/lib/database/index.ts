@@ -1,6 +1,13 @@
 import { sqliteManager } from './sqlite-manager';
 import { sqliteService } from './sqlite-service';
 import { accountSetDbManager } from './account-set-db-manager';
+import {
+  buildTenantWhere,
+  tenantParams,
+  buildTenantInsert,
+  isTenantExemptTable,
+  type SqlBindable,
+} from './tenant-context';
 
 // Database type for switching
 export type DatabaseType = 'indexeddb' | 'sqlite';
@@ -29,4 +36,12 @@ export function getDatabaseType(): DatabaseType {
 }
 
 // Re-export for direct access
-export { sqliteService, accountSetDbManager };
+export {
+  sqliteService,
+  accountSetDbManager,
+  buildTenantWhere,
+  tenantParams,
+  buildTenantInsert,
+  isTenantExemptTable,
+  type SqlBindable,
+};

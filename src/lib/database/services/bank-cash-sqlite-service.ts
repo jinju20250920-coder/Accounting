@@ -7,14 +7,15 @@ import type { SimpleQueryService } from './dept-project-currency-sqlite-service'
 
 export async function getBankOpeningBalanceQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   accountNumber: string,
   periodStart: string,
 ): Promise<number | null> {
   interface BalanceRow { balance: number }
   const result = await service.querySingleAsync<BalanceRow>(
-    `SELECT balance FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
-    [accountSetId, accountNumber, periodStart],
+    `SELECT balance FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
+    [tenantId, accountSetId, accountNumber, periodStart],
   );
   return result?.balance ?? null;
 }
@@ -27,14 +28,15 @@ export interface BankOpeningBalanceDetail {
 
 export async function getBankOpeningBalanceDetailQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   accountNumber: string,
   periodStart: string,
 ): Promise<BankOpeningBalanceDetail | null> {
   // Try strict equality first (covers manuals saved with the exact queried period).
   let result = await service.querySingleAsync<BankOpeningBalanceDetail>(
-    `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
-    [accountSetId, accountNumber, periodStart],
+    `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ? AND periodStart = ?`,
+    [tenantId, accountSetId, accountNumber, periodStart],
   );
   if (result) return result;
 
@@ -43,9 +45,9 @@ export async function getBankOpeningBalanceDetailQuery(
   // viewed in a later month).
   result = await service.querySingleAsync<BankOpeningBalanceDetail>(
     `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances
-     WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7)
+     WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7)
      ORDER BY periodStart DESC LIMIT 1`,
-    [accountSetId, accountNumber, periodStart],
+    [tenantId, accountSetId, accountNumber, periodStart],
   );
   if (result) return result;
 
@@ -53,9 +55,9 @@ export async function getBankOpeningBalanceDetailQuery(
   // where the manual was saved for a later month than the queried one).
   result = await service.querySingleAsync<BankOpeningBalanceDetail>(
     `SELECT balance, foreignBalance, exchangeRate FROM bank_opening_balances
-     WHERE accountSetId = ? AND accountNumber = ?
+     WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ?
      ORDER BY periodStart DESC LIMIT 1`,
-    [accountSetId, accountNumber],
+    [tenantId, accountSetId, accountNumber],
   );
   return result ?? null;
 }
@@ -70,16 +72,18 @@ export interface BankOpeningBalanceRow {
 
 export async function getAllBankOpeningBalancesQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<BankOpeningBalanceRow[]> {
   return await service.queryAllAsync<BankOpeningBalanceRow>(
-    `SELECT accountNumber, periodStart, balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE accountSetId = ?`,
-    [accountSetId],
+    `SELECT accountNumber, periodStart, balance, foreignBalance, exchangeRate FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ?`,
+    [tenantId, accountSetId],
   ) || [];
 }
 
 export async function saveBankOpeningBalanceRecord(input: {
   db: SqliteDatabaseLike;
+  tenantId: string;
   accountSetId: string;
   accountNumber: string;
   periodStart: string;
@@ -92,12 +96,13 @@ export async function saveBankOpeningBalanceRecord(input: {
   const now = new Date().toISOString();
   const id = `${input.accountSetId}-${input.accountNumber}-${input.periodStart}`;
   const stmt = input.db.prepare(`
-    INSERT OR REPLACE INTO bank_opening_balances (id, accountSetId, accountNumber, periodStart, balance, foreignBalance, exchangeRate, generateVoucher, createdBy, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO bank_opening_balances (id, tenantId, accountSetId, accountNumber, periodStart, balance, foreignBalance, exchangeRate, generateVoucher, createdBy, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   try {
     stmt.run([
       id,
+      input.tenantId,
       input.accountSetId,
       input.accountNumber,
       input.periodStart,
@@ -116,20 +121,21 @@ export async function saveBankOpeningBalanceRecord(input: {
 
 export async function deleteBankOpeningBalanceRecord(input: {
   db: SqliteDatabaseLike;
+  tenantId: string;
   accountSetId: string;
   accountNumber: string;
   periodStart?: string;
 }): Promise<void> {
   const stmt = input.db.prepare(
     input.periodStart
-      ? `DELETE FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND periodStart = ?`
-      : `DELETE FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ?`,
+      ? `DELETE FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ? AND periodStart = ?`
+      : `DELETE FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ?`,
   );
   try {
     stmt.run(
       input.periodStart
-        ? [input.accountSetId, input.accountNumber, input.periodStart]
-        : [input.accountSetId, input.accountNumber],
+        ? [input.tenantId, input.accountSetId, input.accountNumber, input.periodStart]
+        : [input.tenantId, input.accountSetId, input.accountNumber],
     );
   } finally {
     stmt.free();
@@ -150,6 +156,7 @@ export interface CashOverviewResult {
 
 export async function getCashOverviewQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   ourAccount: string,
   periodStart: string,
@@ -161,23 +168,23 @@ export async function getCashOverviewQuery(
   interface BalanceRow { balance: number }
 
   const openingParams: SqliteBindable[] = ourAccount
-    ? [accountSetId, ourAccount, periodStart]
-    : [accountSetId, periodStart];
+    ? [tenantId, accountSetId, ourAccount, periodStart]
+    : [tenantId, accountSetId, periodStart];
   const openingResult = await service.querySingleAsync<SumsRow>(
-    `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? ${accountFilter} AND date < ?`,
+    `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? ${accountFilter} AND date < ?`,
     openingParams,
   );
 
   const periodParams: SqliteBindable[] = ourAccount
-    ? [accountSetId, ourAccount, periodStart, periodEnd]
-    : [accountSetId, periodStart, periodEnd];
+    ? [tenantId, accountSetId, ourAccount, periodStart, periodEnd]
+    : [tenantId, accountSetId, periodStart, periodEnd];
   const periodResult = await service.querySingleAsync<SumsRow>(
-    `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? ${accountFilter} AND date >= ? AND date <= ?`,
+    `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? ${accountFilter} AND date >= ? AND date <= ?`,
     periodParams,
   );
 
   const lastBalanceResult = await service.querySingleAsync<BalanceRow>(
-    `SELECT balance FROM bankTransactions WHERE accountSetId = ? ${accountFilter} AND date >= ? AND date <= ? AND balance IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1`,
+    `SELECT balance FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? ${accountFilter} AND date >= ? AND date <= ? AND balance IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1`,
     periodParams,
   );
 
@@ -190,15 +197,15 @@ export async function getCashOverviewQuery(
     // and the queried period so the opening stays correct after imports.
     interface ManualRow { balance: number; periodStart: string }
     let manualBalance = await service.querySingleAsync<ManualRow>(
-      `SELECT balance, periodStart FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7) ORDER BY periodStart DESC LIMIT 1`,
-      [accountSetId, ourAccount, periodStart],
+      `SELECT balance, periodStart FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7) ORDER BY periodStart DESC LIMIT 1`,
+      [tenantId, accountSetId, ourAccount, periodStart],
     );
     // Fallback: if no manual matches the period filter, use the latest manual
     // for this account regardless of period (handles period misalignment).
     if (!manualBalance) {
       manualBalance = await service.querySingleAsync<ManualRow>(
-        `SELECT balance, periodStart FROM bank_opening_balances WHERE accountSetId = ? AND accountNumber = ? ORDER BY periodStart DESC LIMIT 1`,
-        [accountSetId, ourAccount],
+        `SELECT balance, periodStart FROM bank_opening_balances WHERE tenantId = ? AND accountSetId = ? AND accountNumber = ? ORDER BY periodStart DESC LIMIT 1`,
+        [tenantId, accountSetId, ourAccount],
       );
     }
     if (manualBalance?.balance != null) {
@@ -208,8 +215,8 @@ export async function getCashOverviewQuery(
       // Only add delta if manual's period is before queried period.
       if (manualPeriodStart < periodStart) {
         const sinceResult = await service.querySingleAsync<SumsRow>(
-          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
-          [accountSetId, ourAccount, manualPeriodStart, periodStart],
+          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
+          [tenantId, accountSetId, ourAccount, manualPeriodStart, periodStart],
         );
         const sinceCredit = sinceResult?.totalCredit || 0;
         const sinceDebit = sinceResult?.totalDebit || 0;
@@ -230,11 +237,11 @@ export async function getCashOverviewQuery(
        INNER JOIN (
          SELECT accountNumber, MAX(periodStart) as maxPeriod
          FROM bank_opening_balances
-         WHERE accountSetId = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7)
+         WHERE tenantId = ? AND accountSetId = ? AND substr(periodStart, 1, 7) <= substr(?, 1, 7)
          GROUP BY accountNumber
        ) m ON b.accountNumber = m.accountNumber AND b.periodStart = m.maxPeriod
-       WHERE b.accountSetId = ?`,
-      [accountSetId, periodStart, accountSetId],
+       WHERE b.tenantId = ? AND b.accountSetId = ?`,
+      [tenantId, accountSetId, periodStart, tenantId, accountSetId],
     );
     // Fallback: if no manuals match the period filter (e.g., manuals were saved
     // for a later period than the queried one), use the latest manual per account
@@ -247,11 +254,11 @@ export async function getCashOverviewQuery(
          INNER JOIN (
            SELECT accountNumber, MAX(periodStart) as maxPeriod
            FROM bank_opening_balances
-           WHERE accountSetId = ?
+           WHERE tenantId = ? AND accountSetId = ?
            GROUP BY accountNumber
          ) m ON b.accountNumber = m.accountNumber AND b.periodStart = m.maxPeriod
-         WHERE b.accountSetId = ?`,
-        [accountSetId, accountSetId],
+         WHERE b.tenantId = ? AND b.accountSetId = ?`,
+        [tenantId, accountSetId, tenantId, accountSetId],
       );
     }
     if (bankManuals.length > 0) {
@@ -267,8 +274,8 @@ export async function getCashOverviewQuery(
         // If manual's period is at or after queried period, the manual IS the opening.
         if (manualPeriodStart < periodStart) {
           const sinceResult = await service.querySingleAsync<SumsRow>(
-            `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
-            [accountSetId, m.accountNumber, manualPeriodStart, periodStart],
+            `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND ourAccount = ? AND date >= ? AND date < ?`,
+            [tenantId, accountSetId, m.accountNumber, manualPeriodStart, periodStart],
           );
           totalOpening += (sinceResult?.totalCredit || 0) - (sinceResult?.totalDebit || 0);
         }
@@ -276,8 +283,8 @@ export async function getCashOverviewQuery(
       // For banks without any manual opening, fall back to transactions before periodStart.
       if (coveredAccounts.size > 0) {
         const uncoveredResult = await service.querySingleAsync<SumsRow>(
-          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE accountSetId = ? AND date < ? AND ourAccount NOT IN (${bankManuals.map(() => '?').join(',')})`,
-          [accountSetId, periodStart, ...bankManuals.map(m => m.accountNumber)],
+          `SELECT COALESCE(SUM(credit), 0) as totalCredit, COALESCE(SUM(debit), 0) as totalDebit FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND date < ? AND ourAccount NOT IN (${bankManuals.map(() => '?').join(',')})`,
+          [tenantId, accountSetId, periodStart, ...bankManuals.map(m => m.accountNumber)],
         );
         totalOpening += (uncoveredResult?.totalCredit || 0) - (uncoveredResult?.totalDebit || 0);
       }
@@ -321,6 +328,7 @@ export interface JournalEntriesResult {
 
 export async function getJournalEntriesQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   ourAccount: string,
   periodStart: string,
@@ -331,8 +339,8 @@ export async function getJournalEntriesQuery(
   const pageSize = options?.pageSize || 50;
   const offset = (page - 1) * pageSize;
 
-  const params: SqliteBindable[] = [accountSetId, periodStart, periodEnd];
-  let whereClause = `WHERE accountSetId = ? AND date >= ? AND date <= ?`;
+  const params: SqliteBindable[] = [tenantId, accountSetId, periodStart, periodEnd];
+  let whereClause = `WHERE tenantId = ? AND accountSetId = ? AND date >= ? AND date <= ?`;
 
   if (ourAccount) {
     whereClause += ` AND ourAccount = ?`;
@@ -366,13 +374,14 @@ export async function getJournalEntriesQuery(
 
 export async function getTransactionStatusCountsQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   ourAccount: string,
   periodStart: string,
   periodEnd: string,
 ): Promise<Record<string, number>> {
-  const params: SqliteBindable[] = [accountSetId, periodStart, periodEnd];
-  let whereClause = `WHERE accountSetId = ? AND date >= ? AND date <= ?`;
+  const params: SqliteBindable[] = [tenantId, accountSetId, periodStart, periodEnd];
+  let whereClause = `WHERE tenantId = ? AND accountSetId = ? AND date >= ? AND date <= ?`;
   if (ourAccount) {
     whereClause += ` AND ourAccount = ?`;
     params.push(ourAccount);

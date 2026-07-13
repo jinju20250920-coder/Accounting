@@ -1,6 +1,6 @@
 import type { AuditLog } from '../sqlite-service';
 import type { CommonSummary, UserPreference } from '../../../types';
-import type { SqliteDatabaseLike } from './fixed-asset-sqlite-service';
+import type { SqliteBindable, SqliteDatabaseLike } from './fixed-asset-sqlite-service';
 import type { SimpleQueryService } from './dept-project-currency-sqlite-service';
 
 // ════════════════════════════════════════════
@@ -15,6 +15,7 @@ export interface AuditLogRow {
   details: string | null;
   userId: string | null;
   timestamp: string;
+  tenantId: string;
   accountSetId: string;
 }
 
@@ -34,14 +35,15 @@ export function mapAuditLogRow(row: AuditLogRow): AuditLog {
 export async function addAuditLogRecord(input: {
   db: SqliteDatabaseLike;
   log: AuditLog;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const log = { ...input.log, accountSetId: input.accountSetId };
   const stmt = input.db.prepare(`
     INSERT INTO auditLogs (
-      id, type, entityType, entityId, details, userId, timestamp, accountSetId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      id, type, entityType, entityId, details, userId, timestamp, tenantId, accountSetId
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   try {
     stmt.run([
@@ -52,6 +54,7 @@ export async function addAuditLogRecord(input: {
       JSON.stringify(log.details),
       log.userId,
       log.timestamp,
+      input.tenantId,
       log.accountSetId,
     ]);
   } finally {
@@ -62,12 +65,13 @@ export async function addAuditLogRecord(input: {
 
 export async function listAuditLogs(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   limit: number,
 ): Promise<AuditLog[]> {
   const rows = await service.queryAllAsync<AuditLogRow>(
-    `SELECT * FROM auditLogs WHERE accountSetId = ? ORDER BY timestamp DESC LIMIT ?`,
-    [accountSetId, limit],
+    `SELECT * FROM auditLogs WHERE tenantId = ? AND accountSetId = ? ORDER BY timestamp DESC LIMIT ?`,
+    [tenantId, accountSetId, limit],
   );
   return rows.map(mapAuditLogRow);
 }
@@ -82,6 +86,7 @@ export interface UserPreferenceRow {
   type: string | null;
   key: string | null;
   value: string | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -102,14 +107,15 @@ export function mapUserPreferenceRow(row: UserPreferenceRow): UserPreference {
 export async function savePreferenceRecord(input: {
   db: SqliteDatabaseLike;
   preference: UserPreference;
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
   const pref = { ...input.preference, accountSetId: input.accountSetId };
   const stmt = input.db.prepare(`
     INSERT OR REPLACE INTO userPreferences (
-      id, userId, type, key, value, accountSetId, createTime, updateTime
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      id, userId, type, key, value, tenantId, accountSetId, createTime, updateTime
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   try {
     stmt.run([
@@ -118,6 +124,7 @@ export async function savePreferenceRecord(input: {
       '',  // type
       '',  // key
       JSON.stringify(pref),
+      input.tenantId,
       input.accountSetId,
       pref.createTime || now,
       pref.updateTime || now,
@@ -129,12 +136,13 @@ export async function savePreferenceRecord(input: {
 
 export async function listPreferencesByUser(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   userId: string,
 ): Promise<UserPreference[]> {
   const rows = await service.queryAllAsync<UserPreferenceRow>(
-    `SELECT * FROM userPreferences WHERE accountSetId = ? AND userId = ?`,
-    [accountSetId, userId],
+    `SELECT * FROM userPreferences WHERE tenantId = ? AND accountSetId = ? AND userId = ?`,
+    [tenantId, accountSetId, userId],
   );
   return rows.map(row => {
     try {
@@ -154,6 +162,7 @@ export interface CommonSummaryRow {
   id: string;
   content: string;
   frequency: number | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -161,8 +170,8 @@ export interface CommonSummaryRow {
 
 const SUMMARY_INSERT_SQL = `
   INSERT OR REPLACE INTO commonSummaries (
-    id, content, frequency, accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?)
+    id, content, frequency, tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)
 `;
 
 export function mapCommonSummaryRow(row: CommonSummaryRow): CommonSummary {
@@ -179,6 +188,7 @@ export function mapCommonSummaryRow(row: CommonSummaryRow): CommonSummary {
 export async function saveCommonSummariesRecord(input: {
   db: SqliteDatabaseLike;
   summaries: CommonSummary[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
@@ -189,6 +199,7 @@ export async function saveCommonSummariesRecord(input: {
         summary.id,
         summary.text || '',
         summary.sortOrder || 0,
+        input.tenantId,
         input.accountSetId,
         summary.createTime || now,
         summary.updateTime || now,
@@ -201,11 +212,12 @@ export async function saveCommonSummariesRecord(input: {
 
 export async function listCommonSummaries(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<CommonSummary[]> {
   const rows = await service.queryAllAsync<CommonSummaryRow>(
-    `SELECT * FROM commonSummaries WHERE accountSetId = ? ORDER BY frequency DESC`,
-    [accountSetId],
+    `SELECT * FROM commonSummaries WHERE tenantId = ? AND accountSetId = ? ORDER BY frequency DESC`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapCommonSummaryRow);
 }

@@ -11,6 +11,7 @@ export interface RecRelationRow {
   amount: number;
   recDate: string;
   partnerName: string | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -31,6 +32,7 @@ export interface EntryRow {
   recRefNo: string | null;
   docNo: string | null;
   date: string;
+  tenantId: string;
   accountSetId: string;
 }
 
@@ -46,8 +48,8 @@ export interface ReconciliationQueryService {
 const REC_RELATION_INSERT_SQL = `
   INSERT OR REPLACE INTO recRelations (
     id, recRefNo, debitEntryId, creditEntryId, amount, recDate,
-    partnerName, accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    partnerName, tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 // ── Mapper ──
@@ -73,7 +75,12 @@ export function mapRecRelationRow(row: RecRelationRow): RecRelation {
 
 // ── Write operations ──
 
-function buildRecRelationParams(relation: RecRelation, accountSetId: string, now: string): SqliteBindable[] {
+function buildRecRelationParams(
+  relation: RecRelation,
+  tenantId: string,
+  accountSetId: string,
+  now: string,
+): SqliteBindable[] {
   return [
     relation.id,
     relation.recRefNo || '',
@@ -82,6 +89,7 @@ function buildRecRelationParams(relation: RecRelation, accountSetId: string, now
     relation.amount || 0,
     relation.recDate || new Date().toISOString().split('T')[0],
     '', // partnerName
+    tenantId,
     accountSetId,
     relation.createTime || now,
     relation.updateTime || now,
@@ -91,13 +99,14 @@ function buildRecRelationParams(relation: RecRelation, accountSetId: string, now
 export async function saveRecRelationsRecord(input: {
   db: SqliteDatabaseLike;
   relations: RecRelation[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
   for (const relation of input.relations) {
     const stmt = input.db.prepare(REC_RELATION_INSERT_SQL);
     try {
-      stmt.run(buildRecRelationParams(relation, input.accountSetId, now));
+      stmt.run(buildRecRelationParams(relation, input.tenantId, input.accountSetId, now));
     } finally {
       stmt.free();
     }
@@ -107,12 +116,13 @@ export async function saveRecRelationsRecord(input: {
 export async function saveRecRelationRecord(input: {
   db: SqliteDatabaseLike;
   relation: RecRelation;
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(REC_RELATION_INSERT_SQL);
   try {
-    stmt.run(buildRecRelationParams(input.relation, input.accountSetId, now));
+    stmt.run(buildRecRelationParams(input.relation, input.tenantId, input.accountSetId, now));
   } finally {
     stmt.free();
   }
@@ -122,13 +132,14 @@ export async function updateEntryRecRefNoRecord(input: {
   db: SqliteDatabaseLike;
   entryId: string;
   recRefNo: string;
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const stmt = input.db.prepare(
-    `UPDATE entries SET recRefNo = ? WHERE id = ? AND accountSetId = ?`,
+    `UPDATE entries SET recRefNo = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
   );
   try {
-    stmt.run([input.recRefNo, input.entryId, input.accountSetId]);
+    stmt.run([input.recRefNo, input.entryId, input.tenantId, input.accountSetId]);
   } finally {
     stmt.free();
   }
@@ -138,53 +149,57 @@ export async function updateEntryRecRefNoRecord(input: {
 
 export async function listRecRelations(
   service: ReconciliationQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<RecRelation[]> {
   const rows = await service.queryAllAsync<RecRelationRow>(
-    `SELECT * FROM recRelations WHERE accountSetId = ?`,
-    [accountSetId],
+    `SELECT * FROM recRelations WHERE tenantId = ? AND accountSetId = ?`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapRecRelationRow);
 }
 
 export async function findRecRelationsByRecRefNo(
   service: ReconciliationQueryService,
+  tenantId: string,
   accountSetId: string,
   recRefNo: string,
 ): Promise<RecRelation[]> {
   const rows = await service.queryAllAsync<RecRelationRow>(
-    `SELECT * FROM recRelations WHERE recRefNo = ? AND accountSetId = ?`,
-    [recRefNo, accountSetId],
+    `SELECT * FROM recRelations WHERE recRefNo = ? AND tenantId = ? AND accountSetId = ?`,
+    [recRefNo, tenantId, accountSetId],
   );
   return rows.map(mapRecRelationRow);
 }
 
 export async function findRecRelationsByEntryId(
   service: ReconciliationQueryService,
+  tenantId: string,
   accountSetId: string,
   entryId: string,
 ): Promise<RecRelation[]> {
   const debitRows = await service.queryAllAsync<RecRelationRow>(
-    `SELECT * FROM recRelations WHERE debitEntryId = ? AND accountSetId = ?`,
-    [entryId, accountSetId],
+    `SELECT * FROM recRelations WHERE debitEntryId = ? AND tenantId = ? AND accountSetId = ?`,
+    [entryId, tenantId, accountSetId],
   );
   const creditRows = await service.queryAllAsync<RecRelationRow>(
-    `SELECT * FROM recRelations WHERE creditEntryId = ? AND accountSetId = ?`,
-    [entryId, accountSetId],
+    `SELECT * FROM recRelations WHERE creditEntryId = ? AND tenantId = ? AND accountSetId = ?`,
+    [entryId, tenantId, accountSetId],
   );
   return [...debitRows, ...creditRows].map(mapRecRelationRow);
 }
 
 export async function getOutstandingItems(
   service: ReconciliationQueryService,
+  tenantId: string,
   accountSetId: string,
   query: OutstandingQuery,
 ): Promise<OutstandingItem[]> {
   if (!query.partnerName) return [];
 
   const allEntries = await service.queryAllAsync<EntryRow>(
-    `SELECT * FROM entries WHERE accountSetId = ?`,
-    [accountSetId],
+    `SELECT * FROM entries WHERE tenantId = ? AND accountSetId = ?`,
+    [tenantId, accountSetId],
   );
 
   let partnerEntries = allEntries.filter(entry => {
@@ -208,7 +223,7 @@ export async function getOutstandingItems(
   const items: OutstandingItem[] = [];
 
   for (const entry of partnerEntries) {
-    const relations = await findRecRelationsByEntryId(service, accountSetId, entry.id);
+    const relations = await findRecRelationsByEntryId(service, tenantId, accountSetId, entry.id);
     const totalRecAmount = relations.reduce((sum, rel) => sum + rel.amount, 0);
     const entryAmount = entry.debit > 0 ? entry.debit : entry.credit;
     const remainingAmount = entryAmount - totalRecAmount;
@@ -239,10 +254,11 @@ export async function getOutstandingItems(
 
 export async function calculatePartnerBalance(
   service: ReconciliationQueryService,
+  tenantId: string,
   accountSetId: string,
   partnerName: string,
 ): Promise<number> {
-  const items = await getOutstandingItems(service, accountSetId, {
+  const items = await getOutstandingItems(service, tenantId, accountSetId, {
     partnerName,
     subjectCode: '',
     startDate: '',

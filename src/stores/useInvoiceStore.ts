@@ -98,14 +98,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
     const stmt = db.prepare(
       `INSERT INTO invoices (
-        id, invoiceType, invoiceCode, invoiceDate, sellerName, sellerTaxNo,
+        id, tenantId, invoiceType, invoiceCode, invoiceDate, sellerName, sellerTaxNo,
         buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
         amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
         voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     stmt.run([
-      invoice.id, invoice.invoiceType, invoice.invoiceCode,
+      invoice.id, sqliteService.tenantId, invoice.invoiceType, invoice.invoiceCode,
       invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
       invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
       invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
@@ -130,9 +130,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     const values = Object.values(updateFields);
 
     const stmt = db.prepare(
-      `UPDATE invoices SET ${fields.map(f => `${f} = ?`).join(', ')} WHERE id = ?`
+      `UPDATE invoices SET ${fields.map(f => `${f} = ?`).join(', ')} WHERE id = ? AND tenantId = ? AND accountSetId = ?`
     );
-    stmt.run([...values, id]);
+    stmt.run([...values, id, sqliteService.tenantId, useAccountSetStore.getState().currentAccountSetId ?? '']);
     stmt.free();
 
     set((state) => ({
@@ -154,12 +154,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
     }
 
     // 先删除相关的核销记录
-    let stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE invoiceId = ?');
-    stmt.run([id]);
+    let stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE invoiceId = ? AND tenantId = ? AND accountSetId = ?');
+    stmt.run([id, sqliteService.tenantId, useAccountSetStore.getState().currentAccountSetId ?? '']);
     stmt.free();
 
-    stmt = db.prepare('DELETE FROM invoices WHERE id = ?');
-    stmt.run([id]);
+    stmt = db.prepare('DELETE FROM invoices WHERE id = ? AND tenantId = ? AND accountSetId = ?');
+    stmt.run([id, sqliteService.tenantId, useAccountSetStore.getState().currentAccountSetId ?? '']);
     stmt.free();
 
     set((state) => ({
@@ -257,9 +257,9 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
           // 检查发票号是否已存在
           const checkStmt = db.prepare(
-            'SELECT id FROM invoices WHERE invoiceCode = ? AND digitalInvoiceNo = ? AND invoiceType = ? AND accountSetId = ?'
+            'SELECT id FROM invoices WHERE invoiceCode = ? AND digitalInvoiceNo = ? AND invoiceType = ? AND tenantId = ? AND accountSetId = ?'
           );
-          checkStmt.bind([invoiceCode, digitalInvoiceNo || null, invoiceType, accountSetId]);
+          checkStmt.bind([invoiceCode, digitalInvoiceNo || null, invoiceType, sqliteService.tenantId, accountSetId]);
           const exists = checkStmt.step();
           checkStmt.free();
 
@@ -373,14 +373,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
           const stmt = db.prepare(
             `INSERT INTO invoices (
-              id, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
+              id, tenantId, invoiceType, invoiceCode, digitalInvoiceNo, invoiceDate, sellerName, sellerTaxNo,
               buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
               amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
               voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           );
           stmt.run([
-            invoice.id, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo || null,
+            invoice.id, sqliteService.tenantId, invoice.invoiceType, invoice.invoiceCode, invoice.digitalInvoiceNo || null,
             invoice.invoiceDate, invoice.sellerName, invoice.sellerTaxNo, invoice.buyerName,
             invoice.buyerTaxNo, invoice.goodsName, invoice.specification, invoice.unit,
             invoice.quantity, invoice.unitPrice, invoice.amount, invoice.taxRate,
@@ -428,11 +428,11 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
     const stmt = db.prepare(
       `INSERT INTO invoiceReconciliations (
-        id, invoiceId, voucherId, entryId, amount, reconcileDate, notes, accountSetId, createTime
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        id, tenantId, invoiceId, voucherId, entryId, amount, reconcileDate, notes, accountSetId, createTime
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     stmt.run([
-      rec.id, rec.invoiceId, rec.voucherId, rec.entryId, rec.amount,
+      rec.id, sqliteService.tenantId, rec.invoiceId, rec.voucherId, rec.entryId, rec.amount,
       rec.reconcileDate, rec.notes, rec.accountSetId, rec.createTime
     ]);
     stmt.free();
@@ -476,8 +476,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       }
     }
 
-    const stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE id = ?');
-    stmt.run([id]);
+    const stmt = db.prepare('DELETE FROM invoiceReconciliations WHERE id = ? AND tenantId = ? AND accountSetId = ?');
+    stmt.run([id, sqliteService.tenantId, useAccountSetStore.getState().currentAccountSetId ?? '']);
     stmt.free();
 
     set((state) => ({
@@ -706,8 +706,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       const yearMonth = voucherDate.substring(0, 7).replace('-', '');
       let nextSeq = 1;
       const seqResult = db.exec(
-        `SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1`,
-        [accountSetId, `记-${yearMonth}-%`]
+        `SELECT voucherNo FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1`,
+        [sqliteService.tenantId, accountSetId, `记-${yearMonth}-%`]
       );
       if (seqResult.length > 0 && seqResult[0].values.length > 0) {
         const lastNo = seqResult[0].values[0][0] as string;
@@ -731,8 +731,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
       // 校验该单据号是否已在总账凭证中存在
       const existingVoucher = db.exec(
-        `SELECT id, voucherNo FROM vouchers WHERE referenceNumber = ? AND accountSetId = ?`,
-        [docNo, accountSetId]
+        `SELECT id, voucherNo FROM vouchers WHERE referenceNumber = ? AND tenantId = ? AND accountSetId = ?`,
+        [docNo, sqliteService.tenantId, accountSetId]
       );
       if (existingVoucher.length > 0 && existingVoucher[0].values.length > 0) {
         const existingNo = existingVoucher[0].values[0][1] as string;
@@ -742,10 +742,10 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
       }
 
       let stmt = db.prepare(
-        `INSERT INTO vouchers (id, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vouchers (id, tenantId, voucherNo, date, summary, status, creator, referenceNumber, accountSetId, createTime, updateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmt.run([voucherId, voucherNo, voucherDate, '', 'posted', '系统', docNo, accountSetId, now, now]);
+      stmt.run([voucherId, sqliteService.tenantId, voucherNo, voucherDate, '', 'posted', '系统', docNo, accountSetId, now, now]);
       stmt.free();
 
       // 10. INSERT 分录（从模板引擎输出转换）
@@ -819,6 +819,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
         // 构建辅助核算 JSON
         let auxiliaryJson = '{}';
+        let resolvedPartnerId: string | undefined = invoice.partnerId || undefined;
         if (partnerTrackingMethod === 'card' && (subjectCode.startsWith('2202') || subjectCode.startsWith('1122'))) {
           // 往来卡片方式下，对往来科目写入辅助核算
           const { usePartnerStore } = await import('./usePartnerStore');
@@ -848,6 +849,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
               supplier: isInput ? matchedPartner.name : undefined,
               customer: !isInput ? matchedPartner.name : undefined,
             });
+            resolvedPartnerId = matchedPartner.id;
           }
         }
 
@@ -855,12 +857,12 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         if (entry.debit === 0 && entry.credit === 0) continue;
 
         stmt = db.prepare(
-          `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, auxiliary, date, accountSetId, createTime, updateTime)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (id, tenantId, voucherId, subjectCode, subjectName, direction, debit, credit, summary, customerName, supplierName, partnerId, auxiliary, date, accountSetId, createTime, updateTime)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, subjectCode, subjectName, direction,
+        stmt.run([entryId, sqliteService.tenantId, voucherId, subjectCode, subjectName, direction,
           entry.debit, entry.credit, entry.summary,
-          customerName, supplierName, auxiliaryJson, voucherDate, accountSetId, now, now]);
+          customerName, supplierName, resolvedPartnerId || '', auxiliaryJson, voucherDate, accountSetId, now, now]);
         stmt.free();
       }
 
@@ -917,8 +919,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
     for (const id of ids) {
       try {
-        const stmt = db.prepare('DELETE FROM invoices WHERE id = ?');
-        stmt.run([id]);
+        const stmt = db.prepare('DELETE FROM invoices WHERE id = ? AND tenantId = ? AND accountSetId = ?');
+        stmt.run([id, sqliteService.tenantId, useAccountSetStore.getState().currentAccountSetId ?? '']);
         stmt.free();
         success++;
       } catch (error) {
@@ -1078,7 +1080,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
       // 加载发票
       const invoiceResult = db.exec(
-        `SELECT * FROM invoices WHERE accountSetId = '${accountSetId}' ORDER BY invoiceDate DESC, createTime DESC`
+        `SELECT * FROM invoices WHERE tenantId = ? AND accountSetId = ? ORDER BY invoiceDate DESC, createTime DESC`,
+        [sqliteService.tenantId, accountSetId]
       );
 
       const invoices: Invoice[] = [];
@@ -1095,7 +1098,8 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
 
       // 加载核销记录
       const recResult = db.exec(
-        `SELECT * FROM invoiceReconciliations WHERE accountSetId = '${accountSetId}' ORDER BY reconcileDate DESC`
+        `SELECT * FROM invoiceReconciliations WHERE tenantId = ? AND accountSetId = ? ORDER BY reconcileDate DESC`,
+        [sqliteService.tenantId, accountSetId]
       );
 
       const reconciliations: InvoiceReconciliation[] = [];

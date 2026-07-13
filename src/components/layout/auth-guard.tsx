@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { sqliteService } from '@/lib/database';
 
-const PUBLIC_PATHS = ['/login'];
+const PUBLIC_PATHS = ['/login', '/select-tenant'];
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const currentTenantId = useAuthStore((s) => s.currentTenantId);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -18,17 +20,29 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, []);
 
+  // 启动时同步 sqliteService 的 tenantId
+  useEffect(() => {
+    if (isReady && currentTenantId) {
+      sqliteService.setTenantId(currentTenantId);
+    }
+  }, [isReady, currentTenantId]);
+
   useEffect(() => {
     if (!isReady) return;
 
     const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+    const isTenantSelectPage = pathname.startsWith('/select-tenant');
 
     if (!isAuthenticated && !isPublic) {
       router.replace('/login');
-    } else if (isAuthenticated && isPublic) {
-      router.replace('/');
+    } else if (isAuthenticated && pathname.startsWith('/login')) {
+      // 已登录访问登录页 → 重定向
+      router.replace(currentTenantId ? '/' : '/select-tenant');
+    } else if (isAuthenticated && !currentTenantId && !isTenantSelectPage) {
+      // 已登录但未选租户 → 选租户页
+      router.replace('/select-tenant');
     }
-  }, [isAuthenticated, pathname, router, isReady]);
+  }, [isAuthenticated, currentTenantId, pathname, router, isReady]);
 
   if (!isReady) {
     return (
@@ -40,7 +54,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   if (!isAuthenticated && !isPublic) return null;
-  if (isAuthenticated && isPublic) return null;
+  if (isAuthenticated && pathname.startsWith('/login')) return null;
 
   return <>{children}</>;
 }

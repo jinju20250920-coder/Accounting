@@ -41,8 +41,12 @@ import {
   findPartnerByName,
   insertPartnerRecord,
   listPartners,
+  mergePartnerRecords,
+  previewPartnerMerge,
   savePartnersRecord,
+  type MergeResult,
   type PartnerInsertInput,
+  type PartnerMergePreview,
   type PartnerQueryService,
 } from './services/partner-sqlite-service';
 import {
@@ -236,6 +240,7 @@ export interface AuditLog {
 
 class SQLiteService {
   private dbInstance: any = null;
+  private _tenantId: string = 'default'; // 当前租户ID（在 accountSetId 之上的隔离层）
   private _accountSetId: string = 'default'; // 当前账套ID
   private _initPromise: Promise<void> | null = null; // 防止并发初始化
 
@@ -247,6 +252,17 @@ class SQLiteService {
     } catch {
       // sqliteManager 不可用时静默忽略（fallback 内存库无法持久化）
     }
+  }
+
+  // 设置当前租户ID
+  setTenantId(tenantId: string) {
+    if (this._tenantId === tenantId) return;
+    this._tenantId = tenantId;
+  }
+
+  // 获取当前租户ID
+  get tenantId(): string {
+    return this._tenantId;
   }
 
   // 设置当前账套ID
@@ -442,6 +458,8 @@ class SQLiteService {
     await this.migrateDedupAssetCategories();
     // 迁移：为每个账套补录缺失的细分资产分类（电子设备/运输工具/办公家具/机器设备/房屋建筑物）
     await this.migrateBackfillGranularAssetCategories();
+    // 迁移：多租户改造——给所有业务表添加 tenantId 列
+    await this.migrateAddTenantColumns();
   }
 
   /**
@@ -545,7 +563,6 @@ class SQLiteService {
 
       if (patchedCount > 0) {
         await this.persist();
-        console.log(`[FX migration] 已补全 ${patchedCount} 张凭证的外币字段`);
       }
 
       if (typeof localStorage !== 'undefined') {
@@ -611,7 +628,6 @@ class SQLiteService {
 
       if (updated > 0) {
         await this.persist();
-        console.log(`[Subject isMonetary migration] 已回填 ${updated} 个科目的 isMonetary 字段`);
       }
     } catch (err) {
       console.error('[Subject isMonetary migration] 失败:', err);
@@ -676,7 +692,6 @@ class SQLiteService {
 
       if (updated > 0) {
         await this.persist();
-        console.log(`[FA depreciationStartDate migration] 已回填 ${updated} 个资产的折旧开始日期`);
       }
     } catch (err) {
       console.error('[FA depreciationStartDate migration] 失败:', err);
@@ -813,7 +828,6 @@ class SQLiteService {
         db.exec('COMMIT');
         if (insertedCount > 0 || removedFixedCount > 0) {
           await this.persist();
-          console.log(`[assetCategories backfill] 补录 ${insertedCount} 个细分分类，移除 ${removedFixedCount} 个父级「固定资产」分类`);
         }
       } catch (e) {
         db.exec('ROLLBACK');
@@ -897,7 +911,6 @@ class SQLiteService {
           }
           db.exec('COMMIT');
           await this.persist();
-          console.log(`[assetCategories dedup] 已清理 ${dups.length} 行重复分类`);
         } catch (e) {
           db.exec('ROLLBACK');
           throw e;
@@ -966,7 +979,6 @@ class SQLiteService {
         db.exec('CREATE INDEX IF NOT EXISTS idx_assetCategories_assetType ON assetCategories(assetType)');
         db.exec('COMMIT');
         await this.persist();
-        console.log('[assetCategories migration] 已去掉 code 全局 UNIQUE 约束');
       } catch (e) {
         db.exec('ROLLBACK');
         throw e;
@@ -1102,7 +1114,6 @@ class SQLiteService {
       for (const col of newColumns) {
         if (!columns.includes(col.name)) {
           this.dbInstance.exec(col.sql);
-          console.log(`fixedAssets table: added ${col.name} column`);
         }
       }
 
@@ -1147,7 +1158,6 @@ class SQLiteService {
           }
           updateStmt.free();
           if (dirty) {
-            console.log('FixedAssets: 修正了 depreciationStartDate/EndDate 时区偏移');
             await this.persist();
           }
         }
@@ -1166,7 +1176,6 @@ class SQLiteService {
       const columns = columnsResult[0]?.values?.map(v => v[1] as string) || [];
 
       if (!columns.includes('depreciationStartRule')) {
-        console.log('Migrating assetCategories table: adding depreciationStartRule column');
         this.dbInstance.exec("ALTER TABLE assetCategories ADD COLUMN depreciationStartRule TEXT DEFAULT 'next_month'");
         // 更新现有分类：根据资产类型设置默认规则
         this.dbInstance.exec(`
@@ -1181,7 +1190,6 @@ class SQLiteService {
         );
         if (intangibleCategories[0]?.values?.length > 0) {
           const categoryIds = intangibleCategories[0].values.map(v => v[0]);
-          console.log('Fixing depreciationStartDate for intangible assets in categories:', categoryIds);
 
           // 更新无形资产的折旧开始日期：从入账日期当月1日开始
           for (const categoryId of categoryIds) {
@@ -1206,7 +1214,6 @@ class SQLiteService {
       );
 
       if (!tableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating assetChangeRecords table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS assetChangeRecords (
             id TEXT PRIMARY KEY,
@@ -1237,7 +1244,6 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_acr_period ON assetChangeRecords(period);
           CREATE INDEX IF NOT EXISTS idx_acr_changeType ON assetChangeRecords(changeType);
         `);
-        console.log('assetChangeRecords table migration completed');
       } else {
         // 添加时序账字段（ALTER TABLE）
         const acrPragma = this.dbInstance.exec("PRAGMA table_info(assetChangeRecords)");
@@ -1265,7 +1271,6 @@ class SQLiteService {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='intangibleChangeRecords'"
       );
       if (!intangibleChangeTableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating intangibleChangeRecords table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS intangibleChangeRecords (
             id TEXT PRIMARY KEY,
@@ -1294,7 +1299,6 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_icr_voucherId ON intangibleChangeRecords(voucherId);
           CREATE INDEX IF NOT EXISTS idx_icr_period ON intangibleChangeRecords(period);
         `);
-        console.log('intangibleChangeRecords table migration completed');
       }
     } catch (error) {
       console.warn('intangibleChangeRecords table migration warning:', error);
@@ -1306,7 +1310,6 @@ class SQLiteService {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='prepaidChangeRecords'"
       );
       if (!prepaidChangeTableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating prepaidChangeRecords table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS prepaidChangeRecords (
             id TEXT PRIMARY KEY,
@@ -1335,7 +1338,6 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_pcr_voucherId ON prepaidChangeRecords(voucherId);
           CREATE INDEX IF NOT EXISTS idx_pcr_period ON prepaidChangeRecords(period);
         `);
-        console.log('prepaidChangeRecords table migration completed');
       }
     } catch (error) {
       console.warn('prepaidChangeRecords table migration warning:', error);
@@ -1348,7 +1350,6 @@ class SQLiteService {
       );
 
       if (!splitTableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating assetSplitRecords table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS assetSplitRecords (
             id TEXT PRIMARY KEY,
@@ -1363,7 +1364,6 @@ class SQLiteService {
             createTime TEXT NOT NULL
           )
         `);
-        console.log('assetSplitRecords table migration completed');
       }
     } catch (error) {
       console.warn('assetSplitRecords table migration warning:', error);
@@ -1376,7 +1376,6 @@ class SQLiteService {
       );
 
       if (!mergeTableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating assetMergeRecords table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS assetMergeRecords (
             id TEXT PRIMARY KEY,
@@ -1390,7 +1389,6 @@ class SQLiteService {
             createTime TEXT NOT NULL
           )
         `);
-        console.log('assetMergeRecords table migration completed');
       }
     } catch (error) {
       console.warn('assetMergeRecords table migration warning:', error);
@@ -1410,7 +1408,6 @@ class SQLiteService {
       );
 
       if (!tableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating bankTransactions table...');
 
         const createTable = `
           -- 银行流水表
@@ -1462,7 +1459,6 @@ class SQLiteService {
         `;
 
         this.dbInstance.exec(createTable);
-        console.log('Bank transactions table migration completed successfully');
       }
     } catch (error) {
       console.warn('Bank transactions table migration warning:', error);
@@ -1483,7 +1479,6 @@ class SQLiteService {
       );
 
       if (!tableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating fixed asset tables...');
 
         const createTables = `
           -- 资产分类表
@@ -1838,7 +1833,6 @@ class SQLiteService {
         `;
 
         this.dbInstance.exec(createTables);
-        console.log('Fixed asset tables migration completed successfully');
       }
     } catch (error) {
       console.warn('Fixed asset tables migration warning:', error);
@@ -1858,7 +1852,6 @@ class SQLiteService {
       );
 
       if (!tableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating bankTransactionRules table...');
 
         const createTable = `
           CREATE TABLE IF NOT EXISTS bankTransactionRules (
@@ -1881,7 +1874,6 @@ class SQLiteService {
         `;
 
         this.dbInstance.exec(createTable);
-        console.log('Bank transaction rules table migration completed');
       }
 
       // 为 partners 表添加默认科目列
@@ -1893,7 +1885,6 @@ class SQLiteService {
           ALTER TABLE partners ADD COLUMN defaultSubjectCode TEXT;
           ALTER TABLE partners ADD COLUMN defaultSubjectName TEXT;
         `);
-        console.log('Partners table: added defaultSubjectCode/defaultSubjectName columns');
       }
 
       const extraPartnerColumns = [
@@ -1928,7 +1919,6 @@ class SQLiteService {
       for (const column of extraPartnerColumns) {
         if (!columns.includes(column)) {
           this.dbInstance.exec(`ALTER TABLE partners ADD COLUMN ${column} TEXT;`);
-          console.log(`Partners table: added ${column} column`);
         }
       }
     } catch (error) {
@@ -1951,7 +1941,6 @@ class SQLiteService {
       );
 
       if (!tableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating purchase_invoice_rule_config table...');
 
         const createTable = `
           CREATE TABLE IF NOT EXISTS purchase_invoice_rule_config (
@@ -1967,7 +1956,6 @@ class SQLiteService {
         `;
 
         this.dbInstance.exec(createTable);
-        console.log('Purchase invoice rule config table migration completed');
       }
     } catch (error) {
       console.warn('Purchase invoice rule config table migration warning:', error);
@@ -1986,7 +1974,6 @@ class SQLiteService {
 
       if (columns.includes('supplierType')) {
         // 在 SQLite 中，要删除列需要创建新表并复制数据
-        console.log('Migrating database: removing supplierType column from supplier_subject_mapping...');
 
         // 1. 创建临时表
         this.dbInstance.exec(`
@@ -2034,7 +2021,6 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
         `);
 
-        console.log('Migration completed: supplierType column removed from supplier_subject_mapping');
       }
     } catch (error) {
       console.warn('Migration warning: Failed to remove supplierType column from supplier_subject_mapping', error);
@@ -2067,7 +2053,6 @@ class SQLiteService {
       );
 
       if (!tableCheck[0]?.values?.length) {
-        console.log('Migrating database: creating smart rule engine tables...');
 
         // Drop old invoice_subject_rules (dev stage, data loss OK)
         try {
@@ -2225,7 +2210,6 @@ class SQLiteService {
             : [`sys_asc_default`, this._accountSetId, now]
         );
 
-        console.log('Smart rule engine tables migration completed');
       }
 
       // ALTER invoices: add holdStatus and category columns
@@ -2235,11 +2219,9 @@ class SQLiteService {
 
         if (!columns.includes('holdStatus')) {
           this.dbInstance.exec(`ALTER TABLE invoices ADD COLUMN holdStatus TEXT DEFAULT 'normal'`);
-          console.log('invoices table: added holdStatus column');
         }
         if (!columns.includes('category')) {
           this.dbInstance.exec(`ALTER TABLE invoices ADD COLUMN category TEXT`);
-          console.log('invoices table: added category column');
         }
       } catch (e) {
         if (!e.message?.includes('duplicate column name')) {
@@ -2254,11 +2236,9 @@ class SQLiteService {
 
         if (!columns.includes('enableSmartRouting')) {
           this.dbInstance.exec(`ALTER TABLE auxiliary_strategy_config ADD COLUMN enableSmartRouting INTEGER DEFAULT 1`);
-          console.log('auxiliary_strategy_config table: added enableSmartRouting column');
         }
         if (!columns.includes('enableMultiAction')) {
           this.dbInstance.exec(`ALTER TABLE auxiliary_strategy_config ADD COLUMN enableMultiAction INTEGER DEFAULT 1`);
-          console.log('auxiliary_strategy_config table: added enableMultiAction column');
         }
       } catch (e) {
         if (!e.message?.includes('duplicate column name')) {
@@ -2282,7 +2262,6 @@ class SQLiteService {
       const hasAccountSetId = pragma[0]?.values?.some((row: any[]) => row[1] === 'accountSetId');
 
       if (!hasAccountSetId) {
-        console.log('Migrating database: adding accountSetId columns to existing tables...');
         const alterTables = `
           ALTER TABLE vouchers ADD COLUMN accountSetId TEXT;
           ALTER TABLE entries ADD COLUMN accountSetId TEXT;
@@ -2299,7 +2278,6 @@ class SQLiteService {
         `;
 
         this.dbInstance.exec(alterTables);
-        console.log('Database migration completed successfully');
       }
     } catch (error) {
       // 如果是 "duplicate column name" 错误，说明列已存在，可以忽略
@@ -2315,7 +2293,6 @@ class SQLiteService {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='bank_account_bindings'"
       );
       if (!checkBindings[0]?.values?.length) {
-        console.log('Migrating database: creating bank_account_bindings table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS bank_account_bindings (
             id TEXT PRIMARY KEY,
@@ -2335,7 +2312,6 @@ class SQLiteService {
           CREATE INDEX IF NOT EXISTS idx_bank_bindings_accountSetId ON bank_account_bindings(accountSetId);
           CREATE INDEX IF NOT EXISTS idx_bank_bindings_accountNumber ON bank_account_bindings(accountNumber);
         `);
-        console.log('bank_account_bindings table migration completed');
       }
     } catch (e) {
       console.warn('bank_account_bindings migration warning:', e);
@@ -2347,7 +2323,6 @@ class SQLiteService {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='custom_bank_configs'"
       );
       if (!checkCustom[0]?.values?.length) {
-        console.log('Migrating database: creating custom_bank_configs table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS custom_bank_configs (
             id TEXT PRIMARY KEY,
@@ -2359,7 +2334,6 @@ class SQLiteService {
           );
           CREATE INDEX IF NOT EXISTS idx_custom_bank_configs_accountSetId ON custom_bank_configs(accountSetId);
         `);
-        console.log('custom_bank_configs table migration completed');
       }
     } catch (e) {
       console.warn('custom_bank_configs migration warning:', e);
@@ -2515,7 +2489,6 @@ class SQLiteService {
       const missingColumns = neededColumns.filter(col => !columns.includes(col));
 
       if (missingColumns.length > 0) {
-        console.log('Migrating subjects table: adding columns', missingColumns);
 
         for (const col of missingColumns) {
           let sql: string;
@@ -2528,7 +2501,6 @@ class SQLiteService {
           }
           this.dbInstance.exec(sql);
         }
-        console.log('Subjects table migration completed successfully');
       }
 
       // 更新默认科目的值
@@ -2541,7 +2513,6 @@ class SQLiteService {
       for (const sql of updateStmts) {
         this.dbInstance.exec(sql);
       }
-      console.log('Subject default values updated');
     } catch (error) {
       if (!error.message?.includes('duplicate column name')) {
         console.warn('Subjects table migration warning:', error);
@@ -2558,14 +2529,11 @@ class SQLiteService {
 
       // Migrate old templateId column to groupName
       if (columns.includes('templateId') && !columns.includes('groupName')) {
-        console.log('Migrating invoices table: renaming templateId to groupName');
         this.dbInstance.exec('ALTER TABLE invoices RENAME COLUMN templateId TO groupName;');
       } else if (!columns.includes('groupName')) {
-        console.log('Migrating invoices table: adding groupName column');
         this.dbInstance.exec('ALTER TABLE invoices ADD COLUMN groupName TEXT;');
       }
       if (!columns.includes('digitalInvoiceNo')) {
-        console.log('Migrating invoices table: adding digitalInvoiceNo column');
         this.dbInstance.exec('ALTER TABLE invoices ADD COLUMN digitalInvoiceNo TEXT;');
       }
     } catch (error) {
@@ -2580,7 +2548,6 @@ class SQLiteService {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='codeRules'"
       );
       if (!tableCheck[0]?.values?.length) {
-        console.log('Creating codeRules table...');
         this.dbInstance.exec(`
           CREATE TABLE IF NOT EXISTS codeRules (
             id TEXT PRIMARY KEY,
@@ -2748,6 +2715,7 @@ class SQLiteService {
     await saveVoucherRecord({
       db: this.dbInstance,
       voucher,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -2760,6 +2728,7 @@ class SQLiteService {
       db: this.dbInstance,
       id,
       status,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -2767,22 +2736,22 @@ class SQLiteService {
 
   async getVoucher(id: string): Promise<Voucher | undefined> {
     await this.ensureInitialized();
-    return getVoucherById(this.getVoucherQueryService(), this.accountSetId, id);
+    return getVoucherById(this.getVoucherQueryService(), this.tenantId, this.accountSetId, id);
   }
 
   async getAllVouchers(): Promise<Voucher[]> {
     await this.ensureInitialized();
-    return listVouchers(this.getVoucherQueryService(), this.accountSetId);
+    return listVouchers(this.getVoucherQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getVouchersByDateRange(startDate: string, endDate: string): Promise<Voucher[]> {
     await this.ensureInitialized();
-    return listVouchersByDateRange(this.getVoucherQueryService(), this.accountSetId, startDate, endDate);
+    return listVouchersByDateRange(this.getVoucherQueryService(), this.tenantId, this.accountSetId, startDate, endDate);
   }
 
   async getVouchersByStatus(status: 'draft' | 'review' | 'posted' | 'reversed'): Promise<Voucher[]> {
     await this.ensureInitialized();
-    return listVouchersByStatus(this.getVoucherQueryService(), this.accountSetId, status);
+    return listVouchersByStatus(this.getVoucherQueryService(), this.tenantId, this.accountSetId, status);
   }
 
   async deleteVoucher(id: string): Promise<void> {
@@ -2791,6 +2760,7 @@ class SQLiteService {
     await deleteVoucherRecord({
       db: this.dbInstance,
       id,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -2804,6 +2774,7 @@ class SQLiteService {
     await saveSubjectsRecord({
       db: this.dbInstance,
       subjects,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -2811,17 +2782,17 @@ class SQLiteService {
 
   async getAllSubjects(): Promise<Subject[]> {
     await this.ensureInitialized();
-    return listSubjects(this.getSubjectQueryService(), this.accountSetId);
+    return listSubjects(this.getSubjectQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getSubjectByCode(code: string): Promise<Subject | undefined> {
     await this.ensureInitialized();
-    return findSubjectByCode(this.getSubjectQueryService(), this.accountSetId, code);
+    return findSubjectByCode(this.getSubjectQueryService(), this.tenantId, this.accountSetId, code);
   }
 
   async hasVoucherForSubject(subjectIdOrCode: string): Promise<boolean> {
     await this.ensureInitialized();
-    return hasVoucherForSubjectQuery(this.getSubjectQueryService(), this.accountSetId, subjectIdOrCode);
+    return hasVoucherForSubjectQuery(this.getSubjectQueryService(), this.tenantId, this.accountSetId, subjectIdOrCode);
   }
 
   async migrateSubjectVouchers(oldSubjectCode: string, newSubjectCode: string): Promise<number> {
@@ -2831,6 +2802,7 @@ class SQLiteService {
       db: this.dbInstance as any,
       oldSubjectCode,
       newSubjectCode,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -2879,7 +2851,6 @@ class SQLiteService {
         for (const col of expectedColumns) {
           if (!columnNames.includes(col.name)) {
             this.dbInstance.run(`ALTER TABLE bankTransactions ADD COLUMN ${col.name} ${col.def}`);
-            console.log(`Migration: Added ${col.name} column to bankTransactions`);
           }
         }
       }
@@ -3152,7 +3123,13 @@ class SQLiteService {
       urStmt.run(['user_admin', 'role_admin']);
       urStmt.free();
 
-      console.log('Migration: User/role/permission tables created with preset data');
+      // 把 admin 用户加入默认租户作为 owner
+      const tuStmt = this.dbInstance.prepare(
+        `INSERT OR IGNORE INTO tenant_users (tenantId, userId, role, joinedAt) VALUES (?, ?, ?, ?)`
+      );
+      tuStmt.run(['default', 'user_admin', 'owner', now]);
+      tuStmt.free();
+
     } catch (error) {
       console.error('Migration: Failed to create user tables', error);
     }
@@ -3168,7 +3145,6 @@ class SQLiteService {
       const colNames = cols[0]?.values?.map((r: any[]) => r[1] as string) || [];
       if (!colNames.includes('createdBy')) {
         this.dbInstance.exec(`ALTER TABLE fxRates ADD COLUMN createdBy TEXT`);
-        console.log('Migration: Added createdBy column to fxRates');
       }
     } catch (error) {
       console.error('Migration: Failed to add createdBy to fxRates', error);
@@ -3232,8 +3208,27 @@ class SQLiteService {
       if (!columns.includes('updateTime')) addColumns.push('ALTER TABLE entries ADD COLUMN updateTime TEXT');
       if (!columns.includes('sourceEntryId')) addColumns.push('ALTER TABLE entries ADD COLUMN sourceEntryId TEXT');
       if (!columns.includes('sourceVoucherDate')) addColumns.push('ALTER TABLE entries ADD COLUMN sourceVoucherDate TEXT');
+      if (!columns.includes('partnerId')) addColumns.push('ALTER TABLE entries ADD COLUMN partnerId TEXT');
       for (const sql of addColumns) {
         this.dbInstance.exec(sql);
+      }
+      // Backfill partnerId from existing name fields (one-time, idempotent)
+      if (addColumns.some(sql => sql.includes('partnerId'))) {
+        try {
+          this.dbInstance.exec(
+            `UPDATE entries
+             SET partnerId = (
+               SELECT id FROM partners
+               WHERE partners.name = COALESCE(entries.customerName, entries.supplierName)
+                 AND partners.accountSetId = entries.accountSetId
+               LIMIT 1
+             )
+             WHERE partnerId IS NULL
+               AND (customerName IS NOT NULL OR supplierName IS NOT NULL)`,
+          );
+        } catch (backfillError) {
+          console.error('Migration: Failed to backfill partnerId', backfillError);
+        }
       }
     } catch (error) {
       console.error('Migration: Failed to add entry columns', error);
@@ -3265,7 +3260,6 @@ class SQLiteService {
           )
         `);
         this.dbInstance.exec(`CREATE INDEX IF NOT EXISTS idx_bank_opening_balances_lookup ON bank_opening_balances (accountSetId, accountNumber, periodStart)`);
-        console.log('Migration: Created bank_opening_balances table');
       }
       // Ensure exchangeRate and foreignBalance columns exist for foreign currency support
       const columnInfo = this.dbInstance.exec("PRAGMA table_info(bank_opening_balances)");
@@ -3273,11 +3267,9 @@ class SQLiteService {
         const columnNames = columnInfo[0].values?.map((row: any[]) => row[1]) || [];
         if (!columnNames.includes('exchangeRate')) {
           this.dbInstance.run('ALTER TABLE bank_opening_balances ADD COLUMN exchangeRate REAL');
-          console.log('Migration: Added exchangeRate column to bank_opening_balances');
         }
         if (!columnNames.includes('foreignBalance')) {
           this.dbInstance.run('ALTER TABLE bank_opening_balances ADD COLUMN foreignBalance REAL');
-          console.log('Migration: Added foreignBalance column to bank_opening_balances');
         }
       }
     } catch (error) {
@@ -3324,17 +3316,17 @@ class SQLiteService {
 
   async getBankOpeningBalance(accountNumber: string, periodStart: string): Promise<number | null> {
     await this.ensureInitialized();
-    return getBankOpeningBalanceQuery(this.getSimpleQueryService(), this.accountSetId, accountNumber, periodStart);
+    return getBankOpeningBalanceQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, accountNumber, periodStart);
   }
 
   async getBankOpeningBalanceDetail(accountNumber: string, periodStart: string) {
     await this.ensureInitialized();
-    return getBankOpeningBalanceDetailQuery(this.getSimpleQueryService(), this.accountSetId, accountNumber, periodStart);
+    return getBankOpeningBalanceDetailQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, accountNumber, periodStart);
   }
 
   async getAllBankOpeningBalances() {
     await this.ensureInitialized();
-    return getAllBankOpeningBalancesQuery(this.getSimpleQueryService(), this.accountSetId);
+    return getAllBankOpeningBalancesQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveBankOpeningBalance(data: {
@@ -3350,6 +3342,7 @@ class SQLiteService {
     if (!this.dbInstance) throw new Error('Database instance is null after initialization');
     await saveBankOpeningBalanceRecord({
       db: this.dbInstance,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       ...data,
     });
@@ -3360,6 +3353,7 @@ class SQLiteService {
     if (!this.dbInstance) throw new Error('Database instance is null after initialization');
     await deleteBankOpeningBalanceRecord({
       db: this.dbInstance,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       accountNumber,
       periodStart,
@@ -3375,7 +3369,7 @@ class SQLiteService {
     lastBankBalance: number | null;
   }> {
     await this.ensureInitialized();
-    return getCashOverviewQuery(this.getSimpleQueryService(), this.accountSetId, ourAccount, periodStart, periodEnd);
+    return getCashOverviewQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, ourAccount, periodStart, periodEnd);
   }
 
   async getJournalEntries(ourAccount: string, periodStart: string, periodEnd: string, options?: {
@@ -3384,12 +3378,12 @@ class SQLiteService {
     pageSize?: number;
   }): Promise<{ entries: any[]; total: number }> {
     await this.ensureInitialized();
-    return getJournalEntriesQuery(this.getSimpleQueryService(), this.accountSetId, ourAccount, periodStart, periodEnd, options);
+    return getJournalEntriesQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, ourAccount, periodStart, periodEnd, options);
   }
 
   async getTransactionStatusCounts(ourAccount: string, periodStart: string, periodEnd: string): Promise<Record<string, number>> {
     await this.ensureInitialized();
-    return getTransactionStatusCountsQuery(this.getSimpleQueryService(), this.accountSetId, ourAccount, periodStart, periodEnd);
+    return getTransactionStatusCountsQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, ourAccount, periodStart, periodEnd);
   }
 
   // ========== 部门操作 ==========
@@ -3400,18 +3394,19 @@ class SQLiteService {
     await saveDepartmentsRecord({
       db: this.dbInstance,
       departments,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getAllDepartments(): Promise<Department[]> {
     await this.ensureInitialized();
-    return listDepartments(this.getSimpleQueryService(), this.accountSetId);
+    return listDepartments(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getDepartmentByCode(code: string): Promise<Department | undefined> {
     await this.ensureInitialized();
-    return findDeptByCodeQuery(this.getSimpleQueryService(), this.accountSetId, code);
+    return findDeptByCodeQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, code);
   }
 
   // ========== 项目操作 ==========
@@ -3422,18 +3417,19 @@ class SQLiteService {
     await saveProjectsRecord({
       db: this.dbInstance,
       projects,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getAllProjects(): Promise<Project[]> {
     await this.ensureInitialized();
-    return listProjects(this.getSimpleQueryService(), this.accountSetId);
+    return listProjects(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getProjectByCode(code: string): Promise<Project | undefined> {
     await this.ensureInitialized();
-    return findProjByCodeQuery(this.getSimpleQueryService(), this.accountSetId, code);
+    return findProjByCodeQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, code);
   }
 
   // ========== 币别操作 ==========
@@ -3444,25 +3440,26 @@ class SQLiteService {
     await saveCurrenciesRecord({
       db: this.dbInstance,
       currencies,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getAllCurrencies(): Promise<Currency[]> {
     await this.ensureInitialized();
-    return listCurrencies(this.getSimpleQueryService(), this.accountSetId);
+    return listCurrencies(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getCurrencyByCode(code: string): Promise<Currency | undefined> {
     await this.ensureInitialized();
-    return findCurrencyByCodeQuery(this.getSimpleQueryService(), this.accountSetId, code);
+    return findCurrencyByCodeQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId, code);
   }
 
   // ========== 往来单位操作 ==========
 
   async getAccountSetBaseCurrency(accountSetId: string = this.accountSetId): Promise<{ baseCurrency: string; baseCurrencyName: string } | null> {
     await this.ensureInitialized();
-    return getAccountSetBaseCurrencyQuery(this.getSimpleQueryService(), accountSetId);
+    return getAccountSetBaseCurrencyQuery(this.getSimpleQueryService(), this.tenantId, accountSetId);
   }
 
   async saveAccountSetBaseCurrency(baseCurrency: string, baseCurrencyName?: string, accountSetId: string = this.accountSetId): Promise<void> {
@@ -3472,6 +3469,7 @@ class SQLiteService {
       db: this.dbInstance,
       baseCurrency,
       baseCurrencyName,
+      tenantId: this.tenantId,
       accountSetId,
       persist: () => this.persist(),
     });
@@ -3483,6 +3481,7 @@ class SQLiteService {
     await saveFxRatesRecord({
       db: this.dbInstance,
       rates,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -3490,7 +3489,7 @@ class SQLiteService {
 
   async getFxRates(rateDate?: string): Promise<FxRate[]> {
     await this.ensureInitialized();
-    return listFxRates(this.getSimpleQueryService(), this.accountSetId, rateDate);
+    return listFxRates(this.getSimpleQueryService(), this.tenantId, this.accountSetId, rateDate);
   }
 
   // ========== FX 重估运行操作 ==========
@@ -3501,6 +3500,7 @@ class SQLiteService {
     await saveFxRevaluationRunRecord({
       db: this.dbInstance,
       run,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -3508,12 +3508,12 @@ class SQLiteService {
 
   async getFxRevaluationRuns(period?: string): Promise<FxRevaluationRun[]> {
     await this.ensureInitialized();
-    return listFxRevaluationRuns(this.getSimpleQueryService(), this.accountSetId, period);
+    return listFxRevaluationRuns(this.getSimpleQueryService(), this.tenantId, this.accountSetId, period);
   }
 
   async getFxRevaluationRun(id: string): Promise<FxRevaluationRun | null> {
     await this.ensureInitialized();
-    return findFxRevaluationRun(this.getSimpleQueryService(), this.accountSetId, id);
+    return findFxRevaluationRun(this.getSimpleQueryService(), this.tenantId, this.accountSetId, id);
   }
 
   async deleteFxRevaluationRun(id: string): Promise<void> {
@@ -3522,6 +3522,7 @@ class SQLiteService {
     await deleteFxRevaluationRunRecord({
       db: this.dbInstance,
       id,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -3533,6 +3534,7 @@ class SQLiteService {
     await saveFxRevaluationRunLinesRecord({
       db: this.dbInstance,
       lines,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -3540,7 +3542,7 @@ class SQLiteService {
 
   async getFxRevaluationRunLines(runId: string): Promise<FxRevaluationRunLine[]> {
     await this.ensureInitialized();
-    return listFxRevaluationRunLines(this.getSimpleQueryService(), this.accountSetId, runId);
+    return listFxRevaluationRunLines(this.getSimpleQueryService(), this.tenantId, this.accountSetId, runId);
   }
 
   async savePartners(partners: Partner[]): Promise<void> {
@@ -3549,6 +3551,7 @@ class SQLiteService {
     await savePartnersRecord({
       db: this.dbInstance,
       partners,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -3558,6 +3561,7 @@ class SQLiteService {
     try {
       await saveFixedAssetRecord({
         db: this.dbInstance!,
+        tenantId: this.tenantId,
         accountSetId: this.accountSetId,
         asset,
         persist: () => this.persist(),
@@ -3570,17 +3574,17 @@ class SQLiteService {
 
   async getAllPartners(): Promise<Partner[]> {
     await this.ensureInitialized();
-    return await listPartners(this.getPartnerQueryService(), this.accountSetId);
+    return await listPartners(this.getPartnerQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getPartnerByCode(code: string): Promise<Partner | undefined> {
     await this.ensureInitialized();
-    return await findPartnerByCode(this.getPartnerQueryService(), this.accountSetId, code);
+    return await findPartnerByCode(this.getPartnerQueryService(), this.tenantId, this.accountSetId, code);
   }
 
   async getPartnerByName(name: string): Promise<Partner | undefined> {
     await this.ensureInitialized();
-    return await findPartnerByName(this.getPartnerQueryService(), this.accountSetId, name);
+    return await findPartnerByName(this.getPartnerQueryService(), this.tenantId, this.accountSetId, name);
   }
 
   async addPartner(partner: PartnerInsertInput): Promise<void> {
@@ -3588,8 +3592,31 @@ class SQLiteService {
     await insertPartnerRecord({
       db: this.dbInstance!,
       partner,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       now: new Date().toISOString(),
+      persist: () => this.persist(),
+    });
+  }
+
+  async previewPartnerMerge(name: string): Promise<PartnerMergePreview> {
+    await this.ensureInitialized();
+    return await previewPartnerMerge(this.getPartnerQueryService(), this.tenantId, this.accountSetId, name);
+  }
+
+  async mergePartnerRecords(input: {
+    fromName: string;
+    toName: string;
+  }): Promise<MergeResult> {
+    await this.ensureInitialized();
+    if (!this.dbInstance) throw new Error('Database instance is null after initialization');
+    return await mergePartnerRecords({
+      db: this.dbInstance,
+      queryService: this.getPartnerQueryService(),
+      tenantId: this.tenantId,
+      accountSetId: this.accountSetId,
+      fromName: input.fromName,
+      toName: input.toName,
       persist: () => this.persist(),
     });
   }
@@ -3602,18 +3629,19 @@ class SQLiteService {
     await saveVoucherTemplatesRecord({
       db: this.dbInstance,
       templates,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getAllVoucherTemplates(): Promise<VoucherTemplate[]> {
     await this.ensureInitialized();
-    return listVoucherTemplates(this.getSimpleQueryService(), this.accountSetId) as Promise<VoucherTemplate[]>;
+    return listVoucherTemplates(this.getSimpleQueryService(), this.tenantId, this.accountSetId) as Promise<VoucherTemplate[]>;
   }
 
   async getVoucherTemplateById(id: string): Promise<VoucherTemplate | undefined> {
     await this.ensureInitialized();
-    return findVoucherTemplateById(this.getSimpleQueryService(), this.accountSetId, id) as Promise<VoucherTemplate | undefined>;
+    return findVoucherTemplateById(this.getSimpleQueryService(), this.tenantId, this.accountSetId, id) as Promise<VoucherTemplate | undefined>;
   }
 
   // ========== 常用摘要操作 ==========
@@ -3624,13 +3652,14 @@ class SQLiteService {
     await saveCommonSummariesRecord({
       db: this.dbInstance,
       summaries,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getAllCommonSummaries(): Promise<CommonSummary[]> {
     await this.ensureInitialized();
-    return listCommonSummaries(this.getSimpleQueryService(), this.accountSetId);
+    return listCommonSummaries(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
   }
 
   // ========== 用户偏好操作 ==========
@@ -3641,13 +3670,14 @@ class SQLiteService {
     await savePreferenceRecord({
       db: this.dbInstance,
       preference,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getPreferencesByUser(userId: string): Promise<UserPreference[]> {
     await this.ensureInitialized();
-    return listPreferencesByUser(this.getSimpleQueryService(), this.accountSetId, userId);
+    return listPreferencesByUser(this.getSimpleQueryService(), this.tenantId, this.accountSetId, userId);
   }
 
   // ========== 审计日志操作 ==========
@@ -3658,6 +3688,7 @@ class SQLiteService {
     await addAuditLogRecord({
       db: this.dbInstance,
       log,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -3665,14 +3696,14 @@ class SQLiteService {
 
   async getAuditLogs(limit = 100): Promise<AuditLog[]> {
     await this.ensureInitialized();
-    return listAuditLogs(this.getSimpleQueryService(), this.accountSetId, limit);
+    return listAuditLogs(this.getSimpleQueryService(), this.tenantId, this.accountSetId, limit);
   }
 
   // ========== 数据导出/导入 ==========
 
   async exportData() {
     await this.ensureInitialized();
-    return exportAccountSetData(this.getSimpleQueryService(), this._accountSetId);
+    return exportAccountSetData(this.getSimpleQueryService(), this.tenantId, this._accountSetId);
   }
 
   async importData(data: any) {
@@ -3717,6 +3748,7 @@ class SQLiteService {
       await importFxRevaluationRunsRecord({
         db: this.dbInstance,
         runs: data.fxRevaluationRuns.filter((s: any) => s.accountSetId === this._accountSetId),
+        tenantId: this.tenantId,
         accountSetId: this._accountSetId,
       });
     }
@@ -3724,11 +3756,11 @@ class SQLiteService {
       await importFxRevaluationRunLinesRecord({
         db: this.dbInstance,
         lines: data.fxRevaluationRunLines.filter((s: any) => s.accountSetId === this._accountSetId),
+        tenantId: this.tenantId,
         accountSetId: this._accountSetId,
       });
     }
 
-    console.log('Data imported successfully for account set:', this._accountSetId);
   }
 
   // ========== 数据同步与恢复 ==========
@@ -3765,7 +3797,6 @@ class SQLiteService {
         await this.saveRecRelations(store.recRelations);
       }
     }
-    console.log('All data synchronized to SQLite');
   }
 
   async restoreAllData() {
@@ -3780,6 +3811,7 @@ class SQLiteService {
     await saveRecRelationsRecord({
       db: this.dbInstance,
       relations,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
@@ -3790,13 +3822,14 @@ class SQLiteService {
     await saveRecRelationRecord({
       db: this.dbInstance,
       relation,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getRecRelations(): Promise<any[]> {
     await this.ensureInitialized();
-    return listRecRelations(this.getReconciliationQueryService(), this.accountSetId);
+    return listRecRelations(this.getReconciliationQueryService(), this.tenantId, this.accountSetId);
   }
 
   async updateEntryRecRefNo(entryId: string, recRefNo: string): Promise<void> {
@@ -3806,36 +3839,36 @@ class SQLiteService {
       db: this.dbInstance,
       entryId,
       recRefNo,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
     });
   }
 
   async getRecRelationsByRecRefNo(recRefNo: string): Promise<any[]> {
     await this.ensureInitialized();
-    return findRecByRefNo(this.getReconciliationQueryService(), this.accountSetId, recRefNo);
+    return findRecByRefNo(this.getReconciliationQueryService(), this.tenantId, this.accountSetId, recRefNo);
   }
 
   async getRecRelationsByEntryId(entryId: string): Promise<any[]> {
     await this.ensureInitialized();
-    return findRecByEntryId(this.getReconciliationQueryService(), this.accountSetId, entryId);
+    return findRecByEntryId(this.getReconciliationQueryService(), this.tenantId, this.accountSetId, entryId);
   }
 
   async getOutstandingItems(query: any): Promise<any[]> {
     await this.ensureInitialized();
-    return getOutstanding(this.getReconciliationQueryService(), this.accountSetId, query);
+    return getOutstanding(this.getReconciliationQueryService(), this.tenantId, this.accountSetId, query);
   }
 
   async calculatePartnerBalance(partnerName: string): Promise<number> {
     await this.ensureInitialized();
-    return calcPartnerBalance(this.getReconciliationQueryService(), this.accountSetId, partnerName);
+    return calcPartnerBalance(this.getReconciliationQueryService(), this.tenantId, this.accountSetId, partnerName);
   }
 
   // ========== 数据完整性检查 ==========
 
   async checkDataIntegrity() {
     await this.ensureInitialized();
-    const counts = await checkDataIntegrityQuery(this.getSimpleQueryService(), this.accountSetId);
-    console.log('Data integrity check:', counts);
+    const counts = await checkDataIntegrityQuery(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
     return counts;
   }
 
@@ -3844,7 +3877,7 @@ class SQLiteService {
   async clearAllData() {
     await this.ensureInitialized();
     if (!this.dbInstance) throw new Error('Database instance is null after initialization');
-    await clearAllDataRecord(this.dbInstance, this.accountSetId);
+    await clearAllDataRecord(this.dbInstance, this.tenantId, this.accountSetId);
   }
 
   // ========== 银行流水操作 ==========
@@ -3854,6 +3887,7 @@ class SQLiteService {
       await this.ensureInitialized();
       await saveBankTransactionRecord({
         db: this.dbInstance!,
+        tenantId: this.tenantId,
         accountSetId: this.accountSetId,
         transaction,
         persist: () => this.persist(),
@@ -3870,6 +3904,7 @@ class SQLiteService {
       for (const tx of transactions) {
         await saveBankTransactionRecord({
           db: this.dbInstance!,
+          tenantId: this.tenantId,
           accountSetId: this.accountSetId,
           transaction: tx,
           persist: async () => {},
@@ -3884,27 +3919,27 @@ class SQLiteService {
 
   async getBankTransaction(id: string): Promise<BankTransactionRecord | undefined> {
     await this.ensureInitialized();
-    return await getBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, id);
+    return await getBankTransactionRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, id);
   }
 
   async getAllBankTransactions(): Promise<BankTransactionRecord[]> {
     await this.ensureInitialized();
-    return await listBankTransactionsRecord(this.getBankTransactionQueryService(), this.accountSetId);
+    return await listBankTransactionsRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getBankTransactionsByStatus(status: 'pending' | 'matched' | 'voucher_generated'): Promise<BankTransactionRecord[]> {
     await this.ensureInitialized();
-    return await listBankTransactionsByStatusRecord(this.getBankTransactionQueryService(), this.accountSetId, status);
+    return await listBankTransactionsByStatusRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, status);
   }
 
   async getBankTransactionsByDateRange(startDate: string, endDate: string): Promise<BankTransactionRecord[]> {
     await this.ensureInitialized();
-    return await listBankTransactionsByDateRangeRecord(this.getBankTransactionQueryService(), this.accountSetId, startDate, endDate);
+    return await listBankTransactionsByDateRangeRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, startDate, endDate);
   }
 
   async getBankTransactionsByBatch(batchId: string): Promise<BankTransactionRecord[]> {
     await this.ensureInitialized();
-    return await listBankTransactionsByBatchRecord(this.getBankTransactionQueryService(), this.accountSetId, batchId);
+    return await listBankTransactionsByBatchRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, batchId);
   }
 
   async updateBankTransaction(id: string, updates: BankTransactionUpdateInput): Promise<void> {
@@ -3912,6 +3947,7 @@ class SQLiteService {
       await this.ensureInitialized();
       await updateBankTransactionRecord({
         db: this.dbInstance!,
+        tenantId: this.tenantId,
         accountSetId: this.accountSetId,
         id,
         updates,
@@ -3926,19 +3962,19 @@ class SQLiteService {
   /** 检查流水是否已入账（按 date + voucherNo + transactionSerialNo 去重） */
   async findPostedBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<BankTransactionRecord | null> {
     await this.ensureInitialized();
-    return await findPostedBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, date, voucherNo, transactionSerialNo);
+    return await findPostedBankTransactionRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, date, voucherNo, transactionSerialNo);
   }
 
   /** 检查流水是否已存在（导入去重，不论状态） */
   async existsBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<boolean> {
     await this.ensureInitialized();
-    return await existsBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, date, voucherNo, transactionSerialNo);
+    return await existsBankTransactionRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, date, voucherNo, transactionSerialNo);
   }
 
   async deleteBankTransaction(id: string): Promise<void> {
     try {
       await this.ensureInitialized();
-      await deleteBankTransactionRecord(this.getBankTransactionQueryService(), this.accountSetId, id, () => this.persist());
+      await deleteBankTransactionRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
     } catch (error) {
       console.error('Delete bank transaction failed:', error);
       throw error;
@@ -3948,7 +3984,7 @@ class SQLiteService {
   async deleteBankTransactionsByBatch(batchId: string): Promise<void> {
     try {
       await this.ensureInitialized();
-      await deleteBankTransactionsByBatchRecord(this.getBankTransactionQueryService(), this.accountSetId, batchId, () => this.persist());
+      await deleteBankTransactionsByBatchRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, batchId, () => this.persist());
     } catch (error) {
       console.error('Delete bank transactions by batch failed:', error);
       throw error;
@@ -3958,7 +3994,7 @@ class SQLiteService {
   async clearBankTransactions(): Promise<void> {
     try {
       await this.ensureInitialized();
-      await clearBankTransactionsRecord(this.getBankTransactionQueryService(), this.accountSetId, () => this.persist());
+      await clearBankTransactionsRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, () => this.persist());
     } catch (error) {
       console.error('Clear bank transactions failed:', error);
       throw error;
@@ -3968,32 +4004,32 @@ class SQLiteService {
   // --- Bank Account Bindings ---
   async getBankAccountBindings(): Promise<BankAccountBinding[]> {
     await this.ensureInitialized();
-    return await listBankAccountBindings(this.getBankAccountBindingQueryService(), this.accountSetId);
+    return await listBankAccountBindings(this.getBankAccountBindingQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveBankAccountBinding(binding: BankAccountBinding): Promise<void> {
     await this.ensureInitialized();
     await saveBankAccountBindingRecord({
       db: this.dbInstance!,
-      binding,
+      binding: { ...binding, tenantId: this.tenantId },
       persist: () => this.persist(),
     });
   }
 
   async deleteBankAccountBinding(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteBankAccountBindingRecord(this.getBankAccountBindingQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteBankAccountBindingRecord(this.getBankAccountBindingQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   async findBankAccountBinding(accountNumber: string): Promise<BankAccountBinding | null> {
     await this.ensureInitialized();
-    return await findBankAccountBindingRecord(this.getBankAccountBindingQueryService(), this.accountSetId, accountNumber);
+    return await findBankAccountBindingRecord(this.getBankAccountBindingQueryService(), this.tenantId, this.accountSetId, accountNumber);
   }
 
   // --- Custom Bank Configs ---
   async getCustomBankConfigs(): Promise<CustomBankConfig[]> {
     await this.ensureInitialized();
-    return await listCustomBankConfigs(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await listCustomBankConfigs(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveCustomBankConfig(customConfig: CustomBankConfig): Promise<void> {
@@ -4001,13 +4037,14 @@ class SQLiteService {
     await saveCustomBankConfigRecord({
       db: this.dbInstance!,
       config: customConfig,
+      tenantId: this.tenantId,
       persist: () => this.persist(),
     });
   }
 
   async deleteCustomBankConfig(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteCustomBankConfigRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteCustomBankConfigRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   // ========== 智能规则引擎操作 ==========
@@ -4015,7 +4052,7 @@ class SQLiteService {
   // --- Smart Rules ---
   async getSmartRules(): Promise<InvoiceSmartRule[]> {
     await this.ensureInitialized();
-    return await listSmartRules(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await listSmartRules(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveSmartRule(rule: InvoiceSmartRule): Promise<void> {
@@ -4023,6 +4060,7 @@ class SQLiteService {
     await saveSmartRuleRecord({
       db: this.dbInstance!,
       rule,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4030,18 +4068,18 @@ class SQLiteService {
 
   async deleteSmartRule(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteSmartRuleRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteSmartRuleRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   // --- Supplier Subject Mapping ---
   async getSupplierMappings(): Promise<SupplierSubjectMapping[]> {
     await this.ensureInitialized();
-    return await listSupplierMappings(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await listSupplierMappings(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async getSupplierMappingsByGroup(groupName: string): Promise<SupplierSubjectMapping[]> {
     await this.ensureInitialized();
-    return await listSupplierMappingsByGroup(this.getInvoiceRuleQueryService(), this.accountSetId, groupName);
+    return await listSupplierMappingsByGroup(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, groupName);
   }
 
   async saveSupplierMapping(mapping: SupplierSubjectMapping): Promise<void> {
@@ -4049,6 +4087,7 @@ class SQLiteService {
     await saveSupplierMappingRecord({
       db: this.dbInstance!,
       mapping,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4056,18 +4095,18 @@ class SQLiteService {
 
   async deleteSupplierMapping(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteSupplierMappingRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteSupplierMappingRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   async getSupplierMappingBySellerName(sellerName: string): Promise<SupplierSubjectMapping | null> {
     await this.ensureInitialized();
-    return await findSupplierMappingBySellerName(this.getInvoiceRuleQueryService(), this.accountSetId, sellerName);
+    return await findSupplierMappingBySellerName(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, sellerName);
   }
 
   // --- Purchase Invoice Rule Config ---
   async getPurchaseInvoiceRuleConfig(): Promise<PurchaseInvoiceRuleConfig> {
     await this.ensureInitialized();
-    const { config, isDefault } = await getPurchaseInvoiceRuleConfigQuery(this.getInvoiceRuleQueryService(), this.accountSetId);
+    const { config, isDefault } = await getPurchaseInvoiceRuleConfigQuery(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
     if (isDefault) {
       await this.savePurchaseInvoiceRuleConfig(config);
     }
@@ -4079,6 +4118,7 @@ class SQLiteService {
     await savePurchaseInvoiceRuleConfigRecord({
       db: this.dbInstance!,
       config,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4087,7 +4127,7 @@ class SQLiteService {
   // --- Expense Reimbursement ---
   async getExpenseReimbursements(): Promise<ExpenseReimbursement[]> {
     await this.ensureInitialized();
-    return await listExpenseReimbursements(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await listExpenseReimbursements(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveExpenseReimbursement(record: ExpenseReimbursement): Promise<void> {
@@ -4095,6 +4135,7 @@ class SQLiteService {
     await saveExpenseReimbursementRecord({
       db: this.dbInstance!,
       record,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4106,6 +4147,7 @@ class SQLiteService {
       db: this.dbInstance!,
       id,
       updates,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4113,18 +4155,18 @@ class SQLiteService {
 
   async deleteExpenseReimbursement(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteExpenseReimbursementRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteExpenseReimbursementRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   async clearExpenseReimbursements(): Promise<void> {
     await this.ensureInitialized();
-    await clearExpenseReimbursementsRecord(this.getInvoiceRuleQueryService(), this.accountSetId, () => this.persist());
+    await clearExpenseReimbursementsRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, () => this.persist());
   }
 
   // --- Expense Keyword Categories ---
   async getExpenseKeywordCategories(): Promise<ExpenseKeywordCategory[]> {
     await this.ensureInitialized();
-    return await listExpenseKeywordCategories(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await listExpenseKeywordCategories(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveExpenseKeywordCategory(cat: ExpenseKeywordCategory): Promise<void> {
@@ -4132,6 +4174,7 @@ class SQLiteService {
     await saveExpenseKeywordCategoryRecord({
       db: this.dbInstance!,
       cat,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4139,13 +4182,13 @@ class SQLiteService {
 
   async deleteExpenseKeywordCategory(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteExpenseKeywordCategoryRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteExpenseKeywordCategoryRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   // --- Auxiliary Strategy ---
   async getAuxiliaryStrategy(): Promise<AuxiliaryStrategyConfig | null> {
     await this.ensureInitialized();
-    return await getAuxiliaryStrategyQuery(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await getAuxiliaryStrategyQuery(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveAuxiliaryStrategy(config: AuxiliaryStrategyConfig): Promise<void> {
@@ -4153,6 +4196,7 @@ class SQLiteService {
     await saveAuxiliaryStrategyRecord({
       db: this.dbInstance!,
       config,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4161,7 +4205,7 @@ class SQLiteService {
   // --- Asset Category Mapping ---
   async getAssetCategoryMappings(): Promise<AssetCategoryMapping[]> {
     await this.ensureInitialized();
-    return await listAssetCategoryMappings(this.getInvoiceRuleQueryService(), this.accountSetId);
+    return await listAssetCategoryMappings(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId);
   }
 
   async saveAssetCategoryMapping(mapping: AssetCategoryMapping): Promise<void> {
@@ -4169,6 +4213,7 @@ class SQLiteService {
     await saveAssetCategoryMappingRecord({
       db: this.dbInstance!,
       mapping,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4176,7 +4221,7 @@ class SQLiteService {
 
   async deleteAssetCategoryMapping(id: string): Promise<void> {
     await this.ensureInitialized();
-    await deleteAssetCategoryMappingRecord(this.getInvoiceRuleQueryService(), this.accountSetId, id, () => this.persist());
+    await deleteAssetCategoryMappingRecord(this.getInvoiceRuleQueryService(), this.tenantId, this.accountSetId, id, () => this.persist());
   }
 
   // --- Invoice hold/category updates ---
@@ -4186,6 +4231,7 @@ class SQLiteService {
       db: this.dbInstance!,
       id,
       holdStatus,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4197,6 +4243,7 @@ class SQLiteService {
       db: this.dbInstance!,
       id,
       category,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4205,12 +4252,12 @@ class SQLiteService {
   // --- Payroll import and calculation ---
   async getPayrollBatches(period?: string): Promise<PayrollBatch[]> {
     await this.ensureInitialized();
-    return await listPayrollBatches(this.getPayrollQueryService(), this.accountSetId, period);
+    return await listPayrollBatches(this.getPayrollQueryService(), this.tenantId, this.accountSetId, period);
   }
 
   async getPayrollItems(batchId: string): Promise<PayrollItem[]> {
     await this.ensureInitialized();
-    return await listPayrollItems(this.getPayrollQueryService(), this.accountSetId, batchId);
+    return await listPayrollItems(this.getPayrollQueryService(), this.tenantId, this.accountSetId, batchId);
   }
 
   async savePayrollCalculationConfig(record: PayrollCalculationConfigRecord): Promise<void> {
@@ -4218,6 +4265,7 @@ class SQLiteService {
     await savePayrollCalculationConfigRecord({
       db: this.dbInstance!,
       record,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4227,6 +4275,7 @@ class SQLiteService {
     await this.ensureInitialized();
     return await getPayrollCalculationConfigQuery(
       this.getPayrollQueryService(),
+      this.tenantId,
       this.accountSetId,
       period,
       clonePayrollTaxRuleSet,
@@ -4239,6 +4288,7 @@ class SQLiteService {
       db: this.dbInstance!,
       batch,
       items,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4250,6 +4300,7 @@ class SQLiteService {
       db: this.dbInstance!,
       batchId,
       status,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4261,6 +4312,7 @@ class SQLiteService {
       service: this.getPayrollQueryService(),
       db: this.dbInstance!,
       batchId,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4273,6 +4325,7 @@ class SQLiteService {
       batchId,
       voucherId,
       voucherNo,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4284,6 +4337,7 @@ class SQLiteService {
       service: this.getPayrollQueryService(),
       db: this.dbInstance!,
       voucherId,
+      tenantId: this.tenantId,
       accountSetId: this.accountSetId,
       persist: () => this.persist(),
     });
@@ -4291,7 +4345,7 @@ class SQLiteService {
 
   async getPayrollBatchByVoucherId(voucherId: string): Promise<PayrollBatch | null> {
     await this.ensureInitialized();
-    return await getPayrollBatchByVoucherId(this.getPayrollQueryService(), this.accountSetId, voucherId);
+    return await getPayrollBatchByVoucherId(this.getPayrollQueryService(), this.tenantId, this.accountSetId, voucherId);
   }
 
   // --- Legacy stubs (will be removed once consumers migrate to smart rules) ---
@@ -4371,6 +4425,121 @@ class SQLiteService {
 
   async deleteInvoiceSubjectRule(id: string): Promise<void> {
     await this.deleteSmartRule(id);
+  }
+
+  /**
+   * 多租户改造：给所有业务表添加 tenantId 列，重建相关 UNIQUE 索引含 tenantId。
+   * 幂等：每个 ALTER 前检查列是否存在；索引 DROP IF EXISTS + CREATE IF NOT EXISTS。
+   * 新增列允许 NULL（兼容已有行）；新建数据由应用层保证 NOT NULL。
+   */
+  private async migrateAddTenantColumns(): Promise<void> {
+    if (!this.dbInstance) return;
+    const db = this.dbInstance;
+
+    // 1. 确保新表存在（与 sqlite-manager.createTables 同步，避免迁移顺序问题）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        settings TEXT,
+        createTime TEXT NOT NULL,
+        updateTime TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_code ON tenants(code);
+
+      CREATE TABLE IF NOT EXISTS tenant_users (
+        tenantId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        role TEXT NOT NULL,
+        joinedAt TEXT NOT NULL,
+        PRIMARY KEY (tenantId, userId)
+      );
+      CREATE INDEX IF NOT EXISTS idx_tenant_users_user ON tenant_users(userId);
+    `);
+
+    // 2. 给所有有 accountSetId 的业务表添加 tenantId 列
+    const tablesNeedingTenantId = [
+      'accountSets',
+      'vouchers', 'entries', 'subjects', 'partners',
+      'departments', 'projects', 'currencies', 'voucherTemplates',
+      'auditLogs', 'userPreferences', 'commonSummaries', 'recRelations',
+      'fixedAssets', 'assetCategories', 'assetChangeRecords',
+      'assetSplitRecords', 'assetMergeRecords',
+      'depreciationRecords', 'amortizationRecords',
+      'intangibleAssets', 'intangibleChangeRecords',
+      'prepaidExpenses', 'prepaidChangeRecords',
+      'invoices', 'invoiceReconciliations',
+      'bankTransactions', 'bankTransactionRules',
+      'bank_account_bindings', 'bank_opening_balances', 'custom_bank_configs',
+      'fxRates', 'fxRevaluationRuns', 'fxRevaluationRunLines',
+      'payroll_batches', 'payroll_items', 'payroll_calculation_configs',
+      'codeRules', 'expense_reimbursement', 'expense_keyword_categories',
+      'invoice_smart_rules', 'supplier_subject_mapping',
+      'purchase_invoice_rule_config', 'asset_category_mapping',
+      'auxiliary_strategy_config', 'monthly_closing_checks',
+      'account_set_users',
+    ];
+
+    for (const table of tablesNeedingTenantId) {
+      try {
+        const tableExists = db.exec(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name='${table}'`
+        );
+        if (!tableExists[0]?.values?.length) continue;
+
+        const tableInfo = db.exec(`PRAGMA table_info(${table})`);
+        const hasTenantId = tableInfo[0]?.values?.some(
+          (row: unknown[]) => row[1] === 'tenantId'
+        );
+        if (hasTenantId) continue;
+
+        db.exec(`ALTER TABLE ${table} ADD COLUMN tenantId TEXT`);
+      } catch (err) {
+        console.warn(`[tenant migration] ${table} 添加 tenantId 失败:`, err);
+      }
+    }
+
+    // 3. 重建 assetCategories UNIQUE 索引为 3 列（tenantId, accountSetId, code）
+    try {
+      db.exec(`DROP INDEX IF EXISTS idx_assetCategories_code_accountSetId_unique`);
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_assetCategories_tenant_set_code_unique
+        ON assetCategories(tenantId, accountSetId, code)
+      `);
+    } catch (err) {
+      console.warn('[tenant migration] assetCategories 索引重建失败:', err);
+    }
+
+    // 4. 种子默认租户（仅首次），并把现有 accountSets 全部归到默认租户
+    try {
+      const tenantExists = db.exec(`SELECT id FROM tenants WHERE id = 'default' OR code = 'default'`);
+      if (!tenantExists[0]?.values?.length) {
+        const now = new Date().toISOString();
+        const stmt = db.prepare(
+          `INSERT OR IGNORE INTO tenants (id, code, name, type, status, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        stmt.run(['default', 'default', '默认租户', 'saas', 'active', now, now]);
+        stmt.free();
+        // 把已有 accountSets 的 tenantId 设为 default
+        db.exec(`UPDATE accountSets SET tenantId = 'default' WHERE tenantId IS NULL OR tenantId = ''`);
+        // 把所有业务表里 tenantId 为空但有 accountSetId 的行回填到 default
+        for (const table of tablesNeedingTenantId) {
+          if (table === 'accountSets') continue;
+          try {
+            db.exec(`UPDATE ${table} SET tenantId = 'default' WHERE (tenantId IS NULL OR tenantId = '') AND accountSetId IS NOT NULL`);
+          } catch {
+            // 表可能不存在或无 accountSetId 列，跳过
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[tenant migration] 种子默认租户失败:', err);
+    }
+
+    await this.persist();
   }
 }
 

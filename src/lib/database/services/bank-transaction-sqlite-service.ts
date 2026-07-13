@@ -32,12 +32,14 @@ export interface BankTransactionRow {
   exchangeRate: number | string | null;
   originalAmount: number | string | null;
   source: string | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string;
   updateTime: string;
 }
 
 export interface BankTransactionRecord extends BankTransaction {
+  tenantId?: string;
   accountSetId: string;
   createTime: string;
   updateTime: string;
@@ -81,6 +83,7 @@ export interface BankTransactionSaveInput {
   exchangeRate?: number | null;
   originalAmount?: number | null;
   source?: string;
+  tenantId?: string;
   accountSetId?: string;
   createTime?: string;
   updateTime?: string;
@@ -108,8 +111,8 @@ const BANK_TRANSACTION_INSERT_SQL = `
     bankAccountId, importBatchId, voucherId, generatedVoucherNo,
     exchangeRate, originalAmount,
     source,
-    accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function text(value: string | undefined | null, fallback = ''): string {
@@ -142,9 +145,11 @@ function normalizeSource(value: string | undefined | null): string {
 
 export function buildBankTransactionInsert(
   transaction: BankTransactionSaveInput,
+  tenantId: string,
   accountSetId: string,
   now = new Date().toISOString(),
 ): BankTransactionInsert {
+  const resolvedTenantId = transaction.tenantId || tenantId;
   const resolvedAccountSetId = transaction.accountSetId || accountSetId;
   return {
     sql: BANK_TRANSACTION_INSERT_SQL,
@@ -179,6 +184,7 @@ export function buildBankTransactionInsert(
       nullableNumber(transaction.exchangeRate),
       nullableNumber(transaction.originalAmount),
       normalizeSource(transaction.source),
+      resolvedTenantId,
       resolvedAccountSetId,
       transaction.createTime || now,
       transaction.updateTime || now,
@@ -221,6 +227,7 @@ export function mapBankTransactionRow(row: BankTransactionRow): BankTransactionR
     exchangeRate: nullableNumber(row.exchangeRate),
     originalAmount: nullableNumber(row.originalAmount),
     source: optionalText(row.source),
+    tenantId: row.tenantId,
     accountSetId: row.accountSetId,
     createTime: row.createTime,
     updateTime: row.updateTime,
@@ -229,11 +236,12 @@ export function mapBankTransactionRow(row: BankTransactionRow): BankTransactionR
 
 export async function saveBankTransactionRecord(input: {
   db: SqliteDatabaseLike;
+  tenantId: string;
   accountSetId: string;
   transaction: BankTransactionSaveInput;
   persist: () => Promise<void>;
 }): Promise<void> {
-  const insert = buildBankTransactionInsert(input.transaction, input.accountSetId);
+  const insert = buildBankTransactionInsert(input.transaction, input.tenantId, input.accountSetId);
   const stmt = input.db.prepare(insert.sql);
   try {
     stmt.run(insert.params);
@@ -245,6 +253,7 @@ export async function saveBankTransactionRecord(input: {
 
 export async function saveBankTransactionsRecord(input: {
   db: SqliteDatabaseLike;
+  tenantId: string;
   accountSetId: string;
   transactions: BankTransactionSaveInput[];
   persist: () => Promise<void>;
@@ -252,6 +261,7 @@ export async function saveBankTransactionsRecord(input: {
   for (const transaction of input.transactions) {
     await saveBankTransactionRecord({
       db: input.db,
+      tenantId: input.tenantId,
       accountSetId: input.accountSetId,
       transaction,
       persist: async () => {},
@@ -262,123 +272,143 @@ export async function saveBankTransactionsRecord(input: {
 
 export async function getBankTransactionRecord(
   service: Pick<BankTransactionQueryService, 'querySingleAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
 ): Promise<BankTransactionRecord | undefined> {
   const row = await service.querySingleAsync<BankTransactionRow>(
-    `SELECT * FROM bankTransactions WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `SELECT * FROM bankTransactions WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   return row ? mapBankTransactionRow(row) : undefined;
 }
 
 export async function listBankTransactionsRecord(
   service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
   accountSetId: string,
 ): Promise<BankTransactionRecord[]> {
   const rows = await service.queryAllAsync<BankTransactionRow>(
-    `SELECT * FROM bankTransactions WHERE accountSetId = ? ORDER BY date DESC, rowNumber ASC`,
-    [accountSetId],
+    `SELECT * FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? ORDER BY date DESC, rowNumber ASC`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapBankTransactionRow);
 }
 
 export async function listBankTransactionsByStatusRecord(
   service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
   accountSetId: string,
   status: 'pending' | 'matched' | 'voucher_generated',
 ): Promise<BankTransactionRecord[]> {
   const rows = await service.queryAllAsync<BankTransactionRow>(
-    `SELECT * FROM bankTransactions WHERE accountSetId = ? AND status = ? ORDER BY date DESC`,
-    [accountSetId, status],
+    `SELECT * FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND status = ? ORDER BY date DESC`,
+    [tenantId, accountSetId, status],
   );
   return rows.map(mapBankTransactionRow);
 }
 
 export async function listBankTransactionsByDateRangeRecord(
   service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
   accountSetId: string,
   startDate: string,
   endDate: string,
 ): Promise<BankTransactionRecord[]> {
   const rows = await service.queryAllAsync<BankTransactionRow>(
-    `SELECT * FROM bankTransactions WHERE accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
-    [accountSetId, startDate, endDate],
+    `SELECT * FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
+    [tenantId, accountSetId, startDate, endDate],
   );
   return rows.map(mapBankTransactionRow);
 }
 
 export async function listBankTransactionsByBatchRecord(
   service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
   accountSetId: string,
   batchId: string,
 ): Promise<BankTransactionRecord[]> {
   const rows = await service.queryAllAsync<BankTransactionRow>(
-    `SELECT * FROM bankTransactions WHERE accountSetId = ? AND importBatchId = ? ORDER BY rowNumber ASC`,
-    [accountSetId, batchId],
+    `SELECT * FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND importBatchId = ? ORDER BY rowNumber ASC`,
+    [tenantId, accountSetId, batchId],
   );
   return rows.map(mapBankTransactionRow);
 }
 
 export async function findPostedBankTransactionRecord(
   service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
   accountSetId: string,
   date: string,
   voucherNo: string,
   transactionSerialNo: string,
 ): Promise<BankTransactionRecord | null> {
   const rows = await service.queryAllAsync<BankTransactionRow>(
-    `SELECT * FROM bankTransactions WHERE accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? AND status = 'voucher_generated' LIMIT 1`,
-    [accountSetId, date, voucherNo, transactionSerialNo],
+    `SELECT * FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? AND status = 'voucher_generated' LIMIT 1`,
+    [tenantId, accountSetId, date, voucherNo, transactionSerialNo],
   );
   return rows.length > 0 ? mapBankTransactionRow(rows[0]) : null;
 }
 
 export async function existsBankTransactionRecord(
   service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
   accountSetId: string,
   date: string,
   voucherNo: string,
   transactionSerialNo: string,
 ): Promise<boolean> {
   const rows = await service.queryAllAsync<Pick<BankTransactionRow, 'id'>>(
-    `SELECT id FROM bankTransactions WHERE accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? LIMIT 1`,
-    [accountSetId, date, voucherNo, transactionSerialNo],
+    `SELECT id FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND date = ? AND voucherNo = ? AND transactionSerialNo = ? LIMIT 1`,
+    [tenantId, accountSetId, date, voucherNo, transactionSerialNo],
   );
   return rows.length > 0;
 }
 
 export async function deleteBankTransactionRecord(
   service: Pick<BankTransactionQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
-  await service.runAsync(`DELETE FROM bankTransactions WHERE id = ? AND accountSetId = ?`, [id, accountSetId]);
+  await service.runAsync(
+    `DELETE FROM bankTransactions WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
+  );
   await persist();
 }
 
 export async function deleteBankTransactionsByBatchRecord(
   service: Pick<BankTransactionQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   batchId: string,
   persist: () => Promise<void>,
 ): Promise<void> {
-  await service.runAsync(`DELETE FROM bankTransactions WHERE importBatchId = ? AND accountSetId = ?`, [batchId, accountSetId]);
+  await service.runAsync(
+    `DELETE FROM bankTransactions WHERE importBatchId = ? AND tenantId = ? AND accountSetId = ?`,
+    [batchId, tenantId, accountSetId],
+  );
   await persist();
 }
 
 export async function clearBankTransactionsRecord(
   service: Pick<BankTransactionQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   persist: () => Promise<void>,
 ): Promise<void> {
-  await service.runAsync(`DELETE FROM bankTransactions WHERE accountSetId = ? AND status != 'voucher_generated'`, [accountSetId]);
+  await service.runAsync(
+    `DELETE FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND status != 'voucher_generated'`,
+    [tenantId, accountSetId],
+  );
   await persist();
 }
 
 export function buildBankTransactionUpdate(
   updates: BankTransactionUpdateInput,
+  tenantId: string,
   accountSetId: string,
   id: string,
   now = new Date().toISOString(),
@@ -389,22 +419,23 @@ export function buildBankTransactionUpdate(
     params.push(typeof value === 'number' || typeof value === 'string' ? value : value === null ? null : (value as SqliteBindable));
     return `${key} = ?`;
   });
-  params.push(now, id, accountSetId);
+  params.push(now, id, tenantId, accountSetId);
 
   return {
-    sql: `UPDATE bankTransactions SET ${setClauses.length > 0 ? `${setClauses.join(', ')}, ` : ''}updateTime = ? WHERE id = ? AND accountSetId = ?`,
+    sql: `UPDATE bankTransactions SET ${setClauses.length > 0 ? `${setClauses.join(', ')}, ` : ''}updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
     params,
   };
 }
 
 export async function updateBankTransactionRecord(input: {
   db: SqliteDatabaseLike;
+  tenantId: string;
   accountSetId: string;
   id: string;
   updates: BankTransactionUpdateInput;
   persist: () => Promise<void>;
 }): Promise<void> {
-  const update = buildBankTransactionUpdate(input.updates, input.accountSetId, input.id);
+  const update = buildBankTransactionUpdate(input.updates, input.tenantId, input.accountSetId, input.id);
   const stmt = input.db.prepare(update.sql);
   try {
     stmt.run(update.params);

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { DatabaseSwitcher } from '@/components/database/database-switcher';
+import { TenantSwitcher } from '@/components/layout/tenant-switcher';
 import {
   Home,
   FileText,
@@ -506,6 +507,11 @@ export function Sidebar() {
             </Button>
           </>
         )}
+      </div>
+
+      {/* 租户选择 */}
+      <div className={cn('border-b border-slate-700/50', collapsed ? 'p-2' : 'px-4 pt-3 pb-2')}>
+        <TenantSwitcher collapsed={collapsed} />
       </div>
 
       {/* 账套选择 */}

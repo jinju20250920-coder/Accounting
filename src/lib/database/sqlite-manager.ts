@@ -1203,6 +1203,25 @@ class SQLiteManager {
         PRIMARY KEY (accountSetId, userId)
       );
 
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        settings TEXT,
+        createTime TEXT NOT NULL,
+        updateTime TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tenant_users (
+        tenantId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        role TEXT NOT NULL,
+        joinedAt TEXT NOT NULL,
+        PRIMARY KEY (tenantId, userId)
+      );
+
       CREATE TABLE IF NOT EXISTS invoice_subject_rules (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -1353,6 +1372,10 @@ class SQLiteManager {
       CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_accountSetId ON invoiceReconciliations(accountSetId);
       CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_invoiceId ON invoiceReconciliations(invoiceId);
       CREATE INDEX IF NOT EXISTS idx_invoiceReconciliations_voucherId ON invoiceReconciliations(voucherId);
+
+      -- Tenants indexes
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_code ON tenants(code);
+      CREATE INDEX IF NOT EXISTS idx_tenant_users_user ON tenant_users(userId);
     `;
 
     this.db.exec(indexes);
@@ -1624,11 +1647,11 @@ class SQLiteManager {
             const entryStmt = db.prepare(`
               INSERT OR REPLACE INTO entries (
                 id, voucherId, subjectCode, subjectName, direction, debit, credit,
-                summary, customerName, supplierName, auxiliary, recRefNo,
+                summary, customerName, supplierName, partnerId, auxiliary, recRefNo,
                 departmentCode, departmentName, projectCode, projectName,
                 currencyCode, exchangeRate, originalAmount, date, accountSetId,
                 createTime, updateTime
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             entryStmt.run([
               entryWithAccountSet.id,
@@ -1641,6 +1664,7 @@ class SQLiteManager {
               entryWithAccountSet.summary,
               entryWithAccountSet.customerName,
               entryWithAccountSet.supplierName,
+              entryWithAccountSet.partnerId,
               JSON.stringify(entryWithAccountSet.auxiliary || {}),
               entryWithAccountSet.recRefNo,
               entryWithAccountSet.departmentCode,

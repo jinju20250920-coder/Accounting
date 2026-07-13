@@ -2,6 +2,7 @@ import type { SqliteBindable, SqliteDatabaseLike } from './fixed-asset-sqlite-se
 
 export interface BankAccountBinding {
   id: string;
+  tenantId?: string;
   accountSetId: string;
   accountNumber: string;
   bankId: string;
@@ -17,6 +18,7 @@ export interface BankAccountBinding {
 
 export interface BankAccountBindingRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   accountNumber: string;
   bankId: string;
@@ -43,8 +45,8 @@ export interface BankAccountBindingQueryService {
 
 const BANK_ACCOUNT_BINDING_INSERT_SQL = `
   INSERT OR REPLACE INTO bank_account_bindings
-  (id, accountSetId, accountNumber, bankId, bankName, aliasName, subSubjectCode, subSubjectName, branch, currency, isDefault, createdAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (id, tenantId, accountSetId, accountNumber, bankId, bankName, aliasName, subSubjectCode, subSubjectName, branch, currency, isDefault, createdAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function nullableText(value: string | undefined | null): string | null {
@@ -62,6 +64,7 @@ export function buildBankAccountBindingInsert(binding: BankAccountBinding): Bank
     sql: BANK_ACCOUNT_BINDING_INSERT_SQL,
     params: [
       binding.id,
+      binding.tenantId,
       binding.accountSetId,
       binding.accountNumber,
       binding.bankId,
@@ -80,6 +83,7 @@ export function buildBankAccountBindingInsert(binding: BankAccountBinding): Bank
 export function mapBankAccountBindingRow(row: BankAccountBindingRow): BankAccountBinding {
   return {
     id: row.id,
+    tenantId: row.tenantId,
     accountSetId: row.accountSetId,
     accountNumber: row.accountNumber,
     bankId: row.bankId,
@@ -96,11 +100,12 @@ export function mapBankAccountBindingRow(row: BankAccountBindingRow): BankAccoun
 
 export async function listBankAccountBindings(
   service: BankAccountBindingQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<BankAccountBinding[]> {
   const rows = await service.queryAllAsync<BankAccountBindingRow>(
-    `SELECT * FROM bank_account_bindings WHERE accountSetId = ? ORDER BY createdAt DESC`,
-    [accountSetId],
+    `SELECT * FROM bank_account_bindings WHERE tenantId = ? AND accountSetId = ? ORDER BY createdAt DESC`,
+    [tenantId, accountSetId],
   );
   return (rows || []).map(mapBankAccountBindingRow);
 }
@@ -122,22 +127,27 @@ export async function saveBankAccountBindingRecord(input: {
 
 export async function deleteBankAccountBindingRecord(
   service: BankAccountBindingQueryService,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
-  await service.runAsync(`DELETE FROM bank_account_bindings WHERE id = ? AND accountSetId = ?`, [id, accountSetId]);
+  await service.runAsync(
+    `DELETE FROM bank_account_bindings WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
+  );
   await persist();
 }
 
 export async function findBankAccountBindingRecord(
   service: BankAccountBindingQueryService,
+  tenantId: string,
   accountSetId: string,
   accountNumber: string,
 ): Promise<BankAccountBinding | null> {
   const row = await service.querySingleAsync<BankAccountBindingRow>(
-    `SELECT * FROM bank_account_bindings WHERE accountNumber = ? AND accountSetId = ?`,
-    [accountNumber, accountSetId],
+    `SELECT * FROM bank_account_bindings WHERE accountNumber = ? AND tenantId = ? AND accountSetId = ?`,
+    [accountNumber, tenantId, accountSetId],
   );
   return row ? mapBankAccountBindingRow(row) : null;
 }

@@ -545,8 +545,9 @@ export const useCurrencyStore = create<CurrencyStore>((set, get) => ({
         return;
       }
 
-      const stmt = db.prepare('DELETE FROM fxRates WHERE id = ? AND accountSetId = ?');
-      stmt.run([id, current.accountSetId]);
+      const { sqliteService } = await import('@/lib/database/sqlite-service');
+      const stmt = db.prepare('DELETE FROM fxRates WHERE id = ? AND tenantId = ? AND accountSetId = ?');
+      stmt.run([id, sqliteService.tenantId, current.accountSetId]);
       stmt.free?.();
       await service?.persist();
 

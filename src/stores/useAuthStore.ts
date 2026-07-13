@@ -15,17 +15,29 @@ export interface User {
   lastLoginTime: string | null;
 }
 
+export interface TenantSummary {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  role: string;
+}
+
 interface AuthStore {
   currentUser: User | null;
   isAuthenticated: boolean;
   permissions: string[];
   currentRoleId: string | null;
+  currentTenantId: string | null;
+  availableTenants: TenantSummary[];
   login: (username: string, password: string, rememberMe?: boolean) => Promise<string | null>;
   logout: () => void;
   getCurrentUser: () => User | null;
   hasPermission: (permissionId: string) => boolean;
   getPermissions: () => string[];
-  loadUserPermissions: (userId: string, accountSetId?: string) => Promise<void>;
+  loadUserPermissions: (userId: string, tenantId?: string, accountSetId?: string) => Promise<void>;
+  loadAvailableTenants: (userId: string) => Promise<TenantSummary[]>;
+  setCurrentTenant: (tenantId: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -35,6 +47,8 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       permissions: [],
       currentRoleId: null,
+      currentTenantId: null,
+      availableTenants: [],
 
       login: async (username: string, password: string, rememberMe?: boolean): Promise<string | null> => {
         try {
@@ -88,9 +102,22 @@ export const useAuthStore = create<AuthStore>()(
             lastLoginTime,
           };
 
-          // 加载权限
-          const { loadUserPermissions } = get();
-          await loadUserPermissions(userId);
+          const tenants = await get().loadAvailableTenants(userId);
+
+          if (tenants.length === 0) {
+            return '尚未加入任何租户，请联系管理员邀请';
+          }
+
+          let chosenTenantId: string | null = null;
+          if (tenants.length === 1) {
+            chosenTenantId = tenants[0].id;
+            sqliteService.setTenantId(chosenTenantId);
+          }
+
+          // 加载权限（仅在已选定租户时）
+          if (chosenTenantId) {
+            await get().loadUserPermissions(userId, chosenTenantId);
+          }
 
           // 更新最后登录时间
           const now = new Date().toISOString();
@@ -108,6 +135,8 @@ export const useAuthStore = create<AuthStore>()(
           set({
             currentUser: user,
             isAuthenticated: true,
+            availableTenants: tenants,
+            currentTenantId: chosenTenantId,
           });
 
           return null;
@@ -123,6 +152,8 @@ export const useAuthStore = create<AuthStore>()(
           isAuthenticated: false,
           permissions: [],
           currentRoleId: null,
+          currentTenantId: null,
+          availableTenants: [],
         });
       },
 
@@ -137,27 +168,67 @@ export const useAuthStore = create<AuthStore>()(
 
       getPermissions: () => get().permissions,
 
-      loadUserPermissions: async (userId: string, accountSetId?: string) => {
+      loadAvailableTenants: async (userId: string): Promise<TenantSummary[]> => {
+        try {
+          const db = await sqliteService.getDatabase();
+          const stmt = db.prepare(
+            `SELECT t.id, t.code, t.name, t.type, tu.role
+             FROM tenant_users tu
+             JOIN tenants t ON t.id = tu.tenantId
+             WHERE tu.userId = ? AND t.status = 'active'
+             ORDER BY tu.joinedAt ASC`
+          );
+          stmt.bind([userId]);
+          const tenants: TenantSummary[] = [];
+          while (stmt.step()) {
+            const r = stmt.get();
+            tenants.push({
+              id: String(r[0] ?? ''),
+              code: String(r[1] ?? ''),
+              name: String(r[2] ?? ''),
+              type: String(r[3] ?? ''),
+              role: String(r[4] ?? ''),
+            });
+          }
+          stmt.free();
+          return tenants;
+        } catch (error) {
+          console.error('Failed to load available tenants:', error);
+          return [];
+        }
+      },
+
+      setCurrentTenant: async (tenantId: string): Promise<void> => {
+        sqliteService.setTenantId(tenantId);
+        const { currentUser } = get();
+        if (currentUser) {
+          await get().loadUserPermissions(currentUser.id, tenantId);
+        }
+        set({ currentTenantId: tenantId });
+      },
+
+      loadUserPermissions: async (userId: string, tenantId?: string, accountSetId?: string) => {
         try {
           const db = await sqliteService.getDatabase();
           const asId = accountSetId || sqliteService.accountSetId;
+          const tId = tenantId || sqliteService.tenantId;
 
           // 优先从 account_set_users 获取该账套的角色
           let roleId: string | null = null;
 
-          if (asId) {
-            const asuStmt = db.prepare(`SELECT roleId FROM account_set_users WHERE userId = ? AND accountSetId = ?`);
-            asuStmt.bind([userId, asId]);
+          if (asId && tId) {
+            const asuStmt = db.prepare(`SELECT roleId FROM account_set_users WHERE userId = ? AND tenantId = ? AND accountSetId = ?`);
+            asuStmt.bind([userId, tId, asId]);
             if (asuStmt.step()) {
               roleId = asuStmt.get()[0];
             }
             asuStmt.free();
           }
 
-          // 回退到全局 user_roles
-          if (!roleId) {
-            const urStmt = db.prepare(`SELECT roleId FROM user_roles WHERE userId = ?`);
-            urStmt.bind([userId]);
+          // 回退到租户级 user_roles
+          if (!roleId && tId) {
+            const urStmt = db.prepare(`SELECT roleId FROM user_roles WHERE userId = ? AND tenantId = ?`);
+            urStmt.bind([userId, tId]);
             if (urStmt.step()) {
               roleId = urStmt.get()[0];
             }
@@ -196,6 +267,7 @@ export const useAuthStore = create<AuthStore>()(
         isAuthenticated: state.isAuthenticated,
         permissions: state.permissions,
         currentRoleId: state.currentRoleId,
+        currentTenantId: state.currentTenantId,
       }),
     }
   )

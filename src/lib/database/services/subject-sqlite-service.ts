@@ -24,6 +24,7 @@ export interface SubjectRow {
   isEmployee: number | null;
   enableCashFlow: number | null;
   isMonetary: number | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -43,8 +44,8 @@ const SUBJECT_INSERT_SQL = `
     id, code, name, parentId, level, type, direction, balance,
     enabled, frozen, description, enableDept, enableProject,
     enableForeign, foreignCurrency, isCustomer, isSupplier,
-    isEmployee, enableCashFlow, isMonetary, accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    isEmployee, enableCashFlow, isMonetary, tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 // ── Mapper ──
@@ -75,7 +76,12 @@ export function mapSubjectRow(row: SubjectRow): Subject {
 
 // ── Write operations ──
 
-function buildSubjectInsertParams(subject: Subject, accountSetId: string, now: string): SqliteBindable[] {
+function buildSubjectInsertParams(
+  subject: Subject,
+  tenantId: string,
+  accountSetId: string,
+  now: string,
+): SqliteBindable[] {
   return [
     subject.id,
     subject.code,
@@ -97,6 +103,7 @@ function buildSubjectInsertParams(subject: Subject, accountSetId: string, now: s
     Number(subject.isEmployee || false),
     Number(subject.enableCashFlow || false),
     Number(subject.isMonetary || false),
+    tenantId,
     accountSetId,
     now, // createTime
     now, // updateTime
@@ -106,6 +113,7 @@ function buildSubjectInsertParams(subject: Subject, accountSetId: string, now: s
 export async function saveSubjectsRecord(input: {
   db: SqliteDatabaseLike;
   subjects: Subject[];
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
@@ -113,7 +121,7 @@ export async function saveSubjectsRecord(input: {
   for (const subject of input.subjects) {
     const stmt = input.db.prepare(SUBJECT_INSERT_SQL);
     try {
-      stmt.run(buildSubjectInsertParams(subject, input.accountSetId, now));
+      stmt.run(buildSubjectInsertParams(subject, input.tenantId, input.accountSetId, now));
     } finally {
       stmt.free();
     }
@@ -125,14 +133,15 @@ export async function migrateSubjectVouchersRecord(input: {
   db: SqliteDatabaseLike & { getRowsModified(): number };
   oldSubjectCode: string;
   newSubjectCode: string;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<number> {
   const stmt = input.db.prepare(
-    `UPDATE entries SET subjectCode = ? WHERE accountSetId = ? AND subjectCode = ?`,
+    `UPDATE entries SET subjectCode = ? WHERE tenantId = ? AND accountSetId = ? AND subjectCode = ?`,
   );
   try {
-    stmt.run([input.newSubjectCode, input.accountSetId, input.oldSubjectCode]);
+    stmt.run([input.newSubjectCode, input.tenantId, input.accountSetId, input.oldSubjectCode]);
   } finally {
     stmt.free();
   }
@@ -145,11 +154,12 @@ export async function migrateSubjectVouchersRecord(input: {
 
 export async function listSubjects(
   service: SubjectQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<Subject[]> {
   const rows = await service.queryAllAsync<SubjectRow>(
-    `SELECT * FROM subjects WHERE accountSetId = ? ORDER BY code`,
-    [accountSetId],
+    `SELECT * FROM subjects WHERE tenantId = ? AND accountSetId = ? ORDER BY code`,
+    [tenantId, accountSetId],
   );
   const subjects = rows.map(mapSubjectRow);
 
@@ -169,25 +179,31 @@ export async function listSubjects(
 
 export async function findSubjectByCode(
   service: SubjectQueryService,
+  tenantId: string,
   accountSetId: string,
   code: string,
 ): Promise<Subject | undefined> {
   const row = await service.querySingleAsync<SubjectRow>(
-    `SELECT * FROM subjects WHERE accountSetId = ? AND code = ?`,
-    [accountSetId, code],
+    `SELECT * FROM subjects WHERE tenantId = ? AND accountSetId = ? AND code = ?`,
+    [tenantId, accountSetId, code],
   );
   return row ? mapSubjectRow(row) : undefined;
 }
 
 export async function hasVoucherForSubject(
   service: SubjectQueryService,
+  tenantId: string,
   accountSetId: string,
   subjectIdOrCode: string,
 ): Promise<boolean> {
   interface CountRow { count: number }
   const result = await service.querySingleAsync<CountRow>(
-    `SELECT COUNT(*) as count FROM entries WHERE accountSetId = ? AND (subjectCode = ? OR subjectCode = (SELECT code FROM subjects WHERE accountSetId = ? AND id = ?))`,
-    [accountSetId, subjectIdOrCode, accountSetId, subjectIdOrCode],
+    `SELECT COUNT(*) as count FROM entries
+     WHERE tenantId = ? AND accountSetId = ?
+     AND (subjectCode = ? OR subjectCode = (
+       SELECT code FROM subjects WHERE tenantId = ? AND accountSetId = ? AND id = ?
+     ))`,
+    [tenantId, accountSetId, subjectIdOrCode, tenantId, accountSetId, subjectIdOrCode],
   );
   return (result?.count || 0) > 0;
 }

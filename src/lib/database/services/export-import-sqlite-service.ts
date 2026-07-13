@@ -16,13 +16,14 @@ export type ExportData = Record<ExportDataKey, Record<string, unknown>[]>;
 
 export async function exportAccountSetData(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<ExportData> {
   const data: Partial<ExportData> = {};
   for (const table of EXPORT_TABLES) {
     data[table] = await service.queryAllAsync(
-      `SELECT * FROM ${table} WHERE accountSetId = ?`,
-      [accountSetId],
+      `SELECT * FROM ${table} WHERE tenantId = ? AND accountSetId = ?`,
+      [tenantId, accountSetId],
     );
   }
   return data as ExportData;
@@ -36,18 +37,20 @@ export async function exportAccountSetData(
 export async function importFxRevaluationRunsRecord(input: {
   db: SqliteDatabaseLike;
   runs: Record<string, any>[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   for (const run of input.runs) {
     const stmt = input.db.prepare(`
       INSERT OR REPLACE INTO fxRevaluationRuns (
-        id, accountSetId, period, baseCurrency, status, scope, revaluationDate,
+        id, tenantId, accountSetId, period, baseCurrency, status, scope, revaluationDate,
         createdBy, notes, createTime, updateTime
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     try {
       stmt.run([
         run.id,
+        (run.tenantId as string) || input.tenantId,
         (run.accountSetId as string) || input.accountSetId,
         run.period,
         run.baseCurrency || 'CNY',
@@ -69,19 +72,21 @@ export async function importFxRevaluationRunsRecord(input: {
 export async function importFxRevaluationRunLinesRecord(input: {
   db: SqliteDatabaseLike;
   lines: Record<string, any>[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   for (const line of input.lines) {
     const stmt = input.db.prepare(`
       INSERT OR REPLACE INTO fxRevaluationRunLines (
-        id, runId, accountSetId, sourceType, sourceId, sourceNo, currencyCode,
+        id, tenantId, runId, accountSetId, sourceType, sourceId, sourceNo, currencyCode,
         baseCurrency, originalAmount, originalRate, revaluedAmount, gainLossAmount,
         rateDate, createTime
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     try {
       stmt.run([
         line.id,
+        (line.tenantId as string) || input.tenantId,
         line.runId,
         (line.accountSetId as string) || input.accountSetId,
         line.sourceType,
@@ -116,14 +121,15 @@ export type IntegrityCounts = Record<(typeof COUNT_TABLES)[number], number>;
 
 export async function checkDataIntegrityQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<IntegrityCounts> {
   const counts: Partial<IntegrityCounts> = {};
   for (const table of COUNT_TABLES) {
     interface CountRow { count: number }
     const result = await service.queryAllAsync<CountRow>(
-      `SELECT * FROM ${table} WHERE accountSetId = ?`,
-      [accountSetId],
+      `SELECT * FROM ${table} WHERE tenantId = ? AND accountSetId = ?`,
+      [tenantId, accountSetId],
     );
     counts[table] = result.length;
   }
@@ -141,11 +147,17 @@ const CLEAR_TABLES = [
   'auditLogs', 'recRelations', 'bankTransactions', 'bank_account_bindings',
 ];
 
-export async function clearAllDataRecord(db: SqliteDatabaseLike, accountSetId: string): Promise<void> {
+export async function clearAllDataRecord(
+  db: SqliteDatabaseLike,
+  tenantId: string,
+  accountSetId: string,
+): Promise<void> {
   for (const table of CLEAR_TABLES) {
-    const stmt = db.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
+    const stmt = db.prepare(
+      `DELETE FROM ${table} WHERE tenantId = ? AND accountSetId = ?`,
+    );
     try {
-      stmt.run([accountSetId]);
+      stmt.run([tenantId, accountSetId]);
     } finally {
       stmt.free();
     }

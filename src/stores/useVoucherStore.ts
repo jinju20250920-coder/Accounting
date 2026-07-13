@@ -9,6 +9,7 @@ import { getCurrentService, getCurrentManager } from '@/lib/database';
 import type { Voucher } from '@/lib/database/service';
 import type { VoucherEntry, VoucherTemplate, BankTransaction } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
+import { usePartnerStore } from './usePartnerStore';
 import { assertAccountingDateEditable } from '@/lib/period-closing';
 import { resolveVoucherWord } from '@/lib/voucher-numbering';
 
@@ -327,7 +328,13 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
     const now = new Date().toISOString();
     const savedVoucher: Voucher = {
       ...voucher,
-      entries: state.currentEntries,
+      entries: state.currentEntries.map(entry => {
+        if (entry.partnerId) return entry;
+        const name = entry.customerName || entry.supplierName || entry.auxiliary?.customer || entry.auxiliary?.supplier;
+        if (!name) return entry;
+        const partner = usePartnerStore.getState().findByName(name);
+        return partner ? { ...entry, partnerId: partner.id } : entry;
+      }),
       status,
       updateTime: now,
       createTime: voucher.createTime || now
@@ -620,6 +627,9 @@ export const useVoucherStore = create<VoucherStore>((set, get) => ({
           credit: isDebit ? amount : 0,
           customerName: transaction.counterpartyName,
           supplierName: transaction.counterpartyName,
+          partnerId: transaction.counterpartyName
+            ? usePartnerStore.getState().findByName(transaction.counterpartyName)?.id
+            : undefined,
           auxiliary: {
             customer: transaction.counterpartyName,
             supplier: transaction.counterpartyName

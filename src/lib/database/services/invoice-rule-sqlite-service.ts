@@ -25,6 +25,7 @@ type SupplierMappingSchemaDatabase = SqliteDatabaseLike & {
 
 interface CustomBankConfigRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   name: string;
   config: string;
@@ -34,11 +35,12 @@ interface CustomBankConfigRow {
 
 export async function listCustomBankConfigs(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<CustomBankConfig[]> {
   const results = await service.queryAllAsync<CustomBankConfigRow>(
-    `SELECT * FROM custom_bank_configs WHERE accountSetId = ? ORDER BY createdAt DESC`,
-    [accountSetId],
+    `SELECT * FROM custom_bank_configs WHERE tenantId = ? AND accountSetId = ? ORDER BY createdAt DESC`,
+    [tenantId, accountSetId],
   );
   return (results || []).map(row => ({
     id: row.id,
@@ -53,15 +55,17 @@ export async function listCustomBankConfigs(
 export async function saveCustomBankConfigRecord(input: {
   db: SqliteDatabaseLike;
   config: CustomBankConfig;
+  tenantId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const stmt = input.db.prepare(
-    `INSERT OR REPLACE INTO custom_bank_configs (id, accountSetId, name, config, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO custom_bank_configs (id, tenantId, accountSetId, name, config, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   try {
     stmt.run([
       input.config.id,
+      input.tenantId,
       input.config.accountSetId,
       input.config.name,
       JSON.stringify(input.config.config),
@@ -76,13 +80,14 @@ export async function saveCustomBankConfigRecord(input: {
 
 export async function deleteCustomBankConfigRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM custom_bank_configs WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `DELETE FROM custom_bank_configs WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   await persist();
 }
@@ -93,6 +98,7 @@ export async function deleteCustomBankConfigRecord(
 
 interface SmartRuleRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   name: string;
   invoiceType: string;
@@ -106,11 +112,12 @@ interface SmartRuleRow {
 
 export async function listSmartRules(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<InvoiceSmartRule[]> {
   const results = await service.queryAllAsync<SmartRuleRow>(
-    `SELECT * FROM invoice_smart_rules WHERE accountSetId = ? ORDER BY priority DESC, name ASC`,
-    [accountSetId],
+    `SELECT * FROM invoice_smart_rules WHERE tenantId = ? AND accountSetId = ? ORDER BY priority DESC, name ASC`,
+    [tenantId, accountSetId],
   );
   return (results || []).map(row => {
     let conditions: unknown[] = [];
@@ -135,6 +142,7 @@ export async function listSmartRules(
 export async function saveSmartRuleRecord(input: {
   db: SqliteDatabaseLike;
   rule: InvoiceSmartRule;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
@@ -147,12 +155,13 @@ export async function saveSmartRuleRecord(input: {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO invoice_smart_rules
-      (id, accountSetId, name, invoiceType, priority, conditions, actions, enabled, createTime, updateTime)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      (id, tenantId, accountSetId, name, invoiceType, priority, conditions, actions, enabled, createTime, updateTime)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.rule.id,
+      input.tenantId,
       input.rule.accountSetId || input.accountSetId,
       input.rule.name,
       input.rule.invoiceType || 'both',
@@ -171,13 +180,14 @@ export async function saveSmartRuleRecord(input: {
 
 export async function deleteSmartRuleRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM invoice_smart_rules WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `DELETE FROM invoice_smart_rules WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   await persist();
 }
@@ -188,6 +198,7 @@ export async function deleteSmartRuleRecord(
 
 const SUPPLIER_MAPPING_COLUMNS = [
   'id',
+  'tenantId',
   'accountSetId',
   'groupName',
   'sellerName',
@@ -206,6 +217,7 @@ function supplierMappingSelectExpression(columns: string[], column: typeof SUPPL
   if (column === 'sellerName' && columns.includes('supplierName')) return "COALESCE(supplierName, '')";
   if (columns.includes(column)) return column;
   if (column === 'createTime' || column === 'updateTime') return "datetime('now')";
+  if (column === 'tenantId') return "''";
   return "''";
 }
 
@@ -213,11 +225,13 @@ export async function ensureSupplierSubjectMappingSchema(input: {
   db: SupplierMappingSchemaDatabase;
   persist: () => Promise<void>;
 }): Promise<void> {
+  // sqlite_master query: keep as-is (system table exempt)
   const tableCheck = input.db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='supplier_subject_mapping'");
   if (!tableCheck[0]?.values?.length) {
     input.db.exec(`
       CREATE TABLE IF NOT EXISTS supplier_subject_mapping (
         id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL DEFAULT '',
         accountSetId TEXT NOT NULL,
         groupName TEXT NOT NULL,
         sellerName TEXT NOT NULL,
@@ -230,7 +244,7 @@ export async function ensureSupplierSubjectMappingSchema(input: {
         createTime TEXT NOT NULL,
         updateTime TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+      CREATE INDEX IF NOT EXISTS idx_ssm_tenant_account ON supplier_subject_mapping(tenantId, accountSetId);
       CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
       CREATE INDEX IF NOT EXISTS idx_ssm_sellerName ON supplier_subject_mapping(sellerName);
     `);
@@ -244,6 +258,7 @@ export async function ensureSupplierSubjectMappingSchema(input: {
   const needsRebuild = (
     !columns.includes('sellerName') ||
     columns.includes('supplierType') ||
+    !columns.includes('tenantId') ||
     expectedColumns.some(column => !columns.includes(column))
   );
   if (!needsRebuild) return;
@@ -253,6 +268,7 @@ export async function ensureSupplierSubjectMappingSchema(input: {
     DROP TABLE IF EXISTS supplier_subject_mapping_temp;
     CREATE TABLE supplier_subject_mapping_temp (
       id TEXT PRIMARY KEY,
+      tenantId TEXT NOT NULL DEFAULT '',
       accountSetId TEXT NOT NULL,
       groupName TEXT NOT NULL,
       sellerName TEXT NOT NULL,
@@ -270,7 +286,7 @@ export async function ensureSupplierSubjectMappingSchema(input: {
     FROM supplier_subject_mapping;
     DROP TABLE supplier_subject_mapping;
     ALTER TABLE supplier_subject_mapping_temp RENAME TO supplier_subject_mapping;
-    CREATE INDEX IF NOT EXISTS idx_ssm_accountSetId ON supplier_subject_mapping(accountSetId);
+    CREATE INDEX IF NOT EXISTS idx_ssm_tenant_account ON supplier_subject_mapping(tenantId, accountSetId);
     CREATE INDEX IF NOT EXISTS idx_ssm_groupName ON supplier_subject_mapping(groupName);
     CREATE INDEX IF NOT EXISTS idx_ssm_sellerName ON supplier_subject_mapping(sellerName);
   `);
@@ -279,35 +295,38 @@ export async function ensureSupplierSubjectMappingSchema(input: {
 
 export async function listSupplierMappings(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<SupplierSubjectMapping[]> {
   const results = await service.queryAllAsync<SupplierSubjectMapping>(
-    `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? ORDER BY groupName, sellerName`,
-    [accountSetId],
+    `SELECT * FROM supplier_subject_mapping WHERE tenantId = ? AND accountSetId = ? ORDER BY groupName, sellerName`,
+    [tenantId, accountSetId],
   );
   return (results || []) as SupplierSubjectMapping[];
 }
 
 export async function listSupplierMappingsByGroup(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   groupName: string,
 ): Promise<SupplierSubjectMapping[]> {
   const results = await service.queryAllAsync<SupplierSubjectMapping>(
-    `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND groupName = ? ORDER BY sellerName`,
-    [accountSetId, groupName],
+    `SELECT * FROM supplier_subject_mapping WHERE tenantId = ? AND accountSetId = ? AND groupName = ? ORDER BY sellerName`,
+    [tenantId, accountSetId, groupName],
   );
   return (results || []) as SupplierSubjectMapping[];
 }
 
 export async function findSupplierMappingBySellerName(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   sellerName: string,
 ): Promise<SupplierSubjectMapping | null> {
   const result = await service.querySingleAsync<SupplierSubjectMapping>(
-    `SELECT * FROM supplier_subject_mapping WHERE accountSetId = ? AND sellerName = ? LIMIT 1`,
-    [accountSetId, sellerName],
+    `SELECT * FROM supplier_subject_mapping WHERE tenantId = ? AND accountSetId = ? AND sellerName = ? LIMIT 1`,
+    [tenantId, accountSetId, sellerName],
   );
   return result as SupplierSubjectMapping | null;
 }
@@ -315,22 +334,24 @@ export async function findSupplierMappingBySellerName(
 export async function saveSupplierMappingRecord(input: {
   db: SqliteDatabaseLike;
   mapping: SupplierSubjectMapping;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO supplier_subject_mapping
-      (id, accountSetId, groupName, sellerName,
+      (id, tenantId, accountSetId, groupName, sellerName,
        defaultDebitSubject, defaultDebitSubjectName,
        defaultTaxSubject, defaultTaxSubjectName,
        defaultCreditSubject, defaultCreditSubjectName,
        createTime, updateTime)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.mapping.id,
+      input.tenantId,
       input.mapping.accountSetId || input.accountSetId,
       input.mapping.groupName,
       input.mapping.sellerName,
@@ -351,13 +372,14 @@ export async function saveSupplierMappingRecord(input: {
 
 export async function deleteSupplierMappingRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM supplier_subject_mapping WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `DELETE FROM supplier_subject_mapping WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   await persist();
 }
@@ -368,6 +390,7 @@ export async function deleteSupplierMappingRecord(
 
 interface PurchaseInvoiceRuleConfigRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   businessGroups: string;
   keywordRules: string;
@@ -396,11 +419,12 @@ const DEFAULT_GLOBAL_SETTINGS: PurchaseInvoiceRuleConfig['globalSettings'] = {
 
 export async function getPurchaseInvoiceRuleConfigQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<{ config: PurchaseInvoiceRuleConfig; isDefault: boolean }> {
   const result = await service.querySingleAsync<PurchaseInvoiceRuleConfigRow>(
-    `SELECT * FROM purchase_invoice_rule_config WHERE accountSetId = ?`,
-    [accountSetId],
+    `SELECT * FROM purchase_invoice_rule_config WHERE tenantId = ? AND accountSetId = ?`,
+    [tenantId, accountSetId],
   );
   if (result) {
     return {
@@ -431,18 +455,20 @@ export async function getPurchaseInvoiceRuleConfigQuery(
 export async function savePurchaseInvoiceRuleConfigRecord(input: {
   db: SqliteDatabaseLike;
   config: PurchaseInvoiceRuleConfig;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO purchase_invoice_rule_config
-      (id, accountSetId, businessGroups, keywordRules, globalSettings, updateTime)
-     VALUES (?,?,?,?,?,?)`,
+      (id, tenantId, accountSetId, businessGroups, keywordRules, globalSettings, updateTime)
+     VALUES (?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.config.id,
+      input.tenantId,
       input.config.accountSetId || input.accountSetId,
       JSON.stringify(input.config.businessGroups),
       JSON.stringify(input.config.keywordRules),
@@ -461,11 +487,12 @@ export async function savePurchaseInvoiceRuleConfigRecord(input: {
 
 export async function listExpenseReimbursements(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<ExpenseReimbursement[]> {
   const results = await service.queryAllAsync<ExpenseReimbursement>(
-    `SELECT * FROM expense_reimbursement WHERE accountSetId = ? ORDER BY createTime DESC`,
-    [accountSetId],
+    `SELECT * FROM expense_reimbursement WHERE tenantId = ? AND accountSetId = ? ORDER BY createTime DESC`,
+    [tenantId, accountSetId],
   );
   return (results || []) as ExpenseReimbursement[];
 }
@@ -473,18 +500,20 @@ export async function listExpenseReimbursements(
 export async function saveExpenseReimbursementRecord(input: {
   db: SqliteDatabaseLike;
   record: ExpenseReimbursement;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO expense_reimbursement
-      (id, accountSetId, invoiceCode, reimburserName, reimburserId, notes, importBatchId, createTime, updateTime)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+      (id, tenantId, accountSetId, invoiceCode, reimburserName, reimburserId, notes, importBatchId, createTime, updateTime)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.record.id,
+      input.tenantId,
       input.record.accountSetId || input.accountSetId,
       input.record.invoiceCode,
       input.record.reimburserName,
@@ -504,14 +533,15 @@ export async function updateExpenseReimbursementRecord(input: {
   db: SqliteDatabaseLike;
   id: string;
   updates: Partial<ExpenseReimbursement>;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
   const updateFields = Object.keys(input.updates).map(key => `${key} = ?`).join(', ');
-  const values = [...Object.values(input.updates), now, input.id, input.accountSetId] as SqliteBindable[];
+  const values = [...Object.values(input.updates), now, input.id, input.tenantId, input.accountSetId] as SqliteBindable[];
   const stmt = input.db.prepare(
-    `UPDATE expense_reimbursement SET ${updateFields}, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+    `UPDATE expense_reimbursement SET ${updateFields}, updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
   );
   try {
     stmt.run(values);
@@ -523,25 +553,27 @@ export async function updateExpenseReimbursementRecord(input: {
 
 export async function deleteExpenseReimbursementRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM expense_reimbursement WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `DELETE FROM expense_reimbursement WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   await persist();
 }
 
 export async function clearExpenseReimbursementsRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM expense_reimbursement WHERE accountSetId = ?`,
-    [accountSetId],
+    `DELETE FROM expense_reimbursement WHERE tenantId = ? AND accountSetId = ?`,
+    [tenantId, accountSetId],
   );
   await persist();
 }
@@ -552,6 +584,7 @@ export async function clearExpenseReimbursementsRecord(
 
 interface ExpenseKeywordCategoryRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   category: string;
   keywords: string;
@@ -565,11 +598,12 @@ interface ExpenseKeywordCategoryRow {
 
 export async function listExpenseKeywordCategories(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<ExpenseKeywordCategory[]> {
   const results = await service.queryAllAsync<ExpenseKeywordCategoryRow>(
-    `SELECT * FROM expense_keyword_categories WHERE accountSetId = ? ORDER BY category`,
-    [accountSetId],
+    `SELECT * FROM expense_keyword_categories WHERE tenantId = ? AND accountSetId = ? ORDER BY category`,
+    [tenantId, accountSetId],
   );
   return (results || []).map(row => {
     let keywords: string[] = [];
@@ -592,6 +626,7 @@ export async function listExpenseKeywordCategories(
 export async function saveExpenseKeywordCategoryRecord(input: {
   db: SqliteDatabaseLike;
   cat: ExpenseKeywordCategory;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
@@ -601,13 +636,14 @@ export async function saveExpenseKeywordCategoryRecord(input: {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO expense_keyword_categories
-      (id, accountSetId, category, keywords, expenseSubjectCode, expenseSubjectName,
+      (id, tenantId, accountSetId, category, keywords, expenseSubjectCode, expenseSubjectName,
        isSystem, enabled, createTime, updateTime)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.cat.id,
+      input.tenantId,
       input.cat.accountSetId || input.accountSetId,
       input.cat.category,
       keywords,
@@ -626,13 +662,14 @@ export async function saveExpenseKeywordCategoryRecord(input: {
 
 export async function deleteExpenseKeywordCategoryRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM expense_keyword_categories WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `DELETE FROM expense_keyword_categories WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   await persist();
 }
@@ -643,6 +680,7 @@ export async function deleteExpenseKeywordCategoryRecord(
 
 interface AuxiliaryStrategyConfigRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   mode: string;
   autoCreatePartner: number;
@@ -652,11 +690,12 @@ interface AuxiliaryStrategyConfigRow {
 
 export async function getAuxiliaryStrategyQuery(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<AuxiliaryStrategyConfig | null> {
   const result = await service.querySingleAsync<AuxiliaryStrategyConfigRow>(
-    `SELECT * FROM auxiliary_strategy_config WHERE accountSetId = ? LIMIT 1`,
-    [accountSetId],
+    `SELECT * FROM auxiliary_strategy_config WHERE tenantId = ? AND accountSetId = ? LIMIT 1`,
+    [tenantId, accountSetId],
   );
   if (!result) return null;
   return {
@@ -672,17 +711,19 @@ export async function getAuxiliaryStrategyQuery(
 export async function saveAuxiliaryStrategyRecord(input: {
   db: SqliteDatabaseLike;
   config: AuxiliaryStrategyConfig;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO auxiliary_strategy_config
-      (id, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
-     VALUES (?,?,?,?,?,?)`,
+      (id, tenantId, accountSetId, mode, autoCreatePartner, autoDisableAuxiliaryOnSubAccount, updateTime)
+     VALUES (?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.config.id,
+      input.tenantId,
       input.config.accountSetId || input.accountSetId,
       input.config.mode || 'auxiliary',
       input.config.autoCreatePartner ? 1 : 0,
@@ -701,6 +742,7 @@ export async function saveAuxiliaryStrategyRecord(input: {
 
 interface AssetCategoryMappingRow {
   id: string;
+  tenantId: string;
   accountSetId: string;
   keywords: string;
   assetCategory: string;
@@ -715,11 +757,12 @@ interface AssetCategoryMappingRow {
 
 export async function listAssetCategoryMappings(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<AssetCategoryMapping[]> {
   const results = await service.queryAllAsync<AssetCategoryMappingRow>(
-    `SELECT * FROM asset_category_mapping WHERE accountSetId = ? ORDER BY assetCategory`,
-    [accountSetId],
+    `SELECT * FROM asset_category_mapping WHERE tenantId = ? AND accountSetId = ? ORDER BY assetCategory`,
+    [tenantId, accountSetId],
   );
   return (results || []).map(row => {
     let keywords: string[] = [];
@@ -743,6 +786,7 @@ export async function listAssetCategoryMappings(
 export async function saveAssetCategoryMappingRecord(input: {
   db: SqliteDatabaseLike;
   mapping: AssetCategoryMapping;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
@@ -752,13 +796,14 @@ export async function saveAssetCategoryMappingRecord(input: {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
     `INSERT OR REPLACE INTO asset_category_mapping
-      (id, accountSetId, keywords, assetCategory, depreciationYears, depreciationMethod,
+      (id, tenantId, accountSetId, keywords, assetCategory, depreciationYears, depreciationMethod,
        subjectCode, residualRate, isSystem, createTime, updateTime)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   try {
     stmt.run([
       input.mapping.id,
+      input.tenantId,
       input.mapping.accountSetId || input.accountSetId,
       keywords,
       input.mapping.assetCategory,
@@ -778,13 +823,14 @@ export async function saveAssetCategoryMappingRecord(input: {
 
 export async function deleteAssetCategoryMappingRecord(
   service: Pick<InvoiceRuleQueryService, 'runAsync'>,
+  tenantId: string,
   accountSetId: string,
   id: string,
   persist: () => Promise<void>,
 ): Promise<void> {
   await service.runAsync(
-    `DELETE FROM asset_category_mapping WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `DELETE FROM asset_category_mapping WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   await persist();
 }
@@ -797,15 +843,16 @@ export async function updateInvoiceHoldStatusRecord(input: {
   db: SqliteDatabaseLike;
   id: string;
   holdStatus: 'normal' | 'on_hold';
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
-    `UPDATE invoices SET holdStatus = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+    `UPDATE invoices SET holdStatus = ?, updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
   );
   try {
-    stmt.run([input.holdStatus, now, input.id, input.accountSetId]);
+    stmt.run([input.holdStatus, now, input.id, input.tenantId, input.accountSetId]);
   } finally {
     stmt.free();
   }
@@ -816,15 +863,16 @@ export async function updateInvoiceCategoryRecord(input: {
   db: SqliteDatabaseLike;
   id: string;
   category: string | null;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
   const stmt = input.db.prepare(
-    `UPDATE invoices SET category = ?, updateTime = ? WHERE id = ? AND accountSetId = ?`,
+    `UPDATE invoices SET category = ?, updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
   );
   try {
-    stmt.run([input.category, now, input.id, input.accountSetId]);
+    stmt.run([input.category, now, input.id, input.tenantId, input.accountSetId]);
   } finally {
     stmt.free();
   }

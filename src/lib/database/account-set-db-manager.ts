@@ -63,11 +63,12 @@ class AccountSetDbManager {
     baseCurrencyName = '人民币'
   ): Promise<void> {
     const db = await sqliteService.getDatabase();
+    const tenantId = sqliteService.tenantId;
     const now = new Date().toISOString();
     const stmt = db.prepare(
-      `INSERT OR IGNORE INTO accountSets (id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO accountSets (id, tenantId, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    stmt.run([accountSetId, code || accountSetId, name, baseCurrency, baseCurrencyName, description || '', now, now]);
+    stmt.run([accountSetId, tenantId, code || accountSetId, name, baseCurrency, baseCurrencyName, description || '', now, now]);
     stmt.free();
   }
 
@@ -76,6 +77,7 @@ class AccountSetDbManager {
    */
   async deleteAccountSet(accountSetId: string): Promise<void> {
     const db = await sqliteService.getDatabase();
+    const tenantId = sqliteService.tenantId;
 
     db.run('BEGIN TRANSACTION');
     try {
@@ -85,9 +87,15 @@ class AccountSetDbManager {
       'invoiceReconciliations',
       'invoices',
       'prepaidExpenses',
+      'prepaidChangeRecords',
       'intangibleAssets',
+      'intangibleChangeRecords',
       'fixedAssets',
       'assetCategories',
+      'assetChangeRecords',
+      'assetSplitRecords',
+      'assetMergeRecords',
+      'asset_category_mapping',
       'recRelations',
       'fxRates',
       'fxRevaluationRuns',
@@ -105,25 +113,27 @@ class AccountSetDbManager {
       'subjects',
       'bankTransactions',
       'bankTransactionRules',
+      'bank_opening_balances',
+      'bank_account_bindings',
+      'custom_bank_configs',
       'invoice_smart_rules',
       'supplier_subject_mapping',
       'purchase_invoice_rule_config',
-      'bank_account_bindings',
-      'custom_bank_configs',
-      'asset_category_mapping',
-      'assetChangeRecords',
-      'assetSplitRecords',
-      'assetMergeRecords',
-      'codeRules',
+      'invoice_subject_rules',
       'expense_reimbursement',
       'expense_keyword_categories',
       'auxiliary_strategy_config',
+      'payroll_batches',
+      'payroll_items',
+      'payroll_calculation_configs',
+      'codeRules',
+      'monthly_closing_checks',
     ];
 
     for (const table of tables) {
       try {
-        const stmt = db.prepare(`DELETE FROM ${table} WHERE accountSetId = ?`);
-        stmt.run([accountSetId]);
+        const stmt = db.prepare(`DELETE FROM ${table} WHERE tenantId = ? AND accountSetId = ?`);
+        stmt.run([tenantId, accountSetId]);
         stmt.free();
       } catch {
         // 表可能不存在，忽略
@@ -167,18 +177,25 @@ class AccountSetDbManager {
    */
   async getAllAccountSets(): Promise<AccountSetInfo[]> {
     const db = await sqliteService.getDatabase();
-    const result = db.exec(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets ORDER BY createTime`);
-    if (!result[0]?.values) return [];
+    const tenantId = sqliteService.tenantId;
+    const stmt = db.prepare(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets WHERE tenantId = ? ORDER BY createTime`);
+    stmt.bind([tenantId]);
+    const rows: SqlValue[][] = [];
+    while (stmt.step()) {
+      rows.push(stmt.get());
+    }
+    stmt.free();
+    if (rows.length === 0) return [];
 
-    return result[0].values.map((row: SqlValue[]) => ({
-      id: row[0],
-      code: row[1],
-      name: row[2],
-      baseCurrency: row[3] || 'CNY',
-      baseCurrencyName: row[4] || '人民币',
-      description: row[5],
-      createTime: row[6],
-      updateTime: row[7],
+    return rows.map((row) => ({
+      id: String(row[0] ?? ''),
+      code: String(row[1] ?? ''),
+      name: String(row[2] ?? ''),
+      baseCurrency: String(row[3] ?? 'CNY'),
+      baseCurrencyName: String(row[4] ?? '人民币'),
+      description: row[5] as string,
+      createTime: String(row[6] ?? ''),
+      updateTime: String(row[7] ?? ''),
     }));
   }
 
@@ -187,8 +204,9 @@ class AccountSetDbManager {
    */
   async getAccountSetInfo(accountSetId: string): Promise<AccountSetInfo | null> {
     const db = await sqliteService.getDatabase();
-    const stmt = db.prepare(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets WHERE id = ?`);
-    stmt.bind([accountSetId]);
+    const tenantId = sqliteService.tenantId;
+    const stmt = db.prepare(`SELECT id, code, name, baseCurrency, baseCurrencyName, description, createTime, updateTime FROM accountSets WHERE tenantId = ? AND id = ?`);
+    stmt.bind([tenantId, accountSetId]);
     const hasRow = stmt.step();
     if (!hasRow) {
       stmt.free();
@@ -396,6 +414,7 @@ class AccountSetDbManager {
               taxNo: partner.taxNo ?? partner.taxNumber,
               accountSetId,
             },
+            sqliteService.tenantId,
             accountSetId,
             now,
           );

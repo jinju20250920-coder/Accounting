@@ -139,8 +139,8 @@ export const useSubjectStore = create<SubjectStore>((set, get) => ({
       if (db && currentAccountSet?.id) {
         sqliteService.setAccountSetId(currentAccountSet.id);
         const result = db.exec(
-          'SELECT code FROM subjects WHERE code = ? AND accountSetId = ?',
-          [subject.code, currentAccountSet.id]
+          'SELECT code FROM subjects WHERE code = ? AND tenantId = ? AND accountSetId = ?',
+          [subject.code, sqliteService.tenantId, currentAccountSet.id]
         );
         if (result[0]?.values?.length > 0) {
           set({ error: '科目代码已存在（数据库）' });

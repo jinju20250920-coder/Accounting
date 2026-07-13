@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useToast } from '@/hooks/use-toast';
 import { useAccountSetStore } from '@/stores/useAccountSetStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 // 全局初始化 Promise：其他组件可以通过 waitForDbInit() 等待数据库就绪
 let _initResolve: (() => void) | null = null;
@@ -24,6 +25,10 @@ export function useDatabaseSync() {
   // 监听账套切换
   const currentAccountSetId = useAccountSetStore((s) => s.currentAccountSetId);
   const lastAccountSetIdRef = useRef<string | null>(null);
+
+  // 监听租户切换
+  const currentTenantId = useAuthStore((s) => s.currentTenantId);
+  const lastTenantIdRef = useRef<string | null>(null);
 
   // 重新加载所有 store 数据
   const reloadAllStores = async () => {
@@ -50,6 +55,40 @@ export function useDatabaseSync() {
     ]);
     await useCurrencyStore.getState().initializeRevaluationRuns();
   };
+
+  // 监听租户切换
+  useEffect(() => {
+    if (!currentTenantId || !isInitialized) return;
+
+    // 首次加载时记录当前租户
+    if (!lastTenantIdRef.current) {
+      lastTenantIdRef.current = currentTenantId;
+      return;
+    }
+
+    // 租户切换时重新加载数据
+    if (lastTenantIdRef.current !== currentTenantId) {
+      lastTenantIdRef.current = currentTenantId;
+      console.log('检测到租户切换，正在重新加载数据...', currentTenantId);
+
+      (async () => {
+        try {
+          // 更新 sqliteService 的租户ID
+          sqliteService.setTenantId(currentTenantId);
+          console.log('sqliteService.tenantId 已更新:', sqliteService.tenantId);
+
+          // 重置账套ID（租户切换后需要重选账套）
+          lastAccountSetIdRef.current = null;
+
+          // 重新加载所有数据
+          await reloadAllStores();
+          console.log('租户切换后数据重新加载完成');
+        } catch (error) {
+          console.error('租户切换后数据重新加载失败:', error);
+        }
+      })();
+    }
+  }, [currentTenantId, isInitialized]);
 
   // 监听账套切换
   useEffect(() => {
@@ -105,7 +144,14 @@ export function useDatabaseSync() {
         const { sqliteManager } = await import('@/lib/database/sqlite-manager');
         await sqliteManager.init();
 
-        // 2. 设置当前账套ID
+        // 2. 同步当前租户ID（从 useAuthStore 恢复）
+        const authState = useAuthStore.getState();
+        if (authState.currentTenantId) {
+          sqliteService.setTenantId(authState.currentTenantId);
+          console.log('Database sync: Set tenant ID to', authState.currentTenantId);
+        }
+
+        // 3. 设置当前账套ID
         const accountSetStore = useAccountSetStore.getState();
         const currentAccountSet = accountSetStore.getCurrentAccountSet();
         if (currentAccountSet) {
@@ -119,7 +165,7 @@ export function useDatabaseSync() {
           return;
         }
 
-        // 3. 从 SQLite 加载数据到各个 store
+        // 4. 从 SQLite 加载数据到各个 store
         await Promise.all([
           useSubjectStore.getState().initializeSubjects(),
           useDepartmentStore.getState().initializeDepartments(),

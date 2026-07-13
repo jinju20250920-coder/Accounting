@@ -21,6 +21,7 @@ export interface DepartmentRow {
   enabled: number | null;
   frozen: number | null;
   description: string | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -29,8 +30,8 @@ export interface DepartmentRow {
 const DEPT_INSERT_SQL = `
   INSERT OR REPLACE INTO departments (
     id, code, name, parentId, level, enabled, description,
-    accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 export function mapDepartmentRow(row: DepartmentRow): Department {
@@ -48,6 +49,7 @@ export function mapDepartmentRow(row: DepartmentRow): Department {
 export async function saveDepartmentsRecord(input: {
   db: SqliteDatabaseLike;
   departments: Department[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
@@ -62,6 +64,7 @@ export async function saveDepartmentsRecord(input: {
         dept.level || 1,
         dept.frozen !== undefined ? Number(!dept.frozen) : 1,
         '', // description
+        input.tenantId,
         input.accountSetId,
         now,
         now,
@@ -74,23 +77,25 @@ export async function saveDepartmentsRecord(input: {
 
 export async function listDepartments(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<Department[]> {
   const rows = await service.queryAllAsync<DepartmentRow>(
-    `SELECT * FROM departments WHERE accountSetId = ? ORDER BY code`,
-    [accountSetId],
+    `SELECT * FROM departments WHERE tenantId = ? AND accountSetId = ? ORDER BY code`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapDepartmentRow);
 }
 
 export async function findDepartmentByCode(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   code: string,
 ): Promise<Department | undefined> {
   const row = await service.querySingleAsync<DepartmentRow>(
-    `SELECT * FROM departments WHERE accountSetId = ? AND code = ?`,
-    [accountSetId, code],
+    `SELECT * FROM departments WHERE tenantId = ? AND accountSetId = ? AND code = ?`,
+    [tenantId, accountSetId, code],
   );
   return row ? mapDepartmentRow(row) : undefined;
 }
@@ -105,6 +110,7 @@ export interface ProjectRow {
   name: string;
   description: string | null;
   enabled: number | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -112,8 +118,8 @@ export interface ProjectRow {
 
 const PROJECT_INSERT_SQL = `
   INSERT OR REPLACE INTO projects (
-    id, code, name, description, enabled, accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    id, code, name, description, enabled, tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 export function mapProjectRow(row: ProjectRow): Project {
@@ -134,6 +140,7 @@ export function mapProjectRow(row: ProjectRow): Project {
 export async function saveProjectsRecord(input: {
   db: SqliteDatabaseLike;
   projects: Project[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
@@ -146,6 +153,7 @@ export async function saveProjectsRecord(input: {
         project.name,
         '', // description
         project.frozen !== undefined ? Number(!project.frozen) : 1,
+        input.tenantId,
         input.accountSetId,
         now,
         now,
@@ -158,23 +166,25 @@ export async function saveProjectsRecord(input: {
 
 export async function listProjects(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<Project[]> {
   const rows = await service.queryAllAsync<ProjectRow>(
-    `SELECT * FROM projects WHERE accountSetId = ? ORDER BY code`,
-    [accountSetId],
+    `SELECT * FROM projects WHERE tenantId = ? AND accountSetId = ? ORDER BY code`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapProjectRow);
 }
 
 export async function findProjectByCode(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   code: string,
 ): Promise<Project | undefined> {
   const row = await service.querySingleAsync<ProjectRow>(
-    `SELECT * FROM projects WHERE accountSetId = ? AND code = ?`,
-    [accountSetId, code],
+    `SELECT * FROM projects WHERE tenantId = ? AND accountSetId = ? AND code = ?`,
+    [tenantId, accountSetId, code],
   );
   return row ? mapProjectRow(row) : undefined;
 }
@@ -190,6 +200,7 @@ export interface CurrencyRow {
   symbol: string;
   exchangeRate: number | null;
   enabled: number | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -197,8 +208,8 @@ export interface CurrencyRow {
 
 const CURRENCY_INSERT_SQL = `
   INSERT OR REPLACE INTO currencies (
-    id, code, name, symbol, exchangeRate, enabled, accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    id, code, name, symbol, exchangeRate, enabled, tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 export function mapCurrencyRow(row: CurrencyRow): Currency {
@@ -224,6 +235,7 @@ export function mapCurrencyRow(row: CurrencyRow): Currency {
 export async function saveCurrenciesRecord(input: {
   db: SqliteDatabaseLike;
   currencies: Currency[];
+  tenantId: string;
   accountSetId: string;
 }): Promise<void> {
   const now = new Date().toISOString();
@@ -237,6 +249,7 @@ export async function saveCurrenciesRecord(input: {
         currency.symbol,
         currency.exchangeRate || 1.0,
         currency.disabled !== undefined ? Number(!currency.disabled) : (currency.enabled !== undefined ? Number(currency.enabled) : 1),
+        input.tenantId,
         input.accountSetId,
         now,
         now,
@@ -249,23 +262,25 @@ export async function saveCurrenciesRecord(input: {
 
 export async function listCurrencies(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<Currency[]> {
   const rows = await service.queryAllAsync<CurrencyRow>(
-    `SELECT * FROM currencies WHERE accountSetId = ? ORDER BY code`,
-    [accountSetId],
+    `SELECT * FROM currencies WHERE tenantId = ? AND accountSetId = ? ORDER BY code`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapCurrencyRow);
 }
 
 export async function findCurrencyByCode(
   service: SimpleQueryService,
+  tenantId: string,
   accountSetId: string,
   code: string,
 ): Promise<Currency | undefined> {
   const row = await service.querySingleAsync<CurrencyRow>(
-    `SELECT * FROM currencies WHERE accountSetId = ? AND code = ?`,
-    [accountSetId, code],
+    `SELECT * FROM currencies WHERE tenantId = ? AND accountSetId = ? AND code = ?`,
+    [tenantId, accountSetId, code],
   );
   return row ? mapCurrencyRow(row) : undefined;
 }

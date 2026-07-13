@@ -507,8 +507,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           creditSubjectCode, creditSubjectName,
           projectCode, projectName,
           assetType, depreciationEndDate, remainingDepreciationMonths,
-          accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          tenantId, accountSetId, createTime, updateTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newAsset.id, newAsset.assetCode, newAsset.assetName,
@@ -537,7 +537,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         safeValue(newAsset.creditSubjectCode), safeValue(newAsset.creditSubjectName),
         safeValue(newAsset.projectCode), safeValue(newAsset.projectName),
         safeValue(newAsset.assetType), safeValue(newAsset.depreciationEndDate), safeValue(newAsset.remainingDepreciationMonths),
-        newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
+        sqliteService.tenantId, newAsset.accountSetId, newAsset.createTime, newAsset.updateTime,
       ]);
       stmt.free();
 
@@ -613,7 +613,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           supplierName=?, invoiceNo=?, notes=?,
           accountingStatus=?, acquisitionVoucherId=?, acquisitionVoucherNo=?, acquisitionAccountingDate=?,
           updateTime=?
-        WHERE id=?`
+        WHERE id=? AND tenantId=? AND accountSetId=?`
       );
       stmt.run([
         updatedAsset.assetName, safeValue(updatedAsset.categoryId), safeValue(updatedAsset.categoryName),
@@ -638,7 +638,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         JSON.stringify(updatedAsset.improvementHistory || []), JSON.stringify(updatedAsset.disposalHistory || []),
         safeValue(updatedAsset.supplierName), safeValue(updatedAsset.invoiceNo), safeValue(updatedAsset.notes),
         safeValue(updatedAsset.accountingStatus), safeValue(updatedAsset.acquisitionVoucherId), safeValue(updatedAsset.acquisitionVoucherNo), safeValue(updatedAsset.acquisitionAccountingDate),
-        updatedAsset.updateTime, id,
+        updatedAsset.updateTime, id, sqliteService.tenantId, sqliteService.accountSetId,
       ]);
       stmt.free();
 
@@ -682,12 +682,12 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         throw new Error('数据库未初始化');
       }
       // 删除折旧记录
-      const stmt1 = db.prepare('DELETE FROM depreciationRecords WHERE assetId = ?');
-      stmt1.run([id]);
+      const stmt1 = db.prepare('DELETE FROM depreciationRecords WHERE assetId = ? AND tenantId = ? AND accountSetId = ?');
+      stmt1.run([id, sqliteService.tenantId, sqliteService.accountSetId]);
       stmt1.free();
       // 删除资产
-      const stmt2 = db.prepare('DELETE FROM fixedAssets WHERE id = ?');
-      stmt2.run([id]);
+      const stmt2 = db.prepare('DELETE FROM fixedAssets WHERE id = ? AND tenantId = ? AND accountSetId = ?');
+      stmt2.run([id, sqliteService.tenantId, sqliteService.accountSetId]);
       stmt2.free();
 
       set((state) => ({
@@ -732,8 +732,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         `INSERT INTO assetCategories (
           id, code, name, assetType, defaultUsefulLifeYears, defaultDepreciationMethod,
           defaultSalvageRate, assetSubjectCode, depreciationSubjectCode, expenseSubjectCode,
-          description, sortOrder, enabled, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          description, sortOrder, enabled, tenantId, accountSetId, createTime, updateTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newCategory.id,
@@ -749,6 +749,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         newCategory.description ?? '',
         newCategory.sortOrder ?? 0,
         newCategory.enabled ? 1 : 0,
+        sqliteService.tenantId,
         newCategory.accountSetId ?? '',
         newCategory.createTime,
         newCategory.updateTime,
@@ -796,7 +797,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           name=?, assetType=?, defaultUsefulLifeYears=?, defaultDepreciationMethod=?,
           defaultSalvageRate=?, assetSubjectCode=?, depreciationSubjectCode=?, expenseSubjectCode=?,
           description=?, sortOrder=?, enabled=?, updateTime=?
-        WHERE id=?`
+        WHERE id=? AND tenantId=? AND accountSetId=?`
       );
       stmt.run([
         updatedCategory.name, updatedCategory.assetType,
@@ -805,6 +806,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         updatedCategory.depreciationSubjectCode, updatedCategory.expenseSubjectCode,
         updatedCategory.description, updatedCategory.sortOrder,
         updatedCategory.enabled ? 1 : 0, updatedCategory.updateTime, id,
+        sqliteService.tenantId, sqliteService.accountSetId,
       ]);
       stmt.free();
 
@@ -830,8 +832,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
     try {
       const { sqliteService } = await import('@/lib/database/sqlite-service');
       const db = await sqliteService.getDatabase();
-      const stmt = db.prepare('DELETE FROM assetCategories WHERE id = ?');
-      stmt.run([id]);
+      const stmt = db.prepare('DELETE FROM assetCategories WHERE id = ? AND tenantId = ? AND accountSetId = ?');
+      stmt.run([id, sqliteService.tenantId, sqliteService.accountSetId]);
       stmt.free();
 
       set((state) => ({
@@ -967,8 +969,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             id, assetId, assetCode, assetName, period, depreciationDate,
             periodDepreciation, accumulatedDepreciation, netValueAfter,
             unitsThisPeriod, unitDepreciationRate, voucherId, voucherNo,
-            status, notes, accountSetId, createTime, updateTime
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+            status, notes, tenantId, accountSetId, createTime, updateTime
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
         stmt.run([
           record.id, record.assetId, record.assetCode, record.assetName,
@@ -976,7 +978,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           record.periodDepreciation, record.accumulatedDepreciation, record.netValueAfter,
           safeValue(record.unitsThisPeriod), safeValue(record.unitDepreciationRate),
           safeValue(record.voucherId), safeValue(record.voucherNo), record.status, safeValue(record.notes),
-          record.accountSetId, record.createTime, record.updateTime,
+          sqliteService.tenantId, record.accountSetId, record.createTime, record.updateTime,
         ]);
         stmt.free();
       }
@@ -1004,9 +1006,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       for (const record of records) {
         const stmt1 = db.prepare(
-          'UPDATE depreciationRecords SET status = ?, updateTime = ? WHERE id = ?'
+          'UPDATE depreciationRecords SET status = ?, updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?'
         );
-        stmt1.run(['posted', new Date().toISOString(), record.id]);
+        stmt1.run(['posted', new Date().toISOString(), record.id, sqliteService.tenantId, sqliteService.accountSetId]);
         stmt1.free();
 
         const asset = state.assets.find(a => a.id === record.assetId);
@@ -1032,9 +1034,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           const stmt2 = db.prepare(
             `UPDATE fixedAssets SET
               accumulatedDepreciation = ?, netValue = ?, lastDepreciationDate = ?, updateTime = ?
-            WHERE id = ?`
+            WHERE id = ? AND tenantId = ? AND accountSetId = ?`
           );
-          stmt2.run([newAccumulated, newNetValue, lastDepDate, new Date().toISOString(), asset.id]);
+          stmt2.run([newAccumulated, newNetValue, lastDepDate, new Date().toISOString(), asset.id, sqliteService.tenantId, sqliteService.accountSetId]);
           stmt2.free();
 
           await get().logAssetChange({
@@ -1065,15 +1067,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
               const icrId = `icr-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
               const icrStmt = db.prepare(
                 `INSERT INTO intangibleChangeRecords (
-                  id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                  id, assetId, assetCode, assetName, tenantId, accountSetId, changeType, changeDate, period,
                   fieldName, beforeValue, afterValue,
                   originalValueChange, amortizationChange, originalValueBalance,
                   accumulatedAmortizationBalance, netValueBalance,
                   voucherId, voucherNo, reason, operatorId, createTime
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
               );
               icrStmt.run([
-                icrId, asset.id, asset.assetCode, asset.assetName, accountSetId,
+                icrId, asset.id, asset.assetCode, asset.assetName, sqliteService.tenantId, accountSetId,
                 'amortization', changeDate, record.period,
                 'amortization', String(asset.accumulatedDepreciation), String(newAccumulated),
                 0, record.periodDepreciation,
@@ -1312,8 +1314,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 加载分类
       const categoriesResult = db.exec(
-        'SELECT * FROM assetCategories WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY sortOrder',
-        [accountSetId]
+        'SELECT * FROM assetCategories WHERE tenantId = ? AND (accountSetId = ? OR accountSetId IS NULL) ORDER BY sortOrder',
+        [sqliteService.tenantId, accountSetId]
       );
       const categories: AssetCategory[] = categoriesResult[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
@@ -1336,8 +1338,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 加载资产
       const assetsResult = db.exec(
-        'SELECT * FROM fixedAssets WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY createTime DESC',
-        [accountSetId]
+        'SELECT * FROM fixedAssets WHERE tenantId = ? AND (accountSetId = ? OR accountSetId IS NULL) ORDER BY createTime DESC',
+        [sqliteService.tenantId, accountSetId]
       );
       const assets: FixedAsset[] = assetsResult[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
@@ -1410,8 +1412,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 加载折旧记录
       const recordsResult = db.exec(
-        'SELECT * FROM depreciationRecords WHERE accountSetId = ? OR accountSetId IS NULL ORDER BY period DESC',
-        [accountSetId]
+        'SELECT * FROM depreciationRecords WHERE tenantId = ? AND (accountSetId = ? OR accountSetId IS NULL) ORDER BY period DESC',
+        [sqliteService.tenantId, accountSetId]
       );
       const depreciationRecords: DepreciationRecord[] = recordsResult[0]?.values?.map((row: SqlValue[]) => ({
         id: row[0],
@@ -1443,8 +1445,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const intangibleCategory = intangibleCategoryByCode || intangibleCategoryByName;
 
       if (intangibleCategory && intangibleCategory.assetType !== 'intangible') {
-        const updateStmt = db.prepare(`UPDATE assetCategories SET assetType = ? WHERE id = ?`);
-        updateStmt.run(['intangible', intangibleCategory.id]);
+        const updateStmt = db.prepare(`UPDATE assetCategories SET assetType = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`);
+        updateStmt.run(['intangible', intangibleCategory.id, sqliteService.tenantId, sqliteService.accountSetId]);
         updateStmt.free();
         // 修复内存中的数据
         fixedCategories = categories.map(c =>
@@ -1471,8 +1473,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         for (const asset of pendingAssets) {
           // 查找摘要包含资产名称的取得凭证
           const voucherResult = db.exec(
-            `SELECT id, voucherNo FROM vouchers WHERE accountSetId = ? AND summary LIKE ? LIMIT 1`,
-            [accountSetId, `取得固定资产-${asset.assetName}%`]
+            `SELECT id, voucherNo FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND summary LIKE ? LIMIT 1`,
+            [sqliteService.tenantId, accountSetId, `取得固定资产-${asset.assetName}%`]
           );
           if (voucherResult[0]?.values?.length > 0) {
             const voucherId = voucherResult[0].values[0][0] as string;
@@ -1481,9 +1483,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
             // 更新资产状态
             const updateStmt = db.prepare(
-              `UPDATE fixedAssets SET accountingStatus = 'accounted', acquisitionVoucherId = ?, acquisitionVoucherNo = ? WHERE id = ?`
+              `UPDATE fixedAssets SET accountingStatus = 'accounted', acquisitionVoucherId = ?, acquisitionVoucherNo = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`
             );
-            updateStmt.run([voucherId, voucherNo, asset.id]);
+            updateStmt.run([voucherId, voucherNo, asset.id, sqliteService.tenantId, sqliteService.accountSetId]);
             updateStmt.free();
 
             // 更新内存中的数据
@@ -1518,9 +1520,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           if (asset.depreciationStartDate !== correctStartDate) {
             // 更新数据库
             const updateStmt = db.prepare(
-              `UPDATE fixedAssets SET depreciationStartDate = ? WHERE id = ?`
+              `UPDATE fixedAssets SET depreciationStartDate = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`
             );
-            updateStmt.run([correctStartDate, asset.id]);
+            updateStmt.run([correctStartDate, asset.id, sqliteService.tenantId, sqliteService.accountSetId]);
             updateStmt.free();
 
             // 更新内存中的数据
@@ -1538,16 +1540,16 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         for (const asset of intangibleAssets) {
           // 查询该资产的取得变动记录
           const changeResult = db.exec(
-            `SELECT changeDate FROM assetChangeRecords WHERE assetId = ? AND changeType = 'acquisition' ORDER BY createTime ASC LIMIT 1`,
-            [asset.id]
+            `SELECT changeDate FROM assetChangeRecords WHERE assetId = ? AND tenantId = ? AND accountSetId = ? AND changeType = 'acquisition' ORDER BY createTime ASC LIMIT 1`,
+            [asset.id, sqliteService.tenantId, sqliteService.accountSetId]
           );
           if (changeResult[0]?.values?.length > 0) {
             const recordDate = changeResult[0].values[0][0];
             const correctAccountingDate = normalizeAssetDate(recordDate);
             if (correctAccountingDate && asset.acquisitionAccountingDate !== correctAccountingDate) {
               console.log(`修复资产 ${asset.assetCode} 的入账日期: ${asset.acquisitionAccountingDate} -> ${correctAccountingDate}`);
-              const updateStmt = db.prepare(`UPDATE fixedAssets SET acquisitionAccountingDate = ? WHERE id = ?`);
-              updateStmt.run([correctAccountingDate, asset.id]);
+              const updateStmt = db.prepare(`UPDATE fixedAssets SET acquisitionAccountingDate = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`);
+              updateStmt.run([correctAccountingDate, asset.id, sqliteService.tenantId, sqliteService.accountSetId]);
               updateStmt.free();
               // 更新内存中的数据
               set(state => ({
@@ -1591,8 +1593,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       for (const category of DEFAULT_CATEGORIES) {
         // 检查分类是否已存在
         const existingResult = db.exec(
-          'SELECT id FROM assetCategories WHERE code = ? AND accountSetId = ?',
-          [category.code, currentAccountSet.id]
+          'SELECT id FROM assetCategories WHERE code = ? AND tenantId = ? AND accountSetId = ?',
+          [category.code, sqliteService.tenantId, currentAccountSet.id]
         );
 
         if (existingResult[0]?.values?.length > 0) {
@@ -1650,8 +1652,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 生成凭证号
       const yearMonth = voucherDate.substring(0, 7).replace('-', '');
       const vouchersResult = db.exec(
-        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
-        [accountSetId, `记-${yearMonth}-%`]
+        'SELECT voucherNo FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [sqliteService.tenantId, accountSetId, `记-${yearMonth}-%`]
       );
       let lastSeq = 0;
       if (vouchersResult[0]?.values?.length > 0) {
@@ -1697,10 +1699,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 创建凭证
       const stmtVoucher = db.prepare(
-        `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, tenantId, accountSetId, createTime, updateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmtVoucher.run([voucherId, voucherNo, voucherDate, 'draft', '固定资产折旧', 'system', accountSetId, now, now]);
+      stmtVoucher.run([voucherId, voucherNo, voucherDate, 'draft', '固定资产折旧', 'system', sqliteService.tenantId, accountSetId, now, now]);
       stmtVoucher.free();
 
       // 创建分录 - 借方：费用科目（按科目分组）
@@ -1711,15 +1713,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             id, voucherId, subjectCode, subjectName, direction, debit, credit,
             summary, customerName, supplierName, auxiliary, recRefNo,
             departmentCode, departmentName, projectCode, projectName,
-            currencyCode, exchangeRate, originalAmount, date, accountSetId,
+            currencyCode, exchangeRate, originalAmount, date, tenantId, accountSetId,
             createTime, updateTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         stmtEntry.run([
           entryId, voucherId, expense.code, expense.name, 'debit', expense.amount, 0,
           '固定资产折旧', '', '', '{}', '',
           '', '', '', '',
-          '', 0, 0, voucherDate, accountSetId,
+          '', 0, 0, voucherDate, sqliteService.tenantId, accountSetId,
           now, now
         ]);
         stmtEntry.free();
@@ -1732,15 +1734,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           id, voucherId, subjectCode, subjectName, direction, debit, credit,
           summary, customerName, supplierName, auxiliary, recRefNo,
           departmentCode, departmentName, projectCode, projectName,
-          currencyCode, exchangeRate, originalAmount, date, accountSetId,
+          currencyCode, exchangeRate, originalAmount, date, tenantId, accountSetId,
           createTime, updateTime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmtCredit.run([
         creditEntryId, voucherId, '1502', '累计折旧', 'credit', 0, totalDepreciation,
         '固定资产折旧', '', '', '{}', '',
         '', '', '', '',
-        '', 0, 0, voucherDate, accountSetId,
+        '', 0, 0, voucherDate, sqliteService.tenantId, accountSetId,
         now, now
       ]);
       stmtCredit.free();
@@ -1748,9 +1750,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 更新折旧记录，关联凭证
       for (const record of records) {
         const stmtUpdate = db.prepare(
-          'UPDATE depreciationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ?'
+          'UPDATE depreciationRecords SET voucherId = ?, voucherNo = ?, updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?'
         );
-        stmtUpdate.run([voucherId, voucherNo, now, record.id]);
+        stmtUpdate.run([voucherId, voucherNo, now, record.id, sqliteService.tenantId, sqliteService.accountSetId]);
         stmtUpdate.free();
       }
 
@@ -1837,8 +1839,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       }
       const yearMonth = vouchDate.substring(0, 7).replace('-', '');
       const vouchersResult = db.exec(
-        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
-        [accountSetId, `记-${yearMonth}-%`]
+        'SELECT voucherNo FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [sqliteService.tenantId, accountSetId, `记-${yearMonth}-%`]
       );
       let nextNum = 1;
       if (vouchersResult.length > 0 && vouchersResult[0].values.length > 0) {
@@ -2256,8 +2258,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
                 originalValueChange, depreciationChange, originalValueBalance,
                 accumulatedDepreciationBalance, netValueBalance,
                 voucherId, voucherNo, reason, operatorId, createTime
-         FROM assetChangeRecords WHERE assetId = ? ORDER BY changeDate ASC, createTime ASC`,
-        [assetId]
+         FROM assetChangeRecords WHERE assetId = ? AND tenantId = ? AND accountSetId = ? ORDER BY changeDate ASC, createTime ASC`,
+        [assetId, sqliteService.tenantId, sqliteService.accountSetId]
       );
 
       return result[0]?.values?.map((row: SqlValue[]) => ({
@@ -2308,15 +2310,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       const stmt = db.prepare(
         `INSERT INTO assetChangeRecords (
-          id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+          id, assetId, assetCode, assetName, tenantId, accountSetId, changeType, changeDate, period,
           fieldName, beforeValue, afterValue,
           originalValueChange, depreciationChange, originalValueBalance,
           accumulatedDepreciationBalance, netValueBalance,
           voucherId, voucherNo, reason, operatorId, createTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
-        id, record.assetId, record.assetCode, record.assetName, record.accountSetId,
+        id, record.assetId, record.assetCode, record.assetName, sqliteService.tenantId, record.accountSetId,
         record.changeType, record.changeDate, record.period,
         record.fieldName, record.beforeValue || '', record.afterValue || '',
         record.originalValueChange ?? null, record.depreciationChange ?? null,
@@ -2345,8 +2347,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         throw new Error('数据库未初始化');
       }
 
-      const stmt = db.prepare(`DELETE FROM assetChangeRecords WHERE assetId = ?`);
-      stmt.run([assetId]);
+      const stmt = db.prepare(`DELETE FROM assetChangeRecords WHERE assetId = ? AND tenantId = ? AND accountSetId = ?`);
+      stmt.run([assetId, sqliteService.tenantId, sqliteService.accountSetId]);
       stmt.free();
       console.log('已清空资产变动记录:', assetId);
     } catch (error: unknown) {
@@ -2373,8 +2375,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
                 accumulatedDepreciationBalance, netValueBalance,
                 voucherId, voucherNo, reason, operatorId, createTime
          FROM assetChangeRecords
-         WHERE voucherId = ? AND accountSetId = ? AND fieldName != 'voucher_reversal'`,
-        [originalVoucherId, accountSetId]
+         WHERE voucherId = ? AND tenantId = ? AND accountSetId = ? AND fieldName != 'voucher_reversal'`,
+        [originalVoucherId, sqliteService.tenantId, accountSetId]
       );
 
       const rows: SqliteBindable[][] = result[0]?.values ?? [];
@@ -2418,8 +2420,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
         // 回退 fixedAssets 余额
         const assetResult = db.exec(
-          `SELECT originalValue, accumulatedDepreciation, categoryId FROM fixedAssets WHERE id = ?`,
-          [assetId]
+          `SELECT originalValue, accumulatedDepreciation, categoryId FROM fixedAssets WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+          [assetId, sqliteService.tenantId, sqliteService.accountSetId]
         );
         const assetRow = assetResult[0]?.values?.[0];
         if (assetRow) {
@@ -2427,9 +2429,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           const newAccDep = Number(assetRow[1]) - deltaDep;
           const newNet = newOrig - newAccDep;
           const stmt = db.prepare(
-            `UPDATE fixedAssets SET originalValue = ?, accumulatedDepreciation = ?, netValue = ?, updateTime = ? WHERE id = ?`
+            `UPDATE fixedAssets SET originalValue = ?, accumulatedDepreciation = ?, netValue = ?, updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`
           );
-          stmt.run([newOrig, newAccDep, newNet, new Date().toISOString(), assetId]);
+          stmt.run([newOrig, newAccDep, newNet, new Date().toISOString(), assetId, sqliteService.tenantId, sqliteService.accountSetId]);
           stmt.free();
 
           // 无形资产双写到 intangibleChangeRecords
@@ -2440,15 +2442,15 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
               const icrId = `icr-rev-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
               const icrStmt = db.prepare(
                 `INSERT INTO intangibleChangeRecords (
-                  id, assetId, assetCode, assetName, accountSetId, changeType, changeDate, period,
+                  id, assetId, assetCode, assetName, tenantId, accountSetId, changeType, changeDate, period,
                   fieldName, beforeValue, afterValue,
                   originalValueChange, amortizationChange, originalValueBalance,
                   accumulatedAmortizationBalance, netValueBalance,
                   voucherId, voucherNo, reason, operatorId, createTime
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
               );
               icrStmt.run([
-                icrId, assetId, assetCode, assetName, accountSetId,
+                icrId, assetId, assetCode, assetName, sqliteService.tenantId, accountSetId,
                 'voucher_reversal', reversalDate, period,
                 'voucher_reversal', origVoucherNo || originalVoucherId, reversedVoucherNo,
                 -deltaOrig, -deltaDep,
@@ -2468,9 +2470,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 3. 把关联的折旧记录回退到 draft，并清掉 voucherId/voucherNo
       const depStmt = db.prepare(
         `UPDATE depreciationRecords SET status = 'draft', voucherId = '', voucherNo = '', updateTime = ?
-         WHERE voucherId = ? AND accountSetId = ?`
+         WHERE voucherId = ? AND tenantId = ? AND accountSetId = ?`
       );
-      depStmt.run([new Date().toISOString(), originalVoucherId, accountSetId]);
+      depStmt.run([new Date().toISOString(), originalVoucherId, sqliteService.tenantId, accountSetId]);
       depStmt.free();
 
       // 4. 同步本地 state（资产余额 + 折旧记录状态）
@@ -2543,17 +2545,17 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       const rule = manager.getRuleByType('fixed_asset');
 
       // 获取现有所有资产编码，用于避免重复
-      const existingCodesResult = db.exec('SELECT assetCode FROM fixedAssets WHERE accountSetId = ?', [currentAccountSet.id]);
+      const existingCodesResult = db.exec('SELECT assetCode FROM fixedAssets WHERE tenantId = ? AND accountSetId = ?', [sqliteService.tenantId, currentAccountSet.id]);
       const existingCodes = new Set(existingCodesResult[0]?.values?.map((row: SqlValue[]) => row[0] as string) || []);
 
       // 辅助函数：创建凭证分录
       const createEntry = (subjectCode: string, subjectName: string, direction: 'debit' | 'credit', debit: number, credit: number, summary: string) => {
         const entryId = generateId();
         const stmt = db.prepare(
-          `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, date, accountSetId, createTime, updateTime)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO entries (id, voucherId, subjectCode, subjectName, direction, debit, credit, summary, date, tenantId, accountSetId, createTime, updateTime)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run([entryId, voucherId, subjectCode, subjectName, direction, debit, credit, summary, date, currentAccountSet.id, now, now]);
+        stmt.run([entryId, voucherId, subjectCode, subjectName, direction, debit, credit, summary, date, sqliteService.tenantId, currentAccountSet.id, now, now]);
         stmt.free();
       };
 
@@ -2596,8 +2598,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
             status, location, departmentCode, departmentName,
             assetSubjectCode, assetSubjectName, depreciationSubjectCode, depreciationSubjectName,
             expenseSubjectCode, expenseSubjectName, supplierName, invoiceNo, notes,
-            accountSetId, createTime, updateTime
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+            tenantId, accountSetId, createTime, updateTime
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
         stmt.run([
           newAsset.id, newAsset.assetCode, newAsset.assetName, newAsset.categoryId || '', newAsset.categoryName || '',
@@ -2611,7 +2613,7 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           newAsset.depreciationSubjectCode || '', newAsset.depreciationSubjectName || '',
           newAsset.expenseSubjectCode || '', newAsset.expenseSubjectName || '',
           newAsset.supplierName || '', newAsset.invoiceNo || '', newAsset.notes || '',
-          currentAccountSet.id, now, now,
+          sqliteService.tenantId, currentAccountSet.id, now, now,
         ]);
         stmt.free();
 
@@ -2620,9 +2622,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 标记原资产为已处置
       const updateStmt = db.prepare(
-        `UPDATE fixedAssets SET status = 'disposed', accountingStatus = 'disposed', updateTime = ? WHERE id = ?`
+        `UPDATE fixedAssets SET status = 'disposed', accountingStatus = 'disposed', updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`
       );
-      updateStmt.run([now, assetId]);
+      updateStmt.run([now, assetId, sqliteService.tenantId, sqliteService.accountSetId]);
       updateStmt.free();
 
       // 记录变动
@@ -2643,8 +2645,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
       // 生成拆分凭证：原资产处置转入清理，新资产入账
       const yearMonth = date.substring(0, 7).replace('-', '');
       const vouchersResult = db.exec(
-        'SELECT voucherNo FROM vouchers WHERE accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
-        [currentAccountSet.id, `记-${yearMonth}-%`]
+        'SELECT voucherNo FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND voucherNo LIKE ? ORDER BY voucherNo DESC LIMIT 1',
+        [sqliteService.tenantId, currentAccountSet.id, `记-${yearMonth}-%`]
       );
       let lastSeq = 0;
       if (vouchersResult[0]?.values?.length > 0) {
@@ -2658,10 +2660,10 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 创建凭证
       const stmtVoucher = db.prepare(
-        `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, accountSetId, createTime, updateTime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vouchers (id, voucherNo, date, status, summary, creator, tenantId, accountSetId, createTime, updateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmtVoucher.run([voucherId, voucherNo, date, 'posted', `${asset.assetName}拆分`, 'system', currentAccountSet.id, now, now]);
+      stmtVoucher.run([voucherId, voucherNo, date, 'posted', `${asset.assetName}拆分`, 'system', sqliteService.tenantId, currentAccountSet.id, now, now]);
       stmtVoucher.free();
 
       // 创建分录
@@ -2676,9 +2678,9 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
 
       // 更新变动记录，关联凭证
       const stmtUpdateChange = db.prepare(
-        'UPDATE assetChangeRecords SET voucherId = ?, voucherNo = ? WHERE assetId = ? AND changeType = ? AND changeDate = ?'
+        'UPDATE assetChangeRecords SET voucherId = ?, voucherNo = ? WHERE assetId = ? AND tenantId = ? AND accountSetId = ? AND changeType = ? AND changeDate = ?'
       );
-      stmtUpdateChange.run([voucherId, voucherNo, asset.id, 'split', date]);
+      stmtUpdateChange.run([voucherId, voucherNo, asset.id, sqliteService.tenantId, sqliteService.accountSetId, 'split', date]);
       stmtUpdateChange.free();
 
       // 刷新资产列表
@@ -2769,8 +2771,8 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
           location, departmentCode, departmentName, supplierName, invoiceNo, notes, serialNumber,
           assignedUser, status, accountingStatus, assetSubjectCode, assetSubjectName,
           depreciationSubjectCode, depreciationSubjectName, expenseSubjectCode, expenseSubjectName,
-          accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          tenantId, accountSetId, createTime, updateTime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         mergedAsset.id, mergedAsset.assetCode, mergedAsset.assetName, mergedAsset.categoryId,
@@ -2786,16 +2788,16 @@ export const useFixedAssetStore = create<FixedAssetStore>((set, get) => ({
         mergedAsset.assetSubjectCode || '', mergedAsset.assetSubjectName || '',
         mergedAsset.depreciationSubjectCode || '', mergedAsset.depreciationSubjectName || '',
         mergedAsset.expenseSubjectCode || '', mergedAsset.expenseSubjectName || '',
-        currentAccountSet.id, now, now,
+        sqliteService.tenantId, currentAccountSet.id, now, now,
       ]);
       stmt.free();
 
       // 标记原资产为已处置
       const updateStmt = db.prepare(
-        `UPDATE fixedAssets SET status = 'disposed', accountingStatus = 'disposed', updateTime = ? WHERE id = ?`
+        `UPDATE fixedAssets SET status = 'disposed', accountingStatus = 'disposed', updateTime = ? WHERE id = ? AND tenantId = ? AND accountSetId = ?`
       );
       for (const id of assetIds) {
-        updateStmt.run([now, id]);
+        updateStmt.run([now, id, sqliteService.tenantId, sqliteService.accountSetId]);
       }
       updateStmt.free();
 

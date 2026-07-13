@@ -69,8 +69,8 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
       if (!db) { set({ loading: false }); return; }
 
       // 读取已有规则
-      const stmt = db.prepare('SELECT * FROM bankTransactionRules WHERE accountSetId = ? ORDER BY priority DESC');
-      stmt.bind([sqliteService.accountSetId]);
+      const stmt = db.prepare('SELECT * FROM bankTransactionRules WHERE tenantId = ? AND accountSetId = ? ORDER BY priority DESC');
+      stmt.bind([sqliteService.tenantId, sqliteService.accountSetId]);
       const existingRules: BankTransactionRule[] = [];
       while (stmt.step()) {
         const row = stmt.getAsObject() as Record<string, string | number | Uint8Array | null>;
@@ -103,10 +103,10 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
 
         for (const rule of systemRules) {
           const insertStmt = db.prepare(`
-            INSERT INTO bankTransactionRules (id, name, keyword, subjectCode, subjectName, direction, priority, enabled, isSystem, accountSetId, createTime, updateTime)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO bankTransactionRules (id, name, keyword, subjectCode, subjectName, direction, priority, enabled, isSystem, tenantId, accountSetId, createTime, updateTime)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
-          insertStmt.run([rule.id, rule.name, rule.keyword, rule.subjectCode, rule.subjectName, rule.direction, rule.priority, 1, 1, rule.accountSetId, rule.createTime, rule.updateTime]);
+          insertStmt.run([rule.id, rule.name, rule.keyword, rule.subjectCode, rule.subjectName, rule.direction, rule.priority, 1, 1, sqliteService.tenantId, rule.accountSetId, rule.createTime, rule.updateTime]);
           insertStmt.free();
         }
 
@@ -137,10 +137,10 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
       };
 
       const stmt = db.prepare(`
-        INSERT INTO bankTransactionRules (id, name, keyword, subjectCode, subjectName, direction, priority, enabled, isSystem, accountSetId, createTime, updateTime)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO bankTransactionRules (id, name, keyword, subjectCode, subjectName, direction, priority, enabled, isSystem, tenantId, accountSetId, createTime, updateTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      stmt.run([rule.id, rule.name, rule.keyword, rule.subjectCode, rule.subjectName, rule.direction, rule.priority, rule.enabled ? 1 : 0, 0, rule.accountSetId, rule.createTime, rule.updateTime]);
+      stmt.run([rule.id, rule.name, rule.keyword, rule.subjectCode, rule.subjectName, rule.direction, rule.priority, rule.enabled ? 1 : 0, 0, sqliteService.tenantId, rule.accountSetId, rule.createTime, rule.updateTime]);
       stmt.free();
 
       set(state => ({ rules: [...state.rules, rule] }));
@@ -176,9 +176,10 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
       fields.push('updateTime = ?');
       values.push(now);
       values.push(id);
+      values.push(sqliteService.tenantId);
       values.push(sqliteService.accountSetId);
 
-      const stmt = db.prepare(`UPDATE bankTransactionRules SET ${fields.join(', ')} WHERE id = ? AND accountSetId = ?`);
+      const stmt = db.prepare(`UPDATE bankTransactionRules SET ${fields.join(', ')} WHERE id = ? AND tenantId = ? AND accountSetId = ?`);
       stmt.run(values);
       stmt.free();
 
@@ -196,8 +197,8 @@ export const useBankRuleStore = create<BankRuleStore>((set, get) => ({
       const db = await sqliteService.getDatabase();
       if (!db) return;
 
-      const stmt = db.prepare('DELETE FROM bankTransactionRules WHERE id = ? AND accountSetId = ? AND isSystem = 0');
-      stmt.run([id, sqliteService.accountSetId]);
+      const stmt = db.prepare('DELETE FROM bankTransactionRules WHERE id = ? AND tenantId = ? AND accountSetId = ? AND isSystem = 0');
+      stmt.run([id, sqliteService.tenantId, sqliteService.accountSetId]);
       stmt.free();
 
       set(state => ({ rules: state.rules.filter(r => r.id !== id) }));

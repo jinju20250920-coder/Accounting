@@ -16,6 +16,7 @@ export interface VoucherRow {
   referenceNumber: string | null;
   attachmentCount: number | null;
   voucherType: string | null;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -32,6 +33,7 @@ export interface VoucherEntryRow {
   summary: string | null;
   customerName: string | null;
   supplierName: string | null;
+  partnerId: string | null;
   auxiliary: string | null; // JSON string
   recRefNo: string | null;
   departmentCode: string | null;
@@ -43,6 +45,7 @@ export interface VoucherEntryRow {
   exchangeRate: number | null;
   originalAmount: number | null;
   date: string;
+  tenantId: string;
   accountSetId: string;
   createTime: string | null;
   updateTime: string | null;
@@ -77,6 +80,7 @@ export function mapVoucherEntryRow(row: VoucherEntryRow): VoucherEntry {
     projectCode: text(row.projectCode),
     customerName: text(row.customerName),
     supplierName: text(row.supplierName),
+    partnerId: row.partnerId || undefined,
     currencyCode: text(row.currencyCode),
     currencyName: text(row.currencyName),
     exchangeRate: row.exchangeRate || 0,
@@ -110,24 +114,29 @@ export function mapVoucherRow(row: VoucherRow, entries: VoucherEntryRow[]): Vouc
 const VOUCHER_INSERT_SQL = `
   INSERT OR REPLACE INTO vouchers (
     id, voucherNo, date, status, summary, creator, reviewer, poster,
-    reverseVoucherId, referenceNumber, attachmentCount, accountSetId,
+    reverseVoucherId, referenceNumber, attachmentCount, tenantId, accountSetId,
     createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const ENTRY_INSERT_SQL = `
   INSERT INTO entries (
     id, voucherId, subjectCode, subjectName, direction, debit, credit,
-    summary, customerName, supplierName, auxiliary, recRefNo,
+    summary, customerName, supplierName, partnerId, auxiliary, recRefNo,
     departmentCode, departmentName, projectCode, projectName,
-    currencyCode, currencyName, exchangeRate, originalAmount, date, accountSetId,
+    currencyCode, currencyName, exchangeRate, originalAmount, date,
+    tenantId, accountSetId,
     createTime, updateTime, sourceEntryId, sourceVoucherDate
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 // ── Write operations (use db.prepare directly for transactions) ──
 
-export function buildVoucherInsertParams(voucher: Voucher, accountSetId: string): SqliteBindable[] {
+export function buildVoucherInsertParams(
+  voucher: Voucher,
+  tenantId: string,
+  accountSetId: string,
+): SqliteBindable[] {
   const now = new Date().toISOString();
   return [
     voucher.id || '',
@@ -141,13 +150,19 @@ export function buildVoucherInsertParams(voucher: Voucher, accountSetId: string)
     '', // reverseVoucherId
     '', // referenceNumber
     0,  // attachmentCount
+    tenantId,
     accountSetId,
     voucher.createTime || now,
     voucher.updateTime || now,
   ];
 }
 
-export function buildEntryInsertParams(entry: VoucherEntry, voucherId: string, accountSetId: string): SqliteBindable[] {
+export function buildEntryInsertParams(
+  entry: VoucherEntry,
+  voucherId: string,
+  tenantId: string,
+  accountSetId: string,
+): SqliteBindable[] {
   const now = new Date().toISOString();
   return [
     entry.id,
@@ -160,6 +175,7 @@ export function buildEntryInsertParams(entry: VoucherEntry, voucherId: string, a
     entry.summary || '',
     entry.customerName || '',
     entry.supplierName || '',
+    entry.partnerId || '',
     JSON.stringify(entry.auxiliary || {}),
     entry.recRefNo || '',
     entry.deptCode || '',
@@ -171,6 +187,7 @@ export function buildEntryInsertParams(entry: VoucherEntry, voucherId: string, a
     entry.exchangeRate || 0,
     entry.originalAmount || 0,
     entry.date || new Date().toISOString().split('T')[0],
+    tenantId,
     accountSetId,
     now,
     now,
@@ -182,23 +199,26 @@ export function buildEntryInsertParams(entry: VoucherEntry, voucherId: string, a
 export async function saveVoucherRecord(input: {
   db: SqliteDatabaseLike;
   voucher: Voucher;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
-  const { db, voucher, accountSetId, persist } = input;
+  const { db, voucher, tenantId, accountSetId, persist } = input;
 
   // Upsert voucher header
   const voucherStmt = db.prepare(VOUCHER_INSERT_SQL);
   try {
-    voucherStmt.run(buildVoucherInsertParams(voucher, accountSetId));
+    voucherStmt.run(buildVoucherInsertParams(voucher, tenantId, accountSetId));
   } finally {
     voucherStmt.free();
   }
 
-  // Delete existing entries
-  const deleteStmt = db.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
+  // Delete existing entries (tenant + accountSet scoped)
+  const deleteStmt = db.prepare(
+    `DELETE FROM entries WHERE voucherId = ? AND tenantId = ? AND accountSetId = ?`,
+  );
   try {
-    deleteStmt.run([voucher.id, accountSetId]);
+    deleteStmt.run([voucher.id, tenantId, accountSetId]);
   } finally {
     deleteStmt.free();
   }
@@ -207,7 +227,7 @@ export async function saveVoucherRecord(input: {
   for (const entry of voucher.entries) {
     const entryStmt = db.prepare(ENTRY_INSERT_SQL);
     try {
-      entryStmt.run(buildEntryInsertParams(entry, voucher.id, accountSetId));
+      entryStmt.run(buildEntryInsertParams(entry, voucher.id, tenantId, accountSetId));
     } finally {
       entryStmt.free();
     }
@@ -220,14 +240,17 @@ export async function updateVoucherStatusRecord(input: {
   db: SqliteDatabaseLike;
   id: string;
   status: string;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const stmt = input.db.prepare(`
-    UPDATE vouchers SET status = ?, updateTime = ? WHERE id = ? AND accountSetId = ?
+    UPDATE vouchers
+    SET status = ?, updateTime = ?
+    WHERE id = ? AND tenantId = ? AND accountSetId = ?
   `);
   try {
-    stmt.run([input.status, new Date().toISOString(), input.id, input.accountSetId]);
+    stmt.run([input.status, new Date().toISOString(), input.id, input.tenantId, input.accountSetId]);
   } finally {
     stmt.free();
   }
@@ -237,21 +260,26 @@ export async function updateVoucherStatusRecord(input: {
 export async function deleteVoucherRecord(input: {
   db: SqliteDatabaseLike;
   id: string;
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   // Delete entries first
-  const deleteEntries = input.db.prepare(`DELETE FROM entries WHERE voucherId = ? AND accountSetId = ?`);
+  const deleteEntries = input.db.prepare(
+    `DELETE FROM entries WHERE voucherId = ? AND tenantId = ? AND accountSetId = ?`,
+  );
   try {
-    deleteEntries.run([input.id, input.accountSetId]);
+    deleteEntries.run([input.id, input.tenantId, input.accountSetId]);
   } finally {
     deleteEntries.free();
   }
 
   // Delete voucher
-  const deleteVoucher = input.db.prepare(`DELETE FROM vouchers WHERE id = ? AND accountSetId = ?`);
+  const deleteVoucher = input.db.prepare(
+    `DELETE FROM vouchers WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+  );
   try {
-    deleteVoucher.run([input.id, input.accountSetId]);
+    deleteVoucher.run([input.id, input.tenantId, input.accountSetId]);
   } finally {
     deleteVoucher.free();
   }
@@ -263,69 +291,75 @@ export async function deleteVoucherRecord(input: {
 
 async function fetchEntries(
   service: VoucherQueryService,
+  tenantId: string,
   accountSetId: string,
   voucherId: string,
 ): Promise<VoucherEntryRow[]> {
   return service.queryAllAsync<VoucherEntryRow>(
-    `SELECT * FROM entries WHERE voucherId = ? AND accountSetId = ?`,
-    [voucherId, accountSetId],
+    `SELECT * FROM entries WHERE voucherId = ? AND tenantId = ? AND accountSetId = ?`,
+    [voucherId, tenantId, accountSetId],
   );
 }
 
 async function hydrateVoucher(
   service: VoucherQueryService,
+  tenantId: string,
   accountSetId: string,
   row: VoucherRow,
 ): Promise<Voucher> {
-  const entries = await fetchEntries(service, accountSetId, row.id);
+  const entries = await fetchEntries(service, tenantId, accountSetId, row.id);
   return mapVoucherRow(row, entries);
 }
 
 export async function getVoucherById(
   service: VoucherQueryService,
+  tenantId: string,
   accountSetId: string,
   id: string,
 ): Promise<Voucher | undefined> {
   const row = await service.querySingleAsync<VoucherRow>(
-    `SELECT * FROM vouchers WHERE id = ? AND accountSetId = ?`,
-    [id, accountSetId],
+    `SELECT * FROM vouchers WHERE id = ? AND tenantId = ? AND accountSetId = ?`,
+    [id, tenantId, accountSetId],
   );
   if (!row) return undefined;
-  return hydrateVoucher(service, accountSetId, row);
+  return hydrateVoucher(service, tenantId, accountSetId, row);
 }
 
 export async function listVouchers(
   service: VoucherQueryService,
+  tenantId: string,
   accountSetId: string,
 ): Promise<Voucher[]> {
   const rows = await service.queryAllAsync<VoucherRow>(
-    `SELECT * FROM vouchers WHERE accountSetId = ? ORDER BY date DESC`,
-    [accountSetId],
+    `SELECT * FROM vouchers WHERE tenantId = ? AND accountSetId = ? ORDER BY date DESC`,
+    [tenantId, accountSetId],
   );
-  return Promise.all(rows.map(r => hydrateVoucher(service, accountSetId, r)));
+  return Promise.all(rows.map(r => hydrateVoucher(service, tenantId, accountSetId, r)));
 }
 
 export async function listVouchersByDateRange(
   service: VoucherQueryService,
+  tenantId: string,
   accountSetId: string,
   startDate: string,
   endDate: string,
 ): Promise<Voucher[]> {
   const rows = await service.queryAllAsync<VoucherRow>(
-    `SELECT * FROM vouchers WHERE accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
-    [accountSetId, startDate, endDate],
+    `SELECT * FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND date >= ? AND date <= ? ORDER BY date DESC`,
+    [tenantId, accountSetId, startDate, endDate],
   );
-  return Promise.all(rows.map(r => hydrateVoucher(service, accountSetId, r)));
+  return Promise.all(rows.map(r => hydrateVoucher(service, tenantId, accountSetId, r)));
 }
 
 export async function listVouchersByStatus(
   service: VoucherQueryService,
+  tenantId: string,
   accountSetId: string,
   status: string,
 ): Promise<Voucher[]> {
   const rows = await service.queryAllAsync<VoucherRow>(
-    `SELECT * FROM vouchers WHERE accountSetId = ? AND status = ? ORDER BY date DESC`,
-    [accountSetId, status],
+    `SELECT * FROM vouchers WHERE tenantId = ? AND accountSetId = ? AND status = ? ORDER BY date DESC`,
+    [tenantId, accountSetId, status],
   );
-  return Promise.all(rows.map(r => hydrateVoucher(service, accountSetId, r)));
+  return Promise.all(rows.map(r => hydrateVoucher(service, tenantId, accountSetId, r)));
 }
