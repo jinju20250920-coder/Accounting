@@ -1,0 +1,324 @@
+[
+  {
+    "bankId": "ccb",
+    "detected": "ccb",
+    "detectionScore": 13,
+    "detectionTop3": [
+      "ccb(13)",
+      "huaxia(4)",
+      "icbc(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "北京朝阳支行",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "北京朝阳支行",
+      "currency": "人民币"
+    }
+  },
+  {
+    "bankId": "icbc",
+    "detected": "icbc",
+    "detectionScore": 10,
+    "detectionTop3": [
+      "icbc(10)",
+      "czb(2)",
+      "shanghai(2)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": "人民币"
+    }
+  },
+  {
+    "bankId": "abc",
+    "detected": "abc",
+    "detectionScore": 13,
+    "detectionTop3": [
+      "abc(13)",
+      "bocom(2)",
+      "ccb(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "cmb",
+    "detected": "cmb",
+    "detectionScore": 14,
+    "detectionTop3": [
+      "cmb(14)",
+      "ccb(1)",
+      "icbc(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "boc",
+    "detected": "boc",
+    "detectionScore": 19,
+    "detectionTop3": [
+      "boc(19)",
+      "ccb(1)",
+      "icbc(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "citic",
+    "detected": "citic",
+    "detectionScore": 12,
+    "detectionTop3": [
+      "citic(12)",
+      "ccb(1)",
+      "icbc(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "bocom",
+    "detected": "bocom",
+    "detectionScore": 10,
+    "detectionTop3": [
+      "bocom(10)",
+      "abc(2)",
+      "ccb(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "industrial",
+    "detected": "industrial",
+    "detectionScore": 14,
+    "detectionTop3": [
+      "industrial(14)",
+      "huaxia(4)",
+      "ccb(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "",
+      "accountNumber": "",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "czb",
+    "detected": "czb",
+    "detectionScore": 15,
+    "detectionTop3": [
+      "czb(15)",
+      "icbc(5)",
+      "boc(4)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "spdb",
+    "detected": "spdb",
+    "detectionScore": 15,
+    "detectionTop3": [
+      "spdb(15)",
+      "huaxia(2)",
+      "shanghai(2)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "cmbc",
+    "detected": "cmbc",
+    "detectionScore": 15,
+    "detectionTop3": [
+      "cmbc(15)",
+      "cmb(3)",
+      "ccb(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "pingan",
+    "detected": "pingan",
+    "detectionScore": 16,
+    "detectionTop3": [
+      "pingan(16)",
+      "abc(4)",
+      "ccb(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "",
+      "accountNumber": "",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "huaxia",
+    "detected": "huaxia",
+    "detectionScore": 13,
+    "detectionTop3": [
+      "huaxia(13)",
+      "ccb(1)",
+      "icbc(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "北京金桔科技有限公司",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "",
+      "currency": ""
+    }
+  },
+  {
+    "bankId": "shanghai",
+    "detected": "shanghai",
+    "detectionScore": 13,
+    "detectionTop3": [
+      "shanghai(13)",
+      "huaxia(4)",
+      "ccb(1)"
+    ],
+    "expectedTxCount": 3,
+    "parsedTxCount": 3,
+    "parseErrors": [],
+    "parseError": null,
+    "autoParsedTxCount": 3,
+    "autoParseError": null,
+    "bankInfo": {
+      "bankName": "",
+      "accountName": "",
+      "accountNumber": "6225 8888 1234 5678",
+      "branch": "北京朝阳支行",
+      "currency": ""
+    }
+  }
+]

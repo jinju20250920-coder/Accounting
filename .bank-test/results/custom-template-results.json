@@ -1,0 +1,68 @@
+{
+  "test1_no_false_positive": true,
+  "test2_custom_parse": true,
+  "test3_custom_detection": true,
+  "detectResultsBuiltInOnly": [
+    {
+      "bankId": "abc",
+      "score": 2
+    },
+    {
+      "bankId": "bocom",
+      "score": 2
+    },
+    {
+      "bankId": "ccb",
+      "score": 1
+    },
+    {
+      "bankId": "icbc",
+      "score": 1
+    },
+    {
+      "bankId": "cmb",
+      "score": 1
+    }
+  ],
+  "detectResultsWithCustom": [
+    {
+      "bankId": "custom_galaxy",
+      "score": 13
+    },
+    {
+      "bankId": "abc",
+      "score": 2
+    },
+    {
+      "bankId": "bocom",
+      "score": 2
+    },
+    {
+      "bankId": "ccb",
+      "score": 1
+    },
+    {
+      "bankId": "icbc",
+      "score": 1
+    }
+  ],
+  "parsedTxCount": 2,
+  "parsedFirstTx": {
+    "id": "1782943945478-r3-7ra558",
+    "date": "2024-03-15",
+    "transactionTime": "10:25:36",
+    "debit": 5280,
+    "balance": 89234.56,
+    "counterpartyName": "北京海泰科技有限公司",
+    "counterpartyAccount": "1109 8821 0023 5566",
+    "summary": "采购办公用品",
+    "rowNumber": 4
+  },
+  "bankInfo": {
+    "bankName": "",
+    "accountName": "北京测试有限公司",
+    "accountNumber": "9999 1111 2222 3333",
+    "branch": "",
+    "currency": ""
+  }
+}
