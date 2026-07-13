@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import { classifyByCounterpart, isCashSubject, DEFAULT_INFLOW, DEFAULT_OUTFLOW, type CashFlowLineItem } from '@/lib/cash-flow-mapping';
+import type { ReportHandle } from '@/lib/report-export-utils';
 
 interface CashFlowItem {
   code: string;
@@ -169,75 +171,147 @@ function getDefaultCashFlowData(): CashFlowData {
   };
 }
 
-export function CashFlowStatement() {
+export const CashFlowStatement = forwardRef<ReportHandle>(function CashFlowStatement(_props, ref) {
   const [date, setDate] = useState('2026-03-31');
   const [showDetails, setShowDetails] = useState(false);
   const { vouchers } = useVoucherStore();
   const { subjects } = useSubjectStore();
 
-  // 从真实数据计算现金流量表
+  // 从真实数据计算现金流量表（基于 counterpart 科目分类）
   const cashFlowData: CashFlowData = useMemo(() => {
-    // 先计算现金类科目的发生额
-    const cashSubjectCodes = ['1001', '1002']; // 库存现金和银行存款
-    let cashInflow = 0;
-    let cashOutflow = 0;
+    const lineItems = new Map<string, { item: CashFlowLineItem; amount: number }>();
+    const addLine = (item: CashFlowLineItem, amount: number) => {
+      if (Math.abs(amount) < 0.01) return;
+      const existing = lineItems.get(item.code);
+      if (existing) {
+        existing.amount += amount;
+      } else {
+        lineItems.set(item.code, { item, amount });
+      }
+    };
+
+    let totalCashDelta = 0;
 
     vouchers.forEach(voucher => {
-      if (voucher.status === 'posted' || voucher.status === 'reversed') {
-        const multiplier = voucher.status === 'reversed' ? -1 : 1;
-        voucher.entries.forEach(entry => {
-          if (cashSubjectCodes.includes(entry.subjectCode)) {
-            cashInflow += (entry.debit || 0) * multiplier;
-            cashOutflow += (entry.credit || 0) * multiplier;
-          }
+      if (voucher.status !== 'posted' && voucher.status !== 'reversed') return;
+      const multiplier = voucher.status === 'reversed' ? -1 : 1;
+
+      voucher.entries.forEach(entry => {
+        if (!isCashSubject(entry.subjectCode)) return;
+        const entryDelta = ((entry.debit || 0) - (entry.credit || 0)) * multiplier;
+        totalCashDelta += entryDelta;
+
+        const isCashInflow = entryDelta > 0;
+        const absAmount = Math.abs(entryDelta);
+
+        const counterparts = voucher.entries.filter(
+          e => e.id !== entry.id && !isCashSubject(e.subjectCode)
+        );
+
+        if (counterparts.length === 0) {
+          addLine(isCashInflow ? DEFAULT_INFLOW : DEFAULT_OUTFLOW, absAmount);
+          return;
+        }
+
+        const dominant = counterparts.reduce((max, e) => {
+          const eAbs = Math.abs((e.debit || 0) - (e.credit || 0));
+          const maxAbs = Math.abs((max.debit || 0) - (max.credit || 0));
+          return eAbs > maxAbs ? e : max;
         });
-      }
+
+        addLine(classifyByCounterpart(dominant.subjectCode, isCashInflow), absAmount);
+      });
     });
 
-    const netCashChange = cashInflow - cashOutflow;
-
-    // 如果有真实数据，基于真实数据生成简化的现金流量表
-    if (netCashChange !== 0) {
-      const operatingItems: CashFlowItem[] = [
-        {
-          code: '1',
-          name: '销售商品、提供劳务收到的现金',
-          amount: Math.max(0, netCashChange * 0.8),
-          isPositive: true
-        },
-        {
-          code: '4',
-          name: '购买商品、接受劳务支付的现金',
-          amount: -Math.max(0, netCashChange * 0.5),
-          isPositive: false
-        }
-      ];
-
-      const netCashFromOperating = operatingItems.reduce((sum, item) => sum + item.amount, 0);
-      const beginningCash = 0;
-      const endingCash = beginningCash + netCashFromOperating;
-
-      return {
-        operating: operatingItems,
-        investing: [],
-        financing: [],
-        beginningCash,
-        netCashFromOperating,
-        netCashFromInvesting: 0,
-        netCashFromFinancing: 0,
-        endingCash,
-        cashFlowSummary: {
-          operating: netCashFromOperating,
-          investing: 0,
-          financing: 0,
-          totalChange: netCashFromOperating
-        }
-      };
+    if (lineItems.size === 0) {
+      return getDefaultCashFlowData();
     }
 
-    // 如果没有真实数据，返回默认数据
-    return getDefaultCashFlowData();
+    const operating: CashFlowItem[] = [];
+    const investing: CashFlowItem[] = [];
+    const financing: CashFlowItem[] = [];
+
+    lineItems.forEach(({ item, amount }) => {
+      const target = item.section === 'operating' ? operating
+                   : item.section === 'investing' ? investing
+                   : financing;
+      target.push({
+        code: item.code,
+        name: item.name,
+        amount,
+        isPositive: amount > 0,
+      });
+    });
+
+    const sortByCode = (a: CashFlowItem, b: CashFlowItem) => a.code.localeCompare(b.code);
+    operating.sort(sortByCode);
+    investing.sort(sortByCode);
+    financing.sort(sortByCode);
+
+    const netCashFromOperating = operating.reduce((s, i) => s + i.amount, 0);
+    const netCashFromInvesting = investing.reduce((s, i) => s + i.amount, 0);
+    const netCashFromFinancing = financing.reduce((s, i) => s + i.amount, 0);
+    const netChange = netCashFromOperating + netCashFromInvesting + netCashFromFinancing;
+
+    const endingCash = totalCashDelta;
+    const beginningCash = endingCash - netChange;
+
+    return {
+      operating,
+      investing,
+      financing,
+      beginningCash,
+      netCashFromOperating,
+      netCashFromInvesting,
+      netCashFromFinancing,
+      endingCash,
+      cashFlowSummary: {
+        operating: netCashFromOperating,
+        investing: netCashFromInvesting,
+        financing: netCashFromFinancing,
+        totalChange: netChange,
+      },
+    };
   }, [vouchers, subjects]);
+
+  // 暴露导出句柄给父页
+  useImperativeHandle(ref, () => {
+    const flatten = (items: CashFlowItem[], section: string): Array<Record<string, unknown>> => {
+      const rows: Array<Record<string, unknown>> = [];
+      for (const item of items) {
+        rows.push({
+          '部分': section,
+          '编码': item.code,
+          '项目': item.name,
+          '金额': item.amount,
+        });
+        if (item.children && item.children.length > 0) {
+          rows.push(...flatten(item.children, section));
+        }
+      }
+      return rows;
+    };
+    return {
+      getSheetName: () => '现金流量表',
+      getExportRows: () => [
+        ...flatten(cashFlowData.operating, '经营活动'),
+        ...flatten(cashFlowData.investing, '投资活动'),
+        ...flatten(cashFlowData.financing, '筹资活动'),
+        {
+          '部分': '汇总',
+          '编码': 'SUM',
+          '项目': '期初现金余额',
+          '金额': cashFlowData.beginningCash,
+        },
+        {
+          '部分': '汇总',
+          '编码': 'SUM',
+          '项目': '期末现金余额',
+          '金额': cashFlowData.endingCash,
+        },
+      ],
+    };
+  }, [cashFlowData]);
 
   // 渲染现金流项目
   const renderCashFlowItem = (item: CashFlowItem, category: string) => {
@@ -536,4 +610,4 @@ export function CashFlowStatement() {
       </Card>
     </div>
   );
-}
+});

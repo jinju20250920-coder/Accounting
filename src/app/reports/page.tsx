@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -15,14 +15,51 @@ import {
   TrendingDown,
   Calendar,
   DollarSign,
-  Percent
+  Percent,
+  Sparkles
 } from 'lucide-react';
 import { BalanceSheet } from '@/components/reports/balance-sheet';
 import { TrialBalance } from '@/components/reports/trial-balance';
 import { IncomeStatement } from '@/components/reports/income-statement';
 import { CashFlowStatement } from '@/components/reports/cash-flow-statement';
+import { useToast } from '@/components/ui/toast';
+import { exportToExcel } from '@/lib/excel-utils';
+import type { ReportHandle } from '@/lib/report-export-utils';
 
 export default function ReportsPage() {
+  const { showToast } = useToast();
+  const trialRef = useRef<ReportHandle>(null);
+  const balanceRef = useRef<ReportHandle>(null);
+  const incomeRef = useRef<ReportHandle>(null);
+  const cashFlowRef = useRef<ReportHandle>(null);
+
+  const handleRefresh = () => {
+    showToast('info', '数据已同步（Zustand 响应式自动更新）');
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleExport = (ref: React.RefObject<ReportHandle | null>) => {
+    const handle = ref.current;
+    if (!handle) {
+      showToast('error', '报表未就绪，请稍后再试');
+      return;
+    }
+    const rows = handle.getExportRows();
+    if (rows.length === 0) {
+      showToast('warning', '当前报表无数据可导出');
+      return;
+    }
+    try {
+      exportToExcel(rows, handle.getSheetName());
+      showToast('success', `${handle.getSheetName()} 已导出（${rows.length} 行）`);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : '导出失败');
+    }
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* 标题栏 */}
@@ -77,15 +114,15 @@ export default function ReportsPage() {
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handleRefresh}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     刷新数据
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handlePrint}>
                     <Printer className="h-4 w-4 mr-2" />
                     打印报表
                   </Button>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => handleExport(trialRef)}>
                     <Download className="h-4 w-4 mr-2" />
                     导出Excel
                   </Button>
@@ -93,7 +130,7 @@ export default function ReportsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <TrialBalance />
+              <TrialBalance ref={trialRef} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -110,15 +147,15 @@ export default function ReportsPage() {
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handleRefresh}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     刷新数据
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handlePrint}>
                     <Printer className="h-4 w-4 mr-2" />
                     打印报表
                   </Button>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => handleExport(balanceRef)}>
                     <Download className="h-4 w-4 mr-2" />
                     导出PDF
                   </Button>
@@ -126,7 +163,7 @@ export default function ReportsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <BalanceSheet />
+              <BalanceSheet ref={balanceRef} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -143,15 +180,15 @@ export default function ReportsPage() {
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handleRefresh}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     刷新数据
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handlePrint}>
                     <Printer className="h-4 w-4 mr-2" />
                     打印报表
                   </Button>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => handleExport(incomeRef)}>
                     <Download className="h-4 w-4 mr-2" />
                     导出Excel
                   </Button>
@@ -159,7 +196,7 @@ export default function ReportsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <IncomeStatement />
+              <IncomeStatement ref={incomeRef} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -176,15 +213,15 @@ export default function ReportsPage() {
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handleRefresh}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     刷新数据
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handlePrint}>
                     <Printer className="h-4 w-4 mr-2" />
                     打印报表
                   </Button>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => handleExport(cashFlowRef)}>
                     <Download className="h-4 w-4 mr-2" />
                     导出PDF
                   </Button>
@@ -192,56 +229,41 @@ export default function ReportsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <CashFlowStatement />
+              <CashFlowStatement ref={cashFlowRef} />
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* 自定义报表 */}
         <TabsContent value="custom">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">自定义资产负债表</CardTitle>
-                <CardDescription>
-                  选择特定科目和时间范围生成报表
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" variant="outline">
-                  创建自定义报表
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">自定义损益表</CardTitle>
-                <CardDescription>
-                  选择损益类科目生成定制报表
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" variant="outline">
-                  创建自定义报表
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">比较分析报表</CardTitle>
-                <CardDescription>
-                  对比不同期间的财务数据
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" variant="outline">
-                  创建对比报表
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-blue-500" />
+                自定义报表 — 建设中
+              </CardTitle>
+              <CardDescription>
+                我们正在打磨以下能力，敬请期待：
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-md border border-slate-200 p-3 text-sm">
+                <div className="font-medium text-slate-700">📋 自定义资产负债表</div>
+                <div className="text-slate-500 mt-1">选择特定科目和时间范围生成报表</div>
+              </div>
+              <div className="rounded-md border border-slate-200 p-3 text-sm">
+                <div className="font-medium text-slate-700">📈 自定义损益表</div>
+                <div className="text-slate-500 mt-1">选择损益类科目生成定制报表</div>
+              </div>
+              <div className="rounded-md border border-slate-200 p-3 text-sm">
+                <div className="font-medium text-slate-700">🔄 比较分析报表</div>
+                <div className="text-slate-500 mt-1">对比不同期间的财务数据</div>
+              </div>
+              <p className="text-xs text-slate-400 pt-2">
+                反馈或急用？请在 Issue 中告诉我们。
+              </p>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
