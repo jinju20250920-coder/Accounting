@@ -257,6 +257,8 @@ export const useAuthStore = create<AuthStore>()(
           set({ permissions: perms, currentRoleId: roleId });
         } catch (error) {
           console.error('Failed to load user permissions:', error);
+          set({ permissions: [], currentRoleId: null });
+          throw error;
         }
       },
     }),

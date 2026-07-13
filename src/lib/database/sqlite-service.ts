@@ -2948,11 +2948,37 @@ class SQLiteService {
       } catch { /* ignore */ }
       this.dbInstance.exec(`
         CREATE TABLE IF NOT EXISTS user_roles (
+          tenantId TEXT NOT NULL,
           userId TEXT NOT NULL,
           roleId TEXT NOT NULL,
-          PRIMARY KEY (userId, roleId)
+          PRIMARY KEY (tenantId, userId, roleId)
         )
       `);
+
+      // 旧库的 user_roles 没有 tenantId；按用户所属租户复制角色关系。
+      // 没有租户关系的遗留用户归入默认租户，避免升级后权限静默丢失。
+      try {
+        const urPragma = this.dbInstance.exec('PRAGMA table_info(user_roles)');
+        const urColumns = urPragma[0]?.values?.map((row: any[]) => row[1]) || [];
+        if (!urColumns.includes('tenantId')) {
+          this.dbInstance.exec(`
+            ALTER TABLE user_roles RENAME TO user_roles_legacy;
+            CREATE TABLE user_roles (
+              tenantId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              roleId TEXT NOT NULL,
+              PRIMARY KEY (tenantId, userId, roleId)
+            );
+            INSERT OR IGNORE INTO user_roles (tenantId, userId, roleId)
+            SELECT COALESCE(tu.tenantId, 'default'), ur.userId, ur.roleId
+            FROM user_roles_legacy ur
+            LEFT JOIN tenant_users tu ON tu.userId = ur.userId;
+            DROP TABLE user_roles_legacy;
+          `);
+        }
+      } catch (roleMigrationError) {
+        console.warn('[User migration] user_roles tenant migration failed:', roleMigrationError);
+      }
 
       // 创建 account_set_users 表（旧 schema 用 id+role 列，新 schema 用复合主键）
       try {
@@ -2968,10 +2994,11 @@ class SQLiteService {
       } catch { /* ignore */ }
       this.dbInstance.exec(`
         CREATE TABLE IF NOT EXISTS account_set_users (
+          tenantId TEXT NOT NULL,
           accountSetId TEXT NOT NULL,
           userId TEXT NOT NULL,
           roleId TEXT NOT NULL,
-          PRIMARY KEY (accountSetId, userId)
+          PRIMARY KEY (tenantId, accountSetId, userId)
         )
       `);
 
@@ -3118,9 +3145,9 @@ class SQLiteService {
 
       // 分配管理员角色给默认用户
       const urStmt = this.dbInstance.prepare(
-        `INSERT OR IGNORE INTO user_roles (userId, roleId) VALUES (?, ?)`
+        `INSERT OR IGNORE INTO user_roles (tenantId, userId, roleId) VALUES (?, ?, ?)`
       );
-      urStmt.run(['user_admin', 'role_admin']);
+      urStmt.run(['default', 'user_admin', 'role_admin']);
       urStmt.free();
 
       // 把 admin 用户加入默认租户作为 owner
@@ -4523,16 +4550,15 @@ class SQLiteService {
         );
         stmt.run(['default', 'default', '默认租户', 'saas', 'active', now, now]);
         stmt.free();
-        // 把已有 accountSets 的 tenantId 设为 default
-        db.exec(`UPDATE accountSets SET tenantId = 'default' WHERE tenantId IS NULL OR tenantId = ''`);
-        // 把所有业务表里 tenantId 为空但有 accountSetId 的行回填到 default
-        for (const table of tablesNeedingTenantId) {
-          if (table === 'accountSets') continue;
-          try {
-            db.exec(`UPDATE ${table} SET tenantId = 'default' WHERE (tenantId IS NULL OR tenantId = '') AND accountSetId IS NOT NULL`);
-          } catch {
-            // 表可能不存在或无 accountSetId 列，跳过
-          }
+      }
+      // 无论默认租户是否已存在，都修复旧版本遗留的空 tenantId。
+      db.exec(`UPDATE accountSets SET tenantId = 'default' WHERE tenantId IS NULL OR tenantId = ''`);
+      for (const table of tablesNeedingTenantId) {
+        if (table === 'accountSets') continue;
+        try {
+          db.exec(`UPDATE ${table} SET tenantId = 'default' WHERE (tenantId IS NULL OR tenantId = '') AND accountSetId IS NOT NULL`);
+        } catch {
+          // 表可能不存在或无 accountSetId 列，跳过
         }
       }
     } catch (err) {

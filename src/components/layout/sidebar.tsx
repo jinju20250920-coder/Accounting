@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { DatabaseSwitcher } from '@/components/database/database-switcher';
-import { TenantSwitcher } from '@/components/layout/tenant-switcher';
 import {
   Home,
   FileText,
@@ -53,6 +52,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useToast } from '@/components/ui/toast';
 import { ChangePasswordDialog } from '@/components/shared/change-password-dialog';
+import { sqliteService } from '@/lib/database/sqlite-service';
 
 const menuItems = [
   { icon: Home, label: '智能做账', path: '/', permission: '' },
@@ -389,7 +389,7 @@ export function Sidebar() {
     pricingPlans,
     currentPricingPlanId,
   } = useAccountSetStore();
-  const { currentUser, logout, hasPermission } = useAuthStore();
+  const { currentUser, currentTenantId, logout, hasPermission, loadUserPermissions } = useAuthStore();
   const { settings, updateSettings } = useSettingsStore();
   const collapsed = !!settings.ui.sidebarCollapsed;
 
@@ -444,10 +444,18 @@ export function Sidebar() {
       .map((item) => item.label),
   ), [isActive, visibleMenuItems]);
 
-  const handleSwitchAccount = (accountSetId: string) => {
+  const handleSwitchAccount = async (accountSetId: string) => {
     // 保存当前账套ID到 sessionStorage，用于在 hook 中检测账套切换
     sessionStorage.setItem('lastAccountSetId', currentAccountSetId || '');
     setCurrentAccountSet(accountSetId);
+    sqliteService.setAccountSetId(accountSetId);
+    if (currentUser && currentTenantId) {
+      try {
+        await loadUserPermissions(currentUser.id, currentTenantId, accountSetId);
+      } catch {
+        showToast('error', '账套权限加载失败，请重新登录后重试');
+      }
+    }
     setShowAccountSwitcher(false);
     showToast('success', '已切换到 ' + (accountSets.find(s => s.id === accountSetId)?.name || '账套'));
   };
@@ -509,13 +517,8 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* 租户选择 */}
-      <div className={cn('border-b border-slate-700/50', collapsed ? 'p-2' : 'px-4 pt-3 pb-2')}>
-        <TenantSwitcher collapsed={collapsed} />
-      </div>
-
       {/* 账套选择 */}
-      <div className={cn('border-b border-slate-700', collapsed ? 'p-2' : 'p-4')}>
+      <div className={cn('border-b border-slate-700', collapsed ? 'p-2' : 'py-2 pr-5')}>
         {/* 账套下拉选择 */}
         <div className="relative">
           {collapsed ? (
@@ -530,7 +533,7 @@ export function Sidebar() {
           ) : (
             <Button
               variant="ghost"
-              className="w-full justify-between text-slate-300 hover:text-white hover:bg-slate-800"
+              className="h-11 w-full justify-between rounded-none px-4 text-slate-300 hover:bg-slate-800 hover:text-white"
               onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1" suppressHydrationWarning>
@@ -571,17 +574,6 @@ export function Sidebar() {
                     </button>
                   ))}
                 </div>
-                <div className="border-t border-slate-700 p-2">
-                  <Link href="/sets" onClick={() => setShowAccountSwitcher(false)}>
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-center text-sm text-slate-400 hover:text-white"
-                    >
-                      <Settings className="h-4 w-4 mr-2" />
-                      管理账套
-                    </Button>
-                  </Link>
-                </div>
               </div>
             </>
           )}
@@ -589,7 +581,7 @@ export function Sidebar() {
 
         {/* 授权状态 */}
         {!collapsed && (
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-1 flex items-center justify-between px-4">
             <div className="flex items-center gap-2">
               {hasMounted ? getLicenseStatusBadge() : <Badge variant="outline">加载中...</Badge>}
               {hasMounted && currentPlan && (
@@ -728,7 +720,7 @@ export function Sidebar() {
       {/* 数据库切换和底部信息 */}
       <div className={cn(
         'border-t border-slate-700 text-xs text-slate-400',
-        collapsed ? 'p-2' : 'p-4'
+        collapsed ? 'p-2' : 'py-2.5 pl-4 pr-5'
       )}>
         {collapsed ? (
           <div className="flex flex-col items-center gap-1">
@@ -770,24 +762,23 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            <div className="mb-3">
+            <div className="border-b border-slate-800 pb-1">
               <DatabaseSwitcher />
             </div>
-            <div className="flex items-center justify-between mb-2">
-              <span>期间: {hasMounted ? (currentAccountSet?.currentPeriod || '2026-03') : '2026-03'}</span>
-              <span>记-001</span>
-            </div>
-            <div>操作员: {hasMounted ? (currentUser?.displayName || '未登录') : '加载中...'}</div>
             {currentUser && (
-              <div className="mt-2 relative">
+              <div className="relative mt-1">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800 h-7 px-1"
+                  className="h-8 w-full justify-start rounded-none px-0 text-slate-300 hover:bg-slate-800 hover:text-white"
                   onClick={() => setShowUserMenu(!showUserMenu)}
+                  aria-expanded={showUserMenu}
+                  aria-label="打开用户菜单"
                 >
-                  <User className="h-3.5 w-3.5 mr-2" />
-                  {currentUser.displayName}
+                  <span className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-800">
+                    <User className="h-3 w-3" />
+                  </span>
+                  <span className="truncate text-xs font-medium">{currentUser.displayName}</span>
                   <ChevronDown className="h-3 w-3 ml-auto" />
                 </Button>
                 {showUserMenu && (
@@ -814,11 +805,10 @@ export function Sidebar() {
               </div>
             )}
             {hasMounted && currentLicense && (
-              <div className="mt-2 pt-2 border-t border-slate-700">
-                <div className="flex items-center justify-between">
-                  <span>有效期至:</span>
-                  <span>{currentLicense.validTo}</span>
-                </div>
+              <div className="flex items-center gap-1.5 px-1.5 pt-0.5 text-[10px] text-slate-500">
+                <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                <span>授权至</span>
+                <span className="tabular-nums text-slate-400">{currentLicense.validTo}</span>
               </div>
             )}
           </>

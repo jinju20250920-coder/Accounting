@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { sqliteService } from '@/lib/database';
+import { useAccountSetStore } from '@/stores/useAccountSetStore';
 
 const PUBLIC_PATHS = ['/login', '/select-tenant'];
 
@@ -12,6 +13,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const currentTenantId = useAuthStore((s) => s.currentTenantId);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const loadUserPermissions = useAuthStore((s) => s.loadUserPermissions);
+  const currentAccountSetId = useAccountSetStore((s) => s.currentAccountSetId);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -22,10 +26,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   // 启动时同步 sqliteService 的 tenantId
   useEffect(() => {
-    if (isReady && currentTenantId) {
+    if (isReady && currentTenantId && currentUser) {
       sqliteService.setTenantId(currentTenantId);
+      if (currentAccountSetId) sqliteService.setAccountSetId(currentAccountSetId);
+      void loadUserPermissions(currentUser.id, currentTenantId, currentAccountSetId || undefined)
+        .catch((error) => console.error('Failed to restore user permissions:', error));
     }
-  }, [isReady, currentTenantId]);
+  }, [isReady, currentTenantId, currentUser, currentAccountSetId, loadUserPermissions]);
 
   useEffect(() => {
     if (!isReady) return;

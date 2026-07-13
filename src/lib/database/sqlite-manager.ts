@@ -1191,16 +1191,18 @@ class SQLiteManager {
       );
 
       CREATE TABLE IF NOT EXISTS user_roles (
+        tenantId TEXT NOT NULL,
         userId TEXT NOT NULL,
         roleId TEXT NOT NULL,
-        PRIMARY KEY (userId, roleId)
+        PRIMARY KEY (tenantId, userId, roleId)
       );
 
       CREATE TABLE IF NOT EXISTS account_set_users (
+        tenantId TEXT NOT NULL,
         accountSetId TEXT NOT NULL,
         userId TEXT NOT NULL,
         roleId TEXT NOT NULL,
-        PRIMARY KEY (accountSetId, userId)
+        PRIMARY KEY (tenantId, accountSetId, userId)
       );
 
       CREATE TABLE IF NOT EXISTS tenants (

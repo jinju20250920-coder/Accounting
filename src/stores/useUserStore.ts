@@ -117,8 +117,8 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       stmt.free();
 
       // 新用户默认分配出纳角色
-      const urStmt = db.prepare(`INSERT OR IGNORE INTO user_roles (userId, roleId) VALUES (?, ?)`);
-      urStmt.run([id, 'role_cashier']);
+      const urStmt = db.prepare(`INSERT OR IGNORE INTO user_roles (tenantId, userId, roleId) VALUES (?, ?, ?)`);
+      urStmt.run([sqliteService.tenantId, id, 'role_cashier']);
       urStmt.free();
 
       await get().loadUsers();
@@ -242,13 +242,13 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       stmt.run([now, userId]);
       stmt.free();
 
-      const delStmt = db.prepare(`DELETE FROM user_roles WHERE userId = ?`);
-      delStmt.run([userId]);
+      const delStmt = db.prepare(`DELETE FROM user_roles WHERE tenantId = ? AND userId = ?`);
+      delStmt.run([sqliteService.tenantId, userId]);
       delStmt.free();
 
       for (const roleId of roleIds) {
-        const urStmt = db.prepare(`INSERT OR IGNORE INTO user_roles (userId, roleId) VALUES (?, ?)`);
-        urStmt.run([userId, roleId]);
+        const urStmt = db.prepare(`INSERT OR IGNORE INTO user_roles (tenantId, userId, roleId) VALUES (?, ?, ?)`);
+        urStmt.run([sqliteService.tenantId, userId, roleId]);
         urStmt.free();
       }
 
@@ -363,8 +363,8 @@ export const useUserStore = create<UserStore>()((set, get) => ({
       rpStmt.run([id]);
       rpStmt.free();
 
-      const asuStmt = db.prepare(`DELETE FROM account_set_users WHERE roleId = ?`);
-      asuStmt.run([id]);
+      const asuStmt = db.prepare(`DELETE FROM account_set_users WHERE tenantId = ? AND roleId = ?`);
+      asuStmt.run([sqliteService.tenantId, id]);
       asuStmt.free();
 
       const stmt = db.prepare(`DELETE FROM roles WHERE id = ?`);
@@ -437,20 +437,23 @@ export const useUserStore = create<UserStore>()((set, get) => ({
   loadAccountSetUsers: async (accountSetId) => {
     try {
       const db = await sqliteService.getDatabase();
-      const result = db.exec(`
+      const stmt = db.prepare(`
         SELECT asu.accountSetId, asu.userId, asu.roleId, u.username, u.displayName, r.displayName as roleName
         FROM account_set_users asu
         LEFT JOIN users u ON asu.userId = u.id
         LEFT JOIN roles r ON asu.roleId = r.id
-        WHERE asu.accountSetId = '${accountSetId}'
+        WHERE asu.tenantId = ? AND asu.accountSetId = ?
       `);
-
-      if (!result[0]?.values) { set({ accountSetUsers: [] }); return; }
-
-      const accountSetUsers: AccountSetUserRecord[] = result[0].values.map((row: SqlValue[]) => ({
-        accountSetId: row[0], userId: row[1], roleId: row[2],
-        username: row[3], displayName: row[4], roleName: row[5],
-      }));
+      stmt.bind([sqliteService.tenantId, accountSetId]);
+      const accountSetUsers: AccountSetUserRecord[] = [];
+      while (stmt.step()) {
+        const row = stmt.get() as SqlValue[];
+        accountSetUsers.push({
+          accountSetId: String(row[0] ?? ''), userId: String(row[1] ?? ''), roleId: String(row[2] ?? ''),
+          username: String(row[3] ?? ''), displayName: String(row[4] ?? ''), roleName: String(row[5] ?? ''),
+        });
+      }
+      stmt.free();
       set({ accountSetUsers });
     } catch (error) {
       console.error('Failed to load account set users:', error);
@@ -461,9 +464,9 @@ export const useUserStore = create<UserStore>()((set, get) => ({
     try {
       const db = await sqliteService.getDatabase();
       const stmt = db.prepare(
-        `INSERT OR REPLACE INTO account_set_users (accountSetId, userId, roleId) VALUES (?, ?, ?)`
+        `INSERT OR REPLACE INTO account_set_users (tenantId, accountSetId, userId, roleId) VALUES (?, ?, ?, ?)`
       );
-      stmt.run([accountSetId, userId, roleId]);
+      stmt.run([sqliteService.tenantId, accountSetId, userId, roleId]);
       stmt.free();
 
       await get().loadAccountSetUsers(accountSetId);
@@ -475,8 +478,8 @@ export const useUserStore = create<UserStore>()((set, get) => ({
   removeUserFromAccountSet: async (accountSetId, userId) => {
     try {
       const db = await sqliteService.getDatabase();
-      const stmt = db.prepare(`DELETE FROM account_set_users WHERE accountSetId = ? AND userId = ?`);
-      stmt.run([accountSetId, userId]);
+      const stmt = db.prepare(`DELETE FROM account_set_users WHERE tenantId = ? AND accountSetId = ? AND userId = ?`);
+      stmt.run([sqliteService.tenantId, accountSetId, userId]);
       stmt.free();
 
       await get().loadAccountSetUsers(accountSetId);
