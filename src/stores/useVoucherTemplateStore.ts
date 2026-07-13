@@ -24,9 +24,6 @@ interface VoucherTemplateStore {
   getTemplate: (id: string) => VoucherFullTemplate | undefined;
   getAllTemplates: () => VoucherFullTemplate[];
 
-  // 从凭证保存为模版
-  saveAsTemplate: (name: string, description?: string, voucherType?: string) => void;
-
   // 导出导入
   exportTemplates: () => string;
   importTemplates: (data: string) => Promise<boolean>;
@@ -190,12 +187,6 @@ export const useVoucherTemplateStore = create<VoucherTemplateStore>((set, get) =
   getAllTemplates: () => {
     const state = get();
     return [...state.templates];
-  },
-
-  // 从凭证保存为模版
-  saveAsTemplate: (name: string, description?: string, voucherType?: string) => {
-    // 这个方法会在凭证录入页面调用，需要访问当前凭证数据
-    // 这里只是一个占位，实际实现需要与 useVoucherStore 集成
   },
 
   // 导出所有模版
