@@ -6,10 +6,11 @@
   "main": "electron/main.js",
   "homepage": "./",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "set NODE_OPTIONS=--max-old-space-size=4096 && next build",
     "start": "next start",
     "lint": "eslint",
+    "lint:sql": "eslint --rule 'tenant-sql/no-sql-without-tenant-id: error'",
     "dev:electron": "concurrently -k \"BROWSER=none npm run dev\" \"npm run electron:start\"",
     "electron:start": "wait-on tcp:3000 && electron .",
     "electron:start:prod": "electron .",

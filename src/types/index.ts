@@ -85,6 +85,7 @@ export interface VoucherEntry {
   cashFlowItem?: string; // 现金流量项目
   customerName?: string; // 客户名称
   supplierName?: string; // 供应商名称
+  partnerId?: string; // 往来单位卡片 ID（与 customerName/supplierName 并存，便于未来 ID-based lookup）
   auxiliary?: {
     department?: string;
     project?: string;

@@ -13,6 +13,8 @@ export default function RootLayout({
 }) {
   const pathname = usePathname();
   const isLoginPage = pathname.startsWith('/login');
+  const isSelectTenantPage = pathname.startsWith('/select-tenant');
+  const isStandalonePage = isLoginPage || isSelectTenantPage;
 
   return (
     <html lang="zh-CN">
@@ -23,7 +25,7 @@ export default function RootLayout({
       <body className="antialiased">
         <ToastProvider>
           <AuthGuard>
-            {isLoginPage ? (
+            {isStandalonePage ? (
               children
             ) : (
               <AppLayout>{children}</AppLayout>

@@ -67,6 +67,7 @@ export interface DateHandler {
 /** Bank account binding record */
 export interface BankAccountBinding {
   id: string;
+  tenantId?: string;
   accountSetId: string;
   accountNumber: string;
   bankId: string;
@@ -82,6 +83,7 @@ export interface BankAccountBinding {
 
 /** Input payload used when creating or updating a bank account binding */
 export interface BankAccountBindingInput {
+  tenantId?: string;
   accountSetId: string;
   accountNumber: string;
   bankId: string;

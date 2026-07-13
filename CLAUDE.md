@@ -40,13 +40,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **数据库切换**：`lib/database/index.ts` 通过 `getCurrentService()` 返回 `sqliteService`
 - **账套隔离**：统一使用"共享全局数据库 + accountSetId 过滤"模式，所有账套数据存储在同一个 SQLite 文件中，通过 `WHERE accountSetId = ?` 隔离
 
-### 5. 账套隔离架构（统一模式）
-- **单一数据库**：所有账套共享一个全局 SQLite 文件，不再为每个账套创建独立文件
-- **accountSetId 过滤**：所有业务表均有 `accountSetId` 列，查询时统一使用 `WHERE accountSetId = ?` 过滤
-- **账套切换**：`sqliteService.setAccountSetId()` 设置当前账套 ID，不涉及数据库文件切换
-- **账套管理**：`account-set-db-manager.ts` 负责账套 CRUD（创建/删除/重命名/导出/导入），均在全局数据库内操作
-- **删除安全**：`deleteAccountSet()` 使用事务（BEGIN/COMMIT/ROLLBACK）确保原子性
-- **多租户扩展路径**：未来加 `tenantId` 只需 `WHERE tenantId = ? AND accountSetId = ?`，层级：Tenant → AccountSet → 业务数据
+### 5. 账套隔离架构（统一模式 + 多租户）
+- **单一数据库**：所有租户/账套共享一个全局 SQLite 文件
+- **隔离层级**：`tenantId` (租户) → `accountSetId` (账套) → 业务数据。两层过滤必须同时存在
+- **Tenant 维度**：所有业务表均有 `tenantId` 列，登录后从 `useAuthStore.currentTenantId` 透传到 `sqliteService.tenantId`。N:M 用户-租户关系（`tenant_users` 表，参考 GitHub orgs）
+- **AccountSet 维度**：所有业务表均有 `accountSetId` 列，租户内可有多个账套
+- **切换 API**：`sqliteService.setTenantId()` / `sqliteService.setAccountSetId()`；切换租户会触发 `useDatabaseSync.reloadAllStores()`
+- **认证流程**：登录后查 `tenant_users` → 0 租户提示无权限，1 租户自动进入，N 租户跳 `/select-tenant` 让用户选
+- **账套管理**：`account-set-db-manager.ts` 负责账套 CRUD（事务删除 30+ 业务表 + accountSets 主表），全部 `WHERE tenantId = ? AND accountSetId = ?` 双层过滤
+- **删除安全**：`deleteAccountSet()` 使用事务（BEGIN/COMMIT/ROLLBACK）确保原子性；新增业务表必须加入删除清单
+- **SQL 编写强制规则**：所有业务表 CRUD 必须显式带 `tenantId = ? AND accountSetId = ?`（INSERT 注入列值，SELECT/UPDATE/DELETE 加 WHERE 条件），漏写会导致跨租户/账套串数据。`voucher-sqlite-service.ts` 是参考模板
+- **白名单表**：`sqlite_master` / `tenants` / `tenant_users` / `users` / `roles` / `permissions` / `role_permissions` 不需要 tenantId（系统表或全局表）
+- **DB 级约束缺失（已知技术债）**：除 `assetCategories` 有 `(tenantId, accountSetId, code)` 唯一索引外，业务表均无 tenantId+accountSetId 复合 UNIQUE/CHECK 约束，隔离**完全依赖应用层 SQL 正确性**。Code review 必检项：新 SQL 是否带 `tenantId + accountSetId`
+- **新增业务表必做**：① 表定义加 `tenantId TEXT` + `accountSetId TEXT` 列；② 加进 `migrateAddTenantColumns()` 的 tablesNeedingTenantId 列表；③ 加进 `deleteAccountSet()` 的 tables 列表；④ 所有 SQL 走 `buildTenantWhere()` helper（`src/lib/database/tenant-context.ts`）
 
 ### 6. 用户与权限管理
 - **本地认证**：用户账号密码存储在 SQLite `users` 表，密码使用 SHA-256 + salt 哈希
@@ -561,6 +567,7 @@ npm run lint
 - 银行账户管理：引导式新增、编辑模式、Excel 批量导入、第15+银行走格式配置向导
 - 资金管理控制台：4区布局（账户选择器+概览卡片+操作中心+日记账明细表），起止期间范围选择
 - 银行子科目自动匹配：`bank-match.ts`（导入时匹配/创建 1002 子科目，写入 `isMonetary=true`）
+- 银行流水凭证生成采用 `transaction-import.tsx` 内联逻辑（支持 FX/多币别/伙伴维度），不走 template-engine — 引擎当前能力覆盖不到这些维度
 - 流水去重 key：`date+voucherNo+transactionSerialNo`
 - 业务单据号：账户明细编号-交易流水号
 - 手动记一笔：`ManualEntryDialog`（source='manual'）
@@ -605,27 +612,23 @@ npm run lint
 - 核销汇兑损益自动生成：`processBatchClearing` 检测同币别外币对，差额计入 660303（回退 6603）
 
 ### 会计引擎
-- 模板引擎：4 系统模板（销售/采购/银行收款/银行付款），公式解释器支持 `{total_amount}` 等变量与运算
+- 模板引擎：2 系统模板（销售发票/采购发票），公式解释器支持 `{total_amount}` 等变量与运算
 - AI 双层匹配：L1 `keyword-rules.json` + L2 `useUserPreferenceStore`（双向匹配 + 时间权重）
 - 关键词多词拆分匹配（"维修费用"拆为"维修"+"费用"）
 - 多币别：往来/银行支持外币期初（原币×汇率），账龄明细展示原币列
+- 现金流量表：基于 counterpart 科目分类（`cash-flow-mapping.ts`），对每笔现金类分录按同凭证对手科目前缀映射到 CAS 行项目（经营/投资/筹资三段）
 
 ### 数据库
 - SQLite 类型化委托：14 个 `services/` 模块（`any` 从 169 降到 53）
 - 写操作 `SqliteDatabaseLike`（prepare/run/free），读操作 `SimpleQueryService`（queryAllAsync/querySingleAsync）
 - 自动迁移：vouchers/users/subjects/departments/projects/partners 等表 schema 适配
 - `migrateBackfill*` 系列：迁移用 SQL 级幂等，不依赖 localStorage 短路
+- entries.partnerId「影子列」：与 customerName/supplierName 并存；写入时填充，读路径仍按 name（兼容 merge feature）；未来切换 ID-based lookup 时可逐个迁移
 
 ### 待完善功能
-1. **往来单位合并** - `settings/auxiliary/page.tsx` 显示"合并功能开发中..."
-2. **项目删除** - `settings/projects/page.tsx` 未实现删除
-3. **自定义报表** - `reports/page.tsx` 3个按钮无 onClick
-4. **现金流量表** - 计算逻辑简化，需更复杂分析
-5. **模板引擎与银行流水集成** - `template-engine.ts` 的银行模板（bank_deposit/bank_payment）未与银行导入流程集成
-6. **往来卡片辅助核算** - 生成凭证时往来科目分录已写 auxiliary 名称，但客户/供应商卡片 ID 关联待完善
-7. **DataAdapter 适配层** - 未来 Electron/服务器双部署需抽象 DataAdapter（LocalAdapter=better-sqlite3, RemoteAdapter=PostgreSQL API）
-8. **后端认证** - 当前为本地账号密码，后续对接后端 API 实现手机/邮箱登录
-9. **行级权限** - 当前仅菜单/按钮级权限，未来可扩展到数据行级隔离
+1. **DataAdapter 适配层** - 未来 Electron/服务器双部署需抽象 DataAdapter（LocalAdapter=better-sqlite3, RemoteAdapter=PostgreSQL API）
+2. **后端认证** - 当前为本地账号密码，后续对接后端 API 实现手机/邮箱登录
+3. **行级权限** - 当前仅菜单/按钮级权限，未来可扩展到数据行级隔离
 
 ---
 
