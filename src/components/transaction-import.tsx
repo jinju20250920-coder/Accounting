@@ -828,6 +828,10 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
           }
 
           // 交易分录（对方科目）
+          const partnerNameForId = previewEntry.counterpartyName;
+          const resolvedPartnerId = partnerNameForId
+            ? usePartnerStore.getState().findByName(partnerNameForId)?.id
+            : undefined;
           entries.push({
             id: `entry_${voucherId}_0`,
             voucherId,
@@ -839,6 +843,7 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
             credit: isDebit ? 0 : amount,
             customerName,
             supplierName,
+            partnerId: partnerTrackingMethod === 'card' ? resolvedPartnerId : undefined,
             auxiliary: {},
             docNo: `${tx.voucherNo || ''}-${tx.transactionSerialNo || ''}`,
             ...fxFields,

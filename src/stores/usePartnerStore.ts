@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
+import type { MergeResult, PartnerMergePreview } from '@/lib/database/services/partner-sqlite-service';
 import type { Partner } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 import { dedupePartnersForAccountSet } from '../lib/partner-dedupe';
@@ -126,6 +127,10 @@ interface PartnerStore {
   deletePartner: (id: string) => Promise<void>;
   toggleFrozen: (id: string) => Promise<void>;
   setSelectedPartnerId: (id: string | null) => void;
+
+  // 合并操作
+  previewPartnerMerge: (name: string) => Promise<PartnerMergePreview>;
+  mergePartners: (sourceId: string, targetId: string) => Promise<MergeResult>;
 
   // 查询操作
   findByName: (name: string) => Partner | undefined;
@@ -273,6 +278,38 @@ export const usePartnerStore = create<PartnerStore>((set, get) => ({
   // 设置选中的往来单位
   setSelectedPartnerId: (id) => {
     set({ selectedPartnerId: id });
+  },
+
+  // 预览合并影响（不写入）
+  previewPartnerMerge: async (name) => {
+    return await getCurrentService().previewPartnerMerge(name);
+  },
+
+  // 合并往来单位：把源卡的所有引用转移到目标卡，再删除源卡
+  mergePartners: async (sourceId, targetId) => {
+    if (sourceId === targetId) {
+      throw new Error('源和目标不能相同');
+    }
+    const state = get();
+    const source = state.partners.find(p => p.id === sourceId);
+    const target = state.partners.find(p => p.id === targetId);
+    if (!source || !target) {
+      throw new Error('源或目标往来单位不存在');
+    }
+
+    const result = await getCurrentService().mergePartnerRecords({
+      fromName: source.name,
+      toName: target.name,
+    });
+
+    const remainingPartners = state.partners.filter(p => p.id !== sourceId);
+    await getCurrentService().savePartners(remainingPartners);
+    set({
+      partners: remainingPartners,
+      selectedPartnerId: state.selectedPartnerId === sourceId ? null : state.selectedPartnerId,
+    });
+
+    return result;
   },
 
   // 查询方法

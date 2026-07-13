@@ -28,10 +28,12 @@ import {
   Folder
 } from 'lucide-react';
 import { useFinancialProjectStore } from '@/stores';
+import { useVoucherStore } from '@/stores/useVoucherStore';
 import { Project } from '@/types';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { generateCode, CodeRuleManager, useCodeRules } from '@/lib/code-generator';
+import { AlertTriangle } from 'lucide-react';
 
 export default function ProjectsPage() {
   const { showToast } = useToast();
@@ -56,6 +58,9 @@ export default function ProjectsPage() {
 
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<{ vouchers: number } | null>(null);
+  const [deleteInProgress, setDeleteInProgress] = useState(false);
 
   const [formData, setFormData] = useState({
     code: '',
@@ -242,13 +247,32 @@ export default function ProjectsPage() {
       showToast('warning', '该项目已冻结，无法删除');
       return;
     }
-    showToast('info', '删除功能开发中...');
-    // TODO: 实现删除确认对话框
-    // if (confirm(`确定要删除项目 ${project.code} - ${project.name} 吗？`)) {
-    //   deleteProject(id);
-    //   showToast('success', '项目删除成功');
-    //   if (selectedProjectId === id) setSelectedProjectId(null);
-    // }
+    const referenced = useVoucherStore.getState().vouchers.filter(
+      v => v.entries.some(e => e.projectCode === project.code)
+    );
+    setDeleteUsage({ vouchers: referenced.length });
+    setDeleteTarget(project);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteInProgress(true);
+    try {
+      await deleteProject(deleteTarget.id);
+      showToast('success', `项目 ${deleteTarget.code} 已删除`);
+      if (selectedProjectId === deleteTarget.id) setSelectedProjectId(null);
+      setDeleteTarget(null);
+      setDeleteUsage(null);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : '删除项目失败');
+    } finally {
+      setDeleteInProgress(false);
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeleteTarget(null);
+    setDeleteUsage(null);
   };
 
   const handleImport = () => {
@@ -768,6 +792,46 @@ export default function ProjectsPage() {
               保存
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleteInProgress) cancelDelete(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              确认删除项目
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 space-y-3">
+            <p className="text-sm text-slate-600">
+              即将删除项目：
+              <span className="font-medium text-slate-900 ml-1">
+                {deleteTarget?.code} - {deleteTarget?.name}
+              </span>
+            </p>
+            {deleteUsage && deleteUsage.vouchers > 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="font-medium">该项目已被 <strong>{deleteUsage.vouchers}</strong> 张凭证引用。</div>
+                    <div className="mt-1 text-amber-700">删除后历史凭证中的 <code className="bg-amber-100 px-1 rounded">projectCode</code> 字段不会自动清除，建议先「冻结」项目而非删除。</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-slate-500">此操作不可撤销。</p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={cancelDelete} disabled={deleteInProgress}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleteInProgress}>
+              {deleteInProgress ? '删除中...' : '确认删除'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

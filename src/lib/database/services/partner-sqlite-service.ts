@@ -44,6 +44,7 @@ export interface PartnerRow {
   enabled: number | boolean | null;
   createTime: string;
   updateTime: string;
+  tenantId: string;
   accountSetId: string;
 }
 
@@ -91,6 +92,7 @@ export interface PartnerInsertInput {
   payrollProjectName?: string;
   payrollCostCenterName?: string;
   remark?: string;
+  tenantId?: string;
   accountSetId?: string;
   createTime?: string;
   updateTime?: string;
@@ -122,8 +124,8 @@ const PARTNER_INSERT_SQL = `
     payrollEmployeeContributionPayableSubjectCode, payrollEmployeeContributionPayableSubjectName,
     payrollEmployerContributionPayableSubjectCode, payrollEmployerContributionPayableSubjectName,
     payrollDepartmentName, payrollProjectName, payrollCostCenterName,
-    accountSetId, createTime, updateTime
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    tenantId, accountSetId, createTime, updateTime
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 function optionalText(value: string | null | undefined): string | undefined {
@@ -208,7 +210,13 @@ export function mapPartnerRow(row: PartnerRow): Partner {
   };
 }
 
-export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSetId: string, now: string): PartnerInsert {
+export function buildPartnerInsert(
+  partner: PartnerInsertInput,
+  defaultTenantId: string,
+  defaultAccountSetId: string,
+  now: string,
+): PartnerInsert {
+  const tenantId = partner.tenantId || defaultTenantId;
   const accountSetId = partner.accountSetId || defaultAccountSetId;
   return {
     sql: PARTNER_INSERT_SQL,
@@ -253,6 +261,7 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
       text(partner.payrollDepartmentName),
       text(partner.payrollProjectName),
       text(partner.payrollCostCenterName),
+      tenantId,
       accountSetId,
       partner.createTime || now,
       partner.updateTime || now,
@@ -260,46 +269,214 @@ export function buildPartnerInsert(partner: PartnerInsertInput, defaultAccountSe
   };
 }
 
-export async function listPartners(service: PartnerQueryService, accountSetId: string): Promise<Partner[]> {
+export async function listPartners(
+  service: PartnerQueryService,
+  tenantId: string,
+  accountSetId: string,
+): Promise<Partner[]> {
   const rows = await service.queryAllAsync<PartnerRow>(
-    `SELECT * FROM partners WHERE accountSetId = ? ORDER BY code`,
-    [accountSetId],
+    `SELECT * FROM partners WHERE tenantId = ? AND accountSetId = ? ORDER BY code`,
+    [tenantId, accountSetId],
   );
   return rows.map(mapPartnerRow);
 }
 
 export async function findPartnerByCode(
   service: PartnerQueryService,
+  tenantId: string,
   accountSetId: string,
   code: string,
 ): Promise<Partner | undefined> {
   const row = await service.querySingleAsync<PartnerRow>(
-    `SELECT * FROM partners WHERE accountSetId = ? AND code = ?`,
-    [accountSetId, code],
+    `SELECT * FROM partners WHERE tenantId = ? AND accountSetId = ? AND code = ?`,
+    [tenantId, accountSetId, code],
   );
   return row ? mapPartnerRow(row) : undefined;
 }
 
 export async function findPartnerByName(
   service: PartnerQueryService,
+  tenantId: string,
   accountSetId: string,
   name: string,
 ): Promise<Partner | undefined> {
   const row = await service.querySingleAsync<PartnerRow>(
-    `SELECT * FROM partners WHERE accountSetId = ? AND name = ?`,
-    [accountSetId, name],
+    `SELECT * FROM partners WHERE tenantId = ? AND accountSetId = ? AND name = ?`,
+    [tenantId, accountSetId, name],
   );
   return row ? mapPartnerRow(row) : undefined;
+}
+
+export interface MergeResult {
+  vouchersUpdated: number;
+  invoicesUpdated: number;
+  mappingsUpdated: number;
+}
+
+export interface PartnerMergePreview {
+  vouchers: number;
+  invoices: number;
+  mappings: number;
+}
+
+export async function previewPartnerMerge(
+  service: PartnerQueryService,
+  tenantId: string,
+  accountSetId: string,
+  name: string,
+): Promise<PartnerMergePreview> {
+  const voucherRow = await service.querySingleAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM entries
+     WHERE tenantId = ? AND accountSetId = ? AND (
+       customerName = ? OR supplierName = ? OR auxiliary LIKE ?
+     )`,
+    [tenantId, accountSetId, name, name, `%${name}%`],
+  );
+  const invoiceRow = await service.querySingleAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM invoices
+     WHERE tenantId = ? AND accountSetId = ? AND (sellerName = ? OR buyerName = ?)`,
+    [tenantId, accountSetId, name, name],
+  );
+  const mappingRow = await service.querySingleAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM supplier_subject_mapping
+     WHERE tenantId = ? AND accountSetId = ? AND sellerName = ?`,
+    [tenantId, accountSetId, name],
+  );
+  return {
+    vouchers: voucherRow?.cnt ?? 0,
+    invoices: invoiceRow?.cnt ?? 0,
+    mappings: mappingRow?.cnt ?? 0,
+  };
+}
+
+function replaceNameInAuxiliaryJson(jsonStr: string, fromName: string, toName: string): string {
+  try {
+    const parsed: unknown = JSON.parse(jsonStr);
+    const walk = (value: unknown): unknown => {
+      if (typeof value === 'string') return value === fromName ? toName : value;
+      if (Array.isArray(value)) return value.map(walk);
+      if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value as Record<string, unknown>)) {
+          out[key] = walk((value as Record<string, unknown>)[key]);
+        }
+        return out;
+      }
+      return value;
+    };
+    return JSON.stringify(walk(parsed));
+  } catch {
+    return jsonStr.split(fromName).join(toName);
+  }
+}
+
+export async function mergePartnerRecords(input: {
+  db: SqliteDatabaseLike & { getRowsModified(): number };
+  queryService: PartnerQueryService;
+  tenantId: string;
+  accountSetId: string;
+  fromName: string;
+  toName: string;
+  persist: () => Promise<void>;
+}): Promise<MergeResult> {
+  const { db, queryService, tenantId, accountSetId, fromName, toName } = input;
+  if (fromName === toName) {
+    return { vouchersUpdated: 0, invoicesUpdated: 0, mappingsUpdated: 0 };
+  }
+
+  const targetPartner = await queryService.querySingleAsync<{ id: string }>(
+    `SELECT id FROM partners WHERE tenantId = ? AND accountSetId = ? AND name = ? LIMIT 1`,
+    [tenantId, accountSetId, toName],
+  );
+  const targetPartnerId = targetPartner?.id ?? null;
+
+  let runStmt = db.prepare(
+    `UPDATE entries SET customerName = ?, partnerId = ? WHERE tenantId = ? AND accountSetId = ? AND customerName = ?`,
+  );
+  let entriesTouched = 0;
+  try {
+    runStmt.run([toName, targetPartnerId ?? '', tenantId, accountSetId, fromName]);
+  } finally {
+    runStmt.free();
+  }
+  entriesTouched += db.getRowsModified();
+
+  runStmt = db.prepare(
+    `UPDATE entries SET supplierName = ?, partnerId = ? WHERE tenantId = ? AND accountSetId = ? AND supplierName = ?`,
+  );
+  try {
+    runStmt.run([toName, targetPartnerId ?? '', tenantId, accountSetId, fromName]);
+  } finally {
+    runStmt.free();
+  }
+  entriesTouched += db.getRowsModified();
+
+  const auxRows = await queryService.queryAllAsync<{ id: string; auxiliary: string | null }>(
+    `SELECT id, auxiliary FROM entries WHERE tenantId = ? AND accountSetId = ? AND auxiliary LIKE ?`,
+    [tenantId, accountSetId, `%${fromName}%`],
+  );
+  for (const row of auxRows) {
+    if (!row.auxiliary) continue;
+    const replaced = replaceNameInAuxiliaryJson(row.auxiliary, fromName, toName);
+    if (replaced === row.auxiliary) continue;
+    const upd = db.prepare(`UPDATE entries SET auxiliary = ? WHERE id = ?`);
+    try {
+      upd.run([replaced, row.id]);
+    } finally {
+      upd.free();
+    }
+    entriesTouched += 1;
+  }
+
+  let invoicesUpdated = 0;
+  runStmt = db.prepare(
+    `UPDATE invoices SET sellerName = ? WHERE tenantId = ? AND accountSetId = ? AND sellerName = ?`,
+  );
+  try {
+    runStmt.run([toName, tenantId, accountSetId, fromName]);
+  } finally {
+    runStmt.free();
+  }
+  invoicesUpdated += db.getRowsModified();
+
+  runStmt = db.prepare(
+    `UPDATE invoices SET buyerName = ? WHERE tenantId = ? AND accountSetId = ? AND buyerName = ?`,
+  );
+  try {
+    runStmt.run([toName, tenantId, accountSetId, fromName]);
+  } finally {
+    runStmt.free();
+  }
+  invoicesUpdated += db.getRowsModified();
+
+  runStmt = db.prepare(
+    `UPDATE supplier_subject_mapping SET sellerName = ? WHERE tenantId = ? AND accountSetId = ? AND sellerName = ?`,
+  );
+  try {
+    runStmt.run([toName, tenantId, accountSetId, fromName]);
+  } finally {
+    runStmt.free();
+  }
+  const mappingsUpdated = db.getRowsModified();
+
+  await input.persist();
+
+  return {
+    vouchersUpdated: entriesTouched,
+    invoicesUpdated,
+    mappingsUpdated,
+  };
 }
 
 export async function insertPartnerRecord(input: {
   db: SqliteDatabaseLike;
   partner: PartnerInsertInput;
+  tenantId: string;
   accountSetId: string;
   now: string;
   persist: () => Promise<void>;
 }): Promise<void> {
-  const insert = buildPartnerInsert(input.partner, input.accountSetId, input.now);
+  const insert = buildPartnerInsert(input.partner, input.tenantId, input.accountSetId, input.now);
   const stmt = input.db.prepare(insert.sql);
   try {
     stmt.run(insert.params);
@@ -312,13 +489,16 @@ export async function insertPartnerRecord(input: {
 export async function savePartnersRecord(input: {
   db: SqliteDatabaseLike;
   partners: Partner[];
+  tenantId: string;
   accountSetId: string;
   persist: () => Promise<void>;
 }): Promise<void> {
   const now = new Date().toISOString();
-  const deleteStmt = input.db.prepare(`DELETE FROM partners WHERE accountSetId = ?`);
+  const deleteStmt = input.db.prepare(
+    `DELETE FROM partners WHERE tenantId = ? AND accountSetId = ?`,
+  );
   try {
-    deleteStmt.run([input.accountSetId]);
+    deleteStmt.run([input.tenantId, input.accountSetId]);
   } finally {
     deleteStmt.free();
   }
@@ -366,11 +546,12 @@ export async function savePartnersRecord(input: {
       payrollDepartmentName: partner.payrollDepartmentName,
       payrollProjectName: partner.payrollProjectName,
       payrollCostCenterName: partner.payrollCostCenterName,
+      tenantId: input.tenantId,
       accountSetId: input.accountSetId,
       createTime: partner.createTime || now,
       updateTime: now,
     };
-    const insert = buildPartnerInsert(insertInput, input.accountSetId, now);
+    const insert = buildPartnerInsert(insertInput, input.tenantId, input.accountSetId, now);
     const stmt = input.db.prepare(insert.sql);
     try {
       stmt.run(insert.params);

@@ -21,11 +21,13 @@ import {
   Phone,
   Lock,
   Unlock,
-  Merge
+  Merge,
+  AlertTriangle
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { exportToExcel, importFromExcel, exportTemplate } from '@/lib/excel-utils';
 import { usePartnerStore } from '@/stores/usePartnerStore';
+import type { PartnerMergePreview } from '@/lib/database/services/partner-sqlite-service';
 import { useCurrencyStore } from '@/stores/useCurrencyStore';
 import { useSubjectStore } from '@/stores';
 import { DepartmentPopover } from '@/components/shared/subject-popover';
@@ -157,6 +159,10 @@ export default function AuxiliaryDataPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
+  const [mergeSource, setMergeSource] = useState<Partner | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
+  const [mergePreview, setMergePreview] = useState<PartnerMergePreview | null>(null);
+  const [mergeInProgress, setMergeInProgress] = useState(false);
 
   // Excel导入相关状态
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -512,10 +518,46 @@ export default function AuxiliaryDataPage() {
     showToast('success', '往来单位模板导出成功');
   };
 
-  const showMergeDialogFor = (companyName: string) => {
+  const showMergeDialogFor = async (partner: Partner) => {
+    setMergeSource(partner);
+    setMergeTargetId(null);
+    setMergePreview(null);
     setShowMergeDialog(true);
-    // 这里可以设置要合并的公司名称
-    console.log('准备合并公司:', companyName);
+    try {
+      const preview = await partnerStore.previewPartnerMerge(partner.name);
+      setMergePreview(preview);
+    } catch (err) {
+      console.error('Failed to load merge preview:', err);
+    }
+  };
+
+  const closeMergeDialog = () => {
+    setShowMergeDialog(false);
+    setMergeSource(null);
+    setMergeTargetId(null);
+    setMergePreview(null);
+  };
+
+  const confirmMerge = async () => {
+    if (!mergeSource || !mergeTargetId) return;
+    const target = partnerStore.partners.find(p => p.id === mergeTargetId);
+    if (!target) {
+      showToast('error', '目标往来单位不存在');
+      return;
+    }
+    setMergeInProgress(true);
+    try {
+      const result = await partnerStore.mergePartners(mergeSource.id, mergeTargetId);
+      showToast(
+        'success',
+        `已转移 ${result.vouchersUpdated} 条分录、${result.invoicesUpdated} 张发票、${result.mappingsUpdated} 条供应商映射，源卡已删除`,
+      );
+      closeMergeDialog();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : '合并失败');
+    } finally {
+      setMergeInProgress(false);
+    }
   };
 
   const resetFormData = () => {
@@ -796,7 +838,7 @@ export default function AuxiliaryDataPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-orange-500"
-                              onClick={() => showMergeDialogFor(partner.name)}
+                              onClick={() => showMergeDialogFor(partner)}
                               title="合并/关联"
                             >
                               <Merge className="h-3 w-3" />
@@ -1144,28 +1186,108 @@ export default function AuxiliaryDataPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 合并/关联确认对话框 */}
-      <Dialog open={showMergeDialog} onOpenChange={setShowMergeDialog}>
+      {/* 合并/关联对话框 */}
+      <Dialog open={showMergeDialog} onOpenChange={(open) => { if (!open) closeMergeDialog(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>合并/关联往来单位</DialogTitle>
+            <DialogTitle>合并往来单位</DialogTitle>
             <DialogDescription>
-              选择要合并的关联单位，将数据合并到当前单位
+              把源卡的所有引用（凭证分录、发票、供应商映射）转移到目标卡，并删除源卡。操作不可撤销。
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            {/* 这里可以显示可选择的合并列表 */}
-            <p className="text-sm text-slate-600">合并功能开发中...</p>
-          </div>
+
+          {mergeSource && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-sm">
+                <div className="text-xs text-orange-700 mb-1">源卡（将被删除）</div>
+                <div className="font-medium text-slate-900">{mergeSource.name}</div>
+                <div className="text-xs text-slate-600 mt-0.5">
+                  编码 {mergeSource.code || '—'} · 类型
+                  {' '}
+                  {[
+                    mergeSource.isCustomer && '客户',
+                    mergeSource.isSupplier && '供应商',
+                    mergeSource.isEmployee && '雇员',
+                  ].filter(Boolean).join('/') || '其他'}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs text-slate-600">合并到目标卡</Label>
+                <div className="relative mt-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <select
+                    value={mergeTargetId ?? ''}
+                    onChange={(e) => setMergeTargetId(e.target.value || null)}
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  >
+                    <option value="">请选择目标卡...</option>
+                    {partnerStore.partners
+                      .filter(p => p.id !== mergeSource.id)
+                      .map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}（{p.code || '无编码'}）
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              {mergeTargetId && (() => {
+                const target = partnerStore.partners.find(p => p.id === mergeTargetId);
+                if (!target) return null;
+                const attrMismatch =
+                  target.code !== mergeSource.code ||
+                  target.isCustomer !== mergeSource.isCustomer ||
+                  target.isSupplier !== mergeSource.isSupplier ||
+                  target.isEmployee !== mergeSource.isEmployee;
+                return (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm space-y-2">
+                    <div>
+                      <div className="text-xs text-slate-600 mb-0.5">目标卡（保留）</div>
+                      <div className="font-medium text-slate-900">{target.name}</div>
+                      <div className="text-xs text-slate-600 mt-0.5">
+                        编码 {target.code || '—'} · 类型
+                        {' '}
+                        {[
+                          target.isCustomer && '客户',
+                          target.isSupplier && '供应商',
+                          target.isEmployee && '雇员',
+                        ].filter(Boolean).join('/') || '其他'}
+                      </div>
+                    </div>
+                    {attrMismatch && (
+                      <div className="flex items-start gap-2 text-xs text-amber-700">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>目标卡的编码/类型与源卡不同，合并后将统一为目标卡的属性。</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {mergePreview && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 space-y-1">
+                  <div className="font-medium mb-1">将影响：</div>
+                  <div>· <strong>{mergePreview.vouchers}</strong> 条凭证分录</div>
+                  <div>· <strong>{mergePreview.invoices}</strong> 张发票</div>
+                  <div>· <strong>{mergePreview.mappings}</strong> 条供应商业务组映射</div>
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowMergeDialog(false)} className="shadow-sm">
+            <Button variant="outline" onClick={closeMergeDialog} disabled={mergeInProgress} className="shadow-sm">
               取消
             </Button>
-            <Button variant="default" onClick={() => {
-              setShowMergeDialog(false);
-              showToast('success', '合并成功');
-            }} className="shadow-sm">
-              确认合并
+            <Button
+              variant="default"
+              onClick={confirmMerge}
+              disabled={!mergeTargetId || mergeInProgress || (mergeTargetId === mergeSource?.id)}
+              className="shadow-sm"
+            >
+              {mergeInProgress ? '合并中...' : '确认合并'}
             </Button>
           </DialogFooter>
         </DialogContent>
