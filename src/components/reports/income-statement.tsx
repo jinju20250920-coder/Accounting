@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,8 +18,9 @@ import {
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
 import { generateIncomeStatementData, type IncomeStatementData, type IncomeStatementItem } from '@/lib/financial-reports';
+import type { ReportHandle } from '@/lib/report-export-utils';
 
-export function IncomeStatement() {
+export const IncomeStatement = forwardRef<ReportHandle>(function IncomeStatement(_props, ref) {
   const [date, setDate] = useState('2026-03-31');
   const [showPercentage, setShowPercentage] = useState(true);
   const [expandAll, setExpandAll] = useState(false);
@@ -30,6 +31,32 @@ export function IncomeStatement() {
   const incomeStatementData: IncomeStatementData = useMemo(() => {
     return generateIncomeStatementData(vouchers, subjects);
   }, [vouchers, subjects]);
+
+  // 暴露导出句柄给父页
+  useImperativeHandle(ref, () => {
+    const flatten = (items: IncomeStatementItem[], section: string): Array<Record<string, unknown>> => {
+      const rows: Array<Record<string, unknown>> = [];
+      for (const item of items) {
+        rows.push({
+          '部分': section,
+          '编码': item.code,
+          '项目': item.name,
+          '金额': item.amount,
+        });
+        if (item.children && item.children.length > 0) {
+          rows.push(...flatten(item.children, section));
+        }
+      }
+      return rows;
+    };
+    return {
+      getSheetName: () => '损益表',
+      getExportRows: () => [
+        ...flatten(incomeStatementData.revenue, '收入'),
+        ...flatten(incomeStatementData.expenses, '费用'),
+      ],
+    };
+  }, [incomeStatementData]);
 
   // 计算汇总金额
   const calculateTotal = (items: IncomeStatementItem[], type: 'revenue' | 'expense') => {
@@ -322,4 +349,4 @@ export function IncomeStatement() {
       </Card>
     </div>
   );
-}
+});

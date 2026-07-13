@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
 import { useSubjectStore } from '@/stores/useSubjectStore';
+import type { ReportHandle } from '@/lib/report-export-utils';
 
 interface TrialBalanceItem {
   code: string;
@@ -34,7 +35,7 @@ interface TrialBalanceItem {
   isBalanced: boolean;
 }
 
-export function TrialBalance() {
+export const TrialBalance = forwardRef<ReportHandle>(function TrialBalance(_props, ref) {
   const store = useVoucherStore();
   const { vouchers, calculateSubjectBalances } = store;
   const { subjects } = useSubjectStore();
@@ -97,6 +98,22 @@ export function TrialBalance() {
 
     return trialBalanceData;
   }, [vouchers, subjects]);
+
+  // 暴露导出句柄给父页
+  useImperativeHandle(ref, () => ({
+    getSheetName: () => '科目余额表',
+    getExportRows: () => subjectBalances.map(item => ({
+      '科目编码': item.code,
+      '科目名称': item.name,
+      '期初借方': item.beginningDebit,
+      '期初贷方': item.beginningCredit,
+      '本期发生借方': item.currentDebit,
+      '本期发生贷方': item.currentCredit,
+      '期末借方': item.endingDebit,
+      '期末贷方': item.endingCredit,
+      '是否平衡': item.isBalanced ? '是' : '否',
+    })),
+  }), [subjectBalances]);
 
   // 构建树形结构
   const buildTree = (items: TrialBalanceItem[]): TrialBalanceItem[] => {
@@ -371,4 +388,4 @@ export function TrialBalance() {
       </Card>
     </div>
   );
-}
+});
