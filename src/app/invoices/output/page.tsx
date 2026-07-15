@@ -300,7 +300,7 @@ function ImportDialog({
     const processFile = async () => {
       try {
         const data = await file.arrayBuffer();
-        const wb = XLSX.read(data);
+        const wb = XLSX.read(data, { type: 'array' });
         setWorkbook(wb);
 
         // 解析所有sheet的数据
@@ -328,7 +328,10 @@ function ImportDialog({
           showToast('error', 'Excel文件中没有有效数据');
         }
       } catch (error) {
-        showToast('error', '解析Excel文件失败');
+        // 常见原因：文件非标准 xlsx/xls（如伪装成 xls 的 HTML/CSV）、文件损坏或加密。
+        // 把真实错误带出来，便于判断是格式问题还是文件问题。
+        const msg = (error as Error)?.message || '未知错误';
+        showToast('error', `解析Excel文件失败：${msg}。请确认文件为标准 xlsx/xls 格式且未损坏`);
         console.error(error);
       }
     };

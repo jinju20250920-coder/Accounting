@@ -83,15 +83,25 @@ export async function parseWithConfig(file: File, config: BankParserConfig): Pro
   const errors: Array<{ row: number; message: string }> = [];
 
   const dataStart = config.dataStartRow != null ? config.dataStartRow : config.headerRows + 1;
+  const dateIdx = colIndex.get('date');
   for (let i = dataStart; i < rawData.length; i++) {
     const row = rawData[i];
     if (!row || row.every(c => !String(c || '').trim())) continue; // skip empty rows
 
     try {
       const tx = parseRow(row, i, colIndex, dateHandler, config.hasSeparatedTime || false);
-      if (tx.date) {
-        transactions.push(tx);
+      if (!tx.date) continue; // 空日期行（小计/合计等）静默跳过
+      // 校验日期已规整为 YYYY-MM-DD；畸形日期（如「20260405 08:56:26」未解析）不收，
+      // 并给出明确提示，避免下游「记账日期」报错却不知道是哪列哪行。
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) {
+        const rawDate = dateIdx !== undefined ? String(row[dateIdx] || '').trim() : tx.date;
+        errors.push({
+          row: i + 1,
+          message: `第 ${i + 1} 行日期无法识别：「${rawDate}」，请检查日期列映射或日期格式`,
+        });
+        continue;
       }
+      transactions.push(tx);
     } catch (e) {
       errors.push({ row: i + 1, message: `第 ${i + 1} 行解析失败: ${(e as Error).message}` });
     }

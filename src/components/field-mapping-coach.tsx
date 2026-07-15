@@ -50,7 +50,10 @@ const DATE_FORMATS = [
 
 /** Comprehensive keywords for fuzzy-matching each standard field */
 const FIELD_KEYWORDS: Record<string, string[]> = {
-  date: ['记账日期', '交易日期', '日期', '发生日期', '交易时间', '记账时间', '业务日期', '清算日期'],
+  // 注意：'交易时间'/'记账时间' 是时间字段，只放在 time 关键词里。
+  // 若放进 date，自动匹配会把"交易时间"列误当日期列（它常是「20260405 08:56:26」这类
+  // 日期+时间连写），导致日期解析失败。日期列应优先匹配纯日期表头（记账日期/交易日期等）。
+  date: ['记账日期', '交易日期', '日期', '发生日期', '业务日期', '清算日期'],
   time: ['交易时间', '记账时间', '时间', '发生时间', '业务时间'],
   debit: ['借方发生额', '借方金额', '借方', '支出金额', '支出', '借方发生额（支出）', '付款金额'],
   credit: ['贷方发生额', '贷方金额', '贷方', '收入金额', '收入', '贷方发生额（收入）', '收款金额'],
@@ -572,39 +575,53 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
           <div className="space-y-3">
             <p className="text-sm text-gray-600">解析结果预览（前5行）：</p>
             {previewResult && previewResult.transactions.length > 0 ? (
-              <div className="overflow-x-auto border rounded">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-slate-100">
-                      <th className="px-2 py-1">日期</th>
-                      <th className="px-2 py-1">借方</th>
-                      <th className="px-2 py-1">贷方</th>
-                      <th className="px-2 py-1">对方户名</th>
-                      <th className="px-2 py-1">摘要</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewResult.transactions.slice(0, 5).map((tx, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-2 py-1">{tx.date}</td>
-                        <td className="px-2 py-1">{tx.debit ?? '-'}</td>
-                        <td className="px-2 py-1">{tx.credit ?? '-'}</td>
-                        <td className="px-2 py-1">{tx.counterpartyName || '-'}</td>
-                        <td className="px-2 py-1">{tx.summary}</td>
+              <div className="space-y-2">
+                <div className="overflow-x-auto border rounded">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-100">
+                        <th className="px-2 py-1">日期</th>
+                        <th className="px-2 py-1">借方</th>
+                        <th className="px-2 py-1">贷方</th>
+                        <th className="px-2 py-1">对方户名</th>
+                        <th className="px-2 py-1">摘要</th>
                       </tr>
+                    </thead>
+                    <tbody>
+                      {previewResult.transactions.slice(0, 5).map((tx, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-2 py-1">{tx.date}</td>
+                          <td className="px-2 py-1">{tx.debit ?? '-'}</td>
+                          <td className="px-2 py-1">{tx.credit ?? '-'}</td>
+                          <td className="px-2 py-1">{tx.counterpartyName || '-'}</td>
+                          <td className="px-2 py-1">{tx.summary}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-slate-400 p-2 text-center">
+                    共解析 {previewResult.transactions.length} 条交易
+                    {previewResult.errors && previewResult.errors.length > 0 && `，${previewResult.errors.length} 个错误`}
+                  </p>
+                </div>
+                {previewResult.errors && previewResult.errors.length > 0 && (
+                  <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2 space-y-0.5 max-h-32 overflow-y-auto">
+                    {previewResult.errors.slice(0, 10).map((e, i) => (
+                      <div key={i}>· {e.message}</div>
                     ))}
-                  </tbody>
-                </table>
-                <p className="text-xs text-slate-400 p-2 text-center">
-                  共解析 {previewResult.transactions.length} 条交易
-                  {previewResult.errors && previewResult.errors.length > 0 && `，${previewResult.errors.length} 个错误`}
-                </p>
+                    {previewResult.errors.length > 10 && (
+                      <div className="text-slate-400">…还有 {previewResult.errors.length - 10} 条</div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
-              <p className="text-sm text-red-500">
-                解析失败或无数据。
-                {previewResult?.errors?.[0]?.message}
-              </p>
+              <div className="text-sm text-red-500 space-y-1">
+                <p>解析失败或无数据。</p>
+                {previewResult?.errors?.slice(0, 10).map((e, i) => (
+                  <p key={i} className="text-xs">· {e.message}</p>
+                ))}
+              </div>
             )}
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(2)}>

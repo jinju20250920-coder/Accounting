@@ -57,11 +57,17 @@ export class ExcelSerialDateHandler implements DateHandler {
 export class CompactDateHandler implements DateHandler {
   parse(raw: unknown, timeRaw?: unknown): { date: string; time?: string } {
     const str = String(raw ?? '').trim();
-    const match = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+    // 支持「20240102」纯日期，以及「20260405 08:56:26」「20260405 08:56」日期+时间连写。
+    // 旧版正则 /^(\d{4})(\d{2})(\d{2})$/ 用 $ 锚定，遇到带时间的连写会整体不匹配而失败。
+    const match = str.match(/^(\d{4})(\d{2})(\d{2})(?:\s+(\d{2}:\d{2}(?::\d{2})?))?/);
     if (match) {
+      const embeddedTime = match[4]
+        ? (match[4].length === 5 ? match[4] + ':00' : match[4])
+        : undefined;
       return {
         date: `${match[1]}-${match[2]}-${match[3]}`,
-        time: timeRaw ? this.parseCompactTime(String(timeRaw)) : undefined,
+        // 独立时间列优先；否则从日期串尾部提取时间。
+        time: timeRaw ? this.parseCompactTime(String(timeRaw)) : embeddedTime,
       };
     }
 

@@ -1684,3 +1684,73 @@ export interface AssetMergeRecord {
   accountSetId: string;
   createTime: string;
 }
+
+// ===== 税务申报提醒系统 =====
+export type TaxType =
+  | 'vat' | 'corporate' | 'personal' | 'consumption'
+  | 'stamp' | 'property' | 'city_construction'
+  | 'education_surcharge' | 'local_education'
+  | 'environmental' | 'disability' | 'land_value'
+  | 'vehicle' | 'land_use' | 'other';
+
+export type TaxDeadlineType = 'monthly' | 'quarterly' | 'half_yearly' | 'annual';
+export type TaxApplicability = 'small' | 'general' | 'both';
+
+export interface TaxItem {
+  id: string;
+  tenantId: string;
+  accountSetId: string;
+  taxName: string;
+  taxType: TaxType;
+  deadlineType: TaxDeadlineType;
+  deadlineDays: number;
+  graceDays: number;
+  applicableTaxpayerType: TaxApplicability;
+  isBuiltIn: boolean;
+  isEnabled: boolean;
+  sortOrder: number;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TaxFilingStatus = 'pending' | 'filed' | 'overdue';
+
+export interface TaxFiling {
+  id: string;
+  tenantId: string;
+  accountSetId: string;
+  taxItemId: string;
+  taxName: string;
+  taxPeriod: string;
+  periodLabel: string;
+  deadline: string;
+  isFiled: boolean;
+  filedDate?: string;
+  taxableAmount?: number;
+  paidAmount?: number;
+  linkedVoucherId?: string;
+  linkedVoucherNo?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaxHoliday {
+  id: string;
+  date: string;
+  name: string;
+  type: 'holiday' | 'workday';
+  isBuiltIn: boolean;
+}
+
+export interface TaxDeadlineAlert {
+  taxItem: TaxItem;
+  taxPeriod: string;
+  periodLabel: string;
+  deadline: string;
+  status: TaxFilingStatus;
+  daysRemaining: number;
+  urgency: 'low' | 'medium' | 'high' | 'urgent';
+  filing?: TaxFiling;
+}

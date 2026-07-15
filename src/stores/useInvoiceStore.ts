@@ -102,7 +102,7 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
         buyerName, buyerTaxNo, goodsName, specification, unit, quantity, unitPrice,
         amount, taxRate, taxAmount, totalAmount, paymentStatus, paidAmount,
         voucherId, voucherNo, partnerId, partnerName, notes, accountSetId, createTime, updateTime, groupName
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     stmt.run([
       invoice.id, sqliteService.tenantId, invoice.invoiceType, invoice.invoiceCode,

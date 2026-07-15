@@ -1,0 +1,32 @@
+diff --git a/node_modules/xlsx/xlsx.js b/node_modules/xlsx/xlsx.js
+index e61c7cc..cebb5a3 100644
+--- a/node_modules/xlsx/xlsx.js
++++ b/node_modules/xlsx/xlsx.js
+@@ -2602,7 +2602,10 @@ function _inflate(payload, usz) {
+ }
+ 
+ function warn_or_throw(wrn, msg) {
+-	if(wrn) { if(typeof console !== 'undefined') console.error(msg); }
++	// [patch-package] 全电发票等系统导出的 xlsx，其 ZIP 在 data-descriptor 模式下 size 字段
++	// 与实际不符。SheetJS 走 wrn=true 容错路径仍能正确读出全部数据，仅 console.error 噪声。
++	// 这里静默这类已知无害的 size 警告；其他警告与 throw 路径保持原样。
++	if(wrn) { if(typeof console !== 'undefined' && !/^Bad (uncompressed|compressed) size/.test(msg)) console.error(msg); }
+ 	else throw new Error(msg);
+ }
+ 
+diff --git a/node_modules/xlsx/xlsx.mjs b/node_modules/xlsx/xlsx.mjs
+index ea75371..3f8c860 100644
+--- a/node_modules/xlsx/xlsx.mjs
++++ b/node_modules/xlsx/xlsx.mjs
+@@ -2667,7 +2667,10 @@ function _inflate(payload, usz) {
+ }
+ 
+ function warn_or_throw(wrn, msg) {
+-	if(wrn) { if(typeof console !== 'undefined') console.error(msg); }
++	// [patch-package] 全电发票等系统导出的 xlsx，其 ZIP 在 data-descriptor 模式下 size 字段
++	// 与实际不符。SheetJS 走 wrn=true 容错路径仍能正确读出全部数据，仅 console.error 噪声。
++	// 这里静默这类已知无害的 size 警告；其他警告与 throw 路径保持原样。
++	if(wrn) { if(typeof console !== 'undefined' && !/^Bad (uncompressed|compressed) size/.test(msg)) console.error(msg); }
+ 	else throw new Error(msg);
+ }
+ 

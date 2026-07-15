@@ -111,43 +111,55 @@ export function BankFormatTestDialog({ open, onOpenChange, config }: BankFormatT
 
               {/* Preview table */}
               {testResult.transactions.length > 0 ? (
-                <div className="overflow-x-auto border rounded">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-100">
-                        <th className="px-2 py-1">日期</th>
-                        <th className="px-2 py-1">借方</th>
-                        <th className="px-2 py-1">贷方</th>
-                        <th className="px-2 py-1">余额</th>
-                        <th className="px-2 py-1">对方户名</th>
-                        <th className="px-2 py-1">摘要</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {testResult.transactions.slice(0, 10).map((tx, i) => (
-                        <tr key={i} className="border-t hover:bg-slate-50">
-                          <td className="px-2 py-1">{tx.date}</td>
-                          <td className="px-2 py-1">{tx.debit ?? '-'}</td>
-                          <td className="px-2 py-1">{tx.credit ?? '-'}</td>
-                          <td className="px-2 py-1">{tx.balance ?? '-'}</td>
-                          <td className="px-2 py-1 truncate max-w-[120px]">{tx.counterpartyName || '-'}</td>
-                          <td className="px-2 py-1 truncate max-w-[120px]">{tx.summary}</td>
+                <div className="space-y-2">
+                  <div className="overflow-x-auto border rounded">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-100">
+                          <th className="px-2 py-1">日期</th>
+                          <th className="px-2 py-1">借方</th>
+                          <th className="px-2 py-1">贷方</th>
+                          <th className="px-2 py-1">余额</th>
+                          <th className="px-2 py-1">对方户名</th>
+                          <th className="px-2 py-1">摘要</th>
                         </tr>
+                      </thead>
+                      <tbody>
+                        {testResult.transactions.slice(0, 10).map((tx, i) => (
+                          <tr key={i} className="border-t hover:bg-slate-50">
+                            <td className="px-2 py-1">{tx.date}</td>
+                            <td className="px-2 py-1">{tx.debit ?? '-'}</td>
+                            <td className="px-2 py-1">{tx.credit ?? '-'}</td>
+                            <td className="px-2 py-1">{tx.balance ?? '-'}</td>
+                            <td className="px-2 py-1 truncate max-w-[120px]">{tx.counterpartyName || '-'}</td>
+                            <td className="px-2 py-1 truncate max-w-[120px]">{tx.summary}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {testResult.transactions.length > 10 && (
+                      <p className="text-xs text-slate-400 p-2 text-center">
+                        仅显示前 10 条，共 {testResult.transactions.length} 条
+                      </p>
+                    )}
+                  </div>
+                  {testResult.errors && testResult.errors.length > 0 && (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2 space-y-0.5 max-h-32 overflow-y-auto">
+                      {testResult.errors.slice(0, 10).map((e, i) => (
+                        <div key={i}>· {e.message}</div>
                       ))}
-                    </tbody>
-                  </table>
-                  {testResult.transactions.length > 10 && (
-                    <p className="text-xs text-slate-400 p-2 text-center">
-                      仅显示前 10 条，共 {testResult.transactions.length} 条
-                    </p>
+                      {testResult.errors.length > 10 && (
+                        <div className="text-slate-400">…还有 {testResult.errors.length - 10} 条</div>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (
-                <div className="text-sm text-red-500 p-3 bg-red-50 rounded">
-                  解析失败或无数据
-                  {testResult.errors?.[0]?.message && (
-                    <p className="mt-1">{testResult.errors[0].message}</p>
-                  )}
+                <div className="text-sm text-red-500 p-3 bg-red-50 rounded space-y-1">
+                  <p>解析失败或无数据</p>
+                  {testResult.errors?.slice(0, 10).map((e, i) => (
+                    <p key={i} className="text-xs">· {e.message}</p>
+                  ))}
                 </div>
               )}
             </div>

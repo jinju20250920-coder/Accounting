@@ -143,7 +143,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
           lastAmortizationDate, status, prepaidSubjectCode, prepaidSubjectName,
           expenseSubjectCode, expenseSubjectName, supplierName, invoiceNo, contractNo,
           departmentCode, departmentName, notes, tenantId, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newExpense.id, newExpense.expenseCode, newExpense.expenseName,

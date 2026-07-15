@@ -212,7 +212,9 @@ export function matchBankTransaction(
   partners: BankMatchPartner[],
   userPrefs: Array<{ summary: string; subject: string; subjectName?: string; timestamp: number }>,
 ): BankMatchResult | null {
-  const text = [input.summary, input.notes].filter(Boolean).join(' ');
+  const summaryText = (input.summary || '').trim();
+  const notesText = (input.notes || '').trim();
+  const combinedText = (summaryText + ' ' + notesText).trim();
   const direction: 'in' | 'out' = input.isDebit ? 'out' : 'in';
 
   // === 第1层：往来单位默认科目 ===
@@ -234,26 +236,34 @@ export function matchBankTransaction(
   }
 
   // === 第2层+第3层：自定义规则 + 系统规则 ===
+  // 排序：优先级降序；同优先级下关键词更长（更具体）的优先——
+  // 避免「转账」这种渠道短词压过「工程款」「货款」等业务长词。
   const enabledRules = rules
     .filter(r => r.direction === 'both' || r.direction === direction)
-    .sort((a, b) => b.priority - a.priority);
+    .sort((a, b) => b.priority - a.priority || b.keyword.length - a.keyword.length);
 
-  for (const rule of enabledRules) {
-    if (text.includes(rule.keyword) || rule.keyword.includes(text)) {
-      return {
-        subjectCode: rule.subjectCode,
-        subjectName: rule.subjectName,
-        source: rule.priority >= 9 ? 'system-rule' : 'custom-rule',
-        confidence: 0.5 + rule.priority / 20,
-      };
-    }
+  // 先在备注（用途）里匹配——业务意图最可靠（摘要往往是「电子转账」这类渠道词）；
+  // 备注无命中再退回「摘要 + 备注」合并文本。
+  const findRule = (haystack: string): BankMatchRule | undefined =>
+    haystack
+      ? enabledRules.find(r => haystack.includes(r.keyword) || r.keyword.includes(haystack))
+      : undefined;
+
+  const rule = findRule(notesText) ?? findRule(combinedText);
+  if (rule) {
+    return {
+      subjectCode: rule.subjectCode,
+      subjectName: rule.subjectName,
+      source: rule.priority >= 9 ? 'system-rule' : 'custom-rule',
+      confidence: 0.5 + rule.priority / 20,
+    };
   }
 
   // === 第4层：L2 用户偏好 ===
   const l2Matches = userPrefs.filter(pref =>
-    text.includes(pref.summary) ||
-    pref.summary.includes(text) ||
-    text.includes(pref.subject)
+    combinedText.includes(pref.summary) ||
+    pref.summary.includes(combinedText) ||
+    combinedText.includes(pref.subject)
   );
 
   if (l2Matches.length > 0) {

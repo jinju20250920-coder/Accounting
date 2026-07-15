@@ -116,6 +116,8 @@ class AccountSetDbManager {
       'bank_opening_balances',
       'bank_account_bindings',
       'custom_bank_configs',
+      'tax_items',
+      'tax_filings',
       'invoice_smart_rules',
       'supplier_subject_mapping',
       'purchase_invoice_rule_config',

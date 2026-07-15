@@ -18,7 +18,10 @@
     "electron:package": "electron-builder",
     "electron:package:win": "electron-builder --win",
     "electron:package:mac": "electron-builder --mac",
-    "electron:package:linux": "electron-builder --linux"
+    "electron:package:linux": "electron-builder --linux",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
@@ -71,9 +74,11 @@
     "electron-devtools-installer": "^3.2.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "patch-package": "^8.0.1",
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vitest": "^2.1.8",
     "wait-on": "^7.2.0"
   },
   "build": {

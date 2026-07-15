@@ -41,6 +41,7 @@ export function useDatabaseSync() {
     const { useSummaryStore } = await import('@/stores/useSummaryStore');
     const { usePartnerStore } = await import('@/stores/usePartnerStore');
     const { useFixedAssetStore } = await import('@/stores/useFixedAssetStore');
+    const { useTaxStore } = await import('@/stores/useTaxStore');
 
     await Promise.all([
       useSubjectStore.getState().initializeSubjects(),
@@ -51,7 +52,8 @@ export function useDatabaseSync() {
       useSummaryStore.getState().initializeSummaries(),
       usePartnerStore.getState().initializePartners(),
       useVoucherStore.getState().initialize(),
-      useFixedAssetStore.getState().initialize()
+      useFixedAssetStore.getState().initialize(),
+      useTaxStore.getState().initialize()
     ]);
     await useCurrencyStore.getState().initializeRevaluationRuns();
   };
@@ -138,6 +140,7 @@ export function useDatabaseSync() {
         const { useSummaryStore } = await import('@/stores/useSummaryStore');
         const { usePartnerStore } = await import('@/stores/usePartnerStore');
         const { useFixedAssetStore } = await import('@/stores/useFixedAssetStore');
+    const { useTaxStore } = await import('@/stores/useTaxStore');
         const { useAccountSetStore } = await import('@/stores/useAccountSetStore');
 
         // 1. 初始化全局数据库
@@ -175,7 +178,8 @@ export function useDatabaseSync() {
           useSummaryStore.getState().initializeSummaries(),
           usePartnerStore.getState().initializePartners(),
           useVoucherStore.getState().initialize(),
-          useFixedAssetStore.getState().initialize()
+          useFixedAssetStore.getState().initialize(),
+          useTaxStore.getState().initialize()
         ]);
         await useCurrencyStore.getState().initializeRevaluationRuns();
 

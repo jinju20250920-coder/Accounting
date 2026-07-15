@@ -153,6 +153,7 @@ export const DEFAULT_MONTHLY_CLOSING_TEMPLATES: MonthlyCheckTemplate[] = [
   template('settlement_aging_explain', 'settlement', '账龄异常客户/供应商是否确认并备注原因', '账龄分析表', 'aging_explain_status', 'warning', false, true, '/aging/ar', 'medium'),
   template('tax_payable_check', 'tax', '增值税、附加税、印花税等是否核对', '税务报表/申报表', 'tax_payable_status', 'warning', false, true, '/reports', 'medium'),
   template('tax_burden_fluctuation', 'tax', '税负率、进销项结构是否存在异常波动', '税务分析表', 'tax_burden_fluctuation', 'warning', false, true, '/reports', 'low'),
+  template('tax_filing_check', 'tax', '当期税务申报是否已完成（未申报/已逾期）', '税务申报台账', 'tax_filing_status', 'warning', false, true, '/tax', 'medium'),
   template('voucher_posting_quality', 'general_ledger', '凭证是否存在未过账、断号、摘要异常', '凭证列表/总账', 'voucher_posting_quality', 'blocker', true, false, '/voucher-list', 'high'),
   template('voucher_balance_quality', 'general_ledger', '凭证借贷是否平衡', '凭证列表', 'voucher_balance_quality', 'blocker', true, false, '/voucher-list', 'high'),
   template('gl_key_subject_no_activity', 'general_ledger', '科目余额方向、长期挂账、负数余额是否异常', '总账/科目余额表', 'key_subject_activity', 'warning', false, true, '/balance', 'medium'),

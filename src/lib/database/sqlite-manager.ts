@@ -1280,6 +1280,55 @@ class SQLiteManager {
         createTime TEXT,
         updateTime TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS tax_items (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        accountSetId TEXT NOT NULL,
+        taxName TEXT NOT NULL,
+        taxType TEXT NOT NULL,
+        deadlineType TEXT NOT NULL,
+        deadlineDays INTEGER NOT NULL,
+        graceDays INTEGER NOT NULL DEFAULT 0,
+        applicableTaxpayerType TEXT NOT NULL,
+        isBuiltIn INTEGER NOT NULL DEFAULT 1,
+        isEnabled INTEGER NOT NULL DEFAULT 1,
+        sortOrder INTEGER NOT NULL DEFAULT 0,
+        description TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tax_filings (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        accountSetId TEXT NOT NULL,
+        taxItemId TEXT NOT NULL,
+        taxName TEXT NOT NULL,
+        taxPeriod TEXT NOT NULL,
+        periodLabel TEXT NOT NULL,
+        deadline TEXT NOT NULL,
+        isFiled INTEGER NOT NULL DEFAULT 0,
+        filedDate TEXT,
+        taxableAmount REAL,
+        paidAmount REAL,
+        linkedVoucherId TEXT,
+        linkedVoucherNo TEXT,
+        notes TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tax_holidays (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        isBuiltIn INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tax_filings_tenant_set_item_period
+        ON tax_filings(tenantId, accountSetId, taxItemId, taxPeriod);
     `;
 
     this.db.exec(tables);

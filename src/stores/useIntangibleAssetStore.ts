@@ -149,7 +149,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
           status, assetSubjectCode, assetSubjectName, amortizationSubjectCode, amortizationSubjectName,
           expenseSubjectCode, expenseSubjectName, registrationNo, legalLifeYears,
           departmentCode, departmentName, notes, accountSetId, createTime, updateTime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       stmt.run([
         newAsset.id, sqliteService.tenantId, newAsset.assetCode, newAsset.assetName, safeValue(newAsset.assetType),

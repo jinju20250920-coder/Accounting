@@ -131,6 +131,12 @@ import {
   importFxRevaluationRunsRecord,
 } from './services/export-import-sqlite-service';
 import {
+  listTaxItems, saveTaxItem, deleteTaxItem,
+  listTaxFilings, getTaxFiling, saveTaxFiling,
+  listTaxHolidays, saveTaxHoliday, deleteTaxHoliday,
+} from './services/tax-sqlite-service';
+import type { TaxItem, TaxFiling, TaxHoliday } from '@/types';
+import {
   getBankOpeningBalanceQuery,
   getBankOpeningBalanceDetailQuery,
   getAllBankOpeningBalancesQuery,
@@ -458,8 +464,19 @@ class SQLiteService {
     await this.migrateDedupAssetCategories();
     // 迁移：为每个账套补录缺失的细分资产分类（电子设备/运输工具/办公家具/机器设备/房屋建筑物）
     await this.migrateBackfillGranularAssetCategories();
+    // 迁移：创建税务申报相关表（tax_items/tax_filings/tax_holidays）。
+    // sqlite-manager.createTables 只在全新库时执行，存量库必须靠此迁移补建表，
+    // 否则 listTaxItems 等查询会报 "no such table: tax_items"。
+    // 必须在 migrateAddTenantColumns 之前跑，让 tenant 回填能覆盖新表；
+    // 也必须在 seedTaxHolidaysIfEmpty 之前跑，让 seed 能命中已建好的 tax_holidays 表。
+    await this.migrateCreateTaxTables();
     // 迁移：多租户改造——给所有业务表添加 tenantId 列
     await this.migrateAddTenantColumns();
+    // 迁移：修正历史 seed 的过宽系统规则（关键词「转账」「汇款」→ 整词），避免渠道词误判财务费用。
+    // 必须在 migrateAddTenantColumns 之后跑：UPDATE 引用 tenantId 列且需该列已存在。
+    await this.migrateFixOverbroadBankRules();
+    // 节假日表为空时 seed 当年+次年（直接读 dbInstance，不能用 queryAllAsync——会触发 ensureInitialized 死锁）
+    await this.seedTaxHolidaysIfEmpty();
   }
 
   /**
@@ -4507,6 +4524,7 @@ class SQLiteService {
       'invoice_smart_rules', 'supplier_subject_mapping',
       'purchase_invoice_rule_config', 'asset_category_mapping',
       'auxiliary_strategy_config', 'monthly_closing_checks',
+      'tax_items', 'tax_filings',
       'account_set_users',
     ];
 
@@ -4566,6 +4584,166 @@ class SQLiteService {
     }
 
     await this.persist();
+  }
+
+  // ===== 税务申报提醒系统 =====
+  async listTaxItems(): Promise<TaxItem[]> {
+    await this.ensureInitialized();
+    return await listTaxItems(this.getSimpleQueryService(), this.tenantId, this.accountSetId);
+  }
+  async saveTaxItem(item: TaxItem): Promise<void> {
+    await this.ensureInitialized();
+    await saveTaxItem({ db: this.dbInstance!, item, persist: () => this.persist() });
+  }
+  async deleteTaxItem(id: string): Promise<void> {
+    await this.ensureInitialized();
+    await deleteTaxItem({ db: this.dbInstance!, tenantId: this.tenantId, accountSetId: this.accountSetId, id, persist: () => this.persist() });
+  }
+  async listTaxFilings(opts?: { taxPeriod?: string }): Promise<TaxFiling[]> {
+    await this.ensureInitialized();
+    return await listTaxFilings(this.getSimpleQueryService(), this.tenantId, this.accountSetId, opts);
+  }
+  async getTaxFiling(taxItemId: string, taxPeriod: string): Promise<TaxFiling | null> {
+    await this.ensureInitialized();
+    return await getTaxFiling(this.getSimpleQueryService(), this.tenantId, this.accountSetId, taxItemId, taxPeriod);
+  }
+  async saveTaxFiling(filing: TaxFiling): Promise<void> {
+    await this.ensureInitialized();
+    await saveTaxFiling({ db: this.dbInstance!, filing, persist: () => this.persist() });
+  }
+  async listTaxHolidays(): Promise<TaxHoliday[]> {
+    await this.ensureInitialized();
+    return await listTaxHolidays(this.getSimpleQueryService());
+  }
+  async saveTaxHoliday(holiday: TaxHoliday): Promise<void> {
+    await this.ensureInitialized();
+    await saveTaxHoliday({ db: this.dbInstance!, holiday, persist: () => this.persist() });
+  }
+  async deleteTaxHoliday(id: string): Promise<void> {
+    await this.ensureInitialized();
+    await deleteTaxHoliday({ db: this.dbInstance!, id, persist: () => this.persist() });
+  }
+
+  /**
+   * 迁移：创建税务申报提醒相关表（tax_items / tax_filings / tax_holidays）。
+   * DDL 与 sqlite-manager.createTables 保持一致；用 CREATE TABLE IF NOT EXISTS 幂等执行，
+   * 既能在全新库上建表，也能给存量库（OPFS/localStorage，不走 createTables）补建表。
+   */
+  private async migrateCreateTaxTables(): Promise<void> {
+    if (!this.dbInstance) return;
+    try {
+      this.dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS tax_items (
+          id TEXT PRIMARY KEY,
+          tenantId TEXT NOT NULL,
+          accountSetId TEXT NOT NULL,
+          taxName TEXT NOT NULL,
+          taxType TEXT NOT NULL,
+          deadlineType TEXT NOT NULL,
+          deadlineDays INTEGER NOT NULL,
+          graceDays INTEGER NOT NULL DEFAULT 0,
+          applicableTaxpayerType TEXT NOT NULL,
+          isBuiltIn INTEGER NOT NULL DEFAULT 1,
+          isEnabled INTEGER NOT NULL DEFAULT 1,
+          sortOrder INTEGER NOT NULL DEFAULT 0,
+          description TEXT,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS tax_filings (
+          id TEXT PRIMARY KEY,
+          tenantId TEXT NOT NULL,
+          accountSetId TEXT NOT NULL,
+          taxItemId TEXT NOT NULL,
+          taxName TEXT NOT NULL,
+          taxPeriod TEXT NOT NULL,
+          periodLabel TEXT NOT NULL,
+          deadline TEXT NOT NULL,
+          isFiled INTEGER NOT NULL DEFAULT 0,
+          filedDate TEXT,
+          taxableAmount REAL,
+          paidAmount REAL,
+          linkedVoucherId TEXT,
+          linkedVoucherNo TEXT,
+          notes TEXT,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS tax_holidays (
+          id TEXT PRIMARY KEY,
+          date TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          isBuiltIn INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tax_filings_tenant_set_item_period
+          ON tax_filings(tenantId, accountSetId, taxItemId, taxPeriod);
+      `);
+    } catch (error) {
+      console.error('Migration: Failed to create tax tables', error);
+    }
+  }
+
+  /**
+   * 迁移：修正历史 seed 的过宽银行规则。
+   * 旧版本把 sys_023/sys_024 的关键词设成了「转账」「汇款」，会命中几乎每笔转账/汇款
+   * 流水的摘要（电子转账、跨行转账、网银汇款…），把工程款/货款等业务付款误判为财务费用。
+   * 此处把存量库里未改动的系统规则（仍指向 6603 财务费用）关键词精化为整词
+   * 「转账手续费」「汇款手续费」。用户自定义/已改科目的规则不受影响。
+   */
+  private async migrateFixOverbroadBankRules(): Promise<void> {
+    if (!this.dbInstance) return;
+    const db = this.dbInstance;
+    try {
+      const stmt = db.prepare(`
+        UPDATE bankTransactionRules
+        SET keyword = CASE keyword WHEN '转账' THEN '转账手续费' WHEN '汇款' THEN '汇款手续费' END,
+            updateTime = ?
+        WHERE isSystem = 1 AND subjectCode = '6603'
+          AND keyword IN ('转账', '汇款')
+          AND tenantId IS NOT NULL
+      `);
+      stmt.run([new Date().toISOString()]);
+      stmt.free();
+    } catch (error) {
+      console.warn('Migration: fix overbroad bank rules failed:', error);
+    }
+  }
+
+  private async seedTaxHolidaysIfEmpty(): Promise<void> {
+    if (!this.dbInstance) return;
+    const db = this.dbInstance;
+    try {
+      // ⚠️ 此方法在 _doEnsureInitialized() 内部被调用，
+      // 不能使用 querySingleAsync/queryAllAsync（它们会触发 ensureInitialized 导致死锁）。
+      const countStmt = db.prepare('SELECT COUNT(*) as c FROM tax_holidays');
+      let count = 0;
+      try {
+        if (countStmt.step()) {
+          const row = countStmt.getAsObject() as { c: unknown };
+          count = Number(row.c) || 0;
+        }
+      } finally {
+        countStmt.free();
+      }
+      if (count === 0) {
+        const { SEED_HOLIDAYS_2026, SEED_HOLIDAYS_2027 } = await import('@/lib/tax-holidays');
+        const all = [...SEED_HOLIDAYS_2026, ...SEED_HOLIDAYS_2027];
+        const stmt = db.prepare('INSERT OR IGNORE INTO tax_holidays (id, date, name, type, isBuiltIn) VALUES (?, ?, ?, ?, ?)');
+        try {
+          for (const h of all) stmt.run([h.id, h.date, h.name, h.type, h.isBuiltIn ? 1 : 0]);
+          console.log(`[tax-holidays] Seeded ${all.length} holidays (2026-2027)`);
+        } finally {
+          stmt.free();
+        }
+        await this.persist();
+      }
+    } catch (error) {
+      console.warn('[tax-holidays] Seed failed:', error);
+    }
   }
 }
 
