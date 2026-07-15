@@ -744,7 +744,7 @@ export default function BankAccountsPage() {
                         </td>
                         <td className="px-4 py-3">
                           {cfg ? (
-                            <Badge className="bg-green-50 text-green-700 text-xs">{builtInConfigs.some(c => c.id === binding.bankId) ? '内置' : '自定义'} · {cfg.dateFormat}</Badge>
+                            <Badge className="bg-green-50 text-green-700 text-xs">已配置</Badge>
                           ) : (
                             <Badge className="bg-slate-50 text-slate-500 text-xs">未配置</Badge>
                           )}
@@ -769,44 +769,6 @@ export default function BankAccountsPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Custom Format Configs section — show if any exist */}
-      {customConfigs.length > 0 && (
-        <Card className="mt-6">
-          <CardHeader><CardTitle className="text-base">自定义格式配置</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {customConfigs.map(cfg => (
-              <div key={cfg.id} className="border rounded-lg p-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{cfg.name}</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {Object.entries(cfg.config.columnMapping || {}).map(([f, kws]) =>
-                      kws && kws.length > 0 && <Badge key={f} variant="secondary" className="text-[10px] py-0">{FIELD_LABELS[f] || f}: {kws[0]}</Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setTestConfig(cfg.config)} title="测试">
-                    <FlaskConical className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => {
-                    setConfirmDialog({
-                      open: true, title: '删除格式配置',
-                      description: `确定要删除「${cfg.name}」的解析格式配置吗？`,
-                      onConfirm: async () => {
-                        await sqliteService.deleteCustomBankConfig(cfg.id);
-                        loadCustomConfigs();
-                        showToast('success', '格式已删除');
-                        setConfirmDialog(null);
-                      },
-                    });
-                  }} title="删除格式"><Trash2 className="h-3.5 w-3.5" /></Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
 
       {/* FieldMappingCoach */}
       <FieldMappingCoach

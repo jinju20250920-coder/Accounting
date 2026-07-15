@@ -41,11 +41,12 @@ const OPTIONAL_FIELDS = [
   { key: 'time', label: '交易时间' },
 ];
 
+// 日期格式选项：UI 仅暴露三种常见格式；custom 能力在 date-handlers 底层保留，
+// 遇到三者都识别不了的文件会给提示，由用户从中选最接近的。
 const DATE_FORMATS = [
   { value: 'iso', label: 'ISO 格式 (2024-01-26)' },
   { value: 'excel_serial', label: 'Excel 序列号 (45292)' },
   { value: 'compact', label: '紧凑格式 (20240102)' },
-  { value: 'custom', label: '自定义格式' },
 ];
 
 /** Comprehensive keywords for fuzzy-matching each standard field */
@@ -144,6 +145,33 @@ function autoMatch(headers: string[]): { fieldMap: Record<string, string>; score
   return { fieldMap, scores };
 }
 
+/**
+ * 根据日期列实际样本值推断日期格式（投票取众数）。
+ * 8 位纯数字→compact；\d{4}-\d{1,2}-\d{1,2}→iso；5 位序列号(30000-99999)→excel_serial。
+ * 无法识别返回 null。
+ */
+function inferDateFormat(samples: string[]): 'iso' | 'compact' | 'excel_serial' | null {
+  const votes: Record<string, number> = {};
+  for (const raw of samples) {
+    const v = String(raw ?? '').trim();
+    if (!v) continue;
+    let fmt: 'iso' | 'compact' | 'excel_serial' | null = null;
+    if (/^\d{4}-\d{1,2}-\d{1,2}/.test(v)) fmt = 'iso';
+    else if (/^\d{8}$/.test(v)) fmt = 'compact';
+    else if (/^\d{5}$/.test(v)) {
+      const n = Number(v);
+      if (n >= 30000 && n <= 99999) fmt = 'excel_serial';
+    }
+    if (fmt) votes[fmt] = (votes[fmt] || 0) + 1;
+  }
+  let best: 'iso' | 'compact' | 'excel_serial' | null = null;
+  let bestN = 0;
+  for (const f of Object.keys(votes)) {
+    if (votes[f] > bestN) { best = f as 'iso' | 'compact' | 'excel_serial'; bestN = votes[f]; }
+  }
+  return best;
+}
+
 type Step = 0 | 1 | 2 | 3 | 4;
 
 export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initialConfig, editingRecordId }: FieldMappingCoachProps) {
@@ -156,6 +184,7 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
   const [matchScores, setMatchScores] = useState<Record<string, number>>({});
   const [dateFormat, setDateFormat] = useState('iso');
   const [customPattern, setCustomPattern] = useState('');
+  const [dateRecognized, setDateRecognized] = useState<boolean | null>(null);
   const [previewResult, setPreviewResult] = useState<BankStatementParseResult | null>(null);
   const [configName, setConfigName] = useState('自定义银行格式');
   const [loading, setLoading] = useState(false);
@@ -217,6 +246,8 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
       const { fieldMap: autoMap, scores } = autoMatch(headers);
       setFieldMap(autoMap);
       setMatchScores(scores);
+      // 新建（非编辑已存配置）时，根据日期列样本自动推断日期格式
+      inferDateColumn(data, headerIdx, autoMap.date);
 
       const matchCount = Object.keys(autoMap).length;
       if (matchCount > 0) {
@@ -264,6 +295,22 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
     });
   };
 
+  // 根据日期列实际样本值推断日期格式并预填（仅新建时；编辑已存配置时保留原格式）
+  const inferDateColumn = (data: string[][], headerIdx: number, dateColName?: string) => {
+    if (!dateColName) { setDateRecognized(false); return; }
+    const headers = getMergedHeaders(data, headerIdx);
+    const colIdx = headers.indexOf(dateColName);
+    if (colIdx < 0) { setDateRecognized(false); return; }
+    const samples: string[] = [];
+    for (let r = headerIdx + 1; r < data.length && samples.length < 8; r++) {
+      const v = String(data[r]?.[colIdx] ?? '').trim();
+      if (v) samples.push(v);
+    }
+    const inferred = inferDateFormat(samples);
+    if (inferred) { setDateFormat(inferred); setDateRecognized(true); }
+    else { setDateRecognized(false); }
+  };
+
   const guessHeaderRow = (data: string[][]): number => {
     // Prefer the row whose merged headers produce the most unique non-empty values
     let bestIdx = 0;
@@ -287,6 +334,7 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
     const { fieldMap: autoMap, scores } = autoMatch(headers);
     setFieldMap(autoMap);
     setMatchScores(scores);
+    inferDateColumn(rawRows, idx, autoMap.date);
   };
 
   const buildConfig = useCallback((): BankParserConfig => {
@@ -548,12 +596,11 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
                 ))}
               </SelectContent>
             </Select>
-            {dateFormat === 'custom' && (
-              <Input
-                placeholder="格式模式（如 yyyy-MM-dd-HHmm）"
-                value={customPattern}
-                onChange={(e) => setCustomPattern(e.target.value)}
-              />
+            {dateRecognized && (
+              <p className="text-xs text-green-600">✓ 已根据文件自动识别日期格式，可在上方调整</p>
+            )}
+            {dateRecognized === false && (
+              <p className="text-xs text-amber-600">⚠️ 未能自动识别日期格式，请根据上方样本值手动选择</p>
             )}
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(1)}>
