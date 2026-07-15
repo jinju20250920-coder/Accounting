@@ -234,28 +234,24 @@ export function FieldMappingCoach({ open, onClose, file, onConfigCreated, initia
   const getMergedHeaders = (data: string[][], idx: number): string[] => {
     const row = data[idx] || [];
     const prevRow = idx > 0 ? data[idx - 1] : null;
-    const nextRow = idx < data.length - 1 ? data[idx + 1] : null;
-    const maxCols = Math.max(row.length, prevRow?.length || 0, nextRow?.length || 0);
+    // ⚠️ 只合并上一行（与 engine.ts 的表头合并逻辑保持一致），不合并下一行。
+    // 下一行通常是数据行：把它合并进表头会让列名变成「列名+数据值」
+    // （如「记账日期20260405」）。autoMatch 靠子串仍能选中，但 buildConfig 会把这个
+    // 带数据值的字符串存进 columnMapping；engine 用纯表头反向匹配时失败
+    // （「记账日期」.includes(「记账日期20260405」) === false）→ 报「列匹配失败」。
+    const maxCols = Math.max(row.length, prevRow?.length || 0);
 
     const merged: string[] = [];
     for (let i = 0; i < maxCols; i++) {
       const cur = String(row[i] || '').trim();
       const prev = prevRow ? String(prevRow[i] || '').trim() : '';
-      const next = nextRow ? String(nextRow[i] || '').trim() : '';
 
-      // Start with previous + current (same as engine.ts)
       let combined = '';
       if (cur && prev && cur !== prev) {
         combined = prev + cur;
       } else {
         combined = cur || prev;
       }
-
-      // Append next row if it adds new info and isn't already included
-      if (next && !combined.includes(next)) {
-        combined = combined ? combined + next : next;
-      }
-
       merged.push(combined);
     }
 

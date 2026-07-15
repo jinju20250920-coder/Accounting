@@ -30,7 +30,6 @@ import {
   FileText,
   Calculator,
   CheckCircle,
-  Clock,
   AlertCircle,
   Download,
   Trash2,
@@ -39,24 +38,8 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { InvoiceSmartRuleDialog } from '@/components/invoice-smart-rule-dialog';
 import { sqliteService } from '@/lib/database/sqlite-service';
-import type { Invoice, InvoicePaymentStatus } from '@/types';
+import type { Invoice } from '@/types';
 import * as XLSX from 'xlsx';
-
-// 收款状态Badge
-function PaymentStatusBadge({ status }: { status: InvoicePaymentStatus }) {
-  const config = {
-    unpaid: { label: '未收款', className: 'bg-yellow-100 text-yellow-800', icon: Clock },
-    partial: { label: '部分收款', className: 'bg-blue-100 text-blue-800', icon: AlertCircle },
-    paid: { label: '已收款', className: 'bg-green-100 text-green-800', icon: CheckCircle },
-  };
-  const { label, className, icon: Icon } = config[status];
-  return (
-    <Badge variant="outline" className={className}>
-      <Icon className="h-3 w-3 mr-1" />
-      {label}
-    </Badge>
-  );
-}
 
 // 发票详情对话框
 function InvoiceDetailDialog({
@@ -159,17 +142,6 @@ function InvoiceDetailDialog({
                 <Label className="text-slate-500">价税合计</Label>
                 <p className="font-medium text-lg text-blue-600">¥{invoice.totalAmount.toFixed(2)}</p>
               </div>
-            </div>
-          </div>
-
-          {/* 收款状态 */}
-          <div className="border-t pt-4">
-            <h4 className="font-medium mb-2 text-slate-700">收款状态</h4>
-            <div className="flex items-center gap-4">
-              <PaymentStatusBadge status={invoice.paymentStatus} />
-              <span className="text-slate-500">
-                已收: ¥{invoice.paidAmount.toFixed(2)} / 剩余: ¥{(invoice.totalAmount - invoice.paidAmount).toFixed(2)}
-              </span>
             </div>
           </div>
 
@@ -669,7 +641,6 @@ export default function OutputInvoicePage() {
   };
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
   const [voucherStatusFilter, setVoucherStatusFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -722,10 +693,9 @@ export default function OutputInvoicePage() {
       searchQuery,
       startDate: dateRange.start,
       endDate: dateRange.end,
-      paymentStatus: paymentStatusFilter !== 'all' ? paymentStatusFilter as InvoicePaymentStatus : undefined,
       hasVoucher: voucherStatusFilter !== 'all' ? voucherStatusFilter === 'yes' : undefined,
     });
-  }, [searchQuery, dateRange, paymentStatusFilter, voucherStatusFilter, setFilter]);
+  }, [searchQuery, dateRange, voucherStatusFilter, setFilter]);
 
   const filteredInvoices = getFilteredInvoices();
 
@@ -826,10 +796,6 @@ export default function OutputInvoicePage() {
     totalAmount: filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0),
     amount: filteredInvoices.reduce((sum, inv) => sum + inv.amount, 0),
     taxAmount: filteredInvoices.reduce((sum, inv) => sum + (inv.taxAmount || 0), 0),
-    unpaidCount: filteredInvoices.filter(inv => inv.paymentStatus === 'unpaid').length,
-    unpaidAmount: filteredInvoices
-      .filter(inv => inv.paymentStatus === 'unpaid')
-      .reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0),
     noVoucherCount: filteredInvoices.filter(inv => !inv.voucherId).length,
   };
 
@@ -886,7 +852,7 @@ export default function OutputInvoicePage() {
       </div>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-6 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-500">发票数量</CardTitle>
@@ -917,15 +883,6 @@ export default function OutputInvoicePage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-purple-600">¥{stats.taxAmount.toFixed(2)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500">待收款</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.unpaidCount}</div>
-            <div className="text-sm text-slate-500">¥{stats.unpaidAmount.toFixed(2)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -973,17 +930,6 @@ export default function OutputInvoicePage() {
                 本月
               </Button>
             </div>
-            <Select value={paymentStatusFilter} onValueChange={setPaymentStatusFilter}>
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="收款状态" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部状态</SelectItem>
-                <SelectItem value="unpaid">未收款</SelectItem>
-                <SelectItem value="partial">部分收款</SelectItem>
-                <SelectItem value="paid">已收款</SelectItem>
-              </SelectContent>
-            </Select>
             <Select value={voucherStatusFilter} onValueChange={setVoucherStatusFilter}>
               <SelectTrigger className="w-32">
                 <SelectValue placeholder="凭证状态" />
@@ -1018,7 +964,6 @@ export default function OutputInvoicePage() {
                   <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">金额</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">税额</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-slate-500">含税金额</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">收款状态</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">凭证</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">业务组</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-slate-500">操作</th>
@@ -1056,9 +1001,6 @@ export default function OutputInvoicePage() {
                       <td className="px-4 py-3 text-right">¥{invoice.amount.toFixed(2)}</td>
                       <td className="px-4 py-3 text-right">¥{invoice.taxAmount?.toFixed(2) || '-'}</td>
                       <td className="px-4 py-3 text-right font-medium">¥{invoice.totalAmount.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-center">
-                        <PaymentStatusBadge status={invoice.paymentStatus} />
-                      </td>
                       <td className="px-4 py-3 text-center">
                         {invoice.voucherNo ? (
                           <Badge variant="outline" className="bg-green-100 text-green-800">
