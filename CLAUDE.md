@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Level 2（上下文学习）：利用 `useUserPreferenceStore` 记忆用户偏好
 - 匹配逻辑：`getSmartMatch()` 函数实现，支持双向匹配（摘要包含关键词/关键词包含摘要）
 - 匹配优先级：用户偏好（L2）> 预设规则（L1）
-- 已集成到银行流水智能匹配（`transaction-import.tsx` 的 `handleAutoMatch`）
+- 已集成到资金管理控制台银行流水匹配（`app/import/page.tsx` 的 `doImport` 内调用 `matchBankTransaction`）
 
 ### 3. 模板驱动自动化凭证生成
 - 核心思路：使用 `TemplateEngine` 和 VoucherTemplate 而非硬编码逻辑
@@ -165,7 +165,6 @@ src/
 │   │       └── utils/              # 规则工具函数
 │   ├── partner/                    # 往来单位组件（2个）
 │   ├── project/                    # 项目管理组件（9个）
-│   ├── transaction-import.tsx      # 银行流水导入（支持AI智能匹配）
 │   ├── cash-console/               # 资金管理控制台组件（4个）
 │   │   ├── account-selector.tsx    # 账户选择器（含"全部账户"选项）
 │   │   ├── cash-overview.tsx       # 概览卡片（期初/收入/支出/余额+对账差异）
@@ -176,7 +175,6 @@ src/
 │   ├── ai-learning-dashboard.tsx   # AI学习看板
 │   ├── ai-subject-recommendation.tsx # AI科目推荐
 │   ├── bank-account-selector.tsx   # 银行账户选择器
-│   ├── bank-format-selector.tsx    # 银行格式选择器（含自定义配置）
 │   ├── bank-format-test-dialog.tsx # 银行格式测试对话框
 │   ├── field-mapping-coach.tsx     # 自定义格式映射向导（5步，含模糊自动匹配）
 │   ├── invoice-subject-config-dialog.tsx # 发票科目映射规则配置
@@ -408,11 +406,11 @@ npm run lint
 
 持久化：`invoice_subject_rules` SQLite 表，`InvoiceSubjectRule` 类型定义
 
-### 银行流水自动凭证 (components/transaction-import.tsx)
-- `handleAutoMatch()` 使用 `getSmartMatch()` 进行AI智能匹配（L1 + L2）
-- `handleGenerateVouchers()` 批量生成凭证，支持银行科目选择
+### 银行流水自动凭证 (app/import/page.tsx)
+- 导入时按所选银行账户绑定的解析格式（内置/自定义）调用 `parseWithConfig`；未选账户或账户无格式时才回退内置自动识别
+- `doImport()` 内对每条流水跑 `matchBankTransaction`（L1 规则 + L2 用户偏好 + 往来默认科目）做智能匹配
+- `handleGenerateVouchers()` 批量生成凭证，支持银行科目选择、外币/多币别/伙伴维度（内联逻辑，不走 template-engine）
 - 银行流水数据通过 `sqliteService` 的 `bankTransactions` 表持久化
-- 导入页 "最近导入" 侧栏从数据库读取真实数据
 
 ### 多银行解析引擎 (lib/bank-parsers/)
 配置驱动的银行流水解析系统，支持14家内置银行 + 用户自定义格式：
@@ -567,8 +565,8 @@ npm run lint
 - 银行账户管理：引导式新增、编辑模式、Excel 批量导入、第15+银行走格式配置向导
 - 资金管理控制台：4区布局（账户选择器+概览卡片+操作中心+日记账明细表），起止期间范围选择
 - 银行子科目自动匹配：`bank-match.ts`（导入时匹配/创建 1002 子科目，写入 `isMonetary=true`）
-- 银行流水凭证生成采用 `transaction-import.tsx` 内联逻辑（支持 FX/多币别/伙伴维度），不走 template-engine — 引擎当前能力覆盖不到这些维度
-- 流水去重 key：`date+voucherNo+transactionSerialNo`
+- 银行流水凭证生成采用 `app/import/page.tsx` 内联逻辑（支持 FX/多币别/伙伴维度），不走 template-engine — 引擎当前能力覆盖不到这些维度
+- 流水去重 key：优先 `date+transactionSerialNo`（无凭证号的结息/收费等条目也命中），无流水号时退回 `date+voucherNo+transactionSerialNo`
 - 业务单据号：账户明细编号-交易流水号
 - 手动记一笔：`ManualEntryDialog`（source='manual'）
 - 银行列：`bank_account_bindings` → `BANK_BRANDS` 简称（如"建行"）
