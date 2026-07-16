@@ -87,6 +87,10 @@ export default function BankAccountsPage() {
   const [coachFile, setCoachFile] = useState<File | null>(null);
   const [editingConfig, setEditingConfig] = useState<BankParserConfig | undefined>(undefined);
   const [editingRecordId, setEditingRecordId] = useState<string | undefined>(undefined);
+  // 新建自定义银行时，配置格式阶段预生成的 bankId。必须与最终 binding.bankId 一致，
+  // 保证 FieldMappingCoach 保存的 customConfig.config.id === binding.bankId；
+  // 否则 getConfigForBank 按 config.id 匹配会查不到 → 列表显示「未配置」。
+  const [pendingNewBankId, setPendingNewBankId] = useState<string | undefined>(undefined);
   const formatFileRef = useRef<HTMLInputElement>(null);
 
   // Test dialog
@@ -177,6 +181,7 @@ export default function BankAccountsPage() {
     setEditingId(null);
     setFormData(emptyForm);
     setCustomBankName('');
+    setPendingNewBankId(undefined);
   };
 
   // Step 'info' → Step 'format' (or direct save for built-in banks)
@@ -214,7 +219,8 @@ export default function BankAccountsPage() {
 
   const handleSaveAccount = async () => {
     const isNewBank = formData.bankId === '__new__';
-    const bankId = isNewBank ? `custom_bank_${Date.now()}` : formData.bankId;
+    // 新建自定义银行：复用配置格式阶段预生成的 bankId，确保与 customConfig.config.id 一致
+    const bankId = isNewBank ? (pendingNewBankId || `custom_bank_${Date.now()}`) : formData.bankId;
     const bankName = isNewBank ? customBankName.trim() : formData.bankName;
     if (!bankName) { showToast('error', '银行名称缺失'); return; }
 
@@ -296,8 +302,17 @@ export default function BankAccountsPage() {
       // Detection failed, user will configure manually
     }
 
-    setEditingConfig(detectedConfig);
-    setEditingRecordId(undefined);
+    // 确定本账户的 bankId 作为 customConfig.config.id，保证 getConfigForBank(bankId) 能匹配：
+    //  - 编辑现有账户：用该账户 bankId（formData.bankId）
+    //  - 新建自定义银行：预生成 bankId 暂存，handleSaveAccount 会复用同一个
+    const bankId = editingId
+      ? formData.bankId
+      : (pendingNewBankId || `custom_bank_${Date.now()}`);
+    if (!editingId && !pendingNewBankId) setPendingNewBankId(bankId);
+    // 编辑时若该银行已有自定义格式记录，复用其 record id（更新而非新建）
+    const existingRecord = customConfigs.find(c => c.config.id === bankId);
+    setEditingConfig({ ...(detectedConfig || existingRecord?.config || ({} as BankParserConfig)), id: bankId });
+    setEditingRecordId(existingRecord?.id);
     setShowCoach(true);
     e.target.value = '';
   };
