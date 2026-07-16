@@ -365,6 +365,27 @@ export async function existsBankTransactionRecord(
   return rows.length > 0;
 }
 
+/**
+ * 按「日期 + 交易流水号」查重。
+ * 银行内部的结息/收费/罚没/退汇/手续费等条目通常没有凭证号（voucherNo 为空），
+ * 旧的三元组查重（date + voucherNo + transactionSerialNo）会因为 voucherNo 为空而整条跳过，
+ * 导致重复导入时这些条目被重复入库。交易流水号（账户明细编号-交易流水号）才是银行分配的
+ * 真正唯一 ID，且这类条目也都有值（如 "391-null"），所以改用它作主键。
+ */
+export async function existsBankTransactionBySerialRecord(
+  service: Pick<BankTransactionQueryService, 'queryAllAsync'>,
+  tenantId: string,
+  accountSetId: string,
+  date: string,
+  transactionSerialNo: string,
+): Promise<boolean> {
+  const rows = await service.queryAllAsync<Pick<BankTransactionRow, 'id'>>(
+    `SELECT id FROM bankTransactions WHERE tenantId = ? AND accountSetId = ? AND date = ? AND transactionSerialNo = ? LIMIT 1`,
+    [tenantId, accountSetId, date, transactionSerialNo],
+  );
+  return rows.length > 0;
+}
+
 export async function deleteBankTransactionRecord(
   service: Pick<BankTransactionQueryService, 'runAsync'>,
   tenantId: string,

@@ -55,6 +55,7 @@ import {
   deleteBankTransactionRecord,
   deleteBankTransactionsByBatchRecord,
   existsBankTransactionRecord,
+  existsBankTransactionBySerialRecord,
   findPostedBankTransactionRecord,
   getBankTransactionRecord,
   listBankTransactionsByBatchRecord,
@@ -4013,6 +4014,12 @@ class SQLiteService {
   async existsBankTransaction(date: string, voucherNo: string, transactionSerialNo: string): Promise<boolean> {
     await this.ensureInitialized();
     return await existsBankTransactionRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, date, voucherNo, transactionSerialNo);
+  }
+
+  /** 按「日期 + 交易流水号」查重（凭证号为空的结息/收费等条目用这个，不会漏） */
+  async existsBankTransactionBySerial(date: string, transactionSerialNo: string): Promise<boolean> {
+    await this.ensureInitialized();
+    return await existsBankTransactionBySerialRecord(this.getBankTransactionQueryService(), this.tenantId, this.accountSetId, date, transactionSerialNo);
   }
 
   async deleteBankTransaction(id: string): Promise<void> {

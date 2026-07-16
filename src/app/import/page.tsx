@@ -17,9 +17,10 @@ import { useAccountSetStore } from '@/stores/useAccountSetStore';
 import { generateVoucherNo } from '@/stores/useVoucherStore';
 import { useToast } from '@/components/ui/toast';
 import { parseBankStatement } from '@/lib/parser';
+import { parseWithConfig } from '@/lib/bank-parsers/engine';
 import { detectBank, getBestDetection } from '@/lib/bank-parsers/detector';
-import { getAllConfigs } from '@/lib/bank-parsers/bank-registry';
-import type { BankAccountBinding } from '@/lib/bank-parsers/types';
+import { getAllConfigs, getConfigById } from '@/lib/bank-parsers/bank-registry';
+import type { BankAccountBinding, BankParserConfig } from '@/lib/bank-parsers/types';
 import { matchBankTransaction } from '@/lib/accounting';
 import { autoMatchBankSubjects } from '@/lib/bank-match';
 import { getCurrentService } from '@/lib/database';
@@ -143,17 +144,39 @@ export default function ImportPage() {
       await waitForDbInit();
       const service = getCurrentService();
 
-      let bankId: string | undefined;
-      try {
-        const results = await detectBank(file, getAllConfigs());
-        const best = getBestDetection(results);
-        if (best) bankId = best.bankId;
-      } catch {}
+      // 优先用所选银行账户绑定的解析格式（内置或自定义）。
+      // 自定义格式 identifiers 为空，detectBank 无法自动识别，必须按账户显式定位，
+      // 否则用户在「银行账户管理」里配好的格式在这里根本不会被用到。
+      let accountConfig: BankParserConfig | undefined;
+      if (selectedAccountId && selectedAccountId !== 'all-accounts') {
+        const bindings = (await service.getBankAccountBindings?.()) || [];
+        const binding = bindings.find(b => b.id === selectedAccountId || b.bankId === selectedAccountId);
+        if (binding?.bankId) {
+          const customConfigs = await service.getCustomBankConfigs();
+          accountConfig = getConfigById(binding.bankId)
+            || customConfigs.find(c => c.config.id === binding.bankId)?.config;
+        }
+      }
 
-      const result: BankStatementParseResult = await parseBankStatement(file, bankId);
+      let result: BankStatementParseResult;
+      if (accountConfig) {
+        // 所选账户有格式：直接用，匹配「选了哪个账户就用哪个格式」的心智
+        result = await parseWithConfig(file, accountConfig);
+      } else {
+        // 所选账户未配格式 / 未选账户：回退到内置银行自动识别
+        let bankId: string | undefined;
+        try {
+          const results = await detectBank(file, getAllConfigs());
+          const best = getBestDetection(results);
+          if (best) bankId = best.bankId;
+        } catch {}
+        result = await parseBankStatement(file, bankId);
+      }
 
       if (result.transactions.length === 0) {
-        showToast('error', '未找到有效的交易记录');
+        // 把引擎给出的具体错误（列匹配失败 / 日期无法识别等）带出来，避免一句笼统提示
+        const detail = result.errors?.slice(0, 2).map(e => e.message).join('；');
+        showToast('error', detail ? `未找到有效的交易记录：${detail}` : '未找到有效的交易记录', 6000);
         setIsImporting(false);
         return;
       }
@@ -174,9 +197,12 @@ export default function ImportPage() {
 
       let dupCount = 0;
       for (const tx of result.transactions) {
-        if (tx.date && tx.voucherNo && tx.transactionSerialNo) {
-          const exists = await service.existsBankTransaction(tx.date, tx.voucherNo, tx.transactionSerialNo);
-          if (exists) dupCount++;
+        // 优先用「日期 + 交易流水号」查重：结息/收费/罚没等无凭证号条目也能命中
+        if (tx.date && tx.transactionSerialNo) {
+          if (await service.existsBankTransactionBySerial(tx.date, tx.transactionSerialNo)) dupCount++;
+        } else if (tx.date && tx.voucherNo) {
+          // 没有流水号时，退回「日期 + 凭证号 + 流水号」三元组
+          if (await service.existsBankTransaction(tx.date, tx.voucherNo, tx.transactionSerialNo)) dupCount++;
         }
       }
 
@@ -200,23 +226,33 @@ export default function ImportPage() {
     const service = getCurrentService();
     const batchId = `batch_${Date.now()}`;
 
-    const bankAccountNumber = result.bankInfo.accountNumber || '';
+    // 优先用「所选银行账户」的账号回填 ourAccount。自定义格式通常既没有 metaExtract 也没有
+    // 「本方账号」列映射，result.bankInfo.accountNumber 会是空 —— 流水落库后 ourAccount 为空，
+    // 而日记账 / 资金概览都按 ourAccount = 所选账号 过滤，就会出现「导入成功却看不到明细」。
+    const bankAccountNumber = selectedAccountNumber || result.bankInfo.accountNumber || '';
     console.log('[doImport] start:', {
       accountSetId: sqliteService.accountSetId,
       totalTransactions: result.transactions.length,
+      selectedAccountNumber,
       bankAccountNumber,
       bankInfo: result.bankInfo,
       skipCount,
     });
     const dedupedTransactions: BankTransaction[] = [];
     for (const tx of result.transactions) {
-      if (tx.date && tx.voucherNo && tx.transactionSerialNo) {
-        const exists = await service.existsBankTransaction(tx.date, tx.voucherNo, tx.transactionSerialNo);
-        if (exists) continue;
+      // 优先用「日期 + 交易流水号」查重：结息/收费/罚没等无凭证号条目也能命中，避免重复入库
+      let isDup = false;
+      if (tx.date && tx.transactionSerialNo) {
+        isDup = await service.existsBankTransactionBySerial(tx.date, tx.transactionSerialNo);
+      } else if (tx.date && tx.voucherNo) {
+        // 没有流水号时，退回「日期 + 凭证号 + 流水号」三元组
+        isDup = await service.existsBankTransaction(tx.date, tx.voucherNo, tx.transactionSerialNo);
       }
+      if (isDup) continue;
       dedupedTransactions.push({
         ...tx,
-        ourAccount: tx.ourAccount || bankAccountNumber,
+        // 所选账户优先（用户已明确选了账户，导入归到该账户）；未选账户时才退回文件解析出的账号
+        ourAccount: bankAccountNumber || tx.ourAccount,
         ourAccountName: tx.ourAccountName || result.bankInfo.accountName || '',
         importBatchId: batchId,
         status: 'pending',
