@@ -630,10 +630,37 @@ export default function BankAccountsPage() {
                       )}
                     </div>
                     {!isBuiltIn && (
-                      <Button variant="outline" size="sm" onClick={() => setWizardStep('format')}>
-                        <Upload className="h-3.5 w-3.5 mr-1" />
-                        {cfg ? '重新配置' : '配置格式'}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setWizardStep('format')}>
+                          <Upload className="h-3.5 w-3.5 mr-1" />
+                          {cfg ? '重新配置' : '配置格式'}
+                        </Button>
+                        {cfg && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={() => {
+                              const record = customConfigs.find(c => c.config.id === formData.bankId);
+                              if (!record) return;
+                              setConfirmDialog({
+                                open: true,
+                                title: '删除解析格式',
+                                description: `确定删除「${formData.bankName}」的自定义解析格式？删除后需重新配置才能导入流水。`,
+                                onConfirm: async () => {
+                                  await sqliteService.deleteCustomBankConfig(record.id);
+                                  await loadCustomConfigs();
+                                  showToast('success', '格式已删除');
+                                  setConfirmDialog(null);
+                                },
+                              });
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" />
+                            删除格式
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                   {!cfg && !isBuiltIn && (

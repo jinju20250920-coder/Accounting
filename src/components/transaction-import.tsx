@@ -291,6 +291,8 @@ export function TransactionImport({ importType, defaultBankAccountId, onImportCo
     }
 
     // Saved custom config: use it directly
+    // selectedBankId 形如 'custom_<recordId>'（BankFormatSelector 用 record 主键 id 作为 value），
+    // 所以按 record 主键 id 匹配自定义格式记录。
     if (selectedBankId.startsWith('custom_')) {
       setIsProcessing(true);
       setParseErrors([]);
