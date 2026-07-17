@@ -5,26 +5,18 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { DatabaseSwitcher } from '@/components/database/database-switcher';
 import {
-  Home,
-  FileText,
   Calculator,
-  FileSpreadsheet,
-  Users,
   Building2,
   RefreshCw,
-  Upload,
-  Settings,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  FolderKanban,
   Check,
   Key,
   Package,
   LogOut,
   KeyRound,
   User,
-  WalletCards,
   Sparkles,
   ShieldCheck,
   Gift,
@@ -33,6 +25,7 @@ import {
   Star,
   Tag,
 } from 'lucide-react';
+import { menuItems } from '@/lib/nav-menu';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -53,57 +46,6 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useToast } from '@/components/ui/toast';
 import { ChangePasswordDialog } from '@/components/shared/change-password-dialog';
 import { sqliteService } from '@/lib/database/sqlite-service';
-
-const menuItems = [
-  { icon: Home, label: '智能做账', path: '/', permission: '' },
-  { icon: FolderKanban, label: '凭证', path: '/voucher-entry-page', permission: 'voucher:view', children: [
-    { label: '新增凭证', path: '/voucher-entry-page', permission: 'voucher:create' },
-    { label: '查看凭证', path: '/voucher-list', permission: 'voucher:view' },
-  ]},
-  { icon: Calculator, label: '科目余额', path: '/balance', permission: 'report:view' },
-  { icon: FileSpreadsheet, label: '报表查询', path: '/reports', permission: 'report:view', children: [
-    { label: '资产负债表', path: '/reports/assets', permission: 'report:view' },
-    { label: '损益表', path: '/reports/profit', permission: 'report:view' },
-    { label: '现金流量表', path: '/reports/cashflow', permission: 'report:view' },
-  ]},
-  { icon: Users, label: '往来管理', path: '/aging', permission: 'partner:view', children: [
-    { label: '往来单位管理', path: '/partner-dashboard', permission: 'partner:view' },
-    { label: '应收明细', path: '/aging/ar', permission: 'partner:view' },
-    { label: '应付明细', path: '/aging/ap', permission: 'partner:view' },
-  ]},
-  { icon: Upload, label: '资金管理', path: '/import', permission: 'fund:view', children: [
-    { label: '银行流水导入', path: '/import', permission: 'fund:view' },
-    { label: '资金结算中心', path: '/fund-hub', permission: 'fund:view' },
-  ]},
-  { icon: FileText, label: '发票管理', path: '/invoices', permission: 'invoice:view', children: [
-    { label: '进项发票', path: '/invoices/input', permission: 'invoice:view' },
-    { label: '销项发票', path: '/invoices/output', permission: 'invoice:view' },
-    { label: '发票资金一览表', path: '/invoices/summary', permission: 'invoice:view' },
-  ]},
-  { icon: WalletCards, label: '薪酬管理', path: '/payroll', permission: 'voucher:view', children: [
-    { label: '工资管理', path: '/payroll', permission: 'voucher:view' },
-    { label: '工资报表', path: '/payroll/report', permission: 'voucher:view' },
-  ]},
-  { icon: Package, label: '资产管理', path: '/assets', permission: 'asset:view', children: [
-    { label: '固定资产', path: '/assets/fixed', permission: 'asset:view' },
-    { label: '固定资产汇总表', path: '/assets/summary', permission: 'asset:view' },
-    { label: '待摊费用', path: '/assets/prepaid', permission: 'asset:view' },
-  ]},
-  { icon: Building2, label: '账套管理', path: '/sets', permission: 'accountset:view' },
-  { icon: RefreshCw, label: '汇兑损益', path: '/exchange', permission: 'voucher:view' },
-  { icon: Settings, label: '基础档案', path: '/settings', permission: 'settings:view', children: [
-    { label: '科目管理', path: '/settings/subjects', permission: 'settings:view' },
-    { label: '部门管理', path: '/settings/departments', permission: 'settings:view' },
-    { label: '项目管理', path: '/settings/projects', permission: 'settings:view' },
-    { label: '往来单位管理', path: '/settings/auxiliary', permission: 'settings:view' },
-    { label: '币别管理', path: '/settings/currencies', permission: 'settings:view' },
-    { label: '常用摘要库', path: '/settings/summaries', permission: 'settings:view' },
-    { label: '凭证模版', path: '/settings/templates', permission: 'settings:view' },
-    { label: '银行账户', path: '/settings/bank-accounts', permission: 'settings:view' },
-    { label: '用户管理', path: '/settings/users', permission: 'user:view' },
-    { label: '角色权限', path: '/settings/roles', permission: 'user:view' },
-  ]},
-];
 
 // 授权激活对话框
 function LicenseActivationDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
