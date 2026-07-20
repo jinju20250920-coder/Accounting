@@ -1,6 +1,6 @@
 import {
   Home, FolderKanban, Calculator, FileSpreadsheet, Users, Upload,
-  FileText, WalletCards, Package, Building2, RefreshCw, Settings,
+  FileText, WalletCards, Package, Building2, RefreshCw, Settings, CalendarClock,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -39,6 +39,7 @@ export const menuItems: MenuItem[] = [
     { label: '销项发票', path: '/invoices/output', permission: 'invoice:view' },
     { label: '发票资金一览表', path: '/invoices/summary', permission: 'invoice:view' },
   ]},
+  { icon: CalendarClock, label: '税务管理', path: '/tax', permission: 'voucher:view' },
   { icon: WalletCards, label: '薪酬管理', path: '/payroll', permission: 'voucher:view', children: [
     { label: '工资管理', path: '/payroll', permission: 'voucher:view' },
     { label: '工资报表', path: '/payroll/report', permission: 'voucher:view' },
