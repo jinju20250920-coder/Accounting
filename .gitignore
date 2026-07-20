@@ -55,3 +55,6 @@ node_modules/
 
 # Config files outside repo
 C:Usersadmin.cc-connectconfig.toml
+
+# Claude Code local settings (per-user, not for commit)
+.claude/settings.local.json
