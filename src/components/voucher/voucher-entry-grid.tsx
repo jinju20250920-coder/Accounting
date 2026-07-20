@@ -672,7 +672,7 @@ export function VoucherEntryGrid() {
       }
 
       if (result.entries.length > 0) {
-        pasteEntries(result.entries);
+        pasteEntries(result.entries as any);
         toast({
           title: "粘贴成功",
           description: `已添加 ${result.entries.length} 条分录`

@@ -15,7 +15,7 @@ import { getCurrentManager } from '@/lib/database';
 import { sqliteService } from '@/lib/database/sqlite-service';
 import { useAccountSetStore } from './useAccountSetStore';
 import { getErrorMessage } from '@/lib/utils';
-import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
+import type { SqlValue } from '@/lib/database/sqlite-manager';
 import {
   calculateAmortization,
   getAmortizationMethodName,
@@ -567,7 +567,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
          FROM intangibleChangeRecords WHERE assetId = ? AND tenantId = ? ORDER BY changeDate ASC, createTime ASC`,
         [assetId, sqliteService.tenantId]
       );
-      return result[0]?.values?.map((row: SqliteBindable[]) => ({
+      return result[0]?.values?.map((row: SqlValue[]) => ({
         id: String(row[0] ?? ''),
         assetId: String(row[1] ?? ''),
         assetCode: String(row[2] ?? ''),
@@ -629,7 +629,7 @@ export const useIntangibleAssetStore = create<IntangibleAssetStore>((set, get) =
          AND (accountSetId = ? OR accountSetId IS NULL)`,
         [originalVoucherId, sqliteService.tenantId, accountSetId]
       );
-      const rows: SqliteBindable[][] = result[0]?.values ?? [];
+      const rows: SqlValue[][] = result[0]?.values ?? [];
       if (rows.length === 0) return;
 
       const today = new Date().toISOString().slice(0, 10);

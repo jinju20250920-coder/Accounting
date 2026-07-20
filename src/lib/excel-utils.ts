@@ -38,7 +38,7 @@ export const exportToExcel = <T extends Record<string, unknown>>(
 };
 
 // 导入Excel文件
-export const importFromExcel = <T extends Record<string, unknown>>(
+export const importFromExcel = <T extends object>(
   file: File,
   headers: { key: string; label: string; required?: boolean }[]
 ): Promise<T[]> => {

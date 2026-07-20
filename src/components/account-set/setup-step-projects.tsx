@@ -16,6 +16,7 @@ import {
 import { useFinancialProjectStore } from '@/stores/useFinancialProjectStore';
 import { useToast } from '@/components/ui/toast';
 import { importFromExcel, exportTemplate } from '@/lib/excel-utils';
+import type { Project } from '@/types';
 
 interface SetupStepProjectsProps {
   accountSetId: string;
@@ -112,7 +113,7 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
 
     try {
       const rawData = await importFromExcel<ProjectRow>(file, PROJECT_IMPORT_HEADERS);
-      const toImport: ProjectRow[] = [];
+      const toImport: Omit<Project, 'id'>[] = [];
       let skipped = 0;
 
       for (const row of rawData) {
@@ -139,7 +140,7 @@ export function SetupStepProjects({ accountSetId }: SetupStepProjectsProps) {
       }
 
       if (toImport.length > 0) {
-        await importProjects(toImport);
+        await importProjects(toImport as Project[]);
       }
 
       if (skipped > 0) {

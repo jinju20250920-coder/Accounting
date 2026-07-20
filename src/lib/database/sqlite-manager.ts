@@ -2,7 +2,7 @@
 
 import { buildPartnerInsert } from './services/partner-sqlite-service';
 
-type SqlValue = string | number | Uint8Array | null;
+export type SqlValue = string | number | Uint8Array | null;
 
 interface SqlResult {
   columns: string[];

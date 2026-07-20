@@ -30,6 +30,7 @@ import type {
   FixedAsset,
   Subject,
   DepreciationMethod,
+  AssetCategoryMapping,
 } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -563,10 +564,17 @@ function matchAssetCategory(invoice: Invoice, assetMappings: AssetCategoryMappin
   // Default asset category if no mapping found (for high-value items)
   if (invoice.totalAmount >= 10000) {
     return {
+      id: 'default-other-fixed',
+      accountSetId: '',
+      keywords: [],
       assetCategory: '其他固定资产',
       depreciationYears: 5,
       depreciationMethod: 'straight_line',
       subjectCode: '1601',
+      residualRate: 0.05,
+      isSystem: true,
+      createTime: new Date().toISOString(),
+      updateTime: new Date().toISOString(),
     };
   }
 

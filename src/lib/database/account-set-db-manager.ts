@@ -7,7 +7,7 @@
 type SqlValue = string | number | Uint8Array | null;
 
 import { sqliteService } from './sqlite-service';
-import { buildPartnerInsert } from './services/partner-sqlite-service';
+import { buildPartnerInsert, type PartnerInsertInput } from './services/partner-sqlite-service';
 
 export interface AccountSetInfo {
   id: string;
@@ -311,7 +311,7 @@ class AccountSetDbManager {
     try {
       // Import vouchers
       if (data.vouchers) {
-        for (const voucher of data.vouchers) {
+        for (const voucher of data.vouchers as Record<string, unknown>[]) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO vouchers (
               id, voucherNo, date, status, summary, creator, reviewer, poster,
@@ -332,7 +332,7 @@ class AccountSetDbManager {
 
       // Import entries
       if (data.entries) {
-        for (const entry of data.entries) {
+        for (const entry of data.entries as Record<string, unknown>[]) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO entries (
               id, voucherId, subjectCode, subjectName, direction, debit, credit,
@@ -357,7 +357,7 @@ class AccountSetDbManager {
 
       // Import subjects
       if (data.subjects) {
-        for (const subject of data.subjects) {
+        for (const subject of data.subjects as Record<string, unknown>[]) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO subjects (
               id, code, name, parentId, level, type, direction, balance,
@@ -390,7 +390,7 @@ class AccountSetDbManager {
         const records = data[table.name];
         if (!records) continue;
         const placeholders = table.cols.split(', ').map(() => '?').join(', ');
-        for (const record of records) {
+        for (const record of records as Record<string, unknown>[]) {
           try {
             const stmt = db.prepare(
               `INSERT OR REPLACE INTO ${table.name} (${table.cols}) VALUES (${placeholders})`
@@ -409,13 +409,13 @@ class AccountSetDbManager {
 
       if (data.partners) {
         const now = new Date().toISOString();
-        for (const partner of data.partners) {
+        for (const partner of data.partners as Record<string, unknown>[]) {
           const insert = buildPartnerInsert(
             {
               ...partner,
-              taxNo: partner.taxNo ?? partner.taxNumber,
+              taxNo: (partner.taxNo ?? partner.taxNumber) as string | undefined,
               accountSetId,
-            },
+            } as PartnerInsertInput,
             sqliteService.tenantId,
             accountSetId,
             now,
@@ -430,7 +430,7 @@ class AccountSetDbManager {
       }
 
       if (data.fxRates) {
-        for (const rate of data.fxRates) {
+        for (const rate of data.fxRates as Record<string, unknown>[]) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO fxRates (
               id, accountSetId, rateDate, currencyCode, baseCurrency, middleRate, source, createTime, updateTime
@@ -452,7 +452,7 @@ class AccountSetDbManager {
       }
 
       if (data.fxRevaluationRuns) {
-        for (const run of data.fxRevaluationRuns) {
+        for (const run of data.fxRevaluationRuns as Record<string, unknown>[]) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO fxRevaluationRuns (
               id, accountSetId, period, baseCurrency, status, scope, revaluationDate,
@@ -477,7 +477,7 @@ class AccountSetDbManager {
       }
 
       if (data.fxRevaluationRunLines) {
-        for (const line of data.fxRevaluationRunLines) {
+        for (const line of data.fxRevaluationRunLines as Record<string, unknown>[]) {
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO fxRevaluationRunLines (
               id, runId, accountSetId, sourceType, sourceId, sourceNo, currencyCode,

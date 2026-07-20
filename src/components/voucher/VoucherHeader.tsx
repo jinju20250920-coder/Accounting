@@ -457,7 +457,7 @@ export function VoucherHeader() {
           }
 
           // 直接保存到数据库
-          await getCurrentService().saveVoucher(newVoucher)
+          await getCurrentService().saveVoucher(newVoucher as any)
           results.push(result)
         } catch (error) {
           console.error('导入凭证失败:', voucherData.voucherNo, error)

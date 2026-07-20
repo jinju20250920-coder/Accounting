@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Popover } from '@/components/ui/popover';
 import { Search, X } from 'lucide-react';
 import { useVoucherStore } from '@/stores/useVoucherStore';
-import type { Voucher } from '@/lib';
+import type { Voucher } from '@/types';
 
 interface VoucherSearchPopoverProps {
   value?: { voucherId: string; voucherNo: string } | null;

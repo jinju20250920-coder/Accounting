@@ -438,7 +438,7 @@ export default function ImportPage() {
 
       // 外币字段：优先绑定币别 → 交易 FX 字段 → 摘要解析 (USD@rate) 兜底
       const txBinding = tx.ourAccount ? bindingsByAccount.get(tx.ourAccount) : null;
-      const bindingCurrency = txBinding?.currency || txBinding?.currencyCode || 'CNY';
+      const bindingCurrency = txBinding?.currency || 'CNY';
       const txOriginal = tx.originalAmount as number | undefined;
       const txRate = tx.exchangeRate as number | undefined;
       const summaryFxMatch = (tx.summary || '').match(/\(([A-Z]{3})@([\d.]+)\)/);

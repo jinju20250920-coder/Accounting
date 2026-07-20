@@ -1762,7 +1762,7 @@ export default function FixedAssetsPage() {
                             onClick={() => {
                               const isIntangible = categories.find(c => c.id === asset.categoryId)?.assetType === 'intangible';
                               if (isIntangible) {
-                                setSelectedIntangibleAsset(asset);
+                                setSelectedIntangibleAsset(asset as unknown as IntangibleAsset);
                                 setShowIntangibleLedger(true);
                               } else {
                                 setSelectedAsset(asset);

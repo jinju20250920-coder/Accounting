@@ -5,7 +5,7 @@ import { getCurrentManager, sqliteService } from '@/lib/database';
 import { useAccountSetStore } from './useAccountSetStore';
 import { calculatePeriodAmount } from '@/lib/amortization';
 import { generateId, getErrorMessage } from '@/lib/utils';
-import type { SqliteBindable } from '@/lib/database/services/fixed-asset-sqlite-service';
+import type { SqlValue } from '@/lib/database/sqlite-manager';
 import type {
   PrepaidExpense,
   AmortizationRecord,
@@ -549,7 +549,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
          FROM prepaidChangeRecords WHERE assetId = ? AND tenantId = ? AND accountSetId = ? ORDER BY changeDate ASC, createTime ASC`,
         [expenseId, sqliteService.tenantId, sqliteService.accountSetId]
       );
-      return result[0]?.values?.map((row: SqliteBindable[]) => ({
+      return result[0]?.values?.map((row: SqlValue[]) => ({
         id: String(row[0] ?? ''),
         assetId: String(row[1] ?? ''),
         assetCode: String(row[2] ?? ''),
@@ -611,7 +611,7 @@ export const usePrepaidExpenseStore = create<PrepaidExpenseStore>((set, get) => 
          AND tenantId = ? AND (accountSetId = ? OR accountSetId IS NULL)`,
         [originalVoucherId, sqliteService.tenantId, accountSetId]
       );
-      const rows: SqliteBindable[][] = result[0]?.values ?? [];
+      const rows: SqlValue[][] = result[0]?.values ?? [];
       if (rows.length === 0) return;
 
       const today = new Date().toISOString().slice(0, 10);
