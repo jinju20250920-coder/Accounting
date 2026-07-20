@@ -26,8 +26,8 @@ import { useToast } from '@/components/ui/toast';
 import { exportToExcel } from '@/lib/excel-utils';
 
 // 现金流量项目配置
-type CashFlowItem = { key: string; label: string; type: 'inflow' | 'outflow' | 'subtotal' | 'net' };
-const CASH_FLOW_ITEMS = {
+type CashFlowItem = { key: string; label: string; type: 'inflow' | 'outflow' | 'subtotal' | 'net' | 'balance' };
+const CASH_FLOW_ITEMS: Record<string, { label: string; items: CashFlowItem[] }> = {
   operating: {
     label: '一、经营活动产生的现金流量',
     items: [
@@ -128,7 +128,7 @@ export default function CashflowPage() {
     periodVouchers.forEach(voucher => {
       voucher.entries.forEach(entry => {
         const subject = subjects.find(s => s.code === entry.subjectCode);
-        const cashFlowItem = subject?.cashFlowItem;
+        const cashFlowItem = entry.cashFlowItem;
 
         // 如果该科目指定了现金流量项目，则计入对应项目
         if (cashFlowItem && data[cashFlowItem] !== undefined) {
@@ -218,7 +218,7 @@ export default function CashflowPage() {
   }, [vouchers, subjects, period]);
 
   const handleExport = () => {
-    const exportData: Array<Array<string | number>> = [];
+    const exportData: Array<Record<string, string | number>> = [];
 
     Object.entries(CASH_FLOW_ITEMS).forEach(([categoryKey, category]) => {
       exportData.push({ '项目': category.label, '行次': '', '金额': '' });
