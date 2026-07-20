@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { CurrentPeriodWrapper } from '@/components/layout/current-period-wrapper';
 import { PageKeeper } from '@/components/layout/page-keeper';
+import { TabBar } from '@/components/layout/tab-bar';
 import { GlobalErrorProvider } from '@/components/error-boundary';
 import { DatabaseSyncWrapper } from '@/components/DatabaseSyncWrapper';
 import { FirstTimeWrapper } from '@/components/database/first-time-wrapper';
@@ -29,6 +30,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <Sidebar />
           <div className="flex-1 flex flex-col overflow-hidden">
             <CurrentPeriodWrapper />
+            <TabBar />
             <div className="flex-1 overflow-auto">
               <PageKeeper pathname={pathname}>{children}</PageKeeper>
             </div>
