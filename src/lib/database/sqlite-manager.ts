@@ -9,10 +9,18 @@ interface SqlResult {
   values: SqlValue[][];
 }
 
+interface SqliteStatement {
+  run(values?: SqlValue[]): void;
+  step(): boolean;
+  getAsObject(): Record<string, SqlValue>;
+  free(): void;
+}
+
 interface SqliteDatabase {
   exec(sql: string, params?: SqlValue[]): SqlResult[];
   export(): Uint8Array;
   run(sql: string, params?: SqlValue[]): void;
+  prepare(sql: string): SqliteStatement;
 }
 
 // File System Access API types
@@ -75,7 +83,7 @@ class SQLiteManager {
         console.log('File System Access API is supported, database can be stored on disk');
       } else {
         // Fallback: detect OPFS
-        this.useOPFS = 'storage' in navigator && 'getDirectory' in (navigator.storage as Storage & { getDirectory?: unknown });
+        this.useOPFS = 'storage' in navigator && !!navigator.storage && typeof navigator.storage.getDirectory === 'function';
         if (this.useOPFS) {
           console.log('OPFS is supported, database will be stored in persistent file storage');
         } else {
@@ -189,7 +197,7 @@ class SQLiteManager {
   private async initializeOPFSDatabase(SQL: { Database: new (data?: Uint8Array) => SqliteDatabase }): Promise<void> {
     try {
       // Get the OPFS root directory.
-      const opfsRoot = await (navigator.storage as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
+      const opfsRoot = await navigator.storage.getDirectory();
 
       // Check whether the database file exists.
       let dbExists = false;
@@ -203,7 +211,7 @@ class SQLiteManager {
 
       if (dbExists) {
         // Open the existing file and load data.
-        this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME);
+        this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME) as unknown as FileSystemHandleHelper;
         const file = await this.opfsHandle.getFile();
         const arrayBuffer = await file.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
@@ -229,7 +237,7 @@ class SQLiteManager {
         }
       } else {
         // Create a new database file.
-        this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME, { create: true });
+        this.opfsHandle = await opfsRoot.getFileHandle(this.DB_FILE_NAME, { create: true }) as unknown as FileSystemHandleHelper;
         this.db = new SQL.Database();
         this.createTables();
         console.log('SQLite database initialized successfully (new OPFS database)');
@@ -278,7 +286,7 @@ class SQLiteManager {
         const data = this.db.export();
 
         if (this.isElectron) {
-          await window.electronAPI.saveDb(Array.from(new Uint8Array(data)));
+          await window.electronAPI.saveDb(data);
         } else if (this.useOPFS) {
           await this.saveOPFSDatabase(data);
         } else if (!this.isBrowser) {
@@ -336,7 +344,7 @@ class SQLiteManager {
   async clearCorruptedData(): Promise<void> {
     try {
       if (this.useOPFS) {
-        const opfsRoot = await (navigator.storage as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
+        const opfsRoot = await navigator.storage.getDirectory();
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
         console.log('Corrupted OPFS database file cleared');
@@ -389,7 +397,7 @@ class SQLiteManager {
     }
 
     try {
-      const estimate = await (navigator.storage as Storage & { estimate(): Promise<{ usage?: number; quota?: number }> }).estimate();
+      const estimate = await navigator.storage.estimate();
       return {
         usage: estimate.usage || 0,
         quota: estimate.quota || 0
@@ -1583,7 +1591,7 @@ class SQLiteManager {
       const template: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         const value = row[idx];
-        template[col] = col === 'entries' || col === 'validations' || col === 'variables' ? JSON.parse(value) : value;
+        template[col] = col === 'entries' || col === 'validations' || col === 'variables' ? JSON.parse(value as string) : value;
       });
       return template;
     }) || [];
@@ -1612,7 +1620,7 @@ class SQLiteManager {
       const pref: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         const value = row[idx];
-        pref[col] = col === 'value' ? JSON.parse(value) : value;
+        pref[col] = col === 'value' ? JSON.parse(value as string) : value;
       });
       return pref;
     }) || [];
@@ -1623,7 +1631,7 @@ class SQLiteManager {
       const log: Record<string, SqlValue> = {};
       columns.forEach((col: string, idx: number) => {
         const value = row[idx];
-        log[col] = col === 'details' ? JSON.parse(value) : value;
+        log[col] = col === 'details' ? JSON.parse(value as string) : value;
       });
       return log;
     }) || [];
@@ -1656,6 +1664,16 @@ class SQLiteManager {
   }
 
   async importData(data: Record<string, unknown>): Promise<void> {
+    // 内部使用：调用方负责传入结构正确的导出对象。字段在运行时按需访问。
+    const d = data as {
+      vouchers?: any[];
+      entries?: any[];
+      subjects?: any[];
+      departments?: any[];
+      projects?: any[];
+      currencies?: any[];
+      [key: string]: any[];
+    };
     const db = this.getDatabase();
     const accountSetId = this.getCurrentAccountSetId();
 
@@ -1665,8 +1683,8 @@ class SQLiteManager {
 
     try {
       // Import vouchers and entries
-      if (data.vouchers) {
-        for (const voucher of data.vouchers) {
+      if (d.vouchers) {
+        for (const voucher of d.vouchers) {
           const voucherWithAccountSet = { ...voucher, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO vouchers (
@@ -1736,8 +1754,8 @@ class SQLiteManager {
       }
 
       // Import subjects
-      if (data.subjects) {
-        for (const subject of data.subjects) {
+      if (d.subjects) {
+        for (const subject of d.subjects) {
           const subjectWithAccountSet = { ...subject, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO subjects (
@@ -1766,8 +1784,8 @@ class SQLiteManager {
       }
 
       // Import departments
-      if (data.departments) {
-        for (const dept of data.departments) {
+      if (d.departments) {
+        for (const dept of d.departments) {
           const deptWithAccountSet = { ...dept, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO departments (
@@ -1792,8 +1810,8 @@ class SQLiteManager {
       }
 
       // Import projects
-      if (data.projects) {
-        for (const project of data.projects) {
+      if (d.projects) {
+        for (const project of d.projects) {
           const projectWithAccountSet = { ...project, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO projects (
@@ -1815,8 +1833,8 @@ class SQLiteManager {
       }
 
       // Import currencies
-      if (data.currencies) {
-        for (const currency of data.currencies) {
+      if (d.currencies) {
+        for (const currency of d.currencies) {
           const currencyWithAccountSet = { ...currency, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO currencies (
@@ -1839,15 +1857,16 @@ class SQLiteManager {
       }
 
       // Import partners
-      if (data.partners) {
+      if (d.partners) {
         const now = new Date().toISOString();
-        for (const partner of data.partners) {
+        for (const partner of d.partners) {
           const insert = buildPartnerInsert(
             {
               ...partner,
               taxNo: partner.taxNo ?? partner.taxNumber,
               accountSetId,
             },
+            partner.tenantId ?? '',
             accountSetId,
             now,
           );
@@ -1861,8 +1880,8 @@ class SQLiteManager {
       }
 
       // Import voucher templates
-      if (data.voucherTemplates) {
-        for (const template of data.voucherTemplates) {
+      if (d.voucherTemplates) {
+        for (const template of d.voucherTemplates) {
           const templateWithAccountSet = { ...template, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO voucherTemplates (
@@ -1887,8 +1906,8 @@ class SQLiteManager {
       }
 
       // Import common summaries
-      if (data.commonSummaries) {
-        for (const summary of data.commonSummaries) {
+      if (d.commonSummaries) {
+        for (const summary of d.commonSummaries) {
           const summaryWithAccountSet = { ...summary, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO commonSummaries (
@@ -1908,8 +1927,8 @@ class SQLiteManager {
       }
 
       // Import user preferences
-      if (data.preferences) {
-        for (const pref of data.preferences) {
+      if (d.preferences) {
+        for (const pref of d.preferences) {
           const prefWithAccountSet = { ...pref, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO userPreferences (
@@ -1931,8 +1950,8 @@ class SQLiteManager {
       }
 
       // Import audit logs
-      if (data.auditLogs) {
-        for (const log of data.auditLogs) {
+      if (d.auditLogs) {
+        for (const log of d.auditLogs) {
           const logWithAccountSet = { ...log, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO auditLogs (
@@ -1954,8 +1973,8 @@ class SQLiteManager {
       }
 
       // Import rec relations
-      if (data.recRelations) {
-        for (const relation of data.recRelations) {
+      if (d.recRelations) {
+        for (const relation of d.recRelations) {
           const relationWithAccountSet = { ...relation, accountSetId };
           const stmt = db.prepare(`
             INSERT OR REPLACE INTO recRelations (
@@ -2066,7 +2085,7 @@ class SQLiteManager {
   async resetDatabase(): Promise<void> {
     try {
       if (this.useOPFS) {
-        const opfsRoot = await (navigator.storage as Storage & { getDirectory(): Promise<FileSystemDirectoryHandle> }).getDirectory();
+        const opfsRoot = await navigator.storage.getDirectory();
         await opfsRoot.removeEntry(this.DB_FILE_NAME);
         this.opfsHandle = null;
       } else {
