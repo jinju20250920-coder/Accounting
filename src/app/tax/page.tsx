@@ -12,6 +12,8 @@ export default function TaxPage() {
   const initialize = useTaxStore(s => s.initialize);
   const ensureCurrentPeriodFilings = useTaxStore(s => s.ensureCurrentPeriodFilings);
   const [tab, setTab] = useState('filings');
+  const [jumpKey, setJumpKey] = useState(0);
+  const [jumpFilters, setJumpFilters] = useState<{ taxItemId?: string; taxPeriod?: string }>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -37,14 +39,22 @@ export default function TaxPage() {
           <TabsTrigger value="items">税种配置</TabsTrigger>
           <TabsTrigger value="calendar">申报日历</TabsTrigger>
         </TabsList>
-        <TabsContent value="filings"><TaxFilingsTab /></TabsContent>
+        <TabsContent value="filings">
+          <TaxFilingsTab
+            key={jumpKey}
+            initialTaxFilter={jumpFilters.taxItemId}
+            initialPeriodFilter={jumpFilters.taxPeriod}
+          />
+        </TabsContent>
         <TabsContent value="items"><TaxItemsTab /></TabsContent>
         <TabsContent value="calendar">
-          <TaxCalendarTab onJumpToFiling={(taxItemId, taxPeriod) => {
-            setTab('filings');
-            // Note: TaxFilingsTab would need to accept filter props to auto-filter by these values
-            // For now, just switching to the filings tab is sufficient
-          }} />
+          <TaxCalendarTab
+            onJumpToFiling={(taxItemId, taxPeriod) => {
+              setJumpFilters({ taxItemId, taxPeriod });
+              setJumpKey(k => k + 1);
+              setTab('filings');
+            }}
+          />
         </TabsContent>
       </Tabs>
     </div>

@@ -57,7 +57,12 @@ function AmountInput({
   );
 }
 
-export function TaxFilingsTab() {
+interface TaxFilingsTabProps {
+  initialTaxFilter?: string;
+  initialPeriodFilter?: string;
+}
+
+export function TaxFilingsTab({ initialTaxFilter, initialPeriodFilter }: TaxFilingsTabProps = {}) {
   const router = useRouter();
   const taxFilings = useTaxStore(s => s.taxFilings);
   const taxItems = useTaxStore(s => s.taxItems);
@@ -68,9 +73,9 @@ export function TaxFilingsTab() {
   const hasVoucherPermission = usePermission('voucher');
   const { toast } = useToast();
 
-  const [periodFilter, setPeriodFilter] = useState('');
+  const [periodFilter, setPeriodFilter] = useState(initialPeriodFilter || '');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [taxFilter, setTaxFilter] = useState<string>('all');
+  const [taxFilter, setTaxFilter] = useState<string>(initialTaxFilter || 'all');
 
   // Compute tax options
   const taxOptions = useMemo(() => {
