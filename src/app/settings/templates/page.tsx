@@ -8,7 +8,15 @@ import {
   useFinancialProjectStore,
   useCurrencyStore
 } from '@/stores';
-import type { VoucherTemplate } from '@/lib/template-engine';
+import type { VoucherTemplate, VoucherTemplateEntry, VoucherFullTemplate } from '@/types';
+
+interface EditFormState {
+  id?: string;
+  name: string;
+  voucherType: 'general' | 'receipt' | 'payment' | 'transfer' | 'closing';
+  description?: string;
+  entries: VoucherTemplateEntry[];
+}
 import {
   Trash2,
   Download,
@@ -40,7 +48,7 @@ export default function TemplatesSettingsPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Record<string, unknown>>({});
+  const [editForm, setEditForm] = useState<EditFormState>({ name: '', voucherType: 'general', entries: [] });
 
   const {
     templates,
@@ -189,18 +197,18 @@ export default function TemplatesSettingsPage() {
     return typeMap[type] || type;
   };
 
-  const startEditingTemplate = (template: VoucherTemplate) => {
+  const startEditingTemplate = (template: VoucherFullTemplate) => {
     setEditingTemplate(template.id);
-    setEditForm(JSON.parse(JSON.stringify(template)) as Record<string, unknown>);
+    setEditForm(JSON.parse(JSON.stringify(template)) as EditFormState);
   };
 
-  const updateEntryField = (index: number, field: string, value: unknown) => {
+  const updateEntryField = (index: number, field: keyof VoucherTemplateEntry, value: unknown) => {
     setEditForm((prev) => {
       const newEntries = [...prev.entries];
       newEntries[index] = {
         ...newEntries[index],
         [field]: value
-      };
+      } as VoucherTemplateEntry;
       return {
         ...prev,
         entries: newEntries
@@ -210,15 +218,15 @@ export default function TemplatesSettingsPage() {
 
   const saveEditingTemplate = async () => {
     if (editingTemplate) {
-      await updateTemplate(editingTemplate, editForm);
+      await updateTemplate(editingTemplate, editForm as Partial<VoucherFullTemplate>);
       setEditingTemplate(null);
-      setEditForm({});
+      setEditForm({ name: '', voucherType: 'general', entries: [] });
     }
   };
 
   const cancelEditingTemplate = () => {
     setEditingTemplate(null);
-    setEditForm({});
+    setEditForm({ name: '', voucherType: 'general', entries: [] });
   };
 
   return (
@@ -467,7 +475,7 @@ export default function TemplatesSettingsPage() {
                                 className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 value={editForm.voucherType || 'general'}
                                 onChange={(e) =>
-                                  setEditForm({ ...editForm, voucherType: e.target.value })
+                                  setEditForm({ ...editForm, voucherType: e.target.value as EditFormState['voucherType'] })
                                 }
                               >
                                 <option value="general">通用凭证</option>
@@ -494,7 +502,7 @@ export default function TemplatesSettingsPage() {
                               凭证分录
                             </h4>
                             <div className="space-y-3">
-                              {(editForm.entries as Array<Record<string, unknown>> | undefined)?.map((entry, index) => (
+                              {(editForm.entries)?.map((entry, index) => (
                                 <div
                                   key={entry.id}
                                   className="grid grid-cols-1 md:grid-cols-6 gap-3 p-3 border rounded"
