@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { getCurrentService, getCurrentManager } from '@/lib/database';
-import type { Voucher } from '@/lib/database/service';
+import type { Voucher } from '@/types';
 import type { VoucherEntry, VoucherTemplate, BankTransaction } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 import { usePartnerStore } from './usePartnerStore';

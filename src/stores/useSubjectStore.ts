@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { getCurrentService, sqliteService } from '@/lib/database';
-import type { Subject } from '@/lib/database/service';
+import type { Subject } from '@/types';
 import { inferIsMonetary } from '@/lib/monetary-prefixes';
 import { useAccountSetStore } from './useAccountSetStore';
 import defaultSubjects from '@/lib/data/subjects.json';

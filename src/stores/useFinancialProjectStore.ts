@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
-import type { Project } from '@/lib/database/service';
+import type { Project } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
 interface FinancialProjectStore {

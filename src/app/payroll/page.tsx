@@ -75,8 +75,7 @@ import {
   buildPayrollAccrualVoucherPreview,
   type PayrollVoucherEntryPreview,
 } from '@/lib/payroll-voucher';
-import type { Department } from '@/lib/database/service';
-import type { Partner } from '@/types';
+import type { Department, Partner } from '@/types';
 import { SubjectPopover } from '@/components/shared/subject-popover';
 import { VoucherStamp } from '@/components/shared/voucher-stamp';
 import { sqliteService } from '@/lib/database';

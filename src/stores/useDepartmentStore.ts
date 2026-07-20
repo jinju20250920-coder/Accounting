@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { getCurrentService } from '@/lib/database';
-import type { Department } from '@/lib/database/service';
+import type { Department } from '@/types';
 import { useAccountSetStore } from './useAccountSetStore';
 
 // 部门树节点
